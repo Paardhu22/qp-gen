@@ -1,0 +1,84 @@
+import json
+from typing import Iterable, List
+
+from django.conf import settings
+
+from apps.generation.models import GenerationHistory
+from services.openai_service import get_openai_client
+from services.retrieval_service import retrieve_relevant_chunks
+
+
+def _sse_event(data: dict, event: str = "update") -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def stream_generated_questions(user, document_ids: List[str], topic: str, count: int, difficulty: str) -> Iterable[str]:
+    context = retrieve_relevant_chunks(topic, document_ids, 15)
+    if not context:
+        yield _sse_event({"error": "No relevant content found in the uploaded documents."}, event="error")
+        return
+
+    context_text = "\n\n".join(item["content"] for item in context)
+
+    system_prompt = (
+        "You are an expert exam question generator. "
+        "Your task is to generate high-quality exam questions based ONLY on the provided context.\n\n"
+        "STRICT RULES:\n"
+        "1. Do NOT hallucinate.\n"
+        "2. ONLY use the retrieved context below.\n"
+        "3. If a question or its answer cannot be fully supported by the context, do NOT generate it.\n"
+        "4. If there is insufficient context to generate the requested questions, generate only what is possible.\n"
+        "5. Provide a mix of types: MCQ, SHORT, LONG, and TF.\n"
+        "6. For MCQ, provide exactly 4 options.\n"
+        "7. For TF, the options should be ['True', 'False'].\n\n"
+        f"Context:\n{context_text}"
+    )
+
+    prompt = f"Generate {count} {difficulty} difficulty questions about '{topic}'."
+
+    client = get_openai_client()
+    try:
+        stream = client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            stream=True,
+        )
+    except Exception as exc:
+        yield _sse_event({"error": str(exc)}, event="error")
+        return
+
+    buffer = ""
+    last_valid = None
+
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content or ""
+        if not delta:
+            continue
+        buffer += delta
+
+        try:
+            parsed = json.loads(buffer)
+        except json.JSONDecodeError:
+            continue
+
+        last_valid = parsed
+        yield _sse_event(parsed)
+
+    if last_valid is not None:
+        GenerationHistory.objects.create(
+            prompt=prompt,
+            settings={
+                "topic": topic,
+                "count": count,
+                "difficulty": difficulty,
+                "documentIds": document_ids,
+            },
+            result=last_valid,
+            user=user,
+        )
+
+    yield _sse_event({"done": True}, event="done")
