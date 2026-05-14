@@ -9,6 +9,7 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+/package-lock.json
 
 # testing
 /coverage
@@ -48,5 +49,7 @@ __pycache__/
 .venv/
 backend/.venv/
 backend/media/
+backend/*.sqlite3
+backend/*.sqlite3-journal
 
 /lib/generated/prisma
