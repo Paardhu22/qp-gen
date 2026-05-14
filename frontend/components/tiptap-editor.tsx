@@ -6,7 +6,7 @@ import Typography from "@tiptap/extension-typography";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
-import Image from "@tiptap/extension-image";
+import ImageResize from "tiptap-extension-resize-image";
 import { Table } from "@tiptap/extension-table";
 import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
@@ -28,10 +28,9 @@ import {
   SectionBlock,
   InstructionBlock,
   QuestionGroupBlock,
-  MathBlock,
-  InlineMath,
   PageBreak,
 } from "./editor/extensions/nodes";
+import { MathBlock, InlineMath } from "./editor/extensions/math-nodes";
 import { FontSize } from "./editor/extensions/font-size";
 import { LineHeight } from "./editor/extensions/line-height";
 import { Indent as IndentExtension } from "./editor/extensions/indent";
@@ -174,7 +173,7 @@ export const TiptapEditor = () => {
           "instructionBlock",
         ],
       }),
-      Image.configure({
+      ImageResize.configure({
         inline: false,
         allowBase64: true,
       }),

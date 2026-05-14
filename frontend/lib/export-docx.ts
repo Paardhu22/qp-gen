@@ -40,9 +40,9 @@ class CustomHtmlToDocxParser {
         if (el.tagName === "H1") {
           docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }));
         } else if (el.tagName === "H2") {
-          docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_2 }));
+          docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER }));
         } else if (el.tagName === "H3") {
-          docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_3 }));
+          docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_3, alignment: AlignmentType.CENTER }));
         } else if (el.tagName === "P") {
           docxElements.push(new Paragraph({ 
             children: [new TextRun({ text: el.innerText, bold: el.querySelector("strong") !== null })] 
@@ -50,19 +50,52 @@ class CustomHtmlToDocxParser {
         } else if (el.tagName === "HR") {
           docxElements.push(new Paragraph({ text: "__________________________________________________________________________", alignment: AlignmentType.CENTER }));
         } else if (el.tagName === "TABLE") {
-          // Basic table support
           const rows: TableRow[] = [];
           el.querySelectorAll("tr").forEach(tr => {
             const cells: TableCell[] = [];
             tr.querySelectorAll("td, th").forEach(td => {
               cells.push(new TableCell({
-                children: [new Paragraph((td as HTMLElement).innerText)],
+                children: [new Paragraph({ children: [new TextRun({ text: (td as HTMLElement).innerText, bold: td.tagName === "TH" })] })],
                 width: { size: 100 / tr.children.length, type: WidthType.PERCENTAGE }
               }));
             });
             rows.push(new TableRow({ children: cells }));
           });
           docxElements.push(new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } }));
+        } else if (el.tagName === "DIV") {
+          const dataType = el.getAttribute("data-type");
+          if (dataType === "section-block") {
+            docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_3 }));
+          } else if (dataType === "instruction-block") {
+            docxElements.push(new Paragraph({ text: "Instructions:", bold: true }));
+            el.querySelectorAll("p").forEach(p => {
+              docxElements.push(new Paragraph({ text: (p as HTMLElement).innerText }));
+            });
+          } else if (dataType === "question-block") {
+            const num = el.getAttribute("data-number") || "";
+            const marks = el.getAttribute("data-marks");
+            const marksText = marks ? ` [${marks}M]` : "";
+            docxElements.push(new Paragraph({
+              children: [
+                new TextRun({ text: `${num ? num + ". " : ""}`, bold: true }),
+                new TextRun({ text: el.innerText.replace(num, "").trim() }),
+                new TextRun({ text: marksText, bold: true })
+              ]
+            }));
+          } else if (dataType === "math-block") {
+            const latex = el.getAttribute("data-latex") || el.innerText;
+            docxElements.push(new Paragraph({ text: `$$ ${latex} $$`, alignment: AlignmentType.CENTER }));
+          } else if (dataType === "question-group") {
+             const label = el.getAttribute("data-label") || "OR";
+             docxElements.push(new Paragraph({ text: `--- ${label} ---`, alignment: AlignmentType.CENTER, bold: true }));
+             el.querySelectorAll("div[data-type='question-block']").forEach(q => {
+                const marks = q.getAttribute("data-marks");
+                docxElements.push(new Paragraph({ text: (q as HTMLElement).innerText + (marks ? ` [${marks}M]` : "") }));
+             });
+          } else {
+             // Fallback for normal divs
+             docxElements.push(new Paragraph({ text: el.innerText }));
+          }
         }
       }
     });
