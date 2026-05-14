@@ -1,64 +1,54 @@
 "use client";
 
+import { getAccessToken } from "@/lib/token-storage";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-function getCookie(name: string): string | null {
-  if (typeof document === "undefined") return null;
-  const cookies = document.cookie.split(";");
-  for (const cookie of cookies) {
-    const [key, value] = cookie.trim().split("=");
-    if (key === name) return decodeURIComponent(value || "");
+type FetchJsonOptions = RequestInit & { skipAuth?: boolean };
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
   }
-  return null;
 }
 
-export async function ensureCsrfToken(): Promise<string | null> {
-  const existing = getCookie("csrftoken");
-  if (existing) return existing;
-
-  await fetch(`${API_BASE_URL}/api/auth/csrf`, {
-    method: "GET",
-    credentials: "include",
-  });
-
-  return getCookie("csrftoken");
-}
-
-export async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const method = (options.method || "GET").toUpperCase();
+export async function fetchJson<T>(path: string, options: FetchJsonOptions = {}): Promise<T> {
+  const { skipAuth, ...requestInit } = options;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(options.headers || {}),
+    ...((requestInit.headers || {}) as Record<string, string>),
   };
 
-  if (method !== "GET" && method !== "HEAD") {
-    const csrfToken = await ensureCsrfToken();
-    if (csrfToken) headers["X-CSRFToken"] = csrfToken;
+  const accessToken = getAccessToken();
+  if (!skipAuth && accessToken && !Object.prototype.hasOwnProperty.call(headers, "Authorization")) {
+    headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    credentials: "include",
-    ...options,
+    ...requestInit,
     headers,
   });
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
     const message = errorBody?.detail || errorBody?.error || "Request failed";
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   return response.json() as Promise<T>;
 }
 
 export async function fetchForm<T>(path: string, formData: FormData): Promise<T> {
-  const csrfToken = await ensureCsrfToken();
   const headers: Record<string, string> = {};
-  if (csrfToken) headers["X-CSRFToken"] = csrfToken;
+  const accessToken = getAccessToken();
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    credentials: "include",
     body: formData,
     headers,
   });
@@ -66,7 +56,7 @@ export async function fetchForm<T>(path: string, formData: FormData): Promise<T>
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
     const message = errorBody?.detail || errorBody?.error || "Request failed";
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   return response.json() as Promise<T>;
@@ -81,15 +71,14 @@ export async function streamSse(
   payload: Record<string, any>,
   onEvent: SseEventHandler
 ): Promise<void> {
-  const csrfToken = await ensureCsrfToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (csrfToken) headers["X-CSRFToken"] = csrfToken;
+  const accessToken = getAccessToken();
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    credentials: "include",
     headers,
     body: JSON.stringify(payload),
   });
@@ -97,7 +86,7 @@ export async function streamSse(
   if (!response.ok || !response.body) {
     const errorBody = await response.json().catch(() => ({}));
     const message = errorBody?.detail || errorBody?.error || "Stream request failed";
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   const reader = response.body.getReader();

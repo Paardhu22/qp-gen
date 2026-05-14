@@ -25,7 +25,7 @@ function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/** Label for a Field — wired to the Field context for accessibility */
+/** Label for a Field - wired to the Field context for accessibility */
 function FieldLabel({ className, ...props }: React.ComponentProps<"label">) {
   return (
     <FieldPrimitive.Label
@@ -54,7 +54,7 @@ function FieldDescription({
 }
 
 /** Inline validation error for a Field */
-function FieldError({ className, ...props }: React.ComponentProps<"span">) {
+function FieldError({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <FieldPrimitive.Error
       data-slot="field-error"

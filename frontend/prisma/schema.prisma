@@ -16,11 +16,13 @@ model User {
   updatedAt     DateTime
   sessions      Session[]
   accounts      Account[]
-  
-  projects      Project[]
-  papers        Paper[]
-  documents     Document[]
-  history       GenerationHistory[]
+
+  projects       Project[]
+  papers         Paper[]
+  documents      Document[]
+  history        GenerationHistory[]
+  paperTemplates PaperTemplate[]
+  equations      Equation[]
 
   @@map("user")
 }
@@ -59,7 +61,7 @@ model Account {
 }
 
 model Verification {
-  id         String    @id
+  id         String   @id
   identifier String
   value      String
   expiresAt  DateTime
@@ -78,73 +80,124 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  documents   Document[]
-  papers      Paper[]
-  questions   Question[]
+  documents Document[]
+  papers    Paper[]
+  questions Question[]
 }
 
 model Document {
-  id        String   @id @default(cuid())
+  id        String          @id @default(cuid())
   title     String
-  type      String   @default("pdf")
+  type      String          @default("pdf")
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   projectId String?
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   chunks    DocumentChunk[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 }
 
 model DocumentChunk {
-  id          String   @id @default(cuid())
-  content     String
-  page        Int?
-  chunkIndex  Int
-  embedding   Unsupported("vector(1536)")?
-  documentId  String
-  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id         String                       @id @default(cuid())
+  content    String
+  page       Int?
+  chunkIndex Int
+  embedding  Unsupported("vector(1536)")?
+  documentId String
+  document   Document                     @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@index([documentId])
 }
 
 model Paper {
-  id          String   @id @default(cuid())
-  title       String
-  content     String   // Tiptap JSON or HTML content
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  questions   Question[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String            @id @default(cuid())
+  title            String
+  content          String // Tiptap JSON or HTML content
+  projectId        String
+  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questions        Question[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  documentVersions DocumentVersion[]
+  editorState      EditorState?
 }
 
 model Question {
   id            String   @id @default(cuid())
-  type          String   // MCQ, Short Answer, etc.
-  content       String   // The question
-  answer        String?  // Suggested answer
+  type          String // MCQ, Short Answer, etc.
+  content       String // The question
+  answer        String? // Suggested answer
   options       String[] // For MCQs
   marks         Int      @default(1)
-  bloomTaxonomy String?  // e.g., Remember, Understand, Apply...
-  
-  projectId     String?
-  project       Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  bloomTaxonomy String? // e.g., Remember, Understand, Apply...
 
-  paperId       String?
-  paper         Paper?   @relation(fields: [paperId], references: [id], onDelete: Cascade)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  paperId          String?
+  paper            Paper?            @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  questionMetadata QuestionMetadata?
 }
 
 model GenerationHistory {
+  id        String   @id @default(cuid())
+  prompt    String
+  settings  Json // Settings used like difficulty, bloom type etc.
+  result    Json // The generated output
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model PaperTemplate {
   id          String   @id @default(cuid())
-  prompt      String
-  settings    Json     // Settings used like difficulty, bloom type etc.
-  result      Json     // The generated output
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  content     String
+  isDefault   Boolean  @default(false)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model QuestionMetadata {
+  id          String   @id @default(cuid())
+  questionId  String   @unique
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  tags        String[]
+  difficulty  String?
+  source      String?
+  aiGenerated Boolean  @default(false)
+}
+
+model DocumentVersion {
+  id        String   @id @default(cuid())
+  paperId   String
+  paper     Paper    @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  content   String
+  version   Int
+  createdAt DateTime @default(now())
+}
+
+model EditorState {
+  id        String   @id @default(cuid())
+  paperId   String   @unique
+  paper     Paper    @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  state     Json
+  updatedAt DateTime @updatedAt
+}
+
+model Equation {
+  id          String   @id @default(cuid())
+  latex       String
+  description String?
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
 }
