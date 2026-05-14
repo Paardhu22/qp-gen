@@ -215,7 +215,7 @@ export const TiptapEditor = () => {
       attributes: {
         id: "tiptap-paper-container",
         class:
-          "prose prose-sm sm:prose-base dark:prose-invert prose-zinc max-w-none focus:outline-none min-h-[1100px] p-16 md:p-20 bg-white text-black shadow-2xl mx-auto my-6 paper-container",
+          "prose prose-sm sm:prose-base prose-zinc max-w-none focus:outline-none min-h-[1100px] p-16 md:p-20 bg-white text-black shadow-2xl mx-auto my-6 paper-container",
         spellcheck: "true",
       },
     },
@@ -298,6 +298,9 @@ export const TiptapEditor = () => {
           border: 1px solid rgba(63, 63, 70, 0.5);
         }
 
+        .ProseMirror {
+          color: #000000 !important;
+        }
         /* ===== Question Block Styles ===== */
         .question-block {
           position: relative;

@@ -471,7 +471,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
   return (
     <div className="flex flex-col border-b border-zinc-800 bg-zinc-950 flex-shrink-0">
       {/* Primary Toolbar */}
-      <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 overflow-visible">
         {/* Undo / Redo */}
         <ToolbarBtn
           onClick={() => editor.chain().focus().undo().run()}
