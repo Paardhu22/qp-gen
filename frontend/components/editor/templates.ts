@@ -20,17 +20,17 @@ export const templates = {
 
     <div data-type="instruction-block">
       <p><strong>General Instructions:</strong></p>
-      <p>• This question paper contains 38 questions. All questions are compulsory.</p>
-      <p>• This question paper is divided into five Sections — A, B, C, D and E.</p>
-      <p>• Section A contains questions 1–18 carrying 1 mark each.</p>
-      <p>• Section B contains questions 19–25 carrying 2 marks each.</p>
-      <p>• Section C contains questions 26–31 carrying 3 marks each.</p>
-      <p>• Section D contains questions 32–35 carrying 5 marks each.</p>
-      <p>• Section E contains questions 36–38 carrying 4 marks each.</p>
-      <p>• Use of calculator is not permitted.</p>
+      <p>- This question paper contains 38 questions. All questions are compulsory.</p>
+      <p>- This question paper is divided into five Sections - A, B, C, D and E.</p>
+      <p>- Section A contains questions 1–18 carrying 1 mark each.</p>
+      <p>- Section B contains questions 19–25 carrying 2 marks each.</p>
+      <p>- Section C contains questions 26–31 carrying 3 marks each.</p>
+      <p>- Section D contains questions 32–35 carrying 5 marks each.</p>
+      <p>- Section E contains questions 36–38 carrying 4 marks each.</p>
+      <p>- Use of calculator is not permitted.</p>
     </div>
 
-    <div data-type="section-block">SECTION A (MCQs — 1 Mark Each)</div>
+    <div data-type="section-block">SECTION A (MCQs - 1 Mark Each)</div>
 
     <div data-type="question-block" data-marks="1" data-number="1">
       <p>If f(x) = x², then f'(2) is:</p>
@@ -52,7 +52,7 @@ export const templates = {
   university: `
     <h1 style="text-align: center;">UNIVERSITY OF TECHNOLOGY</h1>
     <h2 style="text-align: center;">DEPARTMENT OF COMPUTER SCIENCE</h2>
-    <h3 style="text-align: center;">SEMESTER END EXAMINATION — MAY 2026</h3>
+    <h3 style="text-align: center;">SEMESTER END EXAMINATION - MAY 2026</h3>
 
     <hr />
 
@@ -77,10 +77,10 @@ export const templates = {
 
     <div data-type="instruction-block">
       <p><strong>Instructions:</strong></p>
-      <p>• Answer any FIVE questions out of EIGHT.</p>
-      <p>• All questions carry equal marks (20 marks each).</p>
-      <p>• Assume suitable data wherever necessary.</p>
-      <p>• Draw neat diagrams wherever required.</p>
+      <p>- Answer any FIVE questions out of EIGHT.</p>
+      <p>- All questions carry equal marks (20 marks each).</p>
+      <p>- Assume suitable data wherever necessary.</p>
+      <p>- Draw neat diagrams wherever required.</p>
     </div>
 
     <div data-type="section-block">SECTION A</div>
@@ -106,7 +106,7 @@ export const templates = {
 
   competitive: `
     <h1 style="text-align: center;">NATIONAL COMPETITIVE EXAMINATION</h1>
-    <h2 style="text-align: center;">GENERAL APTITUDE TEST — 2026</h2>
+    <h2 style="text-align: center;">GENERAL APTITUDE TEST - 2026</h2>
 
     <hr />
 
@@ -127,14 +127,14 @@ export const templates = {
 
     <div data-type="instruction-block">
       <p><strong>Instructions to Candidates:</strong></p>
-      <p>• Each question carries 2 marks.</p>
-      <p>• There is negative marking: 0.5 marks will be deducted for each wrong answer.</p>
-      <p>• No marks will be deducted for unanswered questions.</p>
-      <p>• Use of calculator/mobile phone is strictly prohibited.</p>
-      <p>• Mark your answers on the OMR sheet provided.</p>
+      <p>- Each question carries 2 marks.</p>
+      <p>- There is negative marking: 0.5 marks will be deducted for each wrong answer.</p>
+      <p>- No marks will be deducted for unanswered questions.</p>
+      <p>- Use of calculator/mobile phone is strictly prohibited.</p>
+      <p>- Mark your answers on the OMR sheet provided.</p>
     </div>
 
-    <div data-type="section-block">SECTION 1 — ARITHMETIC</div>
+    <div data-type="section-block">SECTION 1 - ARITHMETIC</div>
 
     <div data-type="question-block" data-marks="2" data-number="1">
       <p>A train 150 metres long passes a pole in 15 seconds. What is the speed of the train in km/h?</p>
@@ -146,7 +146,7 @@ export const templates = {
       <p>(a) 24 &nbsp;&nbsp; (b) 32 &nbsp;&nbsp; (c) 40 &nbsp;&nbsp; (d) 48</p>
     </div>
 
-    <div data-type="section-block">SECTION 2 — ALGEBRA</div>
+    <div data-type="section-block">SECTION 2 - ALGEBRA</div>
 
     <div data-type="question-block" data-marks="2" data-number="3">
       <p>If x + 1/x = 5, then x² + 1/x² is equal to:</p>
