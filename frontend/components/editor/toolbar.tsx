@@ -850,7 +850,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
             className="h-7 bg-zinc-900 border border-zinc-800 rounded text-[10px] text-zinc-400 px-1.5 min-w-[110px] focus:outline-none cursor-pointer"
           >
             <option value="" disabled>
-              📄 Templates
+              Templates
             </option>
             <option value="cbse">CBSE Style</option>
             <option value="university">University Style</option>
@@ -883,7 +883,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
         </div>
       </div>
 
-      {/* Secondary Toolbar — Paper Structure */}
+      {/* Secondary Toolbar - Paper Structure */}
       <div className="flex items-center gap-1 px-2 py-1 border-t border-zinc-800/50 bg-zinc-950/50">
         {/* Question Paper Blocks */}
         <button
