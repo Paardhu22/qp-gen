@@ -111,7 +111,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "apps.common.authentication.AppSessionAuthentication",
+        "apps.common.authentication.JWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -122,6 +122,11 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.MultiPartParser",
     ],
 }
+
+JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
+JWT_ACCESS_TTL_DAYS = int(os.environ.get("JWT_ACCESS_TTL_DAYS", "7"))
+JWT_REFRESH_TTL_DAYS = int(os.environ.get("JWT_REFRESH_TTL_DAYS", "30"))
+JWT_ISSUER = os.environ.get("JWT_ISSUER", "qp-gen")
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 CORS_ALLOWED_ORIGINS = [FRONTEND_URL]
