@@ -1,13 +1,13 @@
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.common.permissions import IsAppUserAuthenticated
 from apps.documents.serializers import DocumentUploadSerializer
 from services.document_service import process_document_upload
 
 
 class DocumentUploadView(APIView):
-    permission_classes = [IsAppUserAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = DocumentUploadSerializer(data=request.data)
