@@ -1,13 +1,13 @@
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.common.permissions import IsAppUserAuthenticated
 from apps.projects.serializers import ProjectSerializer, SaveQuestionsSerializer
 from services.project_service import list_projects_for_user, save_questions_to_project
 
 
 class ProjectListView(APIView):
-    permission_classes = [IsAppUserAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         projects = list_projects_for_user(request.user)
@@ -15,7 +15,7 @@ class ProjectListView(APIView):
 
 
 class SaveQuestionsView(APIView):
-    permission_classes = [IsAppUserAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = SaveQuestionsSerializer(data=request.data)
