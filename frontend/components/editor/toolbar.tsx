@@ -1009,6 +1009,21 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
           <PlusCircle className="h-3 w-3" /> OR Group
         </button>
 
+        <ToolbarDivider />
+
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            if (window.confirm("Are you sure you want to clear the entire paper?")) {
+              editor.commands.clearContent();
+            }
+          }}
+          className="h-6 px-2 text-[10px] font-medium text-red-400 hover:bg-red-500/10 rounded transition-colors flex items-center gap-1"
+        >
+          <Trash className="h-3 w-3" /> Clear All
+        </button>
+
         <div className="ml-auto flex items-center gap-3 text-[10px] text-zinc-500">
           <button
             onClick={handleExportPDF}
