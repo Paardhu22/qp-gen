@@ -94,42 +94,7 @@ StatusBar.displayName = "StatusBar";
 // ==================================
 // Default content for new papers
 // ==================================
-const DEFAULT_CONTENT = `
-  <h1 style="text-align: center;">ABC INTERNATIONAL SCHOOL</h1>
-  <h2 style="text-align: center;">ANNUAL EXAMINATION 2026</h2>
-
-  <table>
-    <tbody>
-      <tr>
-        <td><strong>Subject:</strong> Physics</td>
-        <td style="text-align: right;"><strong>Time:</strong> 3 Hours</td>
-      </tr>
-      <tr>
-        <td><strong>Class:</strong> XII</td>
-        <td style="text-align: right;"><strong>Max Marks:</strong> 100</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <hr />
-
-  <div data-type="instruction-block">
-    <p><strong>General Instructions:</strong></p>
-    <p>- All questions are compulsory.</p>
-    <p>- Question numbers 1 to 5 are very short answer questions.</p>
-    <p>- Use of calculator is not permitted.</p>
-  </div>
-
-  <div data-type="section-block">SECTION A (Objective Type Questions)</div>
-  
-  <div data-type="question-block" data-marks="2" data-number="1">
-    <p>Define electric flux. Is it a scalar or vector quantity?</p>
-  </div>
-
-  <div data-type="question-block" data-marks="2" data-number="2">
-    <p>A point charge q is placed at the center of a cube. What is the flux through any one face of the cube?</p>
-  </div>
-`;
+const DEFAULT_CONTENT = "";
 
 // ==================================
 // Main Editor Component
