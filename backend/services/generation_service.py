@@ -30,7 +30,25 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
         "4. If there is insufficient context to generate the requested questions, generate only what is possible.\n"
         "5. Provide a mix of types: MCQ, SHORT, LONG, and TF.\n"
         "6. For MCQ, provide exactly 4 options.\n"
-        "7. For TF, the options should be ['True', 'False'].\n\n"
+        "7. For TF, the options should be ['True', 'False'].\n"
+        "8. Return the output as a valid JSON object matching the schema below.\n\n"
+        "Schema:\n"
+        "{\n"
+        "  \"sections\": [\n"
+        "    {\n"
+        "      \"title\": \"Section Name (e.g. Section A: Multiple Choice)\",\n"
+        "      \"questions\": [\n"
+        "        {\n"
+        "          \"content\": \"Question text\",\n"
+        "          \"type\": \"MCQ | SHORT | LONG | TF\",\n"
+        "          \"options\": [\"Option 1\", \"Option 2\", \"Option 3\", \"Option 4\"], (for MCQ/TF)\n"
+        "          \"answer\": \"Correct Answer\",\n"
+        "          \"marks\": 1\n"
+        "        }\n"
+        "      ]\n"
+        "    }\n"
+        "  ]\n"
+        "}\n\n"
         f"Context:\n{context_text}"
     )
 
@@ -62,11 +80,11 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
 
         try:
             parsed = json.loads(buffer)
+            last_valid = parsed
+            yield _sse_event(parsed)
+            break # Once we have a valid JSON object, we are done
         except json.JSONDecodeError:
             continue
-
-        last_valid = parsed
-        yield _sse_event(parsed)
 
     if last_valid is not None:
         GenerationHistory.objects.create(
