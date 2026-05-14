@@ -1,13 +1,13 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import React, { useState, useRef, useEffect } from "react";
-import { MousePointer2, Square, Circle, Minus, Pencil, Eraser } from "lucide-react";
+import { MousePointer2, Square, Circle, Minus, Pencil, Eraser, Trash } from "lucide-react";
 
 export const DrawingComponent = ({ node, updateAttributes }: any) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [tool, setTool] = useState<"pencil" | "rect" | "circle" | "line" | "eraser">("pencil");
-  const [color, setColor] = useState("#ffffff");
+  const [color, setColor] = useState("#000000");
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [canvasData, setCanvasData] = useState<string>(node.attrs.dataUrl || "");
 
@@ -52,7 +52,7 @@ export const DrawingComponent = ({ node, updateAttributes }: any) => {
       if (ctx) {
         ctx.beginPath();
         ctx.moveTo(pos.x, pos.y);
-        ctx.strokeStyle = tool === "eraser" ? "#18181b" : color; // Match bg color for eraser
+        ctx.strokeStyle = tool === "eraser" ? "#ffffff" : color; // Match bg color for eraser
         ctx.lineWidth = tool === "eraser" ? 10 : 2;
         ctx.lineCap = "round";
       }
@@ -105,21 +105,30 @@ export const DrawingComponent = ({ node, updateAttributes }: any) => {
   };
 
   return (
-    <NodeViewWrapper className="drawing-block my-4 p-2 bg-zinc-900 border border-zinc-800 rounded-lg">
-      <div className="flex items-center gap-2 mb-2 p-1 bg-zinc-950 rounded select-none">
-        <button onClick={() => setTool("pencil")} className={`p-1.5 rounded \${tool === "pencil" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Pencil">
+    <NodeViewWrapper className="drawing-block my-4 p-2 bg-zinc-100 border border-zinc-300 rounded-lg group relative">
+      <div className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button 
+          onClick={() => updateAttributes({ dataUrl: null })}
+          className="bg-red-500 text-white p-1 rounded-full shadow-lg hover:bg-red-600"
+          title="Remove Drawing"
+        >
+          <Trash className="w-3 h-3" />
+        </button>
+      </div>
+      <div className="flex items-center gap-2 mb-2 p-1 bg-zinc-200 rounded select-none">
+        <button onClick={() => setTool("pencil")} className={`p-1.5 rounded ${tool === "pencil" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Pencil">
           <Pencil className="w-4 h-4" />
         </button>
-        <button onClick={() => setTool("line")} className={`p-1.5 rounded \${tool === "line" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Line">
+        <button onClick={() => setTool("line")} className={`p-1.5 rounded ${tool === "line" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Line">
           <Minus className="w-4 h-4" />
         </button>
-        <button onClick={() => setTool("rect")} className={`p-1.5 rounded \${tool === "rect" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Rectangle">
+        <button onClick={() => setTool("rect")} className={`p-1.5 rounded ${tool === "rect" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Rectangle">
           <Square className="w-4 h-4" />
         </button>
-        <button onClick={() => setTool("circle")} className={`p-1.5 rounded \${tool === "circle" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Circle">
+        <button onClick={() => setTool("circle")} className={`p-1.5 rounded ${tool === "circle" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Circle">
           <Circle className="w-4 h-4" />
         </button>
-        <button onClick={() => setTool("eraser")} className={`p-1.5 rounded \${tool === "eraser" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Eraser">
+        <button onClick={() => setTool("eraser")} className={`p-1.5 rounded ${tool === "eraser" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Eraser">
           <Eraser className="w-4 h-4" />
         </button>
         <div className="w-px h-4 bg-zinc-800 mx-1" />
@@ -135,16 +144,17 @@ export const DrawingComponent = ({ node, updateAttributes }: any) => {
           onClick={() => {
             const ctx = canvasRef.current?.getContext("2d");
             if (ctx && canvasRef.current) {
-              ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+              ctx.fillStyle = "#ffffff";
+              ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
               saveCanvas();
             }
           }}
-          className="text-xs text-red-400 hover:text-red-300 ml-auto mr-2"
+          className="text-xs text-red-600 hover:text-red-500 ml-auto mr-2"
         >
           Clear Canvas
         </button>
       </div>
-      <div className="flex justify-center bg-zinc-950 rounded border border-zinc-800 overflow-hidden">
+      <div className="flex justify-center bg-white rounded border border-zinc-300 overflow-hidden">
         <canvas
           ref={canvasRef}
           width={600}
@@ -153,7 +163,7 @@ export const DrawingComponent = ({ node, updateAttributes }: any) => {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          className="cursor-crosshair bg-[#18181b]"
+          className="cursor-crosshair bg-white"
           style={{ width: "100%", maxWidth: "600px", height: "auto", aspectRatio: "2/1" }}
         />
       </div>
