@@ -59,10 +59,7 @@ export const Sidebar = () => {
     <div className="space-y-4 py-4 flex flex-col h-full bg-zinc-950 text-white border-r border-zinc-800">
       <div className="px-3 py-2 flex-1">
         <Link href="/dashboard" className="flex items-center pl-3 mb-14">
-          <div className="relative w-8 h-8 mr-4 bg-indigo-600 rounded-lg flex items-center justify-center">
-            <span className="font-bold text-xl">P</span>
-          </div>
-          <h1 className="text-2xl font-bold">Paper Gen</h1>
+          <h1 className="text-2xl font-bold text-indigo-500">qp-gen</h1>
         </Link>
         <div className="space-y-1">
           {routes.map((route) => (

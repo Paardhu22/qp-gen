@@ -109,8 +109,7 @@ export const GeneratorForm = () => {
     <div className="h-full flex flex-col p-4 bg-zinc-950 text-zinc-100 overflow-y-auto custom-scrollbar">
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-1">
-          <BrainCircuit className="h-5 w-5 text-indigo-500" />
-          <h2 className="text-xl font-bold">AI Generator</h2>
+          <h2 className="text-xl font-bold text-indigo-500">qp-gen</h2>
         </div>
         <p className="text-sm text-zinc-400">Questions are generated STRICTLY from your source material.</p>
       </div>
