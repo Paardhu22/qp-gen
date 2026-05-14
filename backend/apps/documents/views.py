@@ -20,5 +20,11 @@ class DocumentUploadView(APIView):
             )
         except ValueError as exc:
             return Response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            import traceback
+            error_log = f"Error: {str(exc)}\n{traceback.format_exc()}\n"
+            with open("upload_error.log", "a") as f:
+                f.write(error_log)
+            return Response({"error": f"Internal server error: {str(exc)}"}, status=500)
 
         return Response({"documentId": document.id})
