@@ -212,6 +212,101 @@ const ColorPicker: React.FC<{
 };
 
 // ==================================
+// Math Picker Popover
+// ==================================
+const MATH_TEMPLATES = [
+  { label: "Fraction", latex: "\\frac{a}{b}" },
+  { label: "Integral", latex: "\\int_{a}^{b} x^2 dx" },
+  { label: "Summation", latex: "\\sum_{i=1}^{n} i" },
+  { label: "Limit", latex: "\\lim_{x \\to \\infty} f(x)" },
+  { label: "Matrix", latex: "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}" },
+  { label: "Square Root", latex: "\\sqrt{x^2 + y^2}" },
+];
+
+const MathPicker: React.FC<{
+  onInsertBlock: (latex: string) => void;
+  onInsertInline: (latex: string) => void;
+}> = ({ onInsertBlock, onInsertInline }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen(!open)}
+        title="Insert Math"
+        className={cn(
+          "h-7 w-7 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-all",
+          open && "bg-zinc-800 text-indigo-400"
+        )}
+      >
+        <Sigma className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 mt-1 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-2 shadow-xl w-[220px]">
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2 px-1">
+            Math Templates
+          </p>
+          <div className="flex flex-col gap-1">
+            {MATH_TEMPLATES.map((tpl) => (
+              <div key={tpl.label} className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    onInsertBlock(tpl.latex);
+                    setOpen(false);
+                  }}
+                  className="flex-1 text-left text-[11px] text-zinc-300 hover:text-white px-2 py-1.5 rounded hover:bg-zinc-800 transition-colors"
+                >
+                  Block: {tpl.label}
+                </button>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    onInsertInline(tpl.latex);
+                    setOpen(false);
+                  }}
+                  className="text-[10px] text-zinc-400 hover:text-white px-2 py-1.5 rounded hover:bg-zinc-800 transition-colors"
+                  title="Insert Inline"
+                >
+                  Inline
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 pt-2 border-t border-zinc-800">
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onInsertBlock("E = mc^2");
+                setOpen(false);
+              }}
+              className="w-full text-left text-[11px] text-indigo-400 hover:text-indigo-300 px-2 py-1.5 rounded hover:bg-indigo-500/10 transition-colors"
+            >
+              + Custom Math Block
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==================================
 // Divider Component
 // ==================================
 const ToolbarDivider = () => (
@@ -578,17 +673,31 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
         <ToolbarDivider />
 
         {/* Image */}
-        <ToolbarBtn
-          onClick={() => {
-            const url = prompt("Enter image URL:");
-            if (url) {
-              editor.chain().focus().setImage({ src: url }).run();
-            }
-          }}
-          title="Insert Image"
-        >
-          <ImageIcon className="h-3.5 w-3.5" />
-        </ToolbarBtn>
+        <label className="cursor-pointer">
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                  const result = e.target?.result as string;
+                  editor.chain().focus().setImage({ src: result }).run();
+                };
+                reader.readAsDataURL(file);
+              }
+              e.target.value = ''; // Reset input
+            }}
+          />
+          <div
+            title="Insert Image"
+            className="h-7 w-7 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-all"
+          >
+            <ImageIcon className="h-3.5 w-3.5" />
+          </div>
+        </label>
 
         {/* Horizontal Rule */}
         <ToolbarBtn
@@ -615,24 +724,14 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
         <ToolbarDivider />
 
         {/* Math */}
-        <ToolbarBtn
-          onClick={() => {
-            const latex = prompt("Enter LaTeX expression:", "E = mc^2");
-            if (latex) {
-              editor
-                .chain()
-                .focus()
-                .insertContent({
-                  type: "mathBlock",
-                  content: [{ type: "text", text: latex }],
-                })
-                .run();
-            }
+        <MathPicker
+          onInsertBlock={(latex) => {
+            editor.chain().focus().insertContent({ type: "mathBlock", attrs: { latex } }).run();
           }}
-          title="Insert Math Block (Ctrl+Shift+M)"
-        >
-          <Sigma className="h-3.5 w-3.5" />
-        </ToolbarBtn>
+          onInsertInline={(latex) => {
+            editor.chain().focus().insertContent({ type: "inlineMath", attrs: { latex } }).run();
+          }}
+        />
 
         {/* Clear Formatting */}
         <ToolbarBtn
