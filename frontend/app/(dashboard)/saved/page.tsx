@@ -42,7 +42,7 @@ export default function SavedQuestionsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex-1 overflow-y-auto max-h-64 custom-scrollbar space-y-3">
-                {project.questions.map((q, idx) => (
+                {project.questions.map((q: any, idx: number) => (
                   <div key={q.id} className="p-3 bg-zinc-950 rounded-md border border-zinc-800">
                     <div className="flex justify-between items-start gap-2 mb-2">
                       <span className="text-xs font-medium text-zinc-500">Q{idx + 1}</span>
