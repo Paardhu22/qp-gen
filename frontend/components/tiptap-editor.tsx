@@ -83,7 +83,7 @@ const StatusBar = memo(({ editor }: { editor: any }) => {
         <span>Characters: {chars}</span>
       </div>
       <div className="flex items-center gap-4">
-        <span>A4 • Portrait</span>
+        <span>A4 | Portrait</span>
         <span>100%</span>
       </div>
     </div>
@@ -115,9 +115,9 @@ const DEFAULT_CONTENT = `
 
   <div data-type="instruction-block">
     <p><strong>General Instructions:</strong></p>
-    <p>• All questions are compulsory.</p>
-    <p>• Question numbers 1 to 5 are very short answer questions.</p>
-    <p>• Use of calculator is not permitted.</p>
+    <p>- All questions are compulsory.</p>
+    <p>- Question numbers 1 to 5 are very short answer questions.</p>
+    <p>- Use of calculator is not permitted.</p>
   </div>
 
   <div data-type="section-block">SECTION A (Objective Type Questions)</div>

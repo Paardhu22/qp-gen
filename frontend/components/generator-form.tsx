@@ -217,7 +217,7 @@ export const GeneratorForm = () => {
               disabled={isGenerating || uploadedDocs.length === 0} 
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-900/20 gap-2"
             >
-              {isGenerating ? "Analyzing & Generating..." : <><Sparkles className="h-4 w-4" /> Generate Questions</>}
+              {isGenerating ? "Analyzing & Generating..." : "Generate Questions"}
             </Button>
           </div>
         </form>
@@ -226,7 +226,6 @@ export const GeneratorForm = () => {
       {generatedResult && (
         <div className="mt-6 border-t border-zinc-800 pt-6 animate-in fade-in duration-500">
           <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-indigo-400" />
             Generated Output
           </h3>
           
