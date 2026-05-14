@@ -31,6 +31,7 @@ import {
   PageBreak,
 } from "./editor/extensions/nodes";
 import { MathBlock, InlineMath } from "./editor/extensions/math-nodes";
+import { DrawingBlock } from "./editor/extensions/drawing-node";
 import { FontSize } from "./editor/extensions/font-size";
 import { LineHeight } from "./editor/extensions/line-height";
 import { Indent as IndentExtension } from "./editor/extensions/indent";
@@ -194,6 +195,7 @@ export const TiptapEditor = () => {
       QuestionGroupBlock,
       MathBlock,
       InlineMath,
+      DrawingBlock,
       PageBreak,
       // Utilities
       CharacterCount,
