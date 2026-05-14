@@ -53,6 +53,8 @@ import {
   Replace,
   Hash,
   FileText,
+  FlaskConical,
+  PenTool,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -222,6 +224,72 @@ const MATH_TEMPLATES = [
   { label: "Matrix", latex: "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}" },
   { label: "Square Root", latex: "\\sqrt{x^2 + y^2}" },
 ];
+
+const CHEMISTRY_TEMPLATES = [
+  { label: "Water", latex: "\\text{H}_2\\text{O}" },
+  { label: "Carbon Dioxide", latex: "\\text{CO}_2" },
+  { label: "Reaction Arrow", latex: "\\rightarrow" },
+  { label: "Equilibrium", latex: "\\rightleftharpoons" },
+  { label: "Sulfuric Acid", latex: "\\text{H}_2\\text{SO}_4" },
+  { label: "Glucose", latex: "\\text{C}_6\\text{H}_{12}\\text{O}_6" },
+  { label: "Simple Reaction", latex: "\\text{A} + \\text{B} \\rightarrow \\text{C}" },
+];
+
+const ChemistryPicker: React.FC<{
+  onInsertInline: (latex: string) => void;
+}> = ({ onInsertInline }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen(!open)}
+        title="Insert Chemistry"
+        className={cn(
+          "h-7 w-7 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-all",
+          open && "bg-zinc-800 text-indigo-400"
+        )}
+      >
+        <FlaskConical className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 mt-1 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-2 shadow-xl w-[200px]">
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2 px-1">
+            Chemistry
+          </p>
+          <div className="flex flex-col gap-1">
+            {CHEMISTRY_TEMPLATES.map((tpl) => (
+              <button
+                key={tpl.label}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onInsertInline(tpl.latex);
+                  setOpen(false);
+                }}
+                className="text-left text-[11px] text-zinc-300 hover:text-white px-2 py-1.5 rounded hover:bg-zinc-800 transition-colors"
+              >
+                {tpl.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const MathPicker: React.FC<{
   onInsertBlock: (latex: string) => void;
@@ -723,7 +791,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
 
         <ToolbarDivider />
 
-        {/* Math */}
+        {/* Math & Chemistry */}
         <MathPicker
           onInsertBlock={(latex) => {
             editor.chain().focus().insertContent({ type: "mathBlock", attrs: { latex } }).run();
@@ -732,6 +800,20 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
             editor.chain().focus().insertContent({ type: "inlineMath", attrs: { latex } }).run();
           }}
         />
+        
+        <ChemistryPicker 
+          onInsertInline={(latex) => {
+            editor.chain().focus().insertContent({ type: "inlineMath", attrs: { latex } }).run();
+          }}
+        />
+
+        {/* Drawing Canvas */}
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().insertContent({ type: "drawingBlock" }).run()}
+          title="Insert Drawing Canvas"
+        >
+          <PenTool className="h-3.5 w-3.5" />
+        </ToolbarBtn>
 
         {/* Clear Formatting */}
         <ToolbarBtn

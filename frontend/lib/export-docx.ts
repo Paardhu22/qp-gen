@@ -67,7 +67,7 @@ class CustomHtmlToDocxParser {
           if (dataType === "section-block") {
             docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_3 }));
           } else if (dataType === "instruction-block") {
-            docxElements.push(new Paragraph({ text: "Instructions:", bold: true }));
+            docxElements.push(new Paragraph({ children: [new TextRun({ text: "Instructions:", bold: true })] }));
             el.querySelectorAll("p").forEach(p => {
               docxElements.push(new Paragraph({ text: (p as HTMLElement).innerText }));
             });
@@ -87,7 +87,7 @@ class CustomHtmlToDocxParser {
             docxElements.push(new Paragraph({ text: `$$ ${latex} $$`, alignment: AlignmentType.CENTER }));
           } else if (dataType === "question-group") {
              const label = el.getAttribute("data-label") || "OR";
-             docxElements.push(new Paragraph({ text: `--- ${label} ---`, alignment: AlignmentType.CENTER, bold: true }));
+             docxElements.push(new Paragraph({ children: [new TextRun({ text: `--- ${label} ---`, bold: true })], alignment: AlignmentType.CENTER }));
              el.querySelectorAll("div[data-type='question-block']").forEach(q => {
                 const marks = q.getAttribute("data-marks");
                 docxElements.push(new Paragraph({ text: (q as HTMLElement).innerText + (marks ? ` [${marks}M]` : "") }));
