@@ -28,7 +28,7 @@ export async function fetchJson<T>(path: string, options: RequestInit = {}): Pro
   const method = (options.method || "GET").toUpperCase();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(options.headers || {}),
+    ...((options.headers || {}) as Record<string, string>),
   };
 
   if (method !== "GET" && method !== "HEAD") {

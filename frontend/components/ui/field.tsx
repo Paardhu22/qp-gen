@@ -54,7 +54,7 @@ function FieldDescription({
 }
 
 /** Inline validation error for a Field */
-function FieldError({ className, ...props }: React.ComponentProps<"span">) {
+function FieldError({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <FieldPrimitive.Error
       data-slot="field-error"
