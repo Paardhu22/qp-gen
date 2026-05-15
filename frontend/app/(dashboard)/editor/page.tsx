@@ -14,6 +14,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { useState, useEffect } from "react";
 import {
   fetchPaper,
@@ -139,7 +144,7 @@ export default function EditorPage() {
   return (
     <div className="flex h-[calc(100vh-4.5rem)] w-full overflow-hidden bg-zinc-950">
       {/* Left Panel: Generator Form */}
-      <div className="w-[350px] lg:w-[400px] flex-shrink-0 border-r border-zinc-800 bg-zinc-950 flex flex-col h-full overflow-hidden">
+      <div className="w-[380px] flex-shrink-0 border-r border-zinc-800 bg-zinc-950 flex flex-col h-full overflow-hidden">
         <GeneratorForm />
       </div>
 

@@ -1,6 +1,5 @@
 "use client";
 
-import { Sidebar } from "@/components/sidebar";
 import { TopNavbar } from "@/components/top-navbar";
 import { ProtectedLayout } from "@/components/protected-layout";
 
@@ -11,15 +10,10 @@ export default function DashboardLayout({
 }) {
   return (
     <ProtectedLayout>
-      <div className="h-screen relative bg-background overflow-hidden flex">
-        <div className="hidden h-full md:flex md:w-72 md:flex-col md:fixed md:inset-y-0 z-[80]">
-          <Sidebar />
-        </div>
-        <main className="md:pl-72 flex-1 flex flex-col">
-          <TopNavbar />
-          <div className="flex-1 overflow-auto">
-            {children}
-          </div>
+      <div className="h-screen relative bg-background overflow-hidden flex flex-col">
+        <TopNavbar />
+        <main className="flex-1 overflow-auto flex flex-col">
+          {children}
         </main>
       </div>
     </ProtectedLayout>

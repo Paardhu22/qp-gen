@@ -58,7 +58,11 @@ class JWTAuthentication(BaseAuthentication):
                 if cached_exp and cached_exp <= int(timezone.now().timestamp()):
                     cache.delete(f"session:{jti}")
                 else:
-                    return (User(id=cached.get("user_id")), None)
+                    user_data = cached.get("user_data")
+                    if user_data:
+                        return (User(**user_data), None)
+                    # Fallback for old cache format: delete and fall through to DB fetch
+                    cache.delete(f"session:{jti}")
 
             session = (
                 Session.objects
@@ -79,9 +83,21 @@ class JWTAuthentication(BaseAuthentication):
             # Cache session info to avoid a DB round-trip on every request
             ttl = int((expires_at - timezone.now()).total_seconds())
             if ttl > 0:
+                user = session.user
+                user_data = {
+                    "id": user.id,
+                    "name": user.name,
+                    "email": user.email,
+                    "email_verified": user.email_verified,
+                    "image": user.image,
+                }
                 cache.set(
                     f"session:{jti}",
-                    {"user_id": session.user_id, "expires_at": int(expires_at.timestamp())},
+                    {
+                        "user_id": user.id,
+                        "expires_at": int(expires_at.timestamp()),
+                        "user_data": user_data
+                    },
                     ttl,
                 )
 

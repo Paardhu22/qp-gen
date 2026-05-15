@@ -194,7 +194,6 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     },
   });
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedNumbering = useCallback(
     debounce((editor: any) => {
       updateQuestionNumbers(editor);
@@ -220,7 +219,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     // method" — TipTap v3 calls flushSync internally when updating React
     // NodeViews, which React 19 rejects when already inside a render cycle.
     setTimeout(() => {
-      editor.commands.setContent(content || "", false);
+      editor.commands.setContent(content || "", { emitUpdate: false });
     }, 0);
   }, [editor, initialContent]);
 

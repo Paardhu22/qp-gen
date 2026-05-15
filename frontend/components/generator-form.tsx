@@ -108,9 +108,6 @@ export const GeneratorForm = () => {
   return (
     <div className="h-full flex flex-col p-4 bg-background text-foreground overflow-y-auto custom-scrollbar">
       <div className="mb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <h2 className="text-xl font-bold text-primary">qp-gen</h2>
-        </div>
         <p className="text-sm text-muted-foreground">Questions are generated STRICTLY from your source material.</p>
       </div>
 
