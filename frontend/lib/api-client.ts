@@ -2,7 +2,8 @@
 
 import { getAccessToken } from "@/lib/token-storage";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 type FetchJsonOptions = RequestInit & { skipAuth?: boolean };
 
@@ -16,7 +17,10 @@ export class ApiError extends Error {
   }
 }
 
-export async function fetchJson<T>(path: string, options: FetchJsonOptions = {}): Promise<T> {
+export async function fetchJson<T>(
+  path: string,
+  options: FetchJsonOptions = {},
+): Promise<T> {
   const { skipAuth, ...requestInit } = options;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -24,7 +28,11 @@ export async function fetchJson<T>(path: string, options: FetchJsonOptions = {})
   };
 
   const accessToken = getAccessToken();
-  if (!skipAuth && accessToken && !Object.prototype.hasOwnProperty.call(headers, "Authorization")) {
+  if (
+    !skipAuth &&
+    accessToken &&
+    !Object.prototype.hasOwnProperty.call(headers, "Authorization")
+  ) {
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
@@ -39,10 +47,21 @@ export async function fetchJson<T>(path: string, options: FetchJsonOptions = {})
     throw new ApiError(message, response.status);
   }
 
+  // 204 No Content (or any empty body) — nothing to parse.
+  if (
+    response.status === 204 ||
+    response.headers.get("content-length") === "0"
+  ) {
+    return undefined as T;
+  }
+
   return response.json() as Promise<T>;
 }
 
-export async function fetchForm<T>(path: string, formData: FormData): Promise<T> {
+export async function fetchForm<T>(
+  path: string,
+  formData: FormData,
+): Promise<T> {
   const headers: Record<string, string> = {};
   const accessToken = getAccessToken();
   if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
@@ -69,7 +88,7 @@ type SseEventHandler = (event: string, data: any) => void;
 export async function streamSse(
   path: string,
   payload: Record<string, any>,
-  onEvent: SseEventHandler
+  onEvent: SseEventHandler,
 ): Promise<void> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -85,7 +104,8 @@ export async function streamSse(
 
   if (!response.ok || !response.body) {
     const errorBody = await response.json().catch(() => ({}));
-    const message = errorBody?.detail || errorBody?.error || "Stream request failed";
+    const message =
+      errorBody?.detail || errorBody?.error || "Stream request failed";
     throw new ApiError(message, response.status);
   }
 
@@ -140,9 +160,40 @@ export async function fetchPaper<T>(paperId: string): Promise<T> {
   return fetchJson<T>(`/api/projects/papers/${paperId}/`, { method: "GET" });
 }
 
-export async function saveQuestions<T>(payload: Record<string, any>): Promise<T> {
+export async function saveQuestions<T>(
+  payload: Record<string, any>,
+): Promise<T> {
   return fetchJson<T>("/api/projects/questions/save", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function savePaper<T>(payload: Record<string, any>): Promise<T> {
+  return fetchJson<T>("/api/projects/papers/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updatePaper<T>(
+  paperId: string,
+  payload: Record<string, any>,
+): Promise<T> {
+  return fetchJson<T>(`/api/projects/papers/${paperId}/`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteQuestion(questionId: string): Promise<void> {
+  await fetchJson<void>(`/api/projects/questions/${questionId}/`, {
+    method: "DELETE",
+  });
+}
+
+export async function deletePaper(paperId: string): Promise<void> {
+  await fetchJson<void>(`/api/projects/papers/${paperId}/`, {
+    method: "DELETE",
   });
 }

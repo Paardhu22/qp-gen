@@ -52,43 +52,40 @@ class JWTAuthentication(BaseAuthentication):
             if len(str(user_id)) > 32 or len(str(jti)) > 255:
                 raise AuthenticationFailed("Invalid access token.")
 
-            session = Session.objects.filter(token=jti, user_id=user_id).first()
-            # Cache session existence briefly to avoid a DB round-trip on every request
-            # Cache key TTL is set to remaining lifetime of the session when available.
-            if not session:
-                cached = cache.get(f"session:{jti}")
-                if cached:
-                    # cached stores user id as a simple truthy value
-                    session = True
+            cached = cache.get(f"session:{jti}")
+            if cached:
+                cached_exp = cached.get("expires_at")
+                if cached_exp and cached_exp <= int(timezone.now().timestamp()):
+                    cache.delete(f"session:{jti}")
+                else:
+                    return (User(id=cached.get("user_id")), None)
+
+            session = (
+                Session.objects
+                .select_related("user")
+                .filter(token=jti, user_id=user_id)
+                .first()
+            )
             if not session:
                 raise AuthenticationFailed("Access token revoked.")
 
-            # If we had a full Session object, get its expiry; if cache returned True,
-            # we will skip expiry comparison (cache TTL provides protection).
-            expires_at = None
-            if hasattr(session, "expires_at"):
-                expires_at = session.expires_at
+            expires_at = session.expires_at
             if timezone.is_naive(expires_at):
                 expires_at = timezone.make_aware(expires_at, dt_timezone.utc)
 
-            if expires_at is not None:
-                if timezone.is_naive(expires_at):
-                    expires_at = timezone.make_aware(expires_at, dt_timezone.utc)
+            if expires_at <= timezone.now():
+                raise AuthenticationFailed("Access token revoked.")
 
-                if expires_at <= timezone.now():
-                    raise AuthenticationFailed("Access token revoked.")
+            # Cache session info to avoid a DB round-trip on every request
+            ttl = int((expires_at - timezone.now()).total_seconds())
+            if ttl > 0:
+                cache.set(
+                    f"session:{jti}",
+                    {"user_id": session.user_id, "expires_at": int(expires_at.timestamp())},
+                    ttl,
+                )
 
-            user = User.objects.filter(id=user_id).first()
-            if not user:
-                raise AuthenticationFailed("User not found.")
-            # If we resolved a real Session object, cache a lightweight marker
-            # so subsequent requests can skip the DB check until TTL expires.
-            if hasattr(session, "expires_at"):
-                ttl = int((expires_at - timezone.now()).total_seconds())
-                if ttl > 0:
-                    cache.set(f"session:{jti}", True, ttl)
-
-            return (user, None)
+            return (session.user, None)
         except DataError as exc:
             raise AuthenticationFailed("Invalid access token.") from exc
 

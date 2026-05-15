@@ -35,3 +35,53 @@ def save_questions_to_project(user, project_name: str, questions: List[dict]) ->
         Question.objects.bulk_create(question_objects)
 
     return project
+
+
+def save_paper_to_project(
+    user,
+    project_name: str,
+    title: str,
+    content: str,
+    questions: List[dict] = None,
+    paper_id: str = None,
+) -> Paper:
+    """Create or update a Paper and persist its questions."""
+    if questions is None:
+        questions = []
+
+    with transaction.atomic():
+        project, _ = Project.objects.get_or_create(name=project_name, user=user)
+
+        if paper_id:
+            # Update existing paper (raises Paper.DoesNotExist if not found/owned)
+            paper = Paper.objects.get(id=paper_id, user=user)
+            paper.title = title
+            paper.content = content
+            paper.project = project
+            paper.save()
+            # Replace questions: delete old paper-linked questions then re-create
+            paper.questions.all().delete()
+        else:
+            paper = Paper.objects.create(
+                title=title,
+                content=content,
+                project=project,
+                user=user,
+            )
+
+        if questions:
+            question_objects = [
+                Question(
+                    content=q.get("content", ""),
+                    answer=q.get("answer") or None,
+                    type=q.get("type") or "short",
+                    marks=int(q.get("marks") or 1),
+                    options=q.get("options") or [],
+                    project=project,
+                    paper=paper,
+                )
+                for q in questions
+            ]
+            Question.objects.bulk_create(question_objects)
+
+    return paper

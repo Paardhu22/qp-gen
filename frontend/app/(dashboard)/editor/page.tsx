@@ -3,39 +3,70 @@
 import { GeneratorForm } from "@/components/generator-form";
 import { TiptapEditor } from "@/components/tiptap-editor";
 import { useEditorStore } from "@/store/editor-store";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState, useEffect } from "react";
-import { fetchPaper, fetchProjects, saveQuestions } from "@/lib/api-client";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useSearchParams } from "next/navigation";
+import {
+  fetchPaper,
+  fetchProjects,
+  savePaper,
+  updatePaper,
+} from "@/lib/api-client";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useSearchParams, useRouter } from "next/navigation";
 
 export default function EditorPage() {
-  const { saveModalOpen, setSaveModalOpen, questionsToSave } = useEditorStore();
+  const router = useRouter();
+  const { saveModalOpen, setSaveModalOpen, questionsToSave, editorContent } =
+    useEditorStore();
+
+  const [paperTitle, setPaperTitle] = useState("");
   const [projectName, setProjectName] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("new");
   const [projects, setProjects] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
-  const [paperContent, setPaperContent] = useState<string | undefined>(undefined);
-  const [paperTitle, setPaperTitle] = useState<string | null>(null);
+  const [paperContent, setPaperContent] = useState<string | undefined>(
+    undefined,
+  );
+  const [loadedPaperTitle, setLoadedPaperTitle] = useState<string | null>(null);
   const [paperLoading, setPaperLoading] = useState(false);
   const [paperError, setPaperError] = useState<string | null>(null);
+  const [currentPaperId, setCurrentPaperId] = useState<string | null>(null);
+
   const searchParams = useSearchParams();
   const paperId = searchParams.get("paperId");
 
+  // Pre-fill paper title when modal opens while editing a saved paper
   useEffect(() => {
     if (saveModalOpen) {
       fetchProjects<any[]>().then(setProjects).catch(console.error);
+      if (loadedPaperTitle && !paperTitle) {
+        setPaperTitle(loadedPaperTitle);
+      }
     }
   }, [saveModalOpen]);
 
   useEffect(() => {
     if (!paperId) {
       setPaperContent("");
-      setPaperTitle(null);
+      setLoadedPaperTitle(null);
       setPaperError(null);
+      setCurrentPaperId(null);
       return;
     }
 
@@ -43,7 +74,9 @@ export default function EditorPage() {
     fetchPaper<{ id: string; title: string; content: string }>(paperId)
       .then((paper) => {
         setPaperContent(paper.content || "");
-        setPaperTitle(paper.title || "Saved Paper");
+        setLoadedPaperTitle(paper.title || "Saved Paper");
+        setPaperTitle(paper.title || "");
+        setCurrentPaperId(paper.id);
         setPaperError(null);
       })
       .catch((error) => {
@@ -55,23 +88,49 @@ export default function EditorPage() {
   }, [paperId]);
 
   const handleSave = async () => {
-    const finalProjectName = selectedProjectId === "new" ? projectName : projects.find(p => p.id === selectedProjectId)?.name;
-    
-    if (!finalProjectName?.trim()) return alert("Please enter or select a workspace subdivision");
-    
+    if (!paperTitle.trim()) return alert("Please enter a title for the paper");
+
+    const finalProjectName =
+      selectedProjectId === "new"
+        ? projectName
+        : projects.find((p) => p.id === selectedProjectId)?.name;
+
+    if (!finalProjectName?.trim())
+      return alert("Please enter or select a workspace subdivision");
+
     setIsSaving(true);
     try {
-      await saveQuestions({
+      const payload = {
+        title: paperTitle.trim(),
         projectName: finalProjectName,
+        content: editorContent,
         questions: questionsToSave,
-      });
-      alert("Questions saved to workspace successfully!");
+      };
+
+      let result: { paperId: string };
+
+      if (currentPaperId) {
+        // Update existing paper
+        result = await updatePaper<{ paperId: string }>(
+          currentPaperId,
+          payload,
+        );
+      } else {
+        // Create new paper
+        result = await savePaper<{ paperId: string }>(payload);
+        // Navigate to the URL with the new paperId so refreshing keeps the paper loaded
+        router.replace(`/editor?paperId=${result.paperId}`);
+        setCurrentPaperId(result.paperId);
+      }
+
+      setLoadedPaperTitle(paperTitle.trim());
       setSaveModalOpen(false);
       setProjectName("");
       setSelectedProjectId("new");
+      alert(`Paper "${paperTitle.trim()}" saved successfully!`);
     } catch (error) {
       console.error(error);
-      alert("Failed to save questions. Make sure you are logged in.");
+      alert("Failed to save paper. Make sure you are logged in.");
     } finally {
       setIsSaving(false);
     }
@@ -83,14 +142,19 @@ export default function EditorPage() {
       <div className="w-[350px] lg:w-[400px] flex-shrink-0 border-r border-zinc-800 bg-zinc-950 flex flex-col h-full overflow-hidden">
         <GeneratorForm />
       </div>
-      
+
       {/* Right Panel: Tiptap Editor */}
       <div className="flex-1 min-w-0 bg-zinc-900 h-full flex flex-col overflow-hidden">
-        {paperId && (
+        {currentPaperId && (
           <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-950 text-xs text-zinc-300">
             {paperLoading && "Loading saved paper..."}
-            {!paperLoading && paperError && <span className="text-red-400">{paperError}</span>}
-            {!paperLoading && !paperError && paperTitle && `Editing: ${paperTitle}`}
+            {!paperLoading && paperError && (
+              <span className="text-red-400">{paperError}</span>
+            )}
+            {!paperLoading &&
+              !paperError &&
+              loadedPaperTitle &&
+              `Editing: ${loadedPaperTitle}`}
           </div>
         )}
         <TiptapEditor initialContent={paperContent} />
@@ -99,23 +163,47 @@ export default function EditorPage() {
       <Dialog open={saveModalOpen} onOpenChange={setSaveModalOpen}>
         <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100 sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Save to Workspace</DialogTitle>
+            <DialogTitle>Save Paper</DialogTitle>
             <DialogDescription className="text-zinc-400">
-              Save {questionsToSave.length} generated questions to a workspace subdivision.
+              {currentPaperId
+                ? "Update your saved paper and its questions."
+                : `Save this paper with ${questionsToSave.length} question${questionsToSave.length !== 1 ? "s" : ""} to a workspace subdivision.`}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="space-y-4">
+              {/* Paper title */}
               <div className="flex flex-col gap-2">
-                <Label className="text-zinc-300">Select Subdivision</Label>
-                <Select value={selectedProjectId} onValueChange={(v) => setSelectedProjectId(v as string)}>
+                <Label htmlFor="paperTitle" className="text-zinc-300">
+                  Paper Title <span className="text-red-400">*</span>
+                </Label>
+                <Input
+                  id="paperTitle"
+                  placeholder="e.g. French Revolution Test — May 2026"
+                  className="bg-zinc-800 border-zinc-700"
+                  value={paperTitle}
+                  onChange={(e) => setPaperTitle(e.target.value)}
+                />
+              </div>
+
+              {/* Workspace subdivision */}
+              <div className="flex flex-col gap-2">
+                <Label className="text-zinc-300">Workspace Subdivision</Label>
+                <Select
+                  value={selectedProjectId}
+                  onValueChange={(v) => setSelectedProjectId(v as string)}
+                >
                   <SelectTrigger className="bg-zinc-800 border-zinc-700">
                     <SelectValue placeholder="Choose existing or create new" />
                   </SelectTrigger>
                   <SelectContent className="bg-zinc-800 border-zinc-700 text-zinc-100">
-                    <SelectItem value="new">+ Create New Subdivision</SelectItem>
+                    <SelectItem value="new">
+                      + Create New Subdivision
+                    </SelectItem>
                     {projects.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -138,8 +226,16 @@ export default function EditorPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button disabled={isSaving} onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-700 text-white w-full">
-              {isSaving ? "Saving..." : "Confirm Save"}
+            <Button
+              disabled={isSaving}
+              onClick={handleSave}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white w-full"
+            >
+              {isSaving
+                ? "Saving..."
+                : currentPaperId
+                  ? "Update Paper"
+                  : "Save Paper"}
             </Button>
           </DialogFooter>
         </DialogContent>
