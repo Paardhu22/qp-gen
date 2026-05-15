@@ -15,14 +15,14 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<PDFData> {
   try {
     const data = await pdf(buffer);
     
-    let pages: ExtractedPage[] = [];
+    const pages: ExtractedPage[] = [];
     let currentPage = 1;
     
     const options = {
       pagerender: (pageData: any) => {
         return pageData.getTextContent().then((textContent: any) => {
           let lastY, text = '';
-          for (let item of textContent.items) {
+          for (const item of textContent.items) {
             if (lastY == item.transform[5] || !lastY) {
               text += item.str;
             } else {

@@ -7,7 +7,7 @@ export const AutoNumbering = Extension.create({
     if (!transaction.docChanged) return;
 
     const { doc } = transaction;
-    let questionCount = 0;
+    const questionCount = 0;
 
     // We use a separate set of changes to avoid infinite loops
     // But Tiptap's onTransaction is for side effects.

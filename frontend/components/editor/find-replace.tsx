@@ -25,28 +25,16 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
     searchRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    if (!searchTerm) {
-      setMatchCount(0);
-      setCurrentMatch(0);
-      clearHighlights();
-      return;
-    }
+  const escapeRegex = useCallback((str: string) =>
+    str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), []);
 
-    const text = editor.getText();
-    const regex = new RegExp(escapeRegex(searchTerm), "gi");
-    const matches = [...text.matchAll(regex)];
-    setMatchCount(matches.length);
-    setCurrentMatch(matches.length > 0 ? 1 : 0);
+  const clearHighlights = useCallback(() => {
+    // Collapse selection to cursor position
+    const { from } = editor.state.selection;
+    editor.commands.setTextSelection(from);
+  }, [editor]);
 
-    // Highlight matches in editor using decorations
-    highlightMatches(searchTerm);
-  }, [searchTerm, editor]);
-
-  const escapeRegex = (str: string) =>
-    str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-  const highlightMatches = (term: string) => {
+  const highlightMatches = useCallback((term: string) => {
     // Remove existing search highlights
     clearHighlights();
 
@@ -68,13 +56,25 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
         }
       }
     });
-  };
+  }, [editor, clearHighlights]);
 
-  const clearHighlights = () => {
-    // Collapse selection to cursor position
-    const { from } = editor.state.selection;
-    editor.commands.setTextSelection(from);
-  };
+  useEffect(() => {
+    if (!searchTerm) {
+      setMatchCount(0);
+      setCurrentMatch(0);
+      clearHighlights();
+      return;
+    }
+
+    const text = editor.getText();
+    const regex = new RegExp(escapeRegex(searchTerm), "gi");
+    const matches = [...text.matchAll(regex)];
+    setMatchCount(matches.length);
+    setCurrentMatch(matches.length > 0 ? 1 : 0);
+
+    // Highlight matches in editor using decorations
+    highlightMatches(searchTerm);
+  }, [searchTerm, editor, clearHighlights, escapeRegex, highlightMatches]);
 
   const findNext = () => {
     if (!searchTerm || matchCount === 0) return;

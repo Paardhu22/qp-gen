@@ -202,7 +202,7 @@ export const InlineMath = Node.create({
         handler: ({ state, range, match }) => {
           const { tr } = state;
           const start = range.from;
-          let end = range.to;
+          const end = range.to;
 
           const latex = match[1];
 
