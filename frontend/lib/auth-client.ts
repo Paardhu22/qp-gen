@@ -147,7 +147,7 @@ async function loadSession(): Promise<SessionData | null> {
 
   sessionPromise = (async () => {
     try {
-      const user = await fetchJson<SessionUser>("/api/auth/dashboard", { method: "GET" });
+      const user = await fetchJson<SessionUser>("/api/auth/profile", { method: "GET" });
       cachedSession = { user };
       sessionLoaded = true;
       return cachedSession;
@@ -155,7 +155,7 @@ async function loadSession(): Promise<SessionData | null> {
       if (err instanceof ApiError && err.status === 401) {
         const refreshed = await refreshAccessToken();
         if (refreshed) {
-          const user = await fetchJson<SessionUser>("/api/auth/dashboard", { method: "GET" });
+          const user = await fetchJson<SessionUser>("/api/auth/profile", { method: "GET" });
           cachedSession = { user };
           sessionLoaded = true;
           return cachedSession;

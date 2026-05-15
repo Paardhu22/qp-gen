@@ -50,6 +50,7 @@ export default function SavedQuestionsPage() {
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
   const [isLoadingPapers, setIsLoadingPapers] = useState(true);
   const [questionSearch, setQuestionSearch] = useState("");
+  const [paperSearch, setPaperSearch] = useState("");
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<Set<string>>(new Set());
   const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
 
@@ -90,6 +91,17 @@ export default function SavedQuestionsPage() {
       );
     });
   }, [allQuestions, questionSearch]);
+
+  const filteredPapers = useMemo(() => {
+    const term = paperSearch.trim().toLowerCase();
+    if (!term) return papers;
+    return papers.filter((paper) => {
+      return (
+        paper.title.toLowerCase().includes(term) ||
+        (paper.projectName || "").toLowerCase().includes(term)
+      );
+    });
+  }, [papers, paperSearch]);
 
   const toggleQuestionSelection = (questionId: string) => {
     setSelectedQuestionIds((prev) => {
@@ -180,17 +192,23 @@ export default function SavedQuestionsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <Input
+              value={paperSearch}
+              onChange={(e) => setPaperSearch(e.target.value)}
+              placeholder="Search papers or workspace..."
+              className="bg-zinc-950 border-zinc-800"
+            />
             {isLoadingPapers ? (
               <div className="text-zinc-500 text-center py-10 border border-dashed border-zinc-800 rounded-lg">
                 Loading saved papers...
               </div>
-            ) : papers.length === 0 ? (
+            ) : filteredPapers.length === 0 ? (
               <div className="text-zinc-500 text-center py-10 border border-dashed border-zinc-800 rounded-lg">
                 No saved papers found.
               </div>
             ) : (
               <div className="space-y-3 max-h-[560px] overflow-y-auto custom-scrollbar pr-2">
-                {papers.map((paper) => (
+                {filteredPapers.map((paper) => (
                   <button
                     key={paper.id}
                     onClick={() => handlePaperOpen(paper)}

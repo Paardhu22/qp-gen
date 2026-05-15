@@ -1,6 +1,7 @@
 "use client";
 
 import { useSession } from "@/lib/auth-client";
+import Link from "next/link";
 
 export const TopNavbar = () => {
   const { data: session } = useSession();
@@ -13,9 +14,13 @@ export const TopNavbar = () => {
             <span className="text-sm font-medium text-white">{session?.user?.name || "User"}</span>
             <span className="text-xs text-zinc-400">{session?.user?.email || ""}</span>
           </div>
-          <div className="h-8 w-8 rounded-full bg-indigo-600 flex items-center justify-center text-sm font-bold text-white">
+          <Link
+            href="/profile"
+            className="h-8 w-8 rounded-full bg-indigo-600 flex items-center justify-center text-sm font-bold text-white hover:bg-indigo-500 transition"
+            aria-label="Open profile"
+          >
             {session?.user?.name?.charAt(0).toUpperCase() || "U"}
-          </div>
+          </Link>
         </div>
       </div>
     </div>
