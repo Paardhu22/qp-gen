@@ -79,7 +79,7 @@ class LogoutView(APIView):
         return Response({"success": True})
 
 
-class MeView(APIView):
+class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
