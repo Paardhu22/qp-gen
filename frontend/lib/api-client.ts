@@ -128,6 +128,18 @@ export async function fetchProjects<T>(): Promise<T> {
   return fetchJson<T>("/api/projects/", { method: "GET" });
 }
 
+export async function fetchProjectsWithQuestions<T>(): Promise<T> {
+  return fetchJson<T>("/api/projects/?withQuestions=true", { method: "GET" });
+}
+
+export async function fetchPapers<T>(): Promise<T> {
+  return fetchJson<T>("/api/projects/papers/", { method: "GET" });
+}
+
+export async function fetchPaper<T>(paperId: string): Promise<T> {
+  return fetchJson<T>(`/api/projects/papers/${paperId}/`, { method: "GET" });
+}
+
 export async function saveQuestions<T>(payload: Record<string, any>): Promise<T> {
   return fetchJson<T>("/api/projects/questions/save", {
     method: "POST",

@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState, useEffect } from "react";
-import { fetchProjects, saveQuestions } from "@/lib/api-client";
+import { fetchPaper, fetchProjects, saveQuestions } from "@/lib/api-client";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useSearchParams } from "next/navigation";
 
 export default function EditorPage() {
   const { saveModalOpen, setSaveModalOpen, questionsToSave } = useEditorStore();
@@ -17,12 +18,41 @@ export default function EditorPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>("new");
   const [projects, setProjects] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [paperContent, setPaperContent] = useState<string | undefined>(undefined);
+  const [paperTitle, setPaperTitle] = useState<string | null>(null);
+  const [paperLoading, setPaperLoading] = useState(false);
+  const [paperError, setPaperError] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const paperId = searchParams.get("paperId");
 
   useEffect(() => {
     if (saveModalOpen) {
       fetchProjects<any[]>().then(setProjects).catch(console.error);
     }
   }, [saveModalOpen]);
+
+  useEffect(() => {
+    if (!paperId) {
+      setPaperContent("");
+      setPaperTitle(null);
+      setPaperError(null);
+      return;
+    }
+
+    setPaperLoading(true);
+    fetchPaper<{ id: string; title: string; content: string }>(paperId)
+      .then((paper) => {
+        setPaperContent(paper.content || "");
+        setPaperTitle(paper.title || "Saved Paper");
+        setPaperError(null);
+      })
+      .catch((error) => {
+        console.error(error);
+        setPaperError("Failed to load saved paper. Please try again.");
+        setPaperContent("");
+      })
+      .finally(() => setPaperLoading(false));
+  }, [paperId]);
 
   const handleSave = async () => {
     const finalProjectName = selectedProjectId === "new" ? projectName : projects.find(p => p.id === selectedProjectId)?.name;
@@ -56,7 +86,14 @@ export default function EditorPage() {
       
       {/* Right Panel: Tiptap Editor */}
       <div className="flex-1 min-w-0 bg-zinc-900 h-full flex flex-col overflow-hidden">
-        <TiptapEditor />
+        {paperId && (
+          <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-950 text-xs text-zinc-300">
+            {paperLoading && "Loading saved paper..."}
+            {!paperLoading && paperError && <span className="text-red-400">{paperError}</span>}
+            {!paperLoading && !paperError && paperTitle && `Editing: ${paperTitle}`}
+          </div>
+        )}
+        <TiptapEditor initialContent={paperContent} />
       </div>
 
       <Dialog open={saveModalOpen} onOpenChange={setSaveModalOpen}>

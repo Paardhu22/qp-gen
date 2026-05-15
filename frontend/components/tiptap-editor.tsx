@@ -99,7 +99,11 @@ const DEFAULT_CONTENT = "";
 // ==================================
 // Main Editor Component
 // ==================================
-export const TiptapEditor = () => {
+type TiptapEditorProps = {
+  initialContent?: string;
+};
+
+export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
@@ -175,7 +179,7 @@ export const TiptapEditor = () => {
       Gapcursor,
       HardBreak,
     ],
-    content: DEFAULT_CONTENT,
+    content: initialContent ?? DEFAULT_CONTENT,
     editorProps: {
       attributes: {
         id: "tiptap-paper-container",
@@ -199,6 +203,17 @@ export const TiptapEditor = () => {
 
   // Handle question insertion from AI generator
   const { questionsToAppend, clearQuestionsToAppend } = useEditorStore();
+
+  const lastLoadedContentRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!editor) return;
+    if (initialContent === undefined) return;
+    if (lastLoadedContentRef.current === initialContent) return;
+
+    editor.commands.setContent(initialContent || "", false);
+    lastLoadedContentRef.current = initialContent;
+  }, [editor, initialContent]);
 
   useEffect(() => {
     if (questionsToAppend.length > 0 && editor) {
