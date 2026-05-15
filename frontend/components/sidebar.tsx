@@ -56,10 +56,10 @@ export const Sidebar = () => {
   };
 
   return (
-    <div className="space-y-4 py-4 flex flex-col h-full bg-zinc-950 text-white border-r border-zinc-800">
+    <div className="space-y-4 py-4 flex flex-col h-full bg-background text-foreground border-r border-border">
       <div className="px-3 py-2 flex-1">
         <Link href="/dashboard" className="flex items-center pl-3 mb-14">
-          <h1 className="text-2xl font-bold text-indigo-500">qp-gen</h1>
+          <h1 className="text-2xl font-bold text-primary">qp-gen</h1>
         </Link>
         <div className="space-y-1">
           {routes.map((route) => (
@@ -67,8 +67,8 @@ export const Sidebar = () => {
               href={route.href}
               key={route.href}
               className={cn(
-                "text-sm group flex p-3 w-full justify-start font-medium cursor-pointer hover:text-white hover:bg-white/10 rounded-lg transition",
-                pathname === route.href ? "text-white bg-white/10" : "text-zinc-400"
+                "text-sm group flex p-3 w-full justify-start font-medium cursor-pointer hover:text-foreground hover:bg-accent rounded-lg transition",
+                pathname === route.href ? "text-foreground bg-accent" : "text-muted-foreground"
               )}
             >
               <div className="flex items-center flex-1">
@@ -80,7 +80,7 @@ export const Sidebar = () => {
         </div>
       </div>
       <div className="px-3">
-        <Button onClick={handleSignOut} variant="ghost" className="w-full justify-start text-zinc-400 hover:text-white hover:bg-white/10">
+        <Button onClick={handleSignOut} variant="ghost" className="w-full justify-start text-muted-foreground hover:text-foreground hover:bg-accent">
           <LogOut className="h-5 w-5 mr-3" />
           Logout
         </Button>

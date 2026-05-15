@@ -121,121 +121,135 @@ export default function SavedQuestionsPage() {
   };
 
   return (
-    <div className="p-8 space-y-6 bg-zinc-950 min-h-full">
+    <div className="p-8 space-y-8 bg-background min-h-full">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight text-white">Saved Workspace</h2>
-        <p className="text-zinc-400 mt-2">
-          Review saved questions on the left and saved papers on the right.
-        </p>
+        <h2 className="text-3xl font-bold tracking-tight text-foreground">Saved Items</h2>
+        <p className="text-muted-foreground mt-2">View and manage your saved exam questions and completed papers.</p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card className="bg-zinc-900 border-zinc-800 flex flex-col">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg text-zinc-100">Saved Questions</CardTitle>
-            <CardDescription className="text-zinc-400">
-              Search and select individual questions from your subdivisions.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Input
-              value={questionSearch}
-              onChange={(e) => setQuestionSearch(e.target.value)}
-              placeholder="Search questions, project, or type..."
-              className="bg-zinc-950 border-zinc-800"
-            />
+      <div className="grid gap-8 grid-cols-1 lg:grid-cols-3">
+        {/* Questions Section */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-semibold text-foreground">Saved Questions</h3>
+            <div className="w-64">
+              <Input
+                placeholder="Search questions..."
+                value={questionSearch}
+                onChange={(e) => setQuestionSearch(e.target.value)}
+                className="h-9 bg-background border-border"
+              />
+            </div>
+          </div>
 
-            {isLoadingQuestions ? (
-              <div className="text-zinc-500 text-center py-10 border border-dashed border-zinc-800 rounded-lg">
-                Loading saved questions...
-              </div>
-            ) : filteredQuestions.length === 0 ? (
-              <div className="text-zinc-500 text-center py-10 border border-dashed border-zinc-800 rounded-lg">
-                No saved questions found.
-              </div>
-            ) : (
-              <div className="space-y-3 max-h-[560px] overflow-y-auto custom-scrollbar pr-2">
-                {filteredQuestions.map((q, idx) => (
-                  <button
-                    key={q.id}
-                    onClick={() => toggleQuestionSelection(q.id)}
-                    className={cn(
-                      "w-full text-left p-3 rounded-md border transition",
-                      selectedQuestionIds.has(q.id)
-                        ? "border-indigo-500 bg-indigo-500/10"
-                        : "border-zinc-800 bg-zinc-950 hover:border-indigo-900/60"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="text-xs text-zinc-500">Q{idx + 1}</div>
-                      <Badge
-                        variant="outline"
-                        className="text-xs border-indigo-900/50 text-indigo-400 bg-indigo-950/20"
-                      >
-                        {q.type} - {q.marks}m
+          {isLoadingQuestions ? (
+            <div className="text-muted-foreground text-center py-12 border border-dashed border-border rounded-lg">
+              Loading questions...
+            </div>
+          ) : filteredQuestions.length === 0 ? (
+            <div className="text-muted-foreground text-center py-12 border border-dashed border-border rounded-lg">
+              {questionSearch ? "No questions match your search." : "No saved questions found."}
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {filteredQuestions.map((q) => (
+                <Card
+                  key={q.id}
+                  className={cn(
+                    "bg-card border-border flex flex-col h-full hover:shadow-md transition-shadow",
+                    selectedQuestionIds.has(q.id) && "border-primary/60 shadow-sm"
+                  )}
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex justify-between items-start gap-2 mb-1">
+                      <Badge variant="outline" className="text-[10px] uppercase tracking-wider border-primary/50 text-primary bg-primary/10">
+                        {q.type}
+                      </Badge>
+                      <Badge variant="secondary" className="text-[10px] font-bold">
+                        {q.marks} Marks
                       </Badge>
                     </div>
                     <p className="text-sm text-zinc-200">{q.content}</p>
                     <div className="mt-2 text-[11px] text-zinc-500">{q.projectName}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  </CardHeader>
+                  <CardContent className="mt-auto">
+                    <button
+                      type="button"
+                      onClick={() => toggleQuestionSelection(q.id)}
+                      className={cn(
+                        "w-full rounded-md border px-3 py-2 text-xs font-semibold transition",
+                        selectedQuestionIds.has(q.id)
+                          ? "border-primary/60 bg-primary/10 text-primary"
+                          : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40"
+                      )}
+                    >
+                      {selectedQuestionIds.has(q.id) ? "Selected" : "Select"}
+                    </button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
 
-        <Card className="bg-zinc-900 border-zinc-800 flex flex-col">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg text-zinc-100">Saved Papers</CardTitle>
-            <CardDescription className="text-zinc-400">
-              Open a saved paper to continue editing in the paper editor.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Input
-              value={paperSearch}
-              onChange={(e) => setPaperSearch(e.target.value)}
-              placeholder="Search papers or workspace..."
-              className="bg-zinc-950 border-zinc-800"
-            />
-            {isLoadingPapers ? (
-              <div className="text-zinc-500 text-center py-10 border border-dashed border-zinc-800 rounded-lg">
-                Loading saved papers...
-              </div>
-            ) : filteredPapers.length === 0 ? (
-              <div className="text-zinc-500 text-center py-10 border border-dashed border-zinc-800 rounded-lg">
-                No saved papers found.
-              </div>
-            ) : (
-              <div className="space-y-3 max-h-[560px] overflow-y-auto custom-scrollbar pr-2">
-                {filteredPapers.map((paper) => (
-                  <button
-                    key={paper.id}
-                    onClick={() => handlePaperOpen(paper)}
-                    className={cn(
-                      "w-full text-left p-4 rounded-md border transition",
-                      selectedPaperId === paper.id
-                        ? "border-emerald-500 bg-emerald-500/10"
-                        : "border-zinc-800 bg-zinc-950 hover:border-emerald-900/60"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-100">{paper.title}</div>
-                        <div className="text-[11px] text-zinc-500 mt-1">
-                          {paper.projectName || "Workspace"}
+        {/* Papers Section */}
+        <div className="space-y-6">
+          <h3 className="text-xl font-semibold text-foreground">Saved Papers</h3>
+
+          <Card className="bg-card border-border flex flex-col">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg text-foreground">Saved Papers</CardTitle>
+              <CardDescription className="text-muted-foreground">
+                Continue editing your previously saved papers.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Input
+                value={paperSearch}
+                onChange={(e) => setPaperSearch(e.target.value)}
+                placeholder="Search papers or workspace..."
+                className="h-9 bg-background border-border"
+              />
+              {isLoadingPapers ? (
+                <div className="text-muted-foreground text-center py-10 border border-dashed border-border rounded-lg">
+                  Loading papers...
+                </div>
+              ) : filteredPapers.length === 0 ? (
+                <div className="text-muted-foreground text-center py-10 border border-dashed border-border rounded-lg">
+                  No saved papers found.
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
+                  {filteredPapers.map((paper) => (
+                    <button
+                      key={paper.id}
+                      onClick={() => handlePaperOpen(paper)}
+                      className={cn(
+                        "w-full text-left p-4 rounded-xl border transition-all duration-200",
+                        selectedPaperId === paper.id
+                          ? "border-primary bg-primary/5 shadow-sm"
+                          : "border-border bg-muted/30 hover:border-primary/50 hover:bg-muted/50"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-foreground truncate">{paper.title}</div>
+                          <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-2">
+                            <span className="inline-block w-1 h-1 rounded-full bg-primary/40" />
+                            {paper.projectName || "Default Workspace"}
+                          </div>
+                        </div>
+                        <div className="text-[10px] text-muted-foreground whitespace-nowrap bg-background px-2 py-0.5 rounded border border-border">
+                          {formatDate(paper.updated_at || paper.created_at)}
                         </div>
                       </div>
-                      <div className="text-[11px] text-zinc-500">
-                        {formatDate(paper.updated_at || paper.created_at)}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
