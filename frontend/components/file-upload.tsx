@@ -82,33 +82,33 @@ export function FileUpload({ onUploadComplete, projectId }: FileUploadProps) {
           {...getRootProps()}
           className={cn(
             "border-2 border-dashed rounded-xl p-8 transition-all cursor-pointer flex flex-col items-center justify-center gap-4",
-            isDragActive ? "border-indigo-500 bg-indigo-500/5" : "border-zinc-800 hover:border-zinc-700 bg-zinc-900/50",
+            isDragActive ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 bg-muted/50",
             uploading && "opacity-50 cursor-not-allowed"
           )}
         >
           <input {...getInputProps()} />
-          <div className="h-12 w-12 rounded-full bg-zinc-800 flex items-center justify-center">
-            <Upload className="h-6 w-6 text-zinc-400" />
+          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+            <Upload className="h-6 w-6 text-muted-foreground" />
           </div>
           <div className="text-center">
-            <p className="text-zinc-200 font-medium">Click to upload or drag and drop</p>
-            <p className="text-zinc-500 text-sm mt-1">PDF, TXT, or DOCX (max. 10MB)</p>
+            <p className="text-foreground font-medium">Click to upload or drag and drop</p>
+            <p className="text-muted-foreground text-sm mt-1">PDF, TXT, or DOCX (max. 10MB)</p>
           </div>
         </div>
       ) : (
-        <div className="border border-zinc-800 rounded-xl p-4 bg-zinc-900/50">
+        <div className="border border-border rounded-xl p-4 bg-muted/50">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="h-10 w-10 rounded-lg bg-zinc-800 flex items-center justify-center flex-shrink-0">
-                <File className="h-5 w-5 text-indigo-400" />
+              <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                <File className="h-5 w-5 text-primary" />
               </div>
               <div className="min-w-0">
-                <p className="text-zinc-200 font-medium truncate">{file.name}</p>
-                <p className="text-zinc-500 text-xs">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                <p className="text-foreground font-medium truncate">{file.name}</p>
+                <p className="text-muted-foreground text-xs">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
               </div>
             </div>
             {!uploading && !success && (
-              <Button variant="ghost" size="icon" onClick={removeFile} className="text-zinc-500 hover:text-zinc-300">
+              <Button variant="ghost" size="icon" onClick={removeFile} className="text-muted-foreground hover:text-foreground">
                 <X className="h-4 w-4" />
               </Button>
             )}
@@ -117,11 +117,11 @@ export function FileUpload({ onUploadComplete, projectId }: FileUploadProps) {
 
           {(uploading || progress > 0) && !success && !error && (
             <div className="mt-4 space-y-2">
-              <div className="flex justify-between text-xs text-zinc-500">
+              <div className="flex justify-between text-xs text-muted-foreground">
                 <span>{uploading ? "Uploading & Processing..." : "Ready"}</span>
                 <span>{progress}%</span>
               </div>
-              <Progress value={progress} className="h-1 bg-zinc-800" />
+              <Progress value={progress} className="h-1 bg-muted" />
             </div>
           )}
 
@@ -133,13 +133,13 @@ export function FileUpload({ onUploadComplete, projectId }: FileUploadProps) {
           )}
 
           {!uploading && !success && !error && (
-            <Button onClick={handleUpload} className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white">
+            <Button onClick={handleUpload} className="w-full mt-4 bg-primary hover:bg-primary/90 text-primary-foreground">
               Process Document
             </Button>
           )}
 
           {uploading && (
-            <Button disabled className="w-full mt-4 bg-zinc-800 text-zinc-400 flex items-center gap-2">
+            <Button disabled className="w-full mt-4 bg-muted text-muted-foreground flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
               Processing...
             </Button>

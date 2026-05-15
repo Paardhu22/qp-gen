@@ -97,8 +97,8 @@ const ToolbarBtn: React.FC<ToolbarBtnProps> = ({
     disabled={disabled}
     title={title}
     className={cn(
-      "h-7 w-7 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed",
-      active && "bg-zinc-800 text-indigo-400 ring-1 ring-indigo-500/30",
+      "h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed",
+      active && "bg-accent text-primary ring-1 ring-primary/30",
       className
     )}
   >
@@ -163,7 +163,7 @@ const ColorPicker: React.FC<{
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen(!open)}
         title={label}
-        className="h-7 w-7 flex flex-col items-center justify-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-all"
+        className="h-7 w-7 flex flex-col items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
       >
         <Type className="h-3.5 w-3.5" />
         <div
@@ -172,8 +172,8 @@ const ColorPicker: React.FC<{
         />
       </button>
       {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-2 shadow-xl w-[180px]">
-          <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5 px-1">
+        <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-lg p-2 shadow-xl w-[180px]">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
             {label}
           </p>
           <div className="grid grid-cols-6 gap-1">
@@ -202,7 +202,7 @@ const ColorPicker: React.FC<{
                 onClear();
                 setOpen(false);
               }}
-              className="mt-2 w-full text-[10px] text-zinc-400 hover:text-zinc-200 py-1 hover:bg-zinc-800 rounded transition-colors"
+              className="mt-2 w-full text-[10px] text-muted-foreground hover:text-foreground py-1 hover:bg-accent rounded transition-colors"
             >
               Remove Color
             </button>
@@ -258,15 +258,15 @@ const ChemistryPicker: React.FC<{
         onClick={() => setOpen(!open)}
         title="Insert Chemistry"
         className={cn(
-          "h-7 w-7 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-all",
-          open && "bg-zinc-800 text-indigo-400"
+          "h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all",
+          open && "bg-accent text-primary"
         )}
       >
         <FlaskConical className="h-3.5 w-3.5" />
       </button>
       {open && (
-        <div className="absolute top-full right-0 mt-1 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-2 shadow-xl w-[200px]">
-          <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2 px-1">
+        <div className="absolute top-full right-0 mt-1 z-50 bg-popover border border-border rounded-lg p-2 shadow-xl w-[200px]">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2 px-1">
             Chemistry
           </p>
           <div className="flex flex-col gap-1">
@@ -279,7 +279,7 @@ const ChemistryPicker: React.FC<{
                   onInsertInline(tpl.latex);
                   setOpen(false);
                 }}
-                className="text-left text-[11px] text-zinc-300 hover:text-white px-2 py-1.5 rounded hover:bg-zinc-800 transition-colors"
+                className="text-left text-[11px] text-foreground hover:text-primary px-2 py-1.5 rounded hover:bg-accent transition-colors"
               >
                 {tpl.label}
               </button>
@@ -315,15 +315,15 @@ const MathPicker: React.FC<{
         onClick={() => setOpen(!open)}
         title="Insert Math"
         className={cn(
-          "h-7 w-7 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-all",
-          open && "bg-zinc-800 text-indigo-400"
+          "h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all",
+          open && "bg-accent text-primary"
         )}
       >
         <Sigma className="h-3.5 w-3.5" />
       </button>
       {open && (
-        <div className="absolute top-full right-0 mt-1 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-2 shadow-xl w-[220px]">
-          <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2 px-1">
+        <div className="absolute top-full right-0 mt-1 z-50 bg-popover border border-border rounded-lg p-2 shadow-xl w-[220px]">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2 px-1">
             Math Templates
           </p>
           <div className="flex flex-col gap-1">
@@ -336,7 +336,7 @@ const MathPicker: React.FC<{
                     onInsertBlock(tpl.latex);
                     setOpen(false);
                   }}
-                  className="flex-1 text-left text-[11px] text-zinc-300 hover:text-white px-2 py-1.5 rounded hover:bg-zinc-800 transition-colors"
+                  className="flex-1 text-left text-[11px] text-foreground hover:text-primary px-2 py-1.5 rounded hover:bg-accent transition-colors"
                 >
                   Block: {tpl.label}
                 </button>
@@ -347,7 +347,7 @@ const MathPicker: React.FC<{
                     onInsertInline(tpl.latex);
                     setOpen(false);
                   }}
-                  className="text-[10px] text-zinc-400 hover:text-white px-2 py-1.5 rounded hover:bg-zinc-800 transition-colors"
+                  className="text-[10px] text-muted-foreground hover:text-primary px-2 py-1.5 rounded hover:bg-accent transition-colors"
                   title="Insert Inline"
                 >
                   Inline
@@ -378,7 +378,7 @@ const MathPicker: React.FC<{
 // Divider Component
 // ==================================
 const ToolbarDivider = () => (
-  <div className="w-px h-5 bg-zinc-800 mx-0.5 flex-shrink-0" />
+  <div className="w-px h-5 bg-border mx-0.5 flex-shrink-0" />
 );
 
 // ==================================
@@ -469,7 +469,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
   };
 
   return (
-    <div className="flex flex-col border-b border-zinc-800 bg-zinc-950 flex-shrink-0">
+    <div className="flex flex-col border-b border-border bg-background flex-shrink-0">
       {/* Primary Toolbar */}
       <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 overflow-visible">
         {/* Undo / Redo */}
@@ -505,7 +505,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
                 .run();
             }
           }}
-          className="h-7 bg-zinc-900 border border-zinc-800 rounded text-[11px] text-zinc-300 px-1.5 min-w-[100px] focus:outline-none focus:ring-1 focus:ring-indigo-500/50 cursor-pointer"
+          className="h-7 bg-muted border border-border rounded text-[11px] text-foreground px-1.5 min-w-[100px] focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
         >
           {HEADING_LEVELS.map((h) => (
             <option key={h.value} value={h.value}>
@@ -525,7 +525,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
               editor.chain().focus().unsetFontFamily().run();
             }
           }}
-          className="h-7 bg-zinc-900 border border-zinc-800 rounded text-[11px] text-zinc-300 px-1.5 min-w-[90px] focus:outline-none focus:ring-1 focus:ring-indigo-500/50 cursor-pointer"
+          className="h-7 bg-muted border border-border rounded text-[11px] text-foreground px-1.5 min-w-[90px] focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
         >
           {FONT_FAMILIES.map((f) => (
             <option key={f.value} value={f.value}>
@@ -545,7 +545,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
               (editor.chain().focus() as any).unsetFontSize().run();
             }
           }}
-          className="h-7 bg-zinc-900 border border-zinc-800 rounded text-[11px] text-zinc-300 px-1.5 w-[60px] focus:outline-none focus:ring-1 focus:ring-indigo-500/50 cursor-pointer"
+          className="h-7 bg-muted border border-border rounded text-[11px] text-foreground px-1.5 w-[60px] focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
         >
           <option value="">Size</option>
           {FONT_SIZES.map((s) => (
@@ -847,7 +847,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
               e.target.value = "";
             }}
             defaultValue=""
-            className="h-7 bg-zinc-900 border border-zinc-800 rounded text-[10px] text-zinc-400 px-1.5 min-w-[110px] focus:outline-none cursor-pointer"
+            className="h-7 bg-background border border-border rounded text-[10px] text-foreground px-1.5 min-w-[110px] focus:outline-none cursor-pointer hover:bg-accent transition-colors"
           >
             <option value="" disabled>
               Templates
@@ -858,14 +858,14 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
           </select>
 
           {/* Total Marks */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-900 rounded-full border border-zinc-800 select-none">
-            <Calculator className="h-3 w-3 text-zinc-500" />
-            <span className="text-[10px] font-semibold text-zinc-400">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-background rounded-full border border-border select-none shadow-sm">
+            <Calculator className="h-3 w-3 text-primary" />
+            <span className="text-[10px] font-semibold text-foreground">
               Marks:
             </span>
             <Badge
               variant="secondary"
-              className="h-4 px-1.5 text-[9px] bg-indigo-500/20 text-indigo-400 border-indigo-500/30"
+              className="h-4 px-1.5 text-[9px] bg-muted text-foreground border-border"
             >
               {totalMarks}
             </Badge>
@@ -875,7 +875,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white border-none px-3"
+            className="h-7 text-[10px] px-4 font-medium"
             onClick={() => useEditorStore.getState().setSaveModalOpen(true)}
           >
             <Save className="h-3 w-3 mr-1" /> Save
@@ -884,7 +884,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
       </div>
 
       {/* Secondary Toolbar - Paper Structure */}
-      <div className="flex items-center gap-1 px-2 py-1 border-t border-zinc-800/50 bg-zinc-950/50">
+      <div className="flex items-center gap-1 px-2 py-1 border-t border-border/50 bg-muted/30">
         {/* Question Paper Blocks */}
         <button
           type="button"
@@ -1024,7 +1024,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
           <Trash className="h-3 w-3" /> Clear All
         </button>
 
-        <div className="ml-auto flex items-center gap-3 text-[10px] text-zinc-500">
+        <div className="ml-auto flex items-center gap-3 text-[10px] text-muted-foreground">
           <button
             onClick={handleExportPDF}
             className="hover:text-indigo-400 flex items-center gap-1 transition-colors"

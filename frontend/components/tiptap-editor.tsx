@@ -77,7 +77,7 @@ const StatusBar = memo(({ editor }: { editor: any }) => {
   const words = editor.storage.characterCount?.words() || 0;
 
   return (
-    <div className="flex items-center justify-between px-4 py-1 bg-zinc-950 border-t border-zinc-800 text-[10px] text-zinc-500 select-none flex-shrink-0">
+    <div className="flex items-center justify-between px-4 py-1 bg-background border-t border-border text-[10px] text-muted-foreground select-none flex-shrink-0">
       <div className="flex items-center gap-4">
         <span>Words: {words}</span>
         <span>Characters: {chars}</span>
@@ -180,7 +180,7 @@ export const TiptapEditor = () => {
       attributes: {
         id: "tiptap-paper-container",
         class:
-          "prose prose-sm sm:prose-base prose-zinc max-w-none focus:outline-none min-h-[1100px] p-16 md:p-20 bg-white text-black shadow-2xl mx-auto my-6 paper-container",
+          "prose prose-sm sm:prose-base prose-zinc max-w-none focus:outline-none min-h-[1100px] p-16 md:p-20 bg-[#fcfbf9] text-black border border-border/50 mx-auto my-6 paper-container",
         spellcheck: "true",
       },
     },
@@ -242,12 +242,12 @@ export const TiptapEditor = () => {
   if (!isClient) return null;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-zinc-900/50 overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-background overflow-hidden">
       {editor && <EditorToolbar editor={editor} onFindReplace={() => setShowFindReplace(v => !v)} />}
       {editor && showFindReplace && (
         <FindReplace editor={editor} onClose={() => setShowFindReplace(false)} />
       )}
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-zinc-900/50 print:p-0">
+      <div className="flex-1 overflow-y-auto custom-scrollbar bg-background print:p-0">
         <EditorContent editor={editor} className="h-full pb-32" />
       </div>
       {editor && <StatusBar editor={editor} />}

@@ -106,22 +106,22 @@ export const GeneratorForm = () => {
   };
 
   return (
-    <div className="h-full flex flex-col p-4 bg-zinc-950 text-zinc-100 overflow-y-auto custom-scrollbar">
+    <div className="h-full flex flex-col p-4 bg-background text-foreground overflow-y-auto custom-scrollbar">
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-1">
-          <h2 className="text-xl font-bold text-indigo-500">qp-gen</h2>
+          <h2 className="text-xl font-bold text-primary">qp-gen</h2>
         </div>
-        <p className="text-sm text-zinc-400">Questions are generated STRICTLY from your source material.</p>
+        <p className="text-sm text-muted-foreground">Questions are generated STRICTLY from your source material.</p>
       </div>
 
       <div className="mb-6 space-y-3">
         <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-zinc-300">Source Documents</label>
+          <label className="text-sm font-medium text-foreground">Source Documents</label>
           <Button 
             variant="ghost" 
             size="sm" 
             onClick={() => setShowUpload(!showUpload)}
-            className="h-7 text-xs text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10"
+            className="h-7 text-xs text-primary hover:text-primary/80 hover:bg-primary/10"
           >
             {showUpload ? "Cancel" : <><Plus className="h-3 w-3 mr-1" /> Add Source</>}
           </Button>
@@ -135,15 +135,15 @@ export const GeneratorForm = () => {
 
         <div className="space-y-2">
           {uploadedDocs.length === 0 && !showUpload && (
-            <div className="text-center py-6 border border-dashed border-zinc-800 rounded-lg bg-zinc-900/30">
-              <p className="text-xs text-zinc-500">No documents uploaded yet.</p>
+            <div className="text-center py-6 border border-dashed border-border rounded-lg bg-muted/30">
+              <p className="text-xs text-muted-foreground">No documents uploaded yet.</p>
             </div>
           )}
           {uploadedDocs.map(doc => (
-            <div key={doc.id} className="flex items-center justify-between p-2 rounded-lg bg-zinc-900 border border-zinc-800 group">
+            <div key={doc.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/50 border border-border group">
               <div className="flex items-center gap-2 min-w-0">
                 <FileCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
-                <span className="text-xs text-zinc-300 truncate">{doc.name}</span>
+                <span className="text-xs text-foreground truncate">{doc.name}</span>
               </div>
               <button 
                 onClick={() => removeDoc(doc.id)}
@@ -165,7 +165,7 @@ export const GeneratorForm = () => {
               <FormItem>
                 <FormLabel>Topic / Focus Area</FormLabel>
                 <FormControl>
-                  <Input placeholder="e.g. Chemical Bonds" className="bg-zinc-900 border-zinc-800 focus:ring-indigo-500" {...field} />
+                  <Input placeholder="e.g. Chemical Bonds" className="bg-muted/50 border-border focus:ring-primary" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -181,11 +181,11 @@ export const GeneratorForm = () => {
                   <FormLabel>Difficulty</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
-                      <SelectTrigger className="bg-zinc-900 border-zinc-800">
+                      <SelectTrigger className="bg-muted/50 border-border">
                         <SelectValue placeholder="Select" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                    <SelectContent className="bg-popover border-border text-popover-foreground">
                       <SelectItem value="easy">Easy</SelectItem>
                       <SelectItem value="medium">Medium</SelectItem>
                       <SelectItem value="hard">Hard</SelectItem>
@@ -203,7 +203,7 @@ export const GeneratorForm = () => {
                 <FormItem>
                   <FormLabel>Count</FormLabel>
                   <FormControl>
-                    <Input type="number" min="1" max="50" className="bg-zinc-900 border-zinc-800" {...field} />
+                    <Input type="number" min="1" max="50" className="bg-muted/50 border-border" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -211,11 +211,11 @@ export const GeneratorForm = () => {
             />
           </div>
 
-          <div className="pt-4 sticky bottom-0 bg-zinc-950 pb-4">
+          <div className="pt-4 sticky bottom-0 bg-background pb-4">
             <Button 
               type="submit" 
               disabled={isGenerating || uploadedDocs.length === 0} 
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-900/20 gap-2"
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg gap-2"
             >
               {isGenerating ? "Analyzing & Generating..." : "Generate Questions"}
             </Button>
@@ -224,7 +224,7 @@ export const GeneratorForm = () => {
       </Form>
       
       {generatedResult && (
-        <div className="mt-6 border-t border-zinc-800 pt-6 animate-in fade-in duration-500">
+          <div className="mt-6 border-t border-border pt-6 animate-in fade-in duration-500">
           <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
             Generated Output
           </h3>
@@ -232,25 +232,25 @@ export const GeneratorForm = () => {
           <div className="space-y-6">
             {generatedResult.sections?.map((section: any, sIdx: number) => (
               <div key={sIdx} className="space-y-4">
-                <h4 className="text-sm font-semibold text-indigo-400 uppercase tracking-wider">{section.title}</h4>
+                <h4 className="text-sm font-semibold text-primary uppercase tracking-wider">{section.title}</h4>
                 <div className="space-y-3">
                   {section.questions?.map((q: any, qIdx: number) => (
-                    <div key={qIdx} className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl space-y-2">
+                    <div key={qIdx} className="p-3 bg-muted/50 border border-border rounded-xl space-y-2">
                       <div className="flex justify-between items-start gap-2">
-                        <p className="font-medium text-sm text-zinc-100">{q.content}</p>
-                        <span className="text-[10px] bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-400 font-mono">{q.marks}m</span>
+                        <p className="font-medium text-sm text-foreground">{q.content}</p>
+                        <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-mono">{q.marks}m</span>
                       </div>
                       {q.options && q.options.length > 0 && (
                         <div className="grid grid-cols-2 gap-2 mt-2">
                           {q.options.map((opt: string, oIdx: number) => (
-                            <div key={oIdx} className="text-[11px] text-zinc-400 border border-zinc-800 p-1.5 rounded bg-zinc-950/50">
+                            <div key={oIdx} className="text-[11px] text-muted-foreground border border-border p-1.5 rounded bg-background/50">
                               {String.fromCharCode(65 + oIdx)}. {opt}
                             </div>
                           ))}
                         </div>
                       )}
-                      <div className="mt-2 pt-2 border-t border-zinc-800">
-                         <p className="text-[10px] text-green-500/80 font-medium truncate">Ans: {q.answer}</p>
+                      <div className="mt-2 pt-2 border-t border-border">
+                         <p className="text-[10px] text-green-600 font-medium truncate">Ans: {q.answer}</p>
                       </div>
                     </div>
                   ))}
@@ -263,14 +263,14 @@ export const GeneratorForm = () => {
             {!isGenerating && (
               <>
                 <Button 
-                  className="w-full bg-zinc-100 text-zinc-900 hover:bg-white font-semibold"
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
                   onClick={handleAddToEditor}
                 >
                   Insert All into Editor
                 </Button>
                 <Button 
                   variant="ghost"
-                  className="w-full text-zinc-400 hover:text-zinc-200"
+                  className="w-full text-muted-foreground hover:text-foreground"
                   onClick={() => setGeneratedResult(null)}
                 >
                   Clear Results
