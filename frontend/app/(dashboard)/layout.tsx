@@ -11,7 +11,7 @@ export default function DashboardLayout({
 }) {
   return (
     <ProtectedLayout>
-      <div className="h-screen relative bg-zinc-900 overflow-hidden flex">
+      <div className="h-screen relative bg-background overflow-hidden flex">
         <div className="hidden h-full md:flex md:w-72 md:flex-col md:fixed md:inset-y-0 z-[80]">
           <Sidebar />
         </div>

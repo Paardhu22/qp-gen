@@ -17,7 +17,7 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-zinc-950 text-zinc-400">
+      <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
         Checking your session...
       </div>
     );
@@ -25,7 +25,7 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
 
   if (!data?.user) {
     return (
-      <div className="flex h-screen items-center justify-center bg-zinc-950 text-zinc-400">
+      <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
         Redirecting to login...
       </div>
     );
