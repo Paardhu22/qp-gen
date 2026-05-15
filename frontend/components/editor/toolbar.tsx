@@ -99,7 +99,7 @@ const ToolbarBtn: React.FC<ToolbarBtnProps> = ({
     className={cn(
       "h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed",
       active && "bg-accent text-primary ring-1 ring-primary/30",
-      className
+      className,
     )}
   >
     {children}
@@ -188,7 +188,7 @@ const ColorPicker: React.FC<{
                 }}
                 className={cn(
                   "h-6 w-6 rounded border border-zinc-700 hover:scale-110 transition-transform",
-                  currentColor === color && "ring-2 ring-indigo-500"
+                  currentColor === color && "ring-2 ring-indigo-500",
                 )}
                 style={{ backgroundColor: color }}
               />
@@ -221,7 +221,10 @@ const MATH_TEMPLATES = [
   { label: "Integral", latex: "\\int_{a}^{b} x^2 dx" },
   { label: "Summation", latex: "\\sum_{i=1}^{n} i" },
   { label: "Limit", latex: "\\lim_{x \\to \\infty} f(x)" },
-  { label: "Matrix", latex: "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}" },
+  {
+    label: "Matrix",
+    latex: "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}",
+  },
   { label: "Square Root", latex: "\\sqrt{x^2 + y^2}" },
 ];
 
@@ -232,7 +235,10 @@ const CHEMISTRY_TEMPLATES = [
   { label: "Equilibrium", latex: "\\rightleftharpoons" },
   { label: "Sulfuric Acid", latex: "\\text{H}_2\\text{SO}_4" },
   { label: "Glucose", latex: "\\text{C}_6\\text{H}_{12}\\text{O}_6" },
-  { label: "Simple Reaction", latex: "\\text{A} + \\text{B} \\rightarrow \\text{C}" },
+  {
+    label: "Simple Reaction",
+    latex: "\\text{A} + \\text{B} \\rightarrow \\text{C}",
+  },
 ];
 
 const ChemistryPicker: React.FC<{
@@ -259,7 +265,7 @@ const ChemistryPicker: React.FC<{
         title="Insert Chemistry"
         className={cn(
           "h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all",
-          open && "bg-accent text-primary"
+          open && "bg-accent text-primary",
         )}
       >
         <FlaskConical className="h-3.5 w-3.5" />
@@ -316,7 +322,7 @@ const MathPicker: React.FC<{
         title="Insert Math"
         className={cn(
           "h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all",
-          open && "bg-accent text-primary"
+          open && "bg-accent text-primary",
         )}
       >
         <Sigma className="h-3.5 w-3.5" />
@@ -429,7 +435,10 @@ interface ToolbarProps {
   onFindReplace?: () => void;
 }
 
-export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace }) => {
+export const EditorToolbar: React.FC<ToolbarProps> = ({
+  editor,
+  onFindReplace,
+}) => {
   const [totalMarks, setTotalMarks] = useState(0);
 
   const calculateTotalMarks = useCallback(() => {
@@ -447,15 +456,13 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
   }, [editor?.state.doc, calculateTotalMarks]);
 
   // Get current text attributes
-  const currentFontFamily =
-    editor.getAttributes("textStyle")?.fontFamily || "";
-  const currentFontSize =
-    editor.getAttributes("textStyle")?.fontSize || "";
+  const currentFontFamily = editor.getAttributes("textStyle")?.fontFamily || "";
+  const currentFontSize = editor.getAttributes("textStyle")?.fontSize || "";
   const currentTextColor = editor.getAttributes("textStyle")?.color || "";
 
   // Detect current heading
   const currentHeading = HEADING_LEVELS.find(
-    (h) => h.value > 0 && editor.isActive("heading", { level: h.value })
+    (h) => h.value > 0 && editor.isActive("heading", { level: h.value }),
   );
 
   const handleExportPDF = async () => {
@@ -612,9 +619,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
         />
         <ColorPicker
           label="Highlight"
-          currentColor={
-            editor.getAttributes("highlight")?.color || ""
-          }
+          currentColor={editor.getAttributes("highlight")?.color || ""}
           onSelect={(color) =>
             editor.chain().focus().toggleHighlight({ color }).run()
           }
@@ -756,7 +761,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
                 };
                 reader.readAsDataURL(file);
               }
-              e.target.value = ''; // Reset input
+              e.target.value = ""; // Reset input
             }}
           />
           <div
@@ -778,11 +783,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
         {/* Page Break */}
         <ToolbarBtn
           onClick={() =>
-            editor
-              .chain()
-              .focus()
-              .insertContent({ type: "pageBreak" })
-              .run()
+            editor.chain().focus().insertContent({ type: "pageBreak" }).run()
           }
           title="Page Break (Ctrl+Enter)"
         >
@@ -794,22 +795,36 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
         {/* Math & Chemistry */}
         <MathPicker
           onInsertBlock={(latex) => {
-            editor.chain().focus().insertContent({ type: "mathBlock", attrs: { latex } }).run();
+            editor
+              .chain()
+              .focus()
+              .insertContent({ type: "mathBlock", attrs: { latex } })
+              .run();
           }}
           onInsertInline={(latex) => {
-            editor.chain().focus().insertContent({ type: "inlineMath", attrs: { latex } }).run();
+            editor
+              .chain()
+              .focus()
+              .insertContent({ type: "inlineMath", attrs: { latex } })
+              .run();
           }}
         />
-        
-        <ChemistryPicker 
+
+        <ChemistryPicker
           onInsertInline={(latex) => {
-            editor.chain().focus().insertContent({ type: "inlineMath", attrs: { latex } }).run();
+            editor
+              .chain()
+              .focus()
+              .insertContent({ type: "inlineMath", attrs: { latex } })
+              .run();
           }}
         />
 
         {/* Drawing Canvas */}
         <ToolbarBtn
-          onClick={() => editor.chain().focus().insertContent({ type: "drawingBlock" }).run()}
+          onClick={() =>
+            editor.chain().focus().insertContent({ type: "drawingBlock" }).run()
+          }
           title="Insert Drawing Canvas"
         >
           <PenTool className="h-3.5 w-3.5" />
@@ -827,10 +842,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
 
         {/* Find/Replace */}
         {onFindReplace && (
-          <ToolbarBtn
-            onClick={onFindReplace}
-            title="Find & Replace (Ctrl+F)"
-          >
+          <ToolbarBtn onClick={onFindReplace} title="Find & Replace (Ctrl+F)">
             <Search className="h-3.5 w-3.5" />
           </ToolbarBtn>
         )}
@@ -876,7 +888,50 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
             variant="outline"
             size="sm"
             className="h-7 text-[10px] px-4 font-medium"
-            onClick={() => useEditorStore.getState().setSaveModalOpen(true)}
+            onClick={() => {
+              const store = useEditorStore.getState();
+
+              // Capture current editor HTML for the save modal
+              store.setEditorContent(editor.getHTML());
+
+              // Extract every questionBlock from the document as a plain Question object
+              const questions: any[] = [];
+              editor.state.doc.descendants((node: any) => {
+                if (node.type.name !== "questionBlock") return;
+                let questionText = "";
+                const options: string[] = [];
+                node.forEach((child: any) => {
+                  if (child.type.name === "paragraph" && !questionText) {
+                    child.forEach((inline: any) => {
+                      if (inline.text) questionText += inline.text;
+                    });
+                  }
+                  if (
+                    child.type.name === "bulletList" ||
+                    child.type.name === "orderedList"
+                  ) {
+                    child.forEach((li: any) => {
+                      let optText = "";
+                      li.forEach((p: any) => {
+                        p.forEach((inline: any) => {
+                          if (inline.text) optText += inline.text;
+                        });
+                      });
+                      if (optText) options.push(optText);
+                    });
+                  }
+                });
+                questions.push({
+                  content: questionText,
+                  type: options.length > 0 ? "mcq" : "short",
+                  marks: node.attrs.marks ?? 1,
+                  options,
+                });
+              });
+              store.setQuestionsToSave(questions);
+
+              store.setSaveModalOpen(true);
+            }}
           >
             <Save className="h-3 w-3 mr-1" /> Save
           </Button>
@@ -916,9 +971,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
                 content: [
                   {
                     type: "paragraph",
-                    content: [
-                      { type: "text", text: "Enter question here..." },
-                    ],
+                    content: [{ type: "text", text: "Enter question here..." }],
                   },
                 ],
               })
@@ -1015,7 +1068,9 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({ editor, onFindReplace })
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
-            if (window.confirm("Are you sure you want to clear the entire paper?")) {
+            if (
+              window.confirm("Are you sure you want to clear the entire paper?")
+            ) {
               editor.commands.clearContent();
             }
           }}

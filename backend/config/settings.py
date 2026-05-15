@@ -142,3 +142,22 @@ CSRF_COOKIE_SAMESITE = "Lax"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
 OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+
+# Cache configuration for improved API performance
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "qp-gen-cache",
+        "OPTIONS": {
+            "MAX_ENTRIES": 1000,
+        },
+        "TIMEOUT": 300,  # 5 minutes default
+    }
+}
+
+# Database connection pooling for faster response times
+DATABASES["default"]["CONN_MAX_AGE"] = 600  # Keep connections alive for 10 minutes
+DATABASES["default"]["OPTIONS"] = {
+    "connect_timeout": 10,
+    "application_name": "qp-gen",
+}

@@ -37,3 +37,12 @@ class PaperDetailSerializer(serializers.ModelSerializer):
 class SaveQuestionsSerializer(serializers.Serializer):
     projectName = serializers.CharField()
     questions = QuestionSerializer(many=True)
+
+
+class SavePaperSerializer(serializers.Serializer):
+    projectName = serializers.CharField()
+    title = serializers.CharField()
+    content = serializers.CharField()
+    questions = serializers.ListField(
+        child=serializers.DictField(), required=False, default=list
+    )
