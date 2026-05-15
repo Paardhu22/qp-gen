@@ -2,11 +2,19 @@ from typing import List
 
 from django.db import transaction
 
-from apps.projects.models import Project, Question
+from apps.projects.models import Project, Question, Paper
 
 
 def list_projects_for_user(user) -> List[Project]:
     return Project.objects.filter(user=user).prefetch_related("questions").order_by("-created_at")
+
+
+def list_papers_for_user(user) -> List[Paper]:
+    return Paper.objects.filter(user=user).select_related("project").order_by("-updated_at")
+
+
+def get_paper_for_user(user, paper_id: str) -> Paper:
+    return Paper.objects.select_related("project").get(id=paper_id, user=user)
 
 
 def save_questions_to_project(user, project_name: str, questions: List[dict]) -> Project:

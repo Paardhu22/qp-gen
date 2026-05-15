@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.projects.models import Project, Question
+from apps.projects.models import Project, Question, Paper
 
 
 class QuestionSerializer(serializers.ModelSerializer):
@@ -16,6 +16,22 @@ class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = ["id", "name", "description", "questions", "created_at", "updated_at"]
+
+
+class PaperListSerializer(serializers.ModelSerializer):
+    projectName = serializers.CharField(source="project.name", read_only=True)
+
+    class Meta:
+        model = Paper
+        fields = ["id", "title", "projectName", "created_at", "updated_at"]
+
+
+class PaperDetailSerializer(serializers.ModelSerializer):
+    projectName = serializers.CharField(source="project.name", read_only=True)
+
+    class Meta:
+        model = Paper
+        fields = ["id", "title", "content", "projectName", "created_at", "updated_at"]
 
 
 class SaveQuestionsSerializer(serializers.Serializer):
