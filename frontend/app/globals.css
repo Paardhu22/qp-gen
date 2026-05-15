@@ -129,3 +129,34 @@
         @apply font-sans;
     }
 }
+
+/* ===== Editor Usability ===== */
+
+/* The outer wrapper shows a default arrow so dragging feels natural */
+.question-block {
+    cursor: default;
+}
+
+/* The CONTENT area (and everything inside it) must always show a text cursor
+   so users can click to position their caret. The !important is required because
+   ProseMirror's own [contenteditable] styles and the parent cursor:default both
+   fight this rule. */
+.question-block .question-content,
+.question-block [data-node-view-content],
+.question-block [data-node-view-content] * {
+    cursor: text !important;
+}
+
+/* Controls */
+.question-block [contenteditable="false"] button {
+    cursor: pointer !important;
+}
+.question-block [contenteditable="false"] input {
+    cursor: text !important;
+}
+
+/* Make the blinking text caret always visible on the light paper (#fcfbf9)
+   regardless of the OS / browser theme. */
+#tiptap-paper-container {
+    caret-color: #111111 !important;
+}

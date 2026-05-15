@@ -120,6 +120,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
         dropcursor: false,
         gapcursor: false,
         hardBreak: false,
+        underline: false,
       }),
       Typography,
       Underline,
@@ -198,7 +199,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     debounce((editor: any) => {
       updateQuestionNumbers(editor);
     }, 800),
-    []
+    [],
   );
 
   // Handle question insertion from AI generator
@@ -211,32 +212,68 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     if (initialContent === undefined) return;
     if (lastLoadedContentRef.current === initialContent) return;
 
-    editor.commands.setContent(initialContent || "", false);
-    lastLoadedContentRef.current = initialContent;
+    // Mark as loaded immediately so a rapid re-render doesn't fire this twice.
+    const content = initialContent;
+    lastLoadedContentRef.current = content;
+
+    // Defer setContent to avoid "flushSync was called from inside a lifecycle
+    // method" — TipTap v3 calls flushSync internally when updating React
+    // NodeViews, which React 19 rejects when already inside a render cycle.
+    setTimeout(() => {
+      editor.commands.setContent(content || "", false);
+    }, 0);
   }, [editor, initialContent]);
 
   useEffect(() => {
-    if (questionsToAppend.length > 0 && editor) {
-      questionsToAppend.forEach((q) => {
-        editor
-          .chain()
-          .focus()
-          .insertContent({
-            type: "questionBlock",
-            attrs: {
-              marks: q.marks || 1,
-            },
-            content: [
-              {
-                type: "paragraph",
-                content: [{ type: "text", text: q.content }],
-              },
-            ],
-          })
-          .run();
+    if (questionsToAppend.length === 0 || !editor) return;
+
+    // Capture and clear immediately so this effect doesn't re-fire
+    const questions = [...questionsToAppend];
+    clearQuestionsToAppend();
+
+    // Defer all insertContent calls to after the current render cycle to
+    // avoid "flushSync was called from inside a lifecycle method" errors
+    // (TipTap v3 uses flushSync internally when updating React NodeViews).
+    setTimeout(() => {
+      questions.forEach((q) => {
+        const questionContent: any[] = [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: q.content }],
+          },
+        ];
+
+        if (q.options && q.options.length > 0) {
+          questionContent.push({
+            type: "bulletList",
+            content: q.options.map((opt: string) => ({
+              type: "listItem",
+              content: [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: opt }],
+                },
+              ],
+            })),
+          });
+        }
+
+        // insertContentAt with doc.content.size always inserts at the
+        // document root level — NOT inside the previous question's content
+        // (which happens with focus().insertContent() when the cursor is
+        // still inside a bullet-list of the last inserted question).
+        // We use editor.commands (not chain) so the state is updated
+        // synchronously after each call, keeping doc.content.size correct
+        // for the next iteration.
+        editor.commands.insertContentAt(editor.state.doc.content.size, {
+          type: "questionBlock",
+          attrs: {
+            marks: q.marks || 1,
+          },
+          content: questionContent,
+        });
       });
-      clearQuestionsToAppend();
-    }
+    }, 0);
   }, [questionsToAppend, editor, clearQuestionsToAppend]);
 
   // Find/Replace state
@@ -258,9 +295,17 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-background overflow-hidden">
-      {editor && <EditorToolbar editor={editor} onFindReplace={() => setShowFindReplace(v => !v)} />}
+      {editor && (
+        <EditorToolbar
+          editor={editor}
+          onFindReplace={() => setShowFindReplace((v) => !v)}
+        />
+      )}
       {editor && showFindReplace && (
-        <FindReplace editor={editor} onClose={() => setShowFindReplace(false)} />
+        <FindReplace
+          editor={editor}
+          onClose={() => setShowFindReplace(false)}
+        />
       )}
       <div className="flex-1 overflow-y-auto custom-scrollbar bg-background print:p-0">
         <EditorContent editor={editor} className="h-full pb-32" />
@@ -280,6 +325,12 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
         .ProseMirror {
           color: #000000 !important;
+          caret-color: #111111 !important;
+        }
+        /* Ensure text cursor is always visible inside question content */
+        .question-block [data-node-view-content],
+        .question-block [data-node-view-content] * {
+          cursor: text !important;
         }
         /* ===== Question Block Styles ===== */
         .question-block {
@@ -293,12 +344,18 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           font-family: 'Times New Roman', serif;
           font-size: 0.95rem;
         }
-        .question-block .question-marks {
-          opacity: 0.6;
-          transition: opacity 0.2s;
+        /* ===== Question Block Controls Cursor Override ===== */
+        /* ProseMirror sets cursor:text on all editable content. These rules
+           ensure the non-editable controls always show the correct cursor
+           regardless of ProseMirror's own cascade. */
+        .question-block [contenteditable="false"] {
+          cursor: default !important;
         }
-        .question-block:hover .question-marks {
-          opacity: 1;
+        .question-block [contenteditable="false"] button {
+          cursor: pointer !important;
+        }
+        .question-block [contenteditable="false"] input[type="number"] {
+          cursor: text !important;
         }
 
         /* ===== Section Block ===== */

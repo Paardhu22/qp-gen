@@ -179,7 +179,7 @@ export const GeneratorForm = () => {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Difficulty</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="bg-muted/50 border-border">
                         <SelectValue placeholder="Select" />
