@@ -5,8 +5,8 @@ import { Providers } from "@/components/providers";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
-  title: "Paper Gen - AI Question Paper Generator",
-  description: "AI-powered Question Paper Generator SaaS",
+  title: "Paper Gen -  Question Paper Generator",
+  description: "Question Paper Generator SaaS",
 };
 
 export default function RootLayout({

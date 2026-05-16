@@ -153,7 +153,7 @@ export const GeneratorForm = () => {
       console.error(error);
       toast.error(
         error?.message ||
-          "Failed to generate questions. Check whether your documents contain relevant content.",
+        "Failed to generate questions. Check whether your documents contain relevant content.",
       );
     } finally {
       setIsGenerating(false);
@@ -201,7 +201,7 @@ export const GeneratorForm = () => {
     <div className="h-full flex flex-col p-4 bg-white dark:bg-zinc-950 text-zinc-600 dark:text-zinc-300 overflow-y-auto custom-scrollbar">
       <div className="mb-6">
         <h2 className="text-lg font-bold text-zinc-900 dark:text-white mb-1">
-          AI Question Generator
+          Question Generator
         </h2>
         <p className="text-xs text-zinc-500">
           Questions are generated STRICTLY from your source material.

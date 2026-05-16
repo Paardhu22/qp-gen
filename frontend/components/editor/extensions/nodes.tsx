@@ -13,18 +13,18 @@ import { Trash } from "lucide-react";
 
 const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
   return (
-    <NodeViewWrapper className="question-block relative my-3 py-2 pl-10 border-l-2 border-transparent hover:border-indigo-500/50 transition-colors group">
+    <NodeViewWrapper className="question-block relative flex items-baseline gap-2 my-3 py-2 border-l-2 border-transparent hover:border-indigo-500/50 transition-colors group">
       {/* Question number — always visible, non-editable */}
-      <span
-        className="absolute left-1 top-2.5 w-8 text-right font-bold text-zinc-400 text-sm select-none"
+      <div
+        className="question-number w-10 text-right font-bold text-zinc-400 text-sm leading-[1.7] select-none shrink-0"
         contentEditable={false}
         style={{ cursor: "default" }}
       >
         {node.attrs.number ? `${node.attrs.number}.` : ""}
-      </span>
+      </div>
 
       {/* Content — right padding reserves space so text never slides under controls */}
-      <NodeViewContent className="question-content pr-28" />
+      <NodeViewContent className="question-content min-w-0 flex-1 pr-28" />
 
       {/* Controls — positioned inside the wrapper's right padding area */}
       <div

@@ -805,12 +805,12 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           <Minus className="h-3.5 w-3.5" />
         </ToolbarBtn>
 
-        {/* Page Break */}
+        {/* Insert Page Break */}
         <ToolbarBtn
           onClick={() =>
             editor.chain().focus().insertContent({ type: "pageBreak" }).run()
           }
-          title="Page Break (Ctrl+Enter)"
+          title="Insert Page Break (Ctrl+Enter)"
         >
           <SeparatorHorizontal className="h-3.5 w-3.5" />
         </ToolbarBtn>

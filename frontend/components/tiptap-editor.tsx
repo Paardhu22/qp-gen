@@ -297,10 +297,14 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
       });
     });
 
-    const insertPosition = editor.state.doc.content.size;
-    editor.commands.insertContentAt(insertPosition, contentToInsert);
-    editor.commands.focus("end");
-    scrollToDocumentPosition(editor, insertPosition);
+    queueMicrotask(() => {
+      if (editor.isDestroyed) return;
+
+      const insertPosition = editor.state.doc.content.size;
+      editor.commands.insertContentAt(insertPosition, contentToInsert);
+      editor.commands.focus("end");
+      scrollToDocumentPosition(editor, insertPosition);
+    });
   }, [questionsToAppend, editor, clearQuestionsToAppend]);
 
   // Handle section-wise insertion from AI generator
@@ -350,10 +354,14 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
       });
     });
 
-    const insertPosition = editor.state.doc.content.size;
-    editor.commands.insertContentAt(insertPosition, contentToInsert);
-    editor.commands.focus("end");
-    scrollToDocumentPosition(editor, insertPosition);
+    queueMicrotask(() => {
+      if (editor.isDestroyed) return;
+
+      const insertPosition = editor.state.doc.content.size;
+      editor.commands.insertContentAt(insertPosition, contentToInsert);
+      editor.commands.focus("end");
+      scrollToDocumentPosition(editor, insertPosition);
+    });
   }, [sectionsToAppend, editor, clearSectionsToAppend]);
 
   // Find/Replace state
@@ -387,9 +395,10 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
         .paper-container {
           width: 210mm;
           min-height: 297mm;
-          max-width: 210mm;
-          border: 1px solid rgba(63, 63, 70, 0.5);
-          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+          max-width: none;
+          margin: 2rem auto;
+          border: 1px solid rgba(63, 63, 70, 0.25);
+          box-shadow: 0 10px 30px rgba(0,0,0,0.1);
           background: white !important;
           color: black !important;
         }
@@ -458,6 +467,17 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           position: relative;
           transition: border-color 0.2s;
         }
+        /* Force the first paragraph in a question to have zero top margin */
+        .question-block [data-node-view-content] > div > p:first-child,
+        .question-block [data-node-view-content] > p:first-child,
+        .question-block .question-content > div > p:first-child,
+        .question-block .question-content > p:first-child {
+          margin-top: 0 !important;
+          padding-top: 0 !important;
+        }
+        .question-block .question-content p:first-child {
+          margin-top: 0 !important;
+        }
         .question-block:hover {
           border-left-color: rgba(99, 102, 241, 0.5);
         }
@@ -502,7 +522,18 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
         /* ===== Page Break ===== */
         .page-break {
+          margin: 2rem -5rem;
+          border-top: 2px dashed rgba(99, 102, 241, 0.45);
           page-break-after: always;
+          break-after: page;
+          position: relative;
+        }
+        .page-break span {
+          background: white;
+          color: #71717a;
+          border: 1px solid rgba(212, 212, 216, 0.9);
+          border-radius: 9999px;
+          padding: 0.2rem 0.65rem;
         }
 
         /* ===== Focus Styles ===== */
@@ -570,6 +601,19 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           list-style-type: decimal;
           padding-left: 1.5em;
         }
+
+        .question-block ul,
+        .question-block ol {
+          list-style-type: lower-alpha;
+          padding-left: 1.5rem;
+        }
+
+        .question-block ul li p,
+        .question-block ol li p {
+          display: inline;
+          margin: 0 !important;
+        }
+
         .ProseMirror ul ul {
           list-style-type: circle;
         }
@@ -581,6 +625,32 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
         }
         .ProseMirror ol ol ol {
           list-style-type: lower-roman;
+        }
+
+        .question-block ul,
+        .question-block ol {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          align-items: start;
+          column-gap: 2rem;
+          row-gap: 0.5rem;
+          margin-top: 0.5rem !important;
+        }
+
+        .question-block ul li,
+        .question-block ol li {
+          list-style-position: inside;
+          min-width: 0;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          align-self: start;
+        }
+
+        .question-block ul li p,
+        .question-block ol li p {
+          margin: 0 !important;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
 
         /* ===== Placeholder ===== */
@@ -624,6 +694,9 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           }
           .page-break {
             border: none !important;
+            page-break-after: always;
+            break-after: page;
+            margin: 0 !important;
           }
           .page-break span {
             display: none !important;
