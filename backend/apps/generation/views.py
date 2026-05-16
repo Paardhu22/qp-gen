@@ -21,6 +21,7 @@ class QuestionGenerationStreamView(APIView):
             topic=serializer.validated_data["topic"],
             count=serializer.validated_data["count"],
             difficulty=serializer.validated_data["difficulty"],
+            instructions=serializer.validated_data["instructions"],
         )
 
         response = StreamingHttpResponse(stream, content_type="text/event-stream")

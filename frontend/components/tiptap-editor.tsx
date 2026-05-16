@@ -202,7 +202,12 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
   );
 
   // Handle question insertion from AI generator
-  const { questionsToAppend, clearQuestionsToAppend } = useEditorStore();
+  const {
+    questionsToAppend,
+    clearQuestionsToAppend,
+    sectionsToAppend,
+    clearSectionsToAppend,
+  } = useEditorStore();
 
   const lastLoadedContentRef = useRef<string | null>(null);
 
@@ -242,7 +247,8 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           },
         ];
 
-        if (q.options && q.options.length > 0) {
+        // TF questions have no separate options — the content already contains (True/False)
+        if (q.type !== "TF" && q.options && q.options.length > 0) {
           questionContent.push({
             type: "bulletList",
             content: q.options.map((opt: string) => ({
@@ -274,6 +280,56 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
       });
     }, 0);
   }, [questionsToAppend, editor, clearQuestionsToAppend]);
+
+  // Handle section-wise insertion from AI generator
+  useEffect(() => {
+    if (sectionsToAppend.length === 0 || !editor) return;
+
+    const sections = [...sectionsToAppend];
+    clearSectionsToAppend();
+
+    setTimeout(() => {
+      sections.forEach((section) => {
+        // Insert section header block
+        editor.commands.insertContentAt(editor.state.doc.content.size, {
+          type: "sectionBlock",
+          content: [{ type: "text", text: section.title }],
+        });
+
+        // Insert each question in this section
+        section.questions.forEach((q) => {
+          const questionContent: any[] = [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: q.content }],
+            },
+          ];
+
+          // TF questions have no separate options — the content already contains (True/False)
+          if (q.type !== "TF" && q.options && q.options.length > 0) {
+            questionContent.push({
+              type: "bulletList",
+              content: q.options.map((opt: string) => ({
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: opt }],
+                  },
+                ],
+              })),
+            });
+          }
+
+          editor.commands.insertContentAt(editor.state.doc.content.size, {
+            type: "questionBlock",
+            attrs: { marks: q.marks || 1 },
+            content: questionContent,
+          });
+        });
+      });
+    }, 0);
+  }, [sectionsToAppend, editor, clearSectionsToAppend]);
 
   // Find/Replace state
   const [showFindReplace, setShowFindReplace] = useState(false);

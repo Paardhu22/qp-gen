@@ -8,14 +8,23 @@ interface Question {
   marks: number;
 }
 
+export interface SectionToAppend {
+  title: string;
+  questions: Question[];
+}
+
 interface EditorState {
   questionsToAppend: Question[];
+  sectionsToAppend: SectionToAppend[];
   questionsToSave: Question[];
   saveModalOpen: boolean;
   editorContent: string;
 
   appendQuestions: (questions: Question[]) => void;
   clearQuestionsToAppend: () => void;
+
+  appendSections: (sections: SectionToAppend[]) => void;
+  clearSectionsToAppend: () => void;
 
   setQuestionsToSave: (questions: Question[]) => void;
   setSaveModalOpen: (isOpen: boolean) => void;
@@ -24,6 +33,7 @@ interface EditorState {
 
 export const useEditorStore = create<EditorState>((set) => ({
   questionsToAppend: [],
+  sectionsToAppend: [],
   questionsToSave: [],
   saveModalOpen: false,
 
@@ -32,6 +42,12 @@ export const useEditorStore = create<EditorState>((set) => ({
       questionsToAppend: [...state.questionsToAppend, ...questions],
     })),
   clearQuestionsToAppend: () => set({ questionsToAppend: [] }),
+
+  appendSections: (sections) =>
+    set((state) => ({
+      sectionsToAppend: [...state.sectionsToAppend, ...sections],
+    })),
+  clearSectionsToAppend: () => set({ sectionsToAppend: [] }),
 
   editorContent: "",
   setEditorContent: (content) => set({ editorContent: content }),
