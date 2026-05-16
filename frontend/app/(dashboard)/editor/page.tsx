@@ -14,12 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   fetchPaper,
   fetchProjects,
@@ -52,6 +47,65 @@ export default function EditorPage() {
   const [paperLoading, setPaperLoading] = useState(false);
   const [paperError, setPaperError] = useState<string | null>(null);
   const [currentPaperId, setCurrentPaperId] = useState<string | null>(null);
+
+  // Resizable sidebar
+  const SIDEBAR_MIN = 260;
+  const SIDEBAR_MAX = 600;
+  const SIDEBAR_DEFAULT = 360;
+  const STORAGE_KEY = "editor-sidebar-width";
+
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return SIDEBAR_DEFAULT;
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const n = parseInt(saved, 10);
+      if (!isNaN(n) && n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) return n;
+    }
+    return SIDEBAR_DEFAULT;
+  });
+
+  const isDragging = useRef(false);
+  const dragStartX = useRef(0);
+  const dragStartWidth = useRef(0);
+
+  const onDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      isDragging.current = true;
+      dragStartX.current = e.clientX;
+      dragStartWidth.current = sidebarWidth;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    },
+    [sidebarWidth],
+  );
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      const delta = e.clientX - dragStartX.current;
+      const next = Math.min(
+        SIDEBAR_MAX,
+        Math.max(SIDEBAR_MIN, dragStartWidth.current + delta),
+      );
+      setSidebarWidth(next);
+    };
+    const onMouseUp = () => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setSidebarWidth((prev) => {
+        localStorage.setItem(STORAGE_KEY, String(prev));
+        return prev;
+      });
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
 
   const searchParams = useSearchParams();
   const paperId = searchParams.get("paperId");
@@ -144,8 +198,27 @@ export default function EditorPage() {
   return (
     <div className="flex h-[calc(100vh-4.5rem)] w-full overflow-hidden bg-zinc-950">
       {/* Left Panel: Generator Form */}
-      <div className="w-[380px] flex-shrink-0 border-r border-zinc-800 bg-zinc-950 flex flex-col h-full overflow-hidden">
+      <div
+        className="flex-shrink-0 bg-zinc-950 flex flex-col h-full overflow-hidden border-r border-zinc-800"
+        style={{ width: sidebarWidth }}
+      >
         <GeneratorForm />
+      </div>
+
+      {/* Drag handle */}
+      <div
+        onMouseDown={onDragStart}
+        className="flex-shrink-0 w-1.5 h-full cursor-col-resize bg-zinc-800 hover:bg-indigo-500 active:bg-indigo-400 transition-colors group relative z-10"
+        title="Drag to resize"
+      >
+        {/* Grip dots */}
+        <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 flex flex-col items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="w-0.5 h-0.5 rounded-full bg-white" />
+          <div className="w-0.5 h-0.5 rounded-full bg-white" />
+          <div className="w-0.5 h-0.5 rounded-full bg-white" />
+          <div className="w-0.5 h-0.5 rounded-full bg-white" />
+          <div className="w-0.5 h-0.5 rounded-full bg-white" />
+        </div>
       </div>
 
       {/* Right Panel: Tiptap Editor */}

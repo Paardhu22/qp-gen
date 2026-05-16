@@ -12,7 +12,7 @@ def _sse_event(data: dict, event: str = "update") -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-def stream_generated_questions(user, document_ids: List[str], topic: str, count: int, difficulty: str) -> Iterable[str]:
+def stream_generated_questions(user, document_ids: List[str], topic: str, count: int, difficulty: str, instructions: str = "") -> Iterable[str]:
     context = retrieve_relevant_chunks(topic, document_ids, 15)
     if not context:
         yield _sse_event({"error": "No relevant content found in the uploaded documents."}, event="error")
@@ -30,7 +30,7 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
         "4. If there is insufficient context to generate the requested questions, generate only what is possible.\n"
         "5. Provide a mix of types: MCQ, SHORT, LONG, and TF.\n"
         "6. For MCQ, provide exactly 4 options.\n"
-        "7. For TF, the options should be ['True', 'False'].\n"
+        "7. For TF questions: do NOT include an options array. Instead, prefix the question content with 'State whether the given statement is true or false. ' and append ' (True/False)' at the end of the content field. Leave options as an empty list [].\n"
         "8. Return the output as a valid JSON object matching the schema below.\n\n"
         "Schema:\n"
         "{\n"
@@ -41,7 +41,7 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
         "        {\n"
         "          \"content\": \"Question text\",\n"
         "          \"type\": \"MCQ | SHORT | LONG | TF\",\n"
-        "          \"options\": [\"Option 1\", \"Option 2\", \"Option 3\", \"Option 4\"], (for MCQ/TF)\n"
+        "          \"options\": [\"Option 1\", \"Option 2\", \"Option 3\", \"Option 4\"], (for MCQ only; empty [] for TF)\n"
         "          \"answer\": \"Correct Answer\",\n"
         "          \"marks\": 1\n"
         "        }\n"
@@ -52,7 +52,22 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
         f"Context:\n{context_text}"
     )
 
+    if instructions:
+        system_prompt = (
+            system_prompt.replace(
+                f"Context:\n{context_text}",
+                (
+                    "QUESTION PAPER STRUCTURE INSTRUCTIONS (MUST FOLLOW EXACTLY):\n"
+                    f"{instructions}\n\n"
+                    "You MUST create sections and distribute questions EXACTLY as specified above.\n\n"
+                    f"Context:\n{context_text}"
+                ),
+            )
+        )
+
     prompt = f"Generate {count} {difficulty} difficulty questions about '{topic}'."
+    if instructions:
+        prompt += f"\n\nStructure instructions to follow strictly: {instructions}"
 
     client = get_openai_client()
     try:
@@ -94,6 +109,7 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
                 "count": count,
                 "difficulty": difficulty,
                 "documentIds": document_ids,
+                "instructions": instructions,
             },
             result=last_valid,
             user=user,
