@@ -6,6 +6,7 @@ import Typography from "@tiptap/extension-typography";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
+import Image from "@tiptap/extension-image";
 import ImageResize from "tiptap-extension-resize-image";
 import { Table } from "@tiptap/extension-table";
 import { TableRow } from "@tiptap/extension-table-row";
@@ -30,6 +31,7 @@ import {
   QuestionGroupBlock,
   PageBreak,
 } from "./editor/extensions/nodes";
+import { PaperHeaderBlock as PaperHeaderBlockExt } from "./editor/extensions/header-node";
 import { MathBlock, InlineMath } from "./editor/extensions/math-nodes";
 import { DrawingBlock } from "./editor/extensions/drawing-node";
 import { FontSize } from "./editor/extensions/font-size";
@@ -39,7 +41,7 @@ import { EditorToolbar } from "./editor/toolbar";
 import { FindReplace } from "./editor/find-replace";
 
 import { useEditorStore } from "@/store/editor-store";
-import { useEffect, useState, useCallback, useRef, memo } from "react";
+import { useEffect, useState, useMemo, useRef, memo } from "react";
 import debounce from "lodash.debounce";
 
 // ==================================
@@ -77,7 +79,7 @@ const StatusBar = memo(({ editor }: { editor: any }) => {
   const words = editor.storage.characterCount?.words() || 0;
 
   return (
-    <div className="flex items-center justify-between px-4 py-1 bg-background border-t border-border text-[10px] text-muted-foreground select-none flex-shrink-0">
+    <div className="flex items-center justify-between px-4 py-1 bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800 text-[10px] text-zinc-500 select-none flex-shrink-0">
       <div className="flex items-center gap-4">
         <span>Words: {words}</span>
         <span>Characters: {chars}</span>
@@ -96,6 +98,29 @@ StatusBar.displayName = "StatusBar";
 // ==================================
 const DEFAULT_CONTENT = "";
 
+function scrollToDocumentPosition(editor: any, position: number) {
+  if (typeof window === "undefined") return;
+
+  window.requestAnimationFrame(() => {
+    try {
+      const domAtPos = editor.view.domAtPos(Math.max(position + 1, 1));
+      const node = domAtPos.node;
+      const element =
+        node instanceof HTMLElement ? node : node.parentElement;
+
+      element?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    } catch {
+      editor.view.dom.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
+    }
+  });
+}
+
 // ==================================
 // Main Editor Component
 // ==================================
@@ -109,6 +134,14 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  const debouncedNumbering = useMemo(
+    () =>
+      debounce((editor: any) => {
+        updateQuestionNumbers(editor);
+      }, 800),
+    [],
+  );
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -144,8 +177,12 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           "instructionBlock",
         ],
       }),
+      Image.configure({
+        inline: true,
+        allowBase64: true,
+      }),
       ImageResize.configure({
-        inline: false,
+        inline: true,
         allowBase64: true,
       }),
       Placeholder.configure({
@@ -163,6 +200,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
       SectionBlock,
       InstructionBlock,
       QuestionGroupBlock,
+      PaperHeaderBlockExt,
       MathBlock,
       InlineMath,
       DrawingBlock,
@@ -194,20 +232,19 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     },
   });
 
-  const debouncedNumbering = useCallback(
-    debounce((editor: any) => {
-      updateQuestionNumbers(editor);
-    }, 800),
-    [],
-  );
+  useEffect(() => {
+    return () => debouncedNumbering.cancel();
+  }, [debouncedNumbering]);
 
   // Handle question insertion from AI generator
-  const {
-    questionsToAppend,
-    clearQuestionsToAppend,
-    sectionsToAppend,
-    clearSectionsToAppend,
-  } = useEditorStore();
+  const questionsToAppend = useEditorStore((state) => state.questionsToAppend);
+  const clearQuestionsToAppend = useEditorStore(
+    (state) => state.clearQuestionsToAppend,
+  );
+  const sectionsToAppend = useEditorStore((state) => state.sectionsToAppend);
+  const clearSectionsToAppend = useEditorStore(
+    (state) => state.clearSectionsToAppend,
+  );
 
   const lastLoadedContentRef = useRef<string | null>(null);
 
@@ -220,26 +257,69 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     const content = initialContent;
     lastLoadedContentRef.current = content;
 
-    // Defer setContent to avoid "flushSync was called from inside a lifecycle
-    // method" — TipTap v3 calls flushSync internally when updating React
-    // NodeViews, which React 19 rejects when already inside a render cycle.
-    setTimeout(() => {
-      editor.commands.setContent(content || "", { emitUpdate: false });
-    }, 0);
+    editor.commands.setContent(content || "", { emitUpdate: false });
   }, [editor, initialContent]);
 
   useEffect(() => {
     if (questionsToAppend.length === 0 || !editor) return;
 
-    // Capture and clear immediately so this effect doesn't re-fire
     const questions = [...questionsToAppend];
     clearQuestionsToAppend();
 
-    // Defer all insertContent calls to after the current render cycle to
-    // avoid "flushSync was called from inside a lifecycle method" errors
-    // (TipTap v3 uses flushSync internally when updating React NodeViews).
-    setTimeout(() => {
-      questions.forEach((q) => {
+    const contentToInsert: any[] = [];
+    questions.forEach((q) => {
+      const questionContent: any[] = [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: q.content }],
+        },
+      ];
+
+      if (q.type !== "TF" && q.options && q.options.length > 0) {
+        questionContent.push({
+          type: "bulletList",
+          content: q.options.map((opt: string) => ({
+            type: "listItem",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: opt }],
+              },
+            ],
+          })),
+        });
+      }
+
+      contentToInsert.push({
+        type: "questionBlock",
+        attrs: { marks: q.marks || 1 },
+        content: questionContent,
+      });
+    });
+
+    const insertPosition = editor.state.doc.content.size;
+    editor.commands.insertContentAt(insertPosition, contentToInsert);
+    editor.commands.focus("end");
+    scrollToDocumentPosition(editor, insertPosition);
+  }, [questionsToAppend, editor, clearQuestionsToAppend]);
+
+  // Handle section-wise insertion from AI generator
+  useEffect(() => {
+    if (sectionsToAppend.length === 0 || !editor) return;
+
+    const sections = [...sectionsToAppend];
+    clearSectionsToAppend();
+
+    const contentToInsert: any[] = [];
+    sections.forEach((section) => {
+      // Insert section header block
+      contentToInsert.push({
+        type: "sectionBlock",
+        content: [{ type: "text", text: section.title }],
+      });
+
+      // Insert each question in this section
+      section.questions.forEach((q) => {
         const questionContent: any[] = [
           {
             type: "paragraph",
@@ -247,7 +327,6 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           },
         ];
 
-        // TF questions have no separate options — the content already contains (True/False)
         if (q.type !== "TF" && q.options && q.options.length > 0) {
           questionContent.push({
             type: "bulletList",
@@ -263,93 +342,27 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           });
         }
 
-        // insertContentAt with doc.content.size always inserts at the
-        // document root level — NOT inside the previous question's content
-        // (which happens with focus().insertContent() when the cursor is
-        // still inside a bullet-list of the last inserted question).
-        // We use editor.commands (not chain) so the state is updated
-        // synchronously after each call, keeping doc.content.size correct
-        // for the next iteration.
-        editor.commands.insertContentAt(editor.state.doc.content.size, {
+        contentToInsert.push({
           type: "questionBlock",
-          attrs: {
-            marks: q.marks || 1,
-          },
+          attrs: { marks: q.marks || 1 },
           content: questionContent,
         });
       });
-    }, 0);
-  }, [questionsToAppend, editor, clearQuestionsToAppend]);
+    });
 
-  // Handle section-wise insertion from AI generator
-  useEffect(() => {
-    if (sectionsToAppend.length === 0 || !editor) return;
-
-    const sections = [...sectionsToAppend];
-    clearSectionsToAppend();
-
-    setTimeout(() => {
-      sections.forEach((section) => {
-        // Insert section header block
-        editor.commands.insertContentAt(editor.state.doc.content.size, {
-          type: "sectionBlock",
-          content: [{ type: "text", text: section.title }],
-        });
-
-        // Insert each question in this section
-        section.questions.forEach((q) => {
-          const questionContent: any[] = [
-            {
-              type: "paragraph",
-              content: [{ type: "text", text: q.content }],
-            },
-          ];
-
-          // TF questions have no separate options — the content already contains (True/False)
-          if (q.type !== "TF" && q.options && q.options.length > 0) {
-            questionContent.push({
-              type: "bulletList",
-              content: q.options.map((opt: string) => ({
-                type: "listItem",
-                content: [
-                  {
-                    type: "paragraph",
-                    content: [{ type: "text", text: opt }],
-                  },
-                ],
-              })),
-            });
-          }
-
-          editor.commands.insertContentAt(editor.state.doc.content.size, {
-            type: "questionBlock",
-            attrs: { marks: q.marks || 1 },
-            content: questionContent,
-          });
-        });
-      });
-    }, 0);
+    const insertPosition = editor.state.doc.content.size;
+    editor.commands.insertContentAt(insertPosition, contentToInsert);
+    editor.commands.focus("end");
+    scrollToDocumentPosition(editor, insertPosition);
   }, [sectionsToAppend, editor, clearSectionsToAppend]);
 
   // Find/Replace state
   const [showFindReplace, setShowFindReplace] = useState(false);
 
-  // Keyboard shortcut for Find
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
-        e.preventDefault();
-        setShowFindReplace((v) => !v);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
-
   if (!isClient) return null;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-background overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-zinc-100 dark:bg-zinc-950 overflow-hidden">
       {editor && (
         <EditorToolbar
           editor={editor}
@@ -362,7 +375,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           onClose={() => setShowFindReplace(false)}
         />
       )}
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-background print:p-0">
+      <div className="flex-1 overflow-y-auto custom-scrollbar bg-zinc-100 dark:bg-zinc-950 print:p-0">
         <EditorContent editor={editor} className="h-full pb-32" />
       </div>
       {editor && <StatusBar editor={editor} />}
@@ -376,17 +389,70 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           min-height: 297mm;
           max-width: 210mm;
           border: 1px solid rgba(63, 63, 70, 0.5);
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+          background: white !important;
+          color: black !important;
+        }
+
+        .paper-container img,
+        .ProseMirror img {
+          max-width: 100%;
+          height: auto;
+        }
+
+        .ProseMirror p img,
+        .ProseMirror li img {
+          display: inline-block;
+          vertical-align: middle;
+          max-height: 220px;
         }
 
         .ProseMirror {
           color: #000000 !important;
           caret-color: #111111 !important;
+          background: white !important;
         }
         /* Ensure text cursor is always visible inside question content */
         .question-block [data-node-view-content],
         .question-block [data-node-view-content] * {
           cursor: text !important;
         }
+        /* ===== Paper Header ===== */
+        .paper-header-block .paper-header-content h1 {
+          font-size: 1.8rem;
+          font-weight: 800;
+          text-transform: uppercase;
+          margin: 0;
+          line-height: 1.2;
+        }
+        .paper-header-block .paper-header-content p {
+          font-size: 1rem;
+          margin: 2px 0;
+          color: #333;
+        }
+        .paper-header-block .paper-header-layout {
+          display: flex;
+          align-items: flex-start;
+          gap: 2rem;
+          padding: 1rem;
+        }
+        .paper-header-block .paper-header-logo {
+          flex: 0 0 8rem;
+          width: 8rem;
+          min-height: 8rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .paper-header-block .paper-header-logo-image {
+          max-width: 100%;
+          max-height: 8rem;
+          object-fit: contain;
+        }
+        .paper-header-block .paper-header-logo-empty {
+          display: none;
+        }
+
         /* ===== Question Block Styles ===== */
         .question-block {
           position: relative;

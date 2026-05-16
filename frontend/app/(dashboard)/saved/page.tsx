@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 type Question = {
   id: string;
@@ -134,12 +135,7 @@ export default function SavedQuestionsPage() {
     });
   };
 
-  const handleDeleteQuestion = async (
-    questionId: string,
-    e: React.MouseEvent,
-  ) => {
-    e.stopPropagation();
-    if (!window.confirm("Delete this question? This cannot be undone.")) return;
+  const deleteQuestionById = async (questionId: string) => {
     setDeletingIds((prev) => new Set(prev).add(questionId));
     try {
       await deleteQuestion(questionId);
@@ -150,8 +146,9 @@ export default function SavedQuestionsPage() {
           questions: project.questions.filter((q) => q.id !== questionId),
         })),
       );
+      toast.success("Question deleted.");
     } catch {
-      alert("Failed to delete question. Please try again.");
+      toast.error("Failed to delete question. Please try again.");
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -161,16 +158,29 @@ export default function SavedQuestionsPage() {
     }
   };
 
-  const handleDeletePaper = async (paperId: string, e: React.MouseEvent) => {
+  const handleDeleteQuestion = (
+    questionId: string,
+    e: React.MouseEvent,
+  ) => {
     e.stopPropagation();
-    if (!window.confirm("Delete this paper? This cannot be undone.")) return;
+    toast.warning("Delete this question?", {
+      description: "This cannot be undone.",
+      action: {
+        label: "Delete",
+        onClick: () => void deleteQuestionById(questionId),
+      },
+    });
+  };
+
+  const deletePaperById = async (paperId: string) => {
     setDeletingIds((prev) => new Set(prev).add(paperId));
     try {
       await deletePaper(paperId);
       // Optimistic update: remove from papers state
       setPapers((prev) => prev.filter((p) => p.id !== paperId));
+      toast.success("Paper deleted.");
     } catch {
-      alert("Failed to delete paper. Please try again.");
+      toast.error("Failed to delete paper. Please try again.");
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -178,6 +188,17 @@ export default function SavedQuestionsPage() {
         return next;
       });
     }
+  };
+
+  const handleDeletePaper = (paperId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    toast.warning("Delete this paper?", {
+      description: "This cannot be undone.",
+      action: {
+        label: "Delete",
+        onClick: () => void deletePaperById(paperId),
+      },
+    });
   };
 
   const handlePaperOpen = (paper: Paper) => {
@@ -260,7 +281,7 @@ export default function SavedQuestionsPage() {
                         </button>
                       </div>
                     </div>
-                    <p className="text-sm text-zinc-200">{q.content}</p>
+                    <p className="text-sm text-card-foreground">{q.content}</p>
                     <div className="mt-2 text-[11px] text-zinc-500">
                       {q.projectName}
                     </div>

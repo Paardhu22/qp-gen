@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { streamSse, fetchForm } from "@/lib/api-client";
 import { useEditorStore } from "@/store/editor-store";
+import { toast } from "sonner";
 import {
   FileCheck,
   Plus,
@@ -122,7 +123,7 @@ export const GeneratorForm = () => {
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     if (uploadedDocs.length === 0) {
-      alert("Please upload at least one document to generate questions from.");
+      toast.error("Upload at least one source document first.");
       return;
     }
 
@@ -148,10 +149,11 @@ export const GeneratorForm = () => {
           }
         },
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      alert(
-        "Failed to generate questions. Please check if your documents contain the relevant info.",
+      toast.error(
+        error?.message ||
+          "Failed to generate questions. Check whether your documents contain relevant content.",
       );
     } finally {
       setIsGenerating(false);
@@ -176,6 +178,7 @@ export const GeneratorForm = () => {
         })),
       }));
       useEditorStore.getState().appendSections(sections);
+      toast.success("Inserted generated sections into the editor.");
     } else {
       const allQuestions: any[] = [];
       (generatedResult.questions || []).forEach((q: any) => {
@@ -188,15 +191,19 @@ export const GeneratorForm = () => {
         });
       });
       useEditorStore.getState().appendQuestions(allQuestions);
+      toast.success("Inserted generated questions into the editor.");
     }
   };
 
   const hasAnyDocs = uploadedDocs.length > 0 || uploadingDocs.length > 0;
 
   return (
-    <div className="h-full flex flex-col p-4 bg-background text-foreground overflow-y-auto custom-scrollbar">
+    <div className="h-full flex flex-col p-4 bg-white dark:bg-zinc-950 text-zinc-600 dark:text-zinc-300 overflow-y-auto custom-scrollbar">
       <div className="mb-6">
-        <p className="text-sm text-muted-foreground">
+        <h2 className="text-lg font-bold text-zinc-900 dark:text-white mb-1">
+          AI Question Generator
+        </h2>
+        <p className="text-xs text-zinc-500">
           Questions are generated STRICTLY from your source material.
         </p>
       </div>
@@ -214,7 +221,7 @@ export const GeneratorForm = () => {
       {/* Source Documents */}
       <div className="mb-6 space-y-3">
         <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-foreground">
+          <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
             Source Documents
           </label>
           <Button
@@ -222,7 +229,7 @@ export const GeneratorForm = () => {
             variant="ghost"
             size="sm"
             onClick={handleAddSourceClick}
-            className="h-7 text-xs text-primary hover:text-primary/80 hover:bg-primary/10"
+            className="h-7 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
           >
             <Plus className="h-3 w-3 mr-1" />
             Add Source
@@ -232,8 +239,8 @@ export const GeneratorForm = () => {
         <div className="space-y-2">
           {/* Empty state */}
           {!hasAnyDocs && (
-            <div className="text-center py-6 border border-dashed border-border rounded-lg bg-muted/30">
-              <p className="text-xs text-muted-foreground">
+            <div className="text-center py-6 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50 dark:bg-zinc-900/30">
+              <p className="text-xs text-zinc-500">
                 No documents uploaded yet.
               </p>
             </div>
@@ -243,7 +250,7 @@ export const GeneratorForm = () => {
           {uploadingDocs.map((doc) => (
             <div
               key={doc.tempId}
-              className="flex items-center justify-between p-2 rounded-lg bg-muted/50 border border-border"
+              className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800"
             >
               <div className="flex items-center gap-2 min-w-0">
                 {doc.status === "uploading" ? (
@@ -252,7 +259,7 @@ export const GeneratorForm = () => {
                   <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
                 )}
                 <div className="min-w-0">
-                  <span className="text-xs text-foreground truncate block">
+                  <span className="text-xs text-zinc-700 dark:text-zinc-200 truncate block">
                     {doc.name}
                   </span>
                   {doc.status === "error" && (
@@ -277,11 +284,11 @@ export const GeneratorForm = () => {
           {uploadedDocs.map((doc) => (
             <div
               key={doc.id}
-              className="flex items-center justify-between p-2 rounded-lg bg-muted/50 border border-border group"
+              className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 group"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <FileCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
-                <span className="text-xs text-foreground truncate">
+                <span className="text-xs text-zinc-700 dark:text-zinc-200 truncate">
                   {doc.name}
                 </span>
               </div>
@@ -306,11 +313,13 @@ export const GeneratorForm = () => {
             name="subject"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Topic / Focus Area</FormLabel>
+                <FormLabel className="text-zinc-700 dark:text-zinc-300">
+                  Topic / Focus Area
+                </FormLabel>
                 <FormControl>
                   <Input
                     placeholder="e.g. Chemical Bonds"
-                    className="bg-muted/50 border-border focus:ring-primary"
+                    className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:ring-indigo-500"
                     {...field}
                   />
                 </FormControl>
@@ -325,14 +334,16 @@ export const GeneratorForm = () => {
               name="difficulty"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Difficulty</FormLabel>
+                  <FormLabel className="text-zinc-700 dark:text-zinc-300">
+                    Difficulty
+                  </FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
-                      <SelectTrigger className="bg-muted/50 border-border">
+                      <SelectTrigger className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
                         <SelectValue placeholder="Select" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent className="bg-popover border-border text-popover-foreground">
+                    <SelectContent className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
                       <SelectItem value="easy">Easy</SelectItem>
                       <SelectItem value="medium">Medium</SelectItem>
                       <SelectItem value="hard">Hard</SelectItem>
@@ -348,13 +359,15 @@ export const GeneratorForm = () => {
               name="numberOfQuestions"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Count</FormLabel>
+                  <FormLabel className="text-zinc-700 dark:text-zinc-300">
+                    Count
+                  </FormLabel>
                   <FormControl>
                     <Input
                       type="number"
                       min="1"
                       max="50"
-                      className="bg-muted/50 border-border"
+                      className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"
                       {...field}
                     />
                   </FormControl>
@@ -366,29 +379,29 @@ export const GeneratorForm = () => {
 
           {/* General Instructions */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground flex items-center gap-1">
-              <BrainCircuit className="h-3.5 w-3.5 text-primary" />
+            <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+              <BrainCircuit className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
               General Instructions
             </label>
             <Textarea
               placeholder={
                 "e.g. Section A: 4 short answer questions (2 marks each)\nSection B: 4 long answer questions (5 marks each)"
               }
-              className="bg-muted/50 border-border text-sm resize-none focus:ring-primary min-h-[90px]"
+              className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-indigo-500 min-h-[90px]"
               value={generalInstructions}
               onChange={(e) => setGeneralInstructions(e.target.value)}
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
               Describe section structure and question types. The AI will follow
               these instructions.
             </p>
           </div>
 
-          <div className="pt-4 sticky bottom-0 bg-background pb-4">
+          <div className="pt-4 sticky bottom-0 bg-white dark:bg-zinc-950 pb-4">
             <Button
               type="submit"
               disabled={isGenerating || uploadedDocs.length === 0}
-              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg gap-2"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg gap-2"
             >
               {isGenerating
                 ? "Analyzing & Generating..."
@@ -399,28 +412,28 @@ export const GeneratorForm = () => {
       </Form>
 
       {generatedResult && (
-        <div className="mt-6 border-t border-border pt-6 animate-in fade-in duration-500">
-          <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+        <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-6 animate-in fade-in duration-500">
+          <h3 className="text-lg font-bold text-zinc-900 dark:text-white mb-4 flex items-center gap-2">
             Generated Output
           </h3>
 
           <div className="space-y-6">
             {generatedResult.sections?.map((section: any, sIdx: number) => (
               <div key={sIdx} className="space-y-4">
-                <h4 className="text-sm font-semibold text-primary uppercase tracking-wider">
+                <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
                   {section.title}
                 </h4>
                 <div className="space-y-3">
                   {section.questions?.map((q: any, qIdx: number) => (
                     <div
                       key={qIdx}
-                      className="p-3 bg-muted/50 border border-border rounded-xl space-y-2"
+                      className="p-3 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-2"
                     >
                       <div className="flex justify-between items-start gap-2">
-                        <p className="font-medium text-sm text-foreground">
+                        <p className="font-medium text-sm text-zinc-800 dark:text-zinc-100">
                           {q.content}
                         </p>
-                        <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-mono">
+                        <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-600 dark:text-zinc-400 font-mono">
                           {q.marks}m
                         </span>
                       </div>
@@ -429,15 +442,15 @@ export const GeneratorForm = () => {
                           {q.options.map((opt: string, oIdx: number) => (
                             <div
                               key={oIdx}
-                              className="text-[11px] text-muted-foreground border border-border p-1.5 rounded bg-background/50"
+                              className="text-[11px] text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 p-1.5 rounded bg-white dark:bg-zinc-950/50"
                             >
                               {String.fromCharCode(65 + oIdx)}. {opt}
                             </div>
                           ))}
                         </div>
                       )}
-                      <div className="mt-2 pt-2 border-t border-border">
-                        <p className="text-[10px] text-green-600 font-medium truncate">
+                      <div className="mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                        <p className="text-[10px] text-green-600 dark:text-green-500 font-medium truncate">
                           Ans: {q.answer}
                         </p>
                       </div>
@@ -452,14 +465,14 @@ export const GeneratorForm = () => {
             {!isGenerating && (
               <>
                 <Button
-                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
+                  className="w-full bg-indigo-600 text-white hover:bg-indigo-700 font-semibold"
                   onClick={handleAddToEditor}
                 >
                   Insert All into Editor
                 </Button>
                 <Button
                   variant="ghost"
-                  className="w-full text-muted-foreground hover:text-foreground"
+                  className="w-full text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300"
                   onClick={() => setGeneratedResult(null)}
                 >
                   Clear Results
