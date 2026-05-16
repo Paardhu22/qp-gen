@@ -3,7 +3,6 @@ export const dynamic = 'force-dynamic';
 import { db } from '@/lib/db';
 import { auth } from '@/lib/auth';
 import { headers } from 'next/headers';
-import { extractTextFromPDF } from '@/lib/pdf';
 import { chunkPages, chunkText } from '@/lib/chunking';
 import { generateEmbeddings } from '@/lib/embeddings';
 import mammoth from 'mammoth';
@@ -35,6 +34,7 @@ export async function POST(req: NextRequest) {
     let pages: { pageNumber: number; content: string }[] = [];
 
     if (fileType === 'application/pdf') {
+      const { extractTextFromPDF } = await import('@/lib/pdf');
       const pdfData = await extractTextFromPDF(buffer);
       extractedText = pdfData.text;
       pages = pdfData.pages;

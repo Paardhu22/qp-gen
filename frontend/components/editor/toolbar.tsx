@@ -69,6 +69,7 @@ import { useEditorStore } from "@/store/editor-store";
 import { exportToPDF } from "@/lib/export-pdf";
 import { exportToDocx } from "@/lib/export-docx";
 import { templates } from "./templates";
+import { toast } from "sonner";
 
 // ==================================
 // Toolbar Button Component
@@ -475,8 +476,32 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
     await exportToDocx(editor.getHTML(), filename);
   };
 
+  const insertAfterCurrentBlock = (type: string, content?: any, attrs?: any) => {
+    const { state } = editor;
+    const { selection } = state;
+    const { $from } = selection;
+
+    let insertPos =
+      $from.depth > 0 ? $from.after(Math.min(1, $from.depth)) : selection.to;
+
+    // Find the current top-level paper block if we're inside one
+    for (let depth = $from.depth; depth > 0; depth--) {
+      const node = $from.node(depth);
+      if (node.type.spec.group?.includes("paperBlock")) {
+        insertPos = $from.after(depth);
+        break;
+      }
+    }
+
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(insertPos, { type, content, attrs })
+      .run();
+  };
+
   return (
-    <div className="flex flex-col border-b border-border bg-background flex-shrink-0">
+    <div className="flex flex-col border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex-shrink-0">
       {/* Primary Toolbar */}
       <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 overflow-visible">
         {/* Undo / Redo */}
@@ -790,6 +815,44 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           <SeparatorHorizontal className="h-3.5 w-3.5" />
         </ToolbarBtn>
 
+        {/* Paper Header */}
+        <ToolbarBtn
+          onClick={() => {
+            editor
+              .chain()
+              .focus()
+              .insertContentAt(0, {
+                type: "paperHeaderBlock",
+                content: [
+                  {
+                    type: "heading",
+                    attrs: { level: 1 },
+                    content: [{ type: "text", text: "SCHOOL NAME" }],
+                  },
+                  {
+                    type: "paragraph",
+                    content: [
+                      { type: "text", text: "Exam Name • Subject • Date" },
+                    ],
+                  },
+                  {
+                    type: "paragraph",
+                    content: [
+                      {
+                        type: "text",
+                        text: "Time Allowed: 3 Hours • Max Marks: 100",
+                      },
+                    ],
+                  },
+                ],
+              })
+              .run();
+          }}
+          title="Insert Paper Header"
+        >
+          <Layout className="h-3.5 w-3.5" />
+        </ToolbarBtn>
+
         <ToolbarDivider />
 
         {/* Math & Chemistry */}
@@ -842,7 +905,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
 
         {/* Find/Replace */}
         {onFindReplace && (
-          <ToolbarBtn onClick={onFindReplace} title="Find & Replace (Ctrl+F)">
+          <ToolbarBtn onClick={onFindReplace} title="Find & Replace">
             <Search className="h-3.5 w-3.5" />
           </ToolbarBtn>
         )}
@@ -945,14 +1008,9 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() =>
-            editor
-              .chain()
-              .focus()
-              .insertContent({
-                type: "sectionBlock",
-                content: [{ type: "text", text: "SECTION A" }],
-              })
-              .run()
+            insertAfterCurrentBlock("sectionBlock", [
+              { type: "text", text: "SECTION A" },
+            ])
           }
           className="h-6 px-2 text-[10px] font-medium text-indigo-400 hover:bg-indigo-500/10 rounded transition-colors flex items-center gap-1"
         >
@@ -962,20 +1020,16 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() =>
-            editor
-              .chain()
-              .focus()
-              .insertContent({
-                type: "questionBlock",
-                attrs: { marks: 2 },
-                content: [
-                  {
-                    type: "paragraph",
-                    content: [{ type: "text", text: "Enter question here..." }],
-                  },
-                ],
-              })
-              .run()
+            insertAfterCurrentBlock(
+              "questionBlock",
+              [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: "Enter question here..." }],
+                },
+              ],
+              { marks: 2 },
+            )
           }
           className="h-6 px-2 text-[10px] font-medium text-emerald-400 hover:bg-emerald-500/10 rounded transition-colors flex items-center gap-1"
         >
@@ -985,24 +1039,17 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() =>
-            editor
-              .chain()
-              .focus()
-              .insertContent({
-                type: "instructionBlock",
+            insertAfterCurrentBlock("instructionBlock", [
+              {
+                type: "paragraph",
                 content: [
                   {
-                    type: "paragraph",
-                    content: [
-                      {
-                        type: "text",
-                        text: "All questions are compulsory.",
-                      },
-                    ],
+                    type: "text",
+                    text: "All questions are compulsory.",
                   },
                 ],
-              })
-              .run()
+              },
+            ])
           }
           className="h-6 px-2 text-[10px] font-medium text-amber-400 hover:bg-amber-500/10 rounded transition-colors flex items-center gap-1"
         >
@@ -1012,50 +1059,46 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() =>
-            editor
-              .chain()
-              .focus()
-              .insertContent({
-                type: "questionGroupBlock",
-                attrs: { label: "Answer any ONE of the following:" },
-                content: [
-                  {
-                    type: "questionBlock",
-                    attrs: { marks: 5 },
-                    content: [
-                      {
-                        type: "paragraph",
-                        content: [
-                          { type: "text", text: "Option (a) question..." },
-                        ],
-                      },
-                    ],
-                  },
-                  {
-                    type: "paragraph",
-                    content: [
-                      {
-                        type: "text",
-                        marks: [{ type: "bold" }],
-                        text: "OR",
-                      },
-                    ],
-                  },
-                  {
-                    type: "questionBlock",
-                    attrs: { marks: 5 },
-                    content: [
-                      {
-                        type: "paragraph",
-                        content: [
-                          { type: "text", text: "Option (b) question..." },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              })
-              .run()
+            insertAfterCurrentBlock(
+              "questionGroupBlock",
+              [
+                {
+                  type: "questionBlock",
+                  attrs: { marks: 5 },
+                  content: [
+                    {
+                      type: "paragraph",
+                      content: [
+                        { type: "text", text: "Option (a) question..." },
+                      ],
+                    },
+                  ],
+                },
+                {
+                  type: "paragraph",
+                  content: [
+                    {
+                      type: "text",
+                      marks: [{ type: "bold" }],
+                      text: "OR",
+                    },
+                  ],
+                },
+                {
+                  type: "questionBlock",
+                  attrs: { marks: 5 },
+                  content: [
+                    {
+                      type: "paragraph",
+                      content: [
+                        { type: "text", text: "Option (b) question..." },
+                      ],
+                    },
+                  ],
+                },
+              ],
+              { label: "Answer any ONE of the following:" },
+            )
           }
           className="h-6 px-2 text-[10px] font-medium text-purple-400 hover:bg-purple-500/10 rounded transition-colors flex items-center gap-1"
         >
@@ -1068,11 +1111,13 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
-            if (
-              window.confirm("Are you sure you want to clear the entire paper?")
-            ) {
-              editor.commands.clearContent();
-            }
+            toast.warning("Clear the entire paper?", {
+              description: "This removes all editor content in the current document.",
+              action: {
+                label: "Clear",
+                onClick: () => editor.commands.clearContent(),
+              },
+            });
           }}
           className="h-6 px-2 text-[10px] font-medium text-red-400 hover:bg-red-500/10 rounded transition-colors flex items-center gap-1"
         >

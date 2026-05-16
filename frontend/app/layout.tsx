@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import "katex/dist/katex.min.css";
 import { Providers } from "@/components/providers";
-
-const inter = Inter({ subsets: ["latin"] });
+import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
   title: "Paper Gen - AI Question Paper Generator",
@@ -18,8 +16,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
-        <Providers>{children}</Providers>
+      <body className="bg-background text-foreground">
+        <Providers>
+          {children}
+          <Toaster position="top-right" richColors theme="system" />
+        </Providers>
       </body>
     </html>
   );

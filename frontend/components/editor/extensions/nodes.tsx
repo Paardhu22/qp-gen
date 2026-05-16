@@ -74,8 +74,8 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
 
 export const QuestionBlock = Node.create({
   name: "questionBlock",
-  group: "block",
-  content: "block+",
+  group: "block paperBlock",
+  content: "(paragraph | bulletList | orderedList | mathBlock | drawingBlock)+",
   draggable: true,
   isolating: true,
 
@@ -133,7 +133,7 @@ const SectionComponent = ({ node, deleteNode }: any) => {
 
 export const SectionBlock = Node.create({
   name: "sectionBlock",
-  group: "block",
+  group: "block paperBlock",
   content: "inline*",
   draggable: true,
   isolating: true,
@@ -195,8 +195,8 @@ const InstructionComponent = ({ deleteNode }: any) => {
 
 export const InstructionBlock = Node.create({
   name: "instructionBlock",
-  group: "block",
-  content: "block+",
+  group: "block paperBlock",
+  content: "(paragraph | bulletList | orderedList | mathBlock | drawingBlock)+",
   draggable: true,
 
   addAttributes() {
@@ -251,8 +251,8 @@ const QuestionGroupComponent = ({ node, deleteNode }: any) => {
 
 export const QuestionGroupBlock = Node.create({
   name: "questionGroupBlock",
-  group: "block",
-  content: "block+",
+  group: "block paperBlock",
+  content: "(questionBlock | paragraph)+",
   draggable: true,
   isolating: true,
 
@@ -285,7 +285,7 @@ export const QuestionGroupBlock = Node.create({
 // ==========================================
 export const PageBreak = Node.create({
   name: "pageBreak",
-  group: "block",
+  group: "block paperBlock",
   atom: true,
 
   parseHTML() {
