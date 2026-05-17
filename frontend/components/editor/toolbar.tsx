@@ -70,6 +70,7 @@ import { exportToPDF } from "@/lib/export-pdf";
 import { exportToDocx } from "@/lib/export-docx";
 import { templates } from "./templates";
 import { toast } from "sonner";
+import { wrapHtmlInPage, extractPagesFromDoc } from "./pagination-utils";
 
 // ==================================
 // Toolbar Button Component
@@ -481,8 +482,19 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
     const { selection } = state;
     const { $from } = selection;
 
-    let insertPos =
-      $from.depth > 0 ? $from.after(Math.min(1, $from.depth)) : selection.to;
+    let insertPos = selection.to;
+    let pageDepth: number | null = null;
+
+    for (let depth = $from.depth; depth > 0; depth--) {
+      if ($from.node(depth).type.name === "page") {
+        pageDepth = depth;
+        break;
+      }
+    }
+
+    if (pageDepth !== null && $from.depth >= pageDepth + 1) {
+      insertPos = $from.after(pageDepth + 1);
+    }
 
     // Find the current top-level paper block if we're inside one
     for (let depth = $from.depth; depth > 0; depth--) {
@@ -917,7 +929,9 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             onChange={(e) => {
               const val = e.target.value;
               if (val && (templates as any)[val]) {
-                editor.commands.setContent((templates as any)[val]);
+                editor.commands.setContent(
+                  wrapHtmlInPage((templates as any)[val]),
+                );
               }
               e.target.value = "";
             }}
@@ -954,8 +968,9 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             onClick={() => {
               const store = useEditorStore.getState();
 
-              // Capture current editor HTML for the save modal
-              store.setEditorContent(editor.getHTML());
+              // Capture current editor JSON for the save modal
+              store.setEditorContent(JSON.stringify(editor.getJSON()));
+              store.setPages(extractPagesFromDoc(editor.state.doc));
 
               // Extract every questionBlock from the document as a plain Question object
               const questions: any[] = [];

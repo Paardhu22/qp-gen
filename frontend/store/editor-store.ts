@@ -19,6 +19,7 @@ interface EditorState {
   questionsToSave: Question[];
   saveModalOpen: boolean;
   editorContent: string;
+  pages: Array<{ id: string; blocks: any[] }>;
 
   appendQuestions: (questions: Question[]) => void;
   clearQuestionsToAppend: () => void;
@@ -29,6 +30,7 @@ interface EditorState {
   setQuestionsToSave: (questions: Question[]) => void;
   setSaveModalOpen: (isOpen: boolean) => void;
   setEditorContent: (content: string) => void;
+  setPages: (pages: Array<{ id: string; blocks: any[] }>) => void;
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -51,6 +53,9 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   editorContent: "",
   setEditorContent: (content) => set({ editorContent: content }),
+
+  pages: [],
+  setPages: (pages) => set({ pages }),
 
   setQuestionsToSave: (questions) => set({ questionsToSave: questions }),
   setSaveModalOpen: (isOpen) => set({ saveModalOpen: isOpen }),
