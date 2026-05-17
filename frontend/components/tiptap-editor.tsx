@@ -34,11 +34,20 @@ import {
 import { PaperHeaderBlock as PaperHeaderBlockExt } from "./editor/extensions/header-node";
 import { MathBlock, InlineMath } from "./editor/extensions/math-nodes";
 import { DrawingBlock } from "./editor/extensions/drawing-node";
+import { PaginatedDocument } from "./editor/extensions/document-node";
+import { PageNode } from "./editor/extensions/page-node";
+import { PaginationEngine } from "./editor/extensions/pagination-engine";
 import { FontSize } from "./editor/extensions/font-size";
 import { LineHeight } from "./editor/extensions/line-height";
 import { Indent as IndentExtension } from "./editor/extensions/indent";
 import { EditorToolbar } from "./editor/toolbar";
 import { FindReplace } from "./editor/find-replace";
+import {
+  createPageId,
+  wrapHtmlInPage,
+  ensurePageDocument,
+  extractPagesFromDoc,
+} from "./editor/pagination-utils";
 
 import { useEditorStore } from "@/store/editor-store";
 import { useEffect, useState, useMemo, useRef, memo } from "react";
@@ -96,7 +105,50 @@ StatusBar.displayName = "StatusBar";
 // ==================================
 // Default content for new papers
 // ==================================
-const DEFAULT_CONTENT = "";
+function createEmptyDocument() {
+  return {
+    type: "doc",
+    content: [
+      {
+        type: "page",
+        attrs: { pageId: createPageId() },
+        content: [{ type: "paragraph" }],
+      },
+    ],
+  };
+}
+
+function normalizeInitialContent(rawContent: string | undefined) {
+  if (rawContent === undefined) return createEmptyDocument();
+
+  const trimmed = rawContent.trim();
+  if (!trimmed) return createEmptyDocument();
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && parsed.type === "doc") {
+      return ensurePageDocument(parsed);
+    }
+  } catch {
+    // Fall through to HTML handling.
+  }
+
+  return wrapHtmlInPage(trimmed);
+}
+
+function getLastPageInsertPos(editor: any) {
+  const { doc } = editor.state;
+  let lastPage: { node: any; pos: number } | null = null;
+
+  doc.descendants((node: any, pos: number) => {
+    if (node.type.name === "page") {
+      lastPage = { node, pos };
+    }
+  });
+
+  if (!lastPage) return doc.content.size;
+  return lastPage.pos + lastPage.node.nodeSize - 1;
+}
 
 function scrollToDocumentPosition(editor: any, position: number) {
   if (typeof window === "undefined") return;
@@ -143,10 +195,23 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     [],
   );
 
+  const setPages = useEditorStore((state) => state.setPages);
+  const debouncedPageState = useMemo(
+    () =>
+      debounce((editor: any) => {
+        setPages(extractPagesFromDoc(editor.state.doc));
+      }, 250),
+    [setPages],
+  );
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
+      PaginatedDocument,
+      PageNode,
+      PaginationEngine,
       StarterKit.configure({
+        document: false,
         heading: {
           levels: [1, 2, 3, 4, 5, 6],
         },
@@ -218,23 +283,27 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
       Gapcursor,
       HardBreak,
     ],
-    content: initialContent ?? DEFAULT_CONTENT,
+    content: createEmptyDocument(),
     editorProps: {
       attributes: {
         id: "tiptap-paper-container",
         class:
-          "prose prose-sm sm:prose-base prose-zinc max-w-none focus:outline-none min-h-[1100px] p-16 md:p-20 bg-[#fcfbf9] text-black border border-border/50 mx-auto my-6 paper-container",
+          "document-editor focus:outline-none text-black",
         spellcheck: "true",
       },
     },
     onUpdate: ({ editor }) => {
       debouncedNumbering(editor);
+      debouncedPageState(editor);
     },
   });
 
   useEffect(() => {
-    return () => debouncedNumbering.cancel();
-  }, [debouncedNumbering]);
+    return () => {
+      debouncedNumbering.cancel();
+      debouncedPageState.cancel();
+    };
+  }, [debouncedNumbering, debouncedPageState]);
 
   // Handle question insertion from AI generator
   const questionsToAppend = useEditorStore((state) => state.questionsToAppend);
@@ -254,11 +323,15 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     if (lastLoadedContentRef.current === initialContent) return;
 
     // Mark as loaded immediately so a rapid re-render doesn't fire this twice.
-    const content = initialContent;
+    const content = initialContent ?? "";
     lastLoadedContentRef.current = content;
+    const normalizedContent = normalizeInitialContent(content);
 
-    editor.commands.setContent(content || "", { emitUpdate: false });
-  }, [editor, initialContent]);
+    queueMicrotask(() => {
+      editor.commands.setContent(normalizedContent, { emitUpdate: false });
+      setPages(extractPagesFromDoc(editor.state.doc));
+    });
+  }, [editor, initialContent, setPages]);
 
   useEffect(() => {
     if (questionsToAppend.length === 0 || !editor) return;
@@ -300,7 +373,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     queueMicrotask(() => {
       if (editor.isDestroyed) return;
 
-      const insertPosition = editor.state.doc.content.size;
+      const insertPosition = getLastPageInsertPos(editor);
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       editor.commands.focus("end");
       scrollToDocumentPosition(editor, insertPosition);
@@ -357,7 +430,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     queueMicrotask(() => {
       if (editor.isDestroyed) return;
 
-      const insertPosition = editor.state.doc.content.size;
+      const insertPosition = getLastPageInsertPos(editor);
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       editor.commands.focus("end");
       scrollToDocumentPosition(editor, insertPosition);
@@ -391,19 +464,48 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
       <style
         dangerouslySetInnerHTML={{
           __html: `
-        /* ===== Paper Container ===== */
-        .paper-container {
-          width: 210mm;
-          min-height: 297mm;
-          max-width: none;
-          margin: 2rem auto;
-          border: 1px solid rgba(63, 63, 70, 0.25);
-          box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-          background: white !important;
-          color: black !important;
+        /* ===== Document Layout ===== */
+        .document-editor {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 24px;
+          padding: 24px 0 96px;
+          background: transparent !important;
+          color: #0a0a0a !important;
         }
 
-        .paper-container img,
+        .document-editor .doc-page {
+          width: 794px;
+          height: 1123px;
+          background: white;
+          border: 1px solid rgba(63, 63, 70, 0.2);
+          overflow: hidden;
+          box-sizing: border-box;
+        }
+
+        .document-editor .doc-page-inner {
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .document-editor .doc-page-content {
+          flex: 1;
+          padding: 40px;
+          box-sizing: border-box;
+          min-height: 0;
+          height: calc(1123px - 80px);
+          overflow: hidden;
+        }
+
+        .document-editor .doc-page-header,
+        .document-editor .doc-page-footer {
+          flex-shrink: 0;
+          min-height: 0;
+        }
+
+        .document-editor img,
         .ProseMirror img {
           max-width: 100%;
           height: auto;
@@ -419,7 +521,9 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
         .ProseMirror {
           color: #000000 !important;
           caret-color: #111111 !important;
-          background: white !important;
+          padding: 0 !important;
+          min-height: 0;
+          background: transparent !important;
         }
         /* Ensure text cursor is always visible inside question content */
         .question-block [data-node-view-content],
@@ -521,19 +625,10 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
         }
 
         /* ===== Page Break ===== */
-        .page-break {
-          margin: 2rem -5rem;
-          border-top: 2px dashed rgba(99, 102, 241, 0.45);
+        .ProseMirror [data-type="page-break"] {
+          display: none !important;
           page-break-after: always;
           break-after: page;
-          position: relative;
-        }
-        .page-break span {
-          background: white;
-          color: #71717a;
-          border: 1px solid rgba(212, 212, 216, 0.9);
-          border-radius: 9999px;
-          padding: 0.2rem 0.65rem;
         }
 
         /* ===== Focus Styles ===== */
@@ -680,25 +775,37 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
             visibility: visible;
           }
           #tiptap-paper-container {
-            position: absolute;
-            left: 0;
-            top: 0;
+            position: static;
             width: 100%;
-            padding: 15mm !important;
             margin: 0 !important;
+            padding: 0 !important;
             color: black !important;
             background: white !important;
             border: none !important;
             box-shadow: none !important;
             max-width: none !important;
           }
-          .page-break {
+          .document-editor {
+            gap: 0;
+            padding: 0;
+          }
+          .doc-page {
+            width: 100%;
+            height: auto;
+            margin: 0 !important;
             border: none !important;
+            box-shadow: none !important;
+            overflow: visible !important;
             page-break-after: always;
             break-after: page;
-            margin: 0 !important;
           }
-          .page-break span {
+          .doc-page-content {
+            padding: 15mm !important;
+            min-height: auto !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+          #tiptap-paper-container [data-type="page-break"] {
             display: none !important;
           }
           .question-marks span {
@@ -716,3 +823,5 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     </div>
   );
 };
+
+export const DocumentEditor = TiptapEditor;
