@@ -2,12 +2,24 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  fetchJson,
   fetchPapers,
   fetchProjectsWithQuestions,
   deleteQuestion,
   deletePaper,
 } from "@/lib/api-client";
 import { Trash2, FileText } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useEditorStore } from "@/store/editor-store";
 import {
   Card,
@@ -70,6 +82,8 @@ export default function SavedQuestionsPage() {
   );
   const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [isClearingQuestions, setIsClearingQuestions] = useState(false);
+  const [isClearingPapers, setIsClearingPapers] = useState(false);
   const hasFetchedQuestions = useRef(false);
 
   useEffect(() => {
@@ -159,10 +173,7 @@ export default function SavedQuestionsPage() {
     }
   };
 
-  const handleDeleteQuestion = (
-    questionId: string,
-    e: React.MouseEvent,
-  ) => {
+  const handleDeleteQuestion = (questionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     toast.warning("Delete this question?", {
       description: "This cannot be undone.",
@@ -207,8 +218,38 @@ export default function SavedQuestionsPage() {
     router.push(`/editor?paperId=${paper.id}`);
   };
 
+  const handleClearAllQuestions = async () => {
+    setIsClearingQuestions(true);
+    try {
+      await fetchJson("/api/projects/questions/clear", { method: "DELETE" });
+      setProjects([]);
+      setSelectedQuestionIds(new Set());
+      toast.success("All saved questions cleared.");
+    } catch {
+      toast.error("Failed to clear questions. Please try again.");
+    } finally {
+      setIsClearingQuestions(false);
+    }
+  };
+
+  const handleClearAllPapers = async () => {
+    setIsClearingPapers(true);
+    try {
+      await fetchJson("/api/projects/papers/clear", { method: "DELETE" });
+      setPapers([]);
+      setSelectedPaperId(null);
+      toast.success("All saved papers cleared.");
+    } catch {
+      toast.error("Failed to clear papers. Please try again.");
+    } finally {
+      setIsClearingPapers(false);
+    }
+  };
+
   const handleInsertSelectedQuestions = () => {
-    const selectedList = allQuestions.filter((q) => selectedQuestionIds.has(q.id));
+    const selectedList = allQuestions.filter((q) =>
+      selectedQuestionIds.has(q.id),
+    );
     if (selectedList.length === 0) return;
 
     const questionsToAppend = selectedList.map((q) => ({
@@ -240,9 +281,49 @@ export default function SavedQuestionsPage() {
         <div className="lg:col-span-2 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              <h3 className="text-xl font-semibold text-foreground">
+              <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
                 Saved Questions
+                {!isLoadingQuestions && (
+                  <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-indigo-100 text-indigo-600 text-[11px] font-bold dark:bg-indigo-950 dark:text-indigo-400">
+                    {allQuestions.length}
+                  </span>
+                )}
               </h3>
+              {!isLoadingQuestions && allQuestions.length > 0 && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={isClearingQuestions}
+                      className="flex items-center gap-1.5 text-xs text-destructive/70 hover:text-destructive border border-destructive/30 hover:border-destructive/60 hover:bg-destructive/5 px-2.5 py-1 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Clear All
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        Clear all saved questions?
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently delete all {allQuestions.length}{" "}
+                        saved question{allQuestions.length !== 1 ? "s" : ""}{" "}
+                        across every workspace. This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleClearAllQuestions}
+                        className="bg-destructive hover:bg-destructive/90 text-white"
+                      >
+                        Yes, delete all
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
               {selectedQuestionIds.size > 0 && (
                 <button
                   type="button"
@@ -338,9 +419,49 @@ export default function SavedQuestionsPage() {
 
         {/* Papers Section */}
         <div className="space-y-6">
-          <h3 className="text-xl font-semibold text-foreground">
-            Saved Papers
-          </h3>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
+              Saved Papers
+              {!isLoadingPapers && (
+                <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-indigo-100 text-indigo-600 text-[11px] font-bold dark:bg-indigo-950 dark:text-indigo-400">
+                  {papers.length}
+                </span>
+              )}
+            </h3>
+            {!isLoadingPapers && papers.length > 0 && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={isClearingPapers}
+                    className="flex items-center gap-1.5 text-xs text-destructive/70 hover:text-destructive border border-destructive/30 hover:border-destructive/60 hover:bg-destructive/5 px-2.5 py-1 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Clear All
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Clear all saved papers?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete all {papers.length} saved
+                      paper{papers.length !== 1 ? "s" : ""}. This action cannot
+                      be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleClearAllPapers}
+                      className="bg-destructive hover:bg-destructive/90 text-white"
+                    >
+                      Yes, delete all
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </div>
 
           <Card className="bg-card border-border flex flex-col">
             <CardHeader className="pb-3">

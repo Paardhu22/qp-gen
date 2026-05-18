@@ -25,14 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { streamSse, fetchForm } from "@/lib/api-client";
 import { useEditorStore } from "@/store/editor-store";
 import { toast } from "sonner";
-import {
-  FileCheck,
-  Plus,
-  Trash2,
-  BrainCircuit,
-  Loader2,
-  AlertCircle,
-} from "lucide-react";
+import { FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
 
 const formSchema = z.object({
   subject: z.string().min(2, "Subject is required"),
@@ -153,7 +146,7 @@ export const GeneratorForm = () => {
       console.error(error);
       toast.error(
         error?.message ||
-        "Failed to generate questions. Check whether your documents contain relevant content.",
+          "Failed to generate questions. Check whether your documents contain relevant content.",
       );
     } finally {
       setIsGenerating(false);
@@ -379,8 +372,7 @@ export const GeneratorForm = () => {
 
           {/* General Instructions */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
-              <BrainCircuit className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+            <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
               General Instructions
             </label>
             <Textarea

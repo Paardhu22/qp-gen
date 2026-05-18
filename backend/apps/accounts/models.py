@@ -9,7 +9,6 @@ class User(TimeStampedModel):
     id = models.CharField(primary_key=True, max_length=32, default=generate_id, editable=False)
     name = models.CharField(max_length=255)
     email = models.EmailField(unique=True)
-    email_verified = models.BooleanField(default=False, db_column="emailVerified")
     image = models.TextField(null=True, blank=True)
 
     class Meta:

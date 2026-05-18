@@ -176,3 +176,27 @@ class QuestionDetailView(APIView):
         cache.delete(f"user_projects_full:{request.user.id}")
         cache.delete(f"user_projects_summary:{request.user.id}")
         return Response({"success": True})
+
+
+class ClearAllQuestionsView(APIView):
+    """Delete every question belonging to the current user across all projects."""
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        from apps.projects.models import Question
+        deleted_count, _ = Question.objects.filter(project__user=request.user).delete()
+        cache.delete(f"user_projects_full:{request.user.id}")
+        cache.delete(f"user_projects_summary:{request.user.id}")
+        return Response({"deleted": deleted_count})
+
+
+class ClearAllPapersView(APIView):
+    """Delete every paper belonging to the current user."""
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        deleted_count, _ = Paper.objects.filter(user=request.user).delete()
+        cache.delete(f"user_papers:{request.user.id}")
+        cache.delete(f"user_projects_full:{request.user.id}")
+        cache.delete(f"user_projects_summary:{request.user.id}")
+        return Response({"deleted": deleted_count})

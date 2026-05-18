@@ -88,7 +88,6 @@ class JWTAuthentication(BaseAuthentication):
                     "id": user.id,
                     "name": user.name,
                     "email": user.email,
-                    "email_verified": user.email_verified,
                     "image": user.image,
                 }
                 cache.set(

@@ -10,7 +10,6 @@ type SessionUser = {
   name: string;
   email: string;
   image?: string | null;
-  email_verified?: boolean;
 };
 
 type SessionData = {
@@ -50,7 +49,15 @@ function resetSessionCache(): void {
 }
 
 export const signIn = {
-  email: async ({ email, password, fetchOptions }: { email: string; password: string; fetchOptions?: FetchCallbacks }) => {
+  email: async ({
+    email,
+    password,
+    fetchOptions,
+  }: {
+    email: string;
+    password: string;
+    fetchOptions?: FetchCallbacks;
+  }) => {
     try {
       const response = await fetchJson<AuthResponse>("/api/auth/login", {
         method: "POST",
@@ -72,7 +79,17 @@ export const signIn = {
 };
 
 export const signUp = {
-  email: async ({ email, password, name, fetchOptions }: { email: string; password: string; name: string; fetchOptions?: FetchCallbacks }) => {
+  email: async ({
+    email,
+    password,
+    name,
+    fetchOptions,
+  }: {
+    email: string;
+    password: string;
+    name: string;
+    fetchOptions?: FetchCallbacks;
+  }) => {
     try {
       const response = await fetchJson<AuthResponse>("/api/auth/register", {
         method: "POST",
@@ -93,7 +110,9 @@ export const signUp = {
   },
 };
 
-export async function signOut({ fetchOptions }: { fetchOptions?: FetchCallbacks } = {}) {
+export async function signOut({
+  fetchOptions,
+}: { fetchOptions?: FetchCallbacks } = {}) {
   try {
     await fetchJson("/api/auth/logout", {
       method: "POST",
@@ -147,7 +166,9 @@ async function loadSession(): Promise<SessionData | null> {
 
   sessionPromise = (async () => {
     try {
-      const user = await fetchJson<SessionUser>("/api/auth/profile", { method: "GET" });
+      const user = await fetchJson<SessionUser>("/api/auth/profile", {
+        method: "GET",
+      });
       cachedSession = { user };
       sessionLoaded = true;
       return cachedSession;
@@ -155,7 +176,9 @@ async function loadSession(): Promise<SessionData | null> {
       if (err instanceof ApiError && err.status === 401) {
         const refreshed = await refreshAccessToken();
         if (refreshed) {
-          const user = await fetchJson<SessionUser>("/api/auth/profile", { method: "GET" });
+          const user = await fetchJson<SessionUser>("/api/auth/profile", {
+            method: "GET",
+          });
           cachedSession = { user };
           sessionLoaded = true;
           return cachedSession;
@@ -181,7 +204,6 @@ export function useSession() {
   const fetchSession = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-
     try {
       const session = await loadSession();
       setData(session);
@@ -193,9 +215,16 @@ export function useSession() {
     }
   }, []);
 
+  // Explicit refresh: always bypasses the module-level cache so fresh
+  // data (e.g. updated tokens_consumed) is fetched from the server.
+  const forceRefresh = useCallback(async () => {
+    resetSessionCache();
+    await fetchSession();
+  }, [fetchSession]);
+
   useEffect(() => {
     fetchSession();
   }, [fetchSession]);
 
-  return { data, isLoading, error, refresh: fetchSession };
+  return { data, isLoading, error, refresh: forceRefresh };
 }
