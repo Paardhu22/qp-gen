@@ -138,7 +138,7 @@ function normalizeInitialContent(rawContent: string | undefined) {
 
 function getLastPageInsertPos(editor: any) {
   const { doc } = editor.state;
-  let lastPage: { node: any; pos: number } | null = null;
+  let lastPage: any = null;
 
   doc.descendants((node: any, pos: number) => {
     if (node.type.name === "page") {

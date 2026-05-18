@@ -7,7 +7,8 @@ import {
   deleteQuestion,
   deletePaper,
 } from "@/lib/api-client";
-import { Trash2 } from "lucide-react";
+import { Trash2, FileText } from "lucide-react";
+import { useEditorStore } from "@/store/editor-store";
 import {
   Card,
   CardContent,
@@ -206,6 +207,23 @@ export default function SavedQuestionsPage() {
     router.push(`/editor?paperId=${paper.id}`);
   };
 
+  const handleInsertSelectedQuestions = () => {
+    const selectedList = allQuestions.filter((q) => selectedQuestionIds.has(q.id));
+    if (selectedList.length === 0) return;
+
+    const questionsToAppend = selectedList.map((q) => ({
+      content: q.content,
+      type: q.type,
+      options: q.options || [],
+      answer: q.answer || "",
+      marks: q.marks,
+    }));
+
+    useEditorStore.getState().appendQuestions(questionsToAppend);
+    toast.success(`Inserted ${selectedList.length} questions into the editor.`);
+    setSelectedQuestionIds(new Set());
+  };
+
   return (
     <div className="p-8 space-y-8 bg-background min-h-full">
       <div>
@@ -220,16 +238,28 @@ export default function SavedQuestionsPage() {
       <div className="grid gap-8 grid-cols-1 lg:grid-cols-3">
         {/* Questions Section */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xl font-semibold text-foreground">
-              Saved Questions
-            </h3>
-            <div className="w-64">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <h3 className="text-xl font-semibold text-foreground">
+                Saved Questions
+              </h3>
+              {selectedQuestionIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={handleInsertSelectedQuestions}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm transition-all duration-200 cursor-pointer"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Insert Selected ({selectedQuestionIds.size}) into Editor
+                </button>
+              )}
+            </div>
+            <div className="w-full sm:w-64">
               <Input
                 placeholder="Search questions..."
                 value={questionSearch}
                 onChange={(e) => setQuestionSearch(e.target.value)}
-                className="h-9 bg-background border-border"
+                className="h-9 bg-background border-border text-foreground"
               />
             </div>
           </div>

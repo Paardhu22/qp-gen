@@ -9,6 +9,8 @@ export const config = {
     "/dashboard/:path*",
     "/editor/:path*",
     "/saved/:path*",
+    "/settings/:path*",
+    "/history/:path*",
     "/login",
     "/register",
   ],

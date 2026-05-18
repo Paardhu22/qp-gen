@@ -3,7 +3,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.generation.serializers import AnswerKeySerializer, QuestionGenerationSerializer
+from apps.generation.models import GenerationHistory
+from apps.generation.serializers import AnswerKeySerializer, GenerationHistorySerializer, QuestionGenerationSerializer
 from services.generation_service import stream_generated_questions
 from services.openai_service import generate_answer_key
 
@@ -36,5 +37,14 @@ class AnswerKeyView(APIView):
     def post(self, request):
         serializer = AnswerKeySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        answer_key_html = generate_answer_key(serializer.validated_data["paperContentHTML"])
+        answer_key_html = generate_answer_key(serializer.validated_data["paperContentHTML"], user=request.user)
         return Response({"answerKeyHtml": answer_key_html})
+
+
+class GenerationHistoryListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        history = GenerationHistory.objects.filter(user=request.user).order_by("-created_at")
+        serializer = GenerationHistorySerializer(history, many=True)
+        return Response(serializer.data)

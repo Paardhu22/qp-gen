@@ -52,7 +52,7 @@ def process_document_upload(file, user, project_id: Optional[str] = None) -> Doc
         batch_size = 50
         for i in range(0, len(chunks), batch_size):
             batch = chunks[i : i + batch_size]
-            embeddings = generate_embeddings([chunk.content for chunk in batch])
+            embeddings = generate_embeddings([chunk.content for chunk in batch], user=user)
 
             chunk_objects = []
             for chunk, embedding in zip(batch, embeddings):

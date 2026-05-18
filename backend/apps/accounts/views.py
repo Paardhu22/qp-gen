@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 import jwt
 
-from apps.accounts.serializers import LoginSerializer, RefreshSerializer, RegisterSerializer, UserSerializer
+from apps.accounts.serializers import ChangePasswordSerializer, LoginSerializer, RefreshSerializer, RegisterSerializer, UserSerializer
 from services.auth_service import authenticate_user, register_user
 from services.jwt_service import (
     create_token_pair,
@@ -84,6 +84,30 @@ class ProfileView(APIView):
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        old_password = serializer.validated_data["oldPassword"]
+        new_password = serializer.validated_data["newPassword"]
+
+        from apps.accounts.models import Account
+        account = Account.objects.filter(user=request.user, provider_id="email").first()
+        if not account:
+            return Response({"error": "Local account not found for this user."}, status=400)
+
+        if not account.check_password(old_password):
+            return Response({"error": "Incorrect current password."}, status=400)
+
+        account.set_password(new_password)
+        account.save(update_fields=["password"])
+
+        return Response({"success": True})
 
 
 class RefreshView(APIView):
