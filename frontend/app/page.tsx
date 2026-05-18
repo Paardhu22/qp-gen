@@ -1,5 +1,99 @@
-import { redirect } from "next/navigation";
+import Image from "next/image";
+import Link from "next/link";
+import { Sora } from "next/font/google";
+import Grainient from "@/components/Grainient";
+
+const sora = Sora({
+  subsets: ["latin"],
+  weight: ["400", "600"],
+});
 
 export default function Home() {
-  redirect("/login");
+  return (
+    <main
+      className={`${sora.className} relative min-h-screen overflow-hidden bg-neutral-950 text-neutral-900`}
+    >
+      <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+        <Grainient
+          color1="#fcfcfc"
+          color2="#b39de3"
+          color3="#f6edff"
+          timeSpeed={0.95}
+          colorBalance={0.0}
+          warpStrength={1.0}
+          warpFrequency={5.0}
+          warpSpeed={3.7}
+          warpAmplitude={50.0}
+          blendAngle={0.0}
+          blendSoftness={0.05}
+          rotationAmount={350}
+          noiseScale={2.0}
+          grainAmount={0.1}
+          grainScale={2.0}
+          grainAnimated={false}
+          contrast={1.5}
+          gamma={1.55}
+          saturation={1.0}
+          centerX={0.0}
+          centerY={0.0}
+          zoom={0.9}
+          className="landing-grainient"
+        />
+      </div>
+
+      <div className="relative z-10 flex min-h-screen flex-col">
+        <header className="flex flex-col gap-4 px-6 pt-6 sm:flex-row sm:items-center sm:justify-between sm:px-10">
+          <div
+            className="relative h-10 w-40 landing-fade"
+            style={{ animationDelay: "80ms" }}
+          >
+            <Image
+              src="/lighttheme.png"
+              alt="HSAT logo"
+              fill
+              sizes="(max-width: 768px) 160px, 220px"
+              className="object-contain object-left"
+              priority
+            />
+          </div>
+
+          <div
+            className="flex items-center gap-3 landing-fade"
+            style={{ animationDelay: "160ms" }}
+          >
+            <Link
+              href="/login"
+              className="rounded-full border border-neutral-200 px-4 py-2 text-sm text-neutral-700 transition hover:border-neutral-400 hover:text-neutral-900"
+            >
+              Login
+            </Link>
+            <Link
+              href="/register"
+              className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white transition hover:bg-neutral-800"
+            >
+              Get started
+            </Link>
+          </div>
+        </header>
+
+        <section className="flex flex-1 items-center justify-center px-6 pb-12 text-center">
+          <div className="max-w-4xl">
+            <p
+              className="landing-kicker landing-fade"
+              style={{ animationDelay: "240ms" }}
+            >
+              HSAT
+            </p>
+            <h1 className="landing-title">question papers made easier</h1>
+            <p
+              className="landing-subtitle landing-fade mx-auto mt-6"
+              style={{ animationDelay: "360ms" }}
+            >
+              Build, review, and export polished papers in minutes.
+            </p>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
 }
