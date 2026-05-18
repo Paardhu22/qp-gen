@@ -128,6 +128,46 @@
     html {
         @apply font-sans;
     }
+
+    /* Pointer cursor on every interactive element, site-wide */
+    button,
+    [role="button"],
+    a,
+    [role="link"],
+    label[for],
+    select,
+    summary,
+    [tabindex]:not([tabindex="-1"]),
+    [role="menuitem"],
+    [role="option"],
+    [role="tab"],
+    [role="checkbox"],
+    [role="radio"],
+    [role="switch"],
+    [role="combobox"],
+    [role="listbox"],
+    [role="slider"],
+    [role="spinbutton"],
+    [data-slot="dialog-trigger"],
+    [data-slot="alert-dialog-trigger"] {
+        cursor: pointer;
+    }
+
+    /* Keep text cursor on all input / editable areas */
+    input:not([type="range"]),
+    textarea,
+    [contenteditable="true"] {
+        cursor: text;
+    }
+
+    /* Disabled elements get the not-allowed cursor */
+    button:disabled,
+    input:disabled,
+    select:disabled,
+    textarea:disabled,
+    [aria-disabled="true"] {
+        cursor: not-allowed;
+    }
 }
 
 /* ===== Editor Usability ===== */
@@ -181,7 +221,9 @@
     background-size: 200% 200%;
     -webkit-background-clip: text;
     color: transparent;
-    animation: landing-shimmer 7s ease-in-out infinite, landing-rise 0.9s ease-out both;
+    animation:
+        landing-shimmer 7s ease-in-out infinite,
+        landing-rise 0.9s ease-out both;
 }
 
 .landing-subtitle {

@@ -89,7 +89,13 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
     last_valid = None
     usage_info = None
 
+    # Consume ALL chunks in a single pass.
+    # Usage statistics arrive in the final chunk (choices=[]) when
+    # stream_options={"include_usage": True} is set. Breaking out early
+    # and re-iterating the stream to grab usage does NOT work with the
+    # OpenAI Python SDK — the stream cannot be iterated twice.
     for chunk in stream:
+        # Capture usage whenever it appears (typically the last chunk)
         if hasattr(chunk, "usage") and chunk.usage is not None:
             usage_info = chunk.usage
 
@@ -97,27 +103,18 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
             continue
 
         delta = chunk.choices[0].delta.content or ""
-        if not delta:
-            continue
-        buffer += delta
+        if delta:
+            buffer += delta
 
+    # Parse the accumulated buffer once, after the stream is exhausted
+    if buffer:
         try:
-            parsed = json.loads(buffer)
-            last_valid = parsed
-            yield _sse_event(parsed)
-            break # Once we have a valid JSON object, we are done
+            last_valid = json.loads(buffer)
         except json.JSONDecodeError:
-            continue
-
-    # Drain remaining stream to capture complete usage statistics
-    try:
-        for chunk in stream:
-            if hasattr(chunk, "usage") and chunk.usage is not None:
-                usage_info = chunk.usage
-    except Exception:
-        pass
+            pass
 
     if last_valid is not None:
+        yield _sse_event(last_valid)
         GenerationHistory.objects.create(
             prompt=prompt,
             settings={

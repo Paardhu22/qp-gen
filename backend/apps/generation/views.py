@@ -48,3 +48,7 @@ class GenerationHistoryListView(APIView):
         history = GenerationHistory.objects.filter(user=request.user).order_by("-created_at")
         serializer = GenerationHistorySerializer(history, many=True)
         return Response(serializer.data)
+
+    def delete(self, request):
+        deleted_count, _ = GenerationHistory.objects.filter(user=request.user).delete()
+        return Response({"deleted": deleted_count})

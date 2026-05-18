@@ -86,6 +86,18 @@ class ProfileView(APIView):
         return Response(UserSerializer(request.user).data)
 
 
+class VerifyPasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from apps.accounts.models import Account
+        password = request.data.get("password", "")
+        account = Account.objects.filter(user=request.user, provider_id="email").first()
+        if not account or not account.check_password(password):
+            return Response({"error": "Incorrect password."}, status=400)
+        return Response({"valid": True})
+
+
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
 

@@ -1,63 +1,70 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 
-import { cn } from "@/lib/utils"
-import { signUp } from "@/lib/auth-client"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils";
+import { signUp } from "@/lib/auth-client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export function RegisterForm({
   className,
   ...props
 }: React.ComponentProps<"div">) {
-  const router = useRouter()
+  const router = useRouter();
 
-  const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
-  const [error, setError] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [isTyping, setIsTyping] = useState(false)
-  const [cursor, setCursor] = useState({ x: 0, y: 0 })
-  const [eyePos, setEyePos] = useState({ x: 0, y: 0 })
-  const [blink, setBlink] = useState(false)
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [cursor, setCursor] = useState({ x: 0, y: 0 });
+  const [eyePos, setEyePos] = useState({ x: 0, y: 0 });
+  const [blink, setBlink] = useState(false);
 
   useEffect(() => {
     const handleMouse = (e: MouseEvent) =>
-      setCursor({ x: e.clientX, y: e.clientY })
-    window.addEventListener("mousemove", handleMouse)
-    return () => window.removeEventListener("mousemove", handleMouse)
-  }, [])
+      setCursor({ x: e.clientX, y: e.clientY });
+    window.addEventListener("mousemove", handleMouse);
+    return () => window.removeEventListener("mousemove", handleMouse);
+  }, []);
 
   useEffect(() => {
-    const offsetX = (cursor.x / window.innerWidth - 0.5) * 40
-    const offsetY = (cursor.y / window.innerHeight - 0.5) * 20
-    setEyePos({ x: offsetX, y: offsetY })
-  }, [cursor])
+    const offsetX = (cursor.x / window.innerWidth - 0.5) * 40;
+    const offsetY = (cursor.y / window.innerHeight - 0.5) * 20;
+    setEyePos({ x: offsetX, y: offsetY });
+  }, [cursor]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setBlink(true)
-      setTimeout(() => setBlink(false), 200)
-    }, 3000)
-    return () => clearInterval(interval)
-  }, [])
+      setBlink(true);
+      setTimeout(() => setBlink(false), 200);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const GMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/;
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
+    e.preventDefault();
+    setError("");
 
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.")
-      return
+    if (!GMAIL_REGEX.test(email)) {
+      setError("Please enter a valid Gmail address (e.g. example@gmail.com).");
+      return;
     }
 
-    setLoading(true)
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setLoading(true);
     await signUp.email({
       name,
       email,
@@ -65,16 +72,19 @@ export function RegisterForm({
       fetchOptions: {
         onSuccess: () => router.push("/dashboard"),
         onError: (ctx) => {
-          setError(ctx.error.message)
-          setLoading(false)
+          setError(ctx.error.message);
+          setLoading(false);
         },
       },
-    })
-  }
+    });
+  };
 
   return (
     <div
-      className={cn("flex min-h-svh items-center justify-center p-4", className)}
+      className={cn(
+        "flex min-h-svh items-center justify-center p-4",
+        className,
+      )}
       {...props}
     >
       <div className="w-full max-w-md rounded-2xl border border-white/30 bg-white/30 p-8 shadow-xl backdrop-blur-md">
@@ -201,5 +211,5 @@ export function RegisterForm({
         </div>
       </div>
     </div>
-  )
+  );
 }

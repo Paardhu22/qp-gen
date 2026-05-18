@@ -5,7 +5,10 @@ import { getAccessToken } from "@/lib/token-storage";
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-type FetchJsonOptions = RequestInit & { skipAuth?: boolean };
+type FetchJsonOptions = RequestInit & {
+  skipAuth?: boolean;
+  timeoutMs?: number;
+};
 
 export class ApiError extends Error {
   status: number;
@@ -21,7 +24,7 @@ export async function fetchJson<T>(
   path: string,
   options: FetchJsonOptions = {},
 ): Promise<T> {
-  const { skipAuth, ...requestInit } = options;
+  const { skipAuth, timeoutMs = 10000, ...requestInit } = options;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...((requestInit.headers || {}) as Record<string, string>),
@@ -36,10 +39,24 @@ export async function fetchJson<T>(
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...requestInit,
-    headers,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...requestInit,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new ApiError("Request timed out. Please try again.", 408);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));

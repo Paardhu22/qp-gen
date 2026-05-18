@@ -5,7 +5,7 @@ from .models import Account, Session, User, Verification
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ("id", "email", "name", "email_verified", "created_at")
+    list_display = ("id", "email", "name", "created_at")
     search_fields = ("email", "name")
 
 

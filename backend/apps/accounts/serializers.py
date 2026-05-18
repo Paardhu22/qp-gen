@@ -1,6 +1,16 @@
+import re
+
 from rest_framework import serializers
 
 from apps.accounts.models import User
+
+GMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+\-]+@gmail\.com$')
+
+
+def validate_gmail(value: str) -> str:
+    if not GMAIL_REGEX.match(value):
+        raise serializers.ValidationError("Enter a valid Gmail address (e.g. example@gmail.com).")
+    return value
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -8,7 +18,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "name", "email", "email_verified", "image", "tokens_consumed"]
+        fields = ["id", "name", "email", "image", "tokens_consumed"]
 
     def get_tokens_consumed(self, obj):
         from apps.generation.models import ApiUsage
@@ -24,12 +34,12 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 class RegisterSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
-    email = serializers.EmailField()
+    email = serializers.EmailField(validators=[validate_gmail])
     password = serializers.CharField(min_length=8, write_only=True)
 
 
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(validators=[validate_gmail])
     password = serializers.CharField(write_only=True)
 
 
