@@ -3,6 +3,9 @@ from typing import Optional
 from django.conf import settings
 from openai import OpenAI
 
+from apps.accounts.models import User
+from apps.generation.models import ApiUsage
+
 _client: Optional[OpenAI] = None
 
 
@@ -13,7 +16,21 @@ def get_openai_client() -> OpenAI:
     return _client
 
 
-def generate_answer_key(paper_content_html: str) -> str:
+def _record_usage(user: Optional[User], operation: str, model: str, usage: object | None) -> None:
+    if not usage:
+        return
+
+    ApiUsage.objects.create(
+        user=user,
+        operation=operation,
+        model=model,
+        prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+        completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+        total_tokens=getattr(usage, "total_tokens", 0) or 0,
+    )
+
+
+def generate_answer_key(paper_content_html: str, user: Optional[User] = None) -> str:
     client = get_openai_client()
 
     prompt = (
@@ -35,4 +52,5 @@ def generate_answer_key(paper_content_html: str) -> str:
     )
 
     content = completion.choices[0].message.content
+    _record_usage(user, "answer_key", settings.OPENAI_MODEL, completion.usage)
     return content or ""

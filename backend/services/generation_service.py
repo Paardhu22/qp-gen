@@ -13,7 +13,7 @@ def _sse_event(data: dict, event: str = "update") -> str:
 
 
 def stream_generated_questions(user, document_ids: List[str], topic: str, count: int, difficulty: str, instructions: str = "") -> Iterable[str]:
-    context = retrieve_relevant_chunks(topic, document_ids, 15)
+    context = retrieve_relevant_chunks(topic, document_ids, 15, user=user)
     if not context:
         yield _sse_event({"error": "No relevant content found in the uploaded documents."}, event="error")
         return
@@ -79,6 +79,7 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
             ],
             response_format={"type": "json_object"},
             stream=True,
+            stream_options={"include_usage": True},
         )
     except Exception as exc:
         yield _sse_event({"error": str(exc)}, event="error")
@@ -86,8 +87,15 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
 
     buffer = ""
     last_valid = None
+    usage_info = None
 
     for chunk in stream:
+        if hasattr(chunk, "usage") and chunk.usage is not None:
+            usage_info = chunk.usage
+
+        if not chunk.choices:
+            continue
+
         delta = chunk.choices[0].delta.content or ""
         if not delta:
             continue
@@ -100,6 +108,14 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
             break # Once we have a valid JSON object, we are done
         except json.JSONDecodeError:
             continue
+
+    # Drain remaining stream to capture complete usage statistics
+    try:
+        for chunk in stream:
+            if hasattr(chunk, "usage") and chunk.usage is not None:
+                usage_info = chunk.usage
+    except Exception:
+        pass
 
     if last_valid is not None:
         GenerationHistory.objects.create(
@@ -114,5 +130,8 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
             result=last_valid,
             user=user,
         )
+        if usage_info:
+            from services.openai_service import _record_usage
+            _record_usage(user, "question_generation", settings.OPENAI_MODEL, usage_info)
 
     yield _sse_event({"done": True}, event="done")
