@@ -28,7 +28,7 @@ export const PageContainer = ({ node }: PageContainerProps) => {
     <NodeViewWrapper className="doc-page" data-page-id={node.attrs.pageId}>
       <div className="doc-page-inner">
         <div className="doc-page-header" contentEditable={false} />
-        <PageContent className="doc-page-content prose prose-sm sm:prose-base prose-zinc max-w-none" />
+        <PageContent className="doc-page-content" />
         <div className="doc-page-footer" contentEditable={false} />
       </div>
     </NodeViewWrapper>

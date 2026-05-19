@@ -105,41 +105,41 @@ export const DrawingComponent = ({ node, updateAttributes }: any) => {
   };
 
   return (
-    <NodeViewWrapper className="drawing-block my-4 p-2 bg-zinc-100 border border-zinc-300 rounded-lg group relative">
+    <NodeViewWrapper className="drawing-block">
       <div className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <button 
           onClick={() => updateAttributes({ dataUrl: null })}
-          className="bg-red-500 text-white p-1 rounded-full shadow-lg hover:bg-red-600"
+          className="drawing-delete"
           title="Remove Drawing"
         >
           <Trash className="w-3 h-3" />
         </button>
       </div>
-      <div className="flex items-center gap-2 mb-2 p-1 bg-zinc-200 rounded select-none">
-        <button onClick={() => setTool("pencil")} className={`p-1.5 rounded ${tool === "pencil" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Pencil">
+      <div className="drawing-toolbar" contentEditable={false}>
+        <button onClick={() => setTool("pencil")} className={`drawing-tool ${tool === "pencil" ? "is-active" : ""}`} title="Pencil">
           <Pencil className="w-4 h-4" />
         </button>
-        <button onClick={() => setTool("line")} className={`p-1.5 rounded ${tool === "line" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Line">
+        <button onClick={() => setTool("line")} className={`drawing-tool ${tool === "line" ? "is-active" : ""}`} title="Line">
           <Minus className="w-4 h-4" />
         </button>
-        <button onClick={() => setTool("rect")} className={`p-1.5 rounded ${tool === "rect" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Rectangle">
+        <button onClick={() => setTool("rect")} className={`drawing-tool ${tool === "rect" ? "is-active" : ""}`} title="Rectangle">
           <Square className="w-4 h-4" />
         </button>
-        <button onClick={() => setTool("circle")} className={`p-1.5 rounded ${tool === "circle" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Circle">
+        <button onClick={() => setTool("circle")} className={`drawing-tool ${tool === "circle" ? "is-active" : ""}`} title="Circle">
           <Circle className="w-4 h-4" />
         </button>
-        <button onClick={() => setTool("eraser")} className={`p-1.5 rounded ${tool === "eraser" ? "bg-zinc-800 text-indigo-400" : "text-zinc-400"}`} title="Eraser">
+        <button onClick={() => setTool("eraser")} className={`drawing-tool ${tool === "eraser" ? "is-active" : ""}`} title="Eraser">
           <Eraser className="w-4 h-4" />
         </button>
-        <div className="w-px h-4 bg-zinc-800 mx-1" />
+        <div className="drawing-divider" />
         <input 
           type="color" 
           value={color} 
           onChange={(e) => setColor(e.target.value)} 
-          className="w-6 h-6 rounded cursor-pointer border-0 p-0"
+          className="drawing-color"
           title="Color"
         />
-        <div className="w-px h-4 bg-zinc-800 mx-1" />
+        <div className="drawing-divider" />
         <button 
           onClick={() => {
             const ctx = canvasRef.current?.getContext("2d");
@@ -149,12 +149,12 @@ export const DrawingComponent = ({ node, updateAttributes }: any) => {
               saveCanvas();
             }
           }}
-          className="text-xs text-red-600 hover:text-red-500 ml-auto mr-2"
+          className="drawing-clear"
         >
           Clear Canvas
         </button>
       </div>
-      <div className="flex justify-center bg-white rounded border border-zinc-300 overflow-hidden">
+      <div className="drawing-canvas">
         <canvas
           ref={canvasRef}
           width={600}
@@ -163,7 +163,7 @@ export const DrawingComponent = ({ node, updateAttributes }: any) => {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          className="cursor-crosshair bg-white"
+          className="drawing-surface"
           style={{ width: "100%", maxWidth: "600px", height: "auto", aspectRatio: "2/1" }}
         />
       </div>

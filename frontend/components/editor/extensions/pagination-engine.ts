@@ -52,6 +52,25 @@ function findOverflowIndex(contentEl: HTMLElement) {
   return null;
 }
 
+function adjustSplitIndex(pageNode: any, splitIndex: number) {
+  if (splitIndex <= 0 || splitIndex >= pageNode.childCount) return splitIndex;
+
+  const prevNode = pageNode.child(splitIndex - 1);
+  if (prevNode?.type?.name === "sectionBlock") {
+    return splitIndex - 1 > 0 ? splitIndex - 1 : splitIndex;
+  }
+
+  const prevPrevNode = splitIndex - 2 >= 0 ? pageNode.child(splitIndex - 2) : null;
+  if (
+    prevNode?.type?.name === "instructionBlock" &&
+    prevPrevNode?.type?.name === "sectionBlock"
+  ) {
+    return splitIndex - 2 > 0 ? splitIndex - 2 : splitIndex;
+  }
+
+  return splitIndex;
+}
+
 function splitPageAtIndex(state: any, pagePos: number, pageNode: any, splitIndex: number) {
   if (splitIndex < 0 || splitIndex >= pageNode.childCount) return null;
 
@@ -163,7 +182,10 @@ function paginateOnce(view: EditorView) {
     if (contentEl.scrollHeight > contentEl.clientHeight) {
       const overflowIndex = findOverflowIndex(contentEl);
       if (overflowIndex !== null && overflowIndex > 0) {
-        return splitPageAtIndex(state, pagePos, pageNode, overflowIndex);
+        const safeIndex = adjustSplitIndex(pageNode, overflowIndex);
+        if (safeIndex > 0) {
+          return splitPageAtIndex(state, pagePos, pageNode, safeIndex);
+        }
       }
 
       if (pageNode.childCount > 1) {

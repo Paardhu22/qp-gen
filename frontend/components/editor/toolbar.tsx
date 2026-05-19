@@ -442,6 +442,8 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
   onFindReplace,
 }) => {
   const [totalMarks, setTotalMarks] = useState(0);
+  const template = useEditorStore((state) => state.template);
+  const setTemplate = useEditorStore((state) => state.setTemplate);
 
   const calculateTotalMarks = useCallback(() => {
     let total = 0;
@@ -842,17 +844,54 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
                     content: [{ type: "text", text: "SCHOOL NAME" }],
                   },
                   {
-                    type: "paragraph",
-                    content: [
-                      { type: "text", text: "Exam Name • Subject • Date" },
-                    ],
+                    type: "heading",
+                    attrs: { level: 2 },
+                    content: [{ type: "text", text: "SAMPLE QUESTION PAPER" }],
                   },
                   {
                     type: "paragraph",
                     content: [
                       {
                         type: "text",
-                        text: "Time Allowed: 3 Hours • Max Marks: 100",
+                        text: "Class X | Subject | Academic Year 2025-26",
+                      },
+                    ],
+                  },
+                  {
+                    type: "table",
+                    content: [
+                      {
+                        type: "tableRow",
+                        content: [
+                          {
+                            type: "tableCell",
+                            content: [
+                              {
+                                type: "paragraph",
+                                content: [
+                                  {
+                                    type: "text",
+                                    text: "Time Allowed: 2 Hours",
+                                  },
+                                ],
+                              },
+                            ],
+                          },
+                          {
+                            type: "tableCell",
+                            content: [
+                              {
+                                type: "paragraph",
+                                content: [
+                                  {
+                                    type: "text",
+                                    text: "Maximum Marks: 50",
+                                  },
+                                ],
+                              },
+                            ],
+                          },
+                        ],
                       },
                     ],
                   },
@@ -926,23 +965,23 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
         <div className="ml-auto flex items-center gap-1.5">
           {/* Template selector */}
           <select
+            value={template}
             onChange={(e) => {
               const val = e.target.value;
-              if (val && (templates as any)[val]) {
+              if (!val) return;
+              if ((templates as any)[val]) {
                 editor.commands.setContent(
                   wrapHtmlInPage((templates as any)[val]),
                 );
               }
-              e.target.value = "";
+              setTemplate(val);
             }}
-            defaultValue=""
             className="h-7 bg-background border border-border rounded text-[10px] text-foreground px-1.5 min-w-[110px] focus:outline-none cursor-pointer hover:bg-accent transition-colors"
           >
-            <option value="" disabled>
-              Templates
-            </option>
             <option value="cbse">CBSE Style</option>
+            <option value="minimalSchool">Minimal School</option>
             <option value="university">University Style</option>
+            <option value="worksheet">Worksheet Style</option>
             <option value="competitive">Competitive Exam</option>
           </select>
 
@@ -1056,15 +1095,25 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           onClick={() =>
             insertAfterCurrentBlock("instructionBlock", [
               {
-                type: "paragraph",
+                type: "orderedList",
                 content: [
                   {
-                    type: "text",
-                    text: "All questions are compulsory.",
+                    type: "listItem",
+                    content: [
+                      {
+                        type: "paragraph",
+                        content: [
+                          {
+                            type: "text",
+                            text: "All questions are compulsory.",
+                          },
+                        ],
+                      },
+                    ],
                   },
                 ],
               },
-            ])
+            ], { variant: "general" })
           }
           className="h-6 px-2 text-[10px] font-medium text-amber-400 hover:bg-amber-500/10 rounded transition-colors flex items-center gap-1"
         >

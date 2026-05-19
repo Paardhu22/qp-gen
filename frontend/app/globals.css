@@ -198,7 +198,7 @@
 /* Make the blinking text caret always visible on the light paper (#fcfbf9)
    regardless of the OS / browser theme. */
 #tiptap-paper-container {
-    caret-color: #111111 !important;
+    caret-color: #000000 !important;
 }
 
 /* ===== Landing page ===== */

@@ -16,25 +16,25 @@ export const MathBlockComponent = ({ node, updateAttributes }: any) => {
   };
 
   return (
-    <NodeViewWrapper className="math-block my-4 p-4 bg-zinc-900/50 border border-zinc-800 rounded-lg text-center font-mono text-sm group relative hover:border-indigo-500/50 transition-colors">
+    <NodeViewWrapper className="math-block">
       {!isEditing ? (
         <div 
           onClick={() => setIsEditing(true)} 
-          className="cursor-pointer py-2"
+          className="math-block-display"
           title="Click to edit equation"
         >
           {latex ? (
             <div dangerouslySetInnerHTML={{ __html: katex.renderToString(latex, { displayMode: true, throwOnError: false }) }} />
           ) : (
-            <span className="text-zinc-500 italic">Empty math block. Click to edit.</span>
+            <span className="math-block-empty">Empty math block. Click to edit.</span>
           )}
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="math-block-editor">
           <textarea
             value={latex}
             onChange={(e) => setLatex(e.target.value)}
-            className="w-full bg-zinc-950 border border-indigo-500/50 rounded p-2 text-zinc-200 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-y min-h-[60px]"
+            className="math-block-input"
             autoFocus
             onBlur={handleSave}
             onKeyDown={(e) => {
@@ -44,7 +44,7 @@ export const MathBlockComponent = ({ node, updateAttributes }: any) => {
               }
             }}
           />
-          <div className="text-[10px] text-zinc-500 text-left">
+          <div className="math-block-hint">
             Press Enter to save, Shift+Enter for new line.
           </div>
         </div>
@@ -121,26 +121,26 @@ export const InlineMathComponent = ({ node, updateAttributes }: any) => {
   };
 
   return (
-    <NodeViewWrapper as="span" className="inline-math relative inline-block mx-1">
+    <NodeViewWrapper as="span" className="inline-math">
       {!isEditing ? (
         <span 
           onClick={() => setIsEditing(true)} 
-          className="cursor-pointer bg-zinc-800/50 hover:bg-indigo-500/20 px-1 rounded transition-colors"
+          className="inline-math-display"
           title="Click to edit inline math"
         >
           {latex ? (
             <span dangerouslySetInnerHTML={{ __html: katex.renderToString(latex, { displayMode: false, throwOnError: false }) }} />
           ) : (
-            <span className="text-zinc-500 italic">math</span>
+            <span className="inline-math-empty">math</span>
           )}
         </span>
       ) : (
-        <span className="inline-flex items-center gap-1 bg-zinc-900 border border-indigo-500/50 rounded px-1 relative z-10 shadow-lg">
+        <span className="inline-math-editor">
           <input
             type="text"
             value={latex}
             onChange={(e) => setLatex(e.target.value)}
-            className="bg-transparent border-none text-zinc-200 font-mono text-xs w-[100px] focus:outline-none"
+            className="inline-math-input"
             autoFocus
             onBlur={handleSave}
             onKeyDown={(e) => {
