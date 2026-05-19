@@ -32,14 +32,14 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
   };
 
   return (
-    <NodeViewWrapper className="paper-header-block my-8 group">
-      <div className="flex items-start gap-8 p-4 border border-transparent hover:border-zinc-100 rounded-xl transition-colors">
+    <NodeViewWrapper className="paper-header-block group">
+      <div className="paper-header-shell">
         {/* Logo Area */}
         <div
-          className={`w-32 h-32 flex-shrink-0 flex items-center justify-center rounded-lg transition-all cursor-pointer overflow-hidden relative group/logo ${
+          className={`paper-header-logo-area ${
             node.attrs.logoUrl
-              ? "bg-transparent"
-              : "bg-zinc-50 border-2 border-dashed border-zinc-200 hover:bg-zinc-100 hover:border-zinc-300 print:hidden"
+              ? "has-logo"
+              : "is-empty print:hidden"
           }`}
           onClick={handleLogoClick}
           contentEditable={false}
@@ -57,14 +57,14 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
               <button
                 type="button"
                 onClick={removeLogo}
-                className="rounded-full bg-white/90 p-1 shadow-sm opacity-0 transition-opacity hover:bg-white group-hover/logo:opacity-100 print:hidden"
+                className="logo-remove-btn print:hidden"
                 title="Remove logo"
               >
                 <X className="w-3 h-3 text-zinc-500" />
               </button>
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-1 text-zinc-400 print:hidden">
+            <div className="logo-placeholder print:hidden">
               <ImageIcon className="w-6 h-6" />
               <span className="text-[10px] uppercase font-bold tracking-wider">
                 Logo
@@ -88,7 +88,7 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
         <button
           type="button"
           onClick={deleteNode}
-          className="ml-auto rounded-full bg-red-500 p-1.5 text-white opacity-0 shadow-lg transition-opacity hover:bg-red-600 group-hover:opacity-100 print:hidden"
+          className="paper-header-delete print:hidden"
           title="Remove Header"
           contentEditable={false}
         >
@@ -102,7 +102,7 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
 export const PaperHeaderBlock = Node.create({
   name: "paperHeaderBlock",
   group: "block paperBlock",
-  content: "heading paragraph*",
+  content: "block+",
   draggable: true,
   isolating: true,
 

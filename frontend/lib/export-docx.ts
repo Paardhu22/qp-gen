@@ -99,9 +99,17 @@ class CustomHtmlToDocxParser {
         }
         if (dataType === "instruction-block") {
           docxElements.push(new Paragraph({ children: [new TextRun({ text: "Instructions:", bold: true })] }));
-          el.querySelectorAll("p").forEach(p => {
-            docxElements.push(new Paragraph({ text: (p as HTMLElement).innerText }));
-          });
+          const listItems = el.querySelectorAll("li");
+          if (listItems.length > 0) {
+            listItems.forEach((li, index) => {
+              const text = `${index + 1}. ${(li as HTMLElement).innerText}`;
+              docxElements.push(new Paragraph({ text }));
+            });
+          } else {
+            el.querySelectorAll("p").forEach(p => {
+              docxElements.push(new Paragraph({ text: (p as HTMLElement).innerText }));
+            });
+          }
           return;
         }
         if (dataType === "question-block") {

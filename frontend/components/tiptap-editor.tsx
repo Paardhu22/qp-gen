@@ -78,6 +78,135 @@ function updateQuestionNumbers(editor: any) {
   }
 }
 
+type SectionSummary = {
+  pos: number;
+  title: string;
+  questionCount: number;
+  totalMarks: number;
+  marksEach: number | null;
+};
+
+function buildSectionSummaryText(section: SectionSummary) {
+  if (section.questionCount === 0) return "";
+  if (section.marksEach !== null) {
+    return `${section.questionCount} x ${section.marksEach} = ${section.totalMarks} Marks`;
+  }
+  return `${section.questionCount} Questions = ${section.totalMarks} Marks`;
+}
+
+function buildInstructionLine(section: SectionSummary) {
+  if (section.questionCount === 0) {
+    return `${section.title} has no questions.`;
+  }
+  if (section.marksEach !== null) {
+    const markLabel = section.marksEach === 1 ? "mark" : "marks";
+    return `${section.title} has ${section.questionCount} questions carrying ${section.marksEach} ${markLabel} each.`;
+  }
+  return `${section.title} has ${section.questionCount} questions carrying a total of ${section.totalMarks} marks.`;
+}
+
+function updateSectionSummaries(editor: any) {
+  if (!editor) return;
+
+  const { doc } = editor.state;
+  const tr = editor.state.tr;
+  const sections: SectionSummary[] = [];
+  let currentSection: SectionSummary | null = null;
+  let currentMarks: Set<number> = new Set();
+
+  doc.descendants((node: any, pos: number) => {
+    if (node.type.name === "sectionBlock") {
+      if (currentSection) {
+        const marksEach = currentMarks.size === 1 ? [...currentMarks][0] : null;
+        sections.push({
+          ...currentSection,
+          marksEach,
+        });
+      }
+
+      currentSection = {
+        pos,
+        title: (node.textContent || "Section").trim(),
+        questionCount: 0,
+        totalMarks: 0,
+        marksEach: null,
+      };
+      currentMarks = new Set();
+      return;
+    }
+
+    if (node.type.name === "questionBlock" && currentSection) {
+      const marks = Number(node.attrs?.marks ?? 0) || 0;
+      currentSection.questionCount += 1;
+      currentSection.totalMarks += marks;
+      if (marks > 0) currentMarks.add(marks);
+    }
+  });
+
+  if (currentSection) {
+    const marksEach = currentMarks.size === 1 ? [...currentMarks][0] : null;
+    sections.push({
+      ...currentSection,
+      marksEach,
+    });
+  }
+
+  sections.forEach((section) => {
+    const node = doc.nodeAt(section.pos);
+    if (!node) return;
+
+    const summaryText = buildSectionSummaryText(section);
+    const nextAttrs = {
+      ...node.attrs,
+      questionCount: section.questionCount,
+      totalMarks: section.totalMarks,
+      marksEach: section.marksEach,
+      summaryText,
+    };
+
+    const hasChanged =
+      node.attrs.questionCount !== nextAttrs.questionCount ||
+      node.attrs.totalMarks !== nextAttrs.totalMarks ||
+      node.attrs.marksEach !== nextAttrs.marksEach ||
+      node.attrs.summaryText !== nextAttrs.summaryText;
+
+    if (hasChanged) {
+      tr.setNodeMarkup(section.pos, undefined, nextAttrs);
+    }
+  });
+
+  const instructionLines = sections.length > 0
+    ? [
+        `This question paper has ${sections.length} section${
+          sections.length === 1 ? "" : "s"
+        }.`,
+        ...sections.map((section) => buildInstructionLine(section)),
+      ]
+    : [];
+
+  doc.descendants((node: any, pos: number) => {
+    if (node.type.name !== "instructionBlock") return;
+    if (node.attrs?.variant !== "general") return;
+
+    const currentItems = node.attrs?.summaryItems || [];
+    const isSame =
+      Array.isArray(currentItems) &&
+      currentItems.length === instructionLines.length &&
+      currentItems.every((item: string, index: number) => item === instructionLines[index]);
+
+    if (!isSame) {
+      tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        summaryItems: instructionLines,
+      });
+    }
+  });
+
+  if (tr.docChanged) {
+    editor.view.dispatch(tr);
+  }
+}
+
 // ==================================
 // Word count status bar
 // ==================================
@@ -182,6 +311,7 @@ type TiptapEditorProps = {
 
 export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
   const [isClient, setIsClient] = useState(false);
+  const template = useEditorStore((state) => state.template);
 
   useEffect(() => {
     setIsClient(true);
@@ -202,6 +332,14 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
         setPages(extractPagesFromDoc(editor.state.doc));
       }, 250),
     [setPages],
+  );
+
+  const debouncedSectionSummaries = useMemo(
+    () =>
+      debounce((editor: any) => {
+        updateSectionSummaries(editor);
+      }, 400),
+    [],
   );
 
   const editor = useEditor({
@@ -277,7 +415,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
         mode: "deepest",
       }),
       Dropcursor.configure({
-        color: "#6366f1",
+        color: "#000000",
         width: 2,
       }),
       Gapcursor,
@@ -287,23 +425,39 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     editorProps: {
       attributes: {
         id: "tiptap-paper-container",
-        class:
-          "document-editor focus:outline-none text-black",
+        class: "document-editor focus:outline-none text-black",
+        "data-template": template,
         spellcheck: "true",
       },
     },
     onUpdate: ({ editor }) => {
       debouncedNumbering(editor);
       debouncedPageState(editor);
+      debouncedSectionSummaries(editor);
     },
   });
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.setOptions({
+      editorProps: {
+        attributes: {
+          id: "tiptap-paper-container",
+          class: "document-editor focus:outline-none text-black",
+          "data-template": template,
+          spellcheck: "true",
+        },
+      },
+    });
+  }, [editor, template]);
 
   useEffect(() => {
     return () => {
       debouncedNumbering.cancel();
       debouncedPageState.cancel();
+      debouncedSectionSummaries.cancel();
     };
-  }, [debouncedNumbering, debouncedPageState]);
+  }, [debouncedNumbering, debouncedPageState, debouncedSectionSummaries]);
 
   // Handle question insertion from AI generator
   const questionsToAppend = useEditorStore((state) => state.questionsToAppend);
@@ -330,6 +484,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     queueMicrotask(() => {
       editor.commands.setContent(normalizedContent, { emitUpdate: false });
       setPages(extractPagesFromDoc(editor.state.doc));
+      updateSectionSummaries(editor);
     });
   }, [editor, initialContent, setPages]);
 
@@ -350,7 +505,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
       if (q.type !== "TF" && q.options && q.options.length > 0) {
         questionContent.push({
-          type: "bulletList",
+          type: "orderedList",
           content: q.options.map((opt: string) => ({
             type: "listItem",
             content: [
@@ -365,7 +520,11 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
       contentToInsert.push({
         type: "questionBlock",
-        attrs: { marks: q.marks || 1 },
+        attrs: {
+          marks: q.marks || 1,
+          questionType:
+            q.type || (q.options && q.options.length > 0 ? "MCQ" : "SHORT"),
+        },
         content: questionContent,
       });
     });
@@ -406,7 +565,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
         if (q.type !== "TF" && q.options && q.options.length > 0) {
           questionContent.push({
-            type: "bulletList",
+            type: "orderedList",
             content: q.options.map((opt: string) => ({
               type: "listItem",
               content: [
@@ -421,7 +580,11 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
         contentToInsert.push({
           type: "questionBlock",
-          attrs: { marks: q.marks || 1 },
+          attrs: {
+            marks: q.marks || 1,
+            questionType:
+              q.type || (q.options && q.options.length > 0 ? "MCQ" : "SHORT"),
+          },
           content: questionContent,
         });
       });
@@ -443,7 +606,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
   if (!isClient) return null;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-zinc-100 dark:bg-zinc-950 overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-white overflow-hidden">
       {editor && (
         <EditorToolbar
           editor={editor}
@@ -456,7 +619,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           onClose={() => setShowFindReplace(false)}
         />
       )}
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-zinc-100 dark:bg-zinc-950 print:p-0">
+      <div className="flex-1 overflow-y-auto custom-scrollbar bg-white print:p-0">
         <EditorContent editor={editor} className="h-full pb-32" />
       </div>
       {editor && <StatusBar editor={editor} />}
@@ -470,16 +633,20 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           flex-direction: column;
           align-items: center;
           gap: 24px;
-          padding: 24px 0 96px;
-          background: transparent !important;
-          color: #0a0a0a !important;
+          padding: 28px 0 96px;
+          background: #ffffff;
+          color: #000000;
+          font-family: "Times New Roman", Times, serif;
+          font-size: 12pt;
+          line-height: 1.35;
         }
 
         .document-editor .doc-page {
           width: 794px;
+          min-height: 1123px;
           height: 1123px;
-          background: white;
-          border: 1px solid rgba(63, 63, 70, 0.2);
+          background: #ffffff;
+          border: 1px solid #000000;
           overflow: hidden;
           box-sizing: border-box;
         }
@@ -492,10 +659,10 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
         .document-editor .doc-page-content {
           flex: 1;
-          padding: 40px;
+          padding: 48px 56px 56px;
           box-sizing: border-box;
           min-height: 0;
-          height: calc(1123px - 80px);
+          height: 100%;
           overflow: hidden;
         }
 
@@ -520,108 +687,606 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
         .ProseMirror {
           color: #000000 !important;
-          caret-color: #111111 !important;
+          caret-color: #000000 !important;
           padding: 0 !important;
           min-height: 0;
           background: transparent !important;
         }
-        /* Ensure text cursor is always visible inside question content */
-        .question-block [data-node-view-content],
-        .question-block [data-node-view-content] * {
-          cursor: text !important;
+
+        .ProseMirror p {
+          margin: 0 0 6px;
         }
+
+        .ProseMirror h1,
+        .ProseMirror h2,
+        .ProseMirror h3,
+        .ProseMirror h4 {
+          margin: 0 0 6px;
+          font-weight: 700;
+        }
+
+        .ProseMirror h1 {
+          font-size: 16pt;
+        }
+
+        .ProseMirror h2 {
+          font-size: 13pt;
+        }
+
+        .ProseMirror h3 {
+          font-size: 12pt;
+        }
+
         /* ===== Paper Header ===== */
-        .paper-header-block .paper-header-content h1 {
-          font-size: 1.8rem;
-          font-weight: 800;
-          text-transform: uppercase;
-          margin: 0;
-          line-height: 1.2;
+        .paper-header-block {
+          margin-bottom: 8px;
         }
-        .paper-header-block .paper-header-content p {
-          font-size: 1rem;
-          margin: 2px 0;
-          color: #333;
+
+        .paper-header-shell {
+          display: grid;
+          grid-template-columns: 96px 1fr 24px;
+          column-gap: 12px;
+          align-items: start;
         }
-        .paper-header-block .paper-header-layout {
+
+        .paper-header-logo-area {
+          width: 88px;
+          height: 88px;
+          border: 1px solid #000000;
           display: flex;
-          align-items: flex-start;
-          gap: 2rem;
-          padding: 1rem;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
         }
-        .paper-header-block .paper-header-logo {
-          flex: 0 0 8rem;
-          width: 8rem;
-          min-height: 8rem;
+
+        .paper-header-logo-area.is-empty {
+          border: 1px solid #000000;
+          color: #000000;
+        }
+
+        .logo-placeholder {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 4px;
+          color: #000000;
+        }
+
+        .logo-remove-btn {
+          border: 1px solid #000000;
+          border-radius: 999px;
+          padding: 2px;
+          background: #ffffff;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+        }
+
+        .paper-header-logo-area.has-logo:hover .logo-remove-btn {
+          opacity: 1;
+        }
+
+        .paper-header-content {
+          text-align: center;
+        }
+
+        .paper-header-content h1 {
+          font-size: 16pt;
+          font-weight: 700;
+          text-transform: uppercase;
+          margin: 0 0 4px;
+        }
+
+        .paper-header-content h2 {
+          font-size: 13pt;
+          font-weight: 700;
+          text-transform: uppercase;
+          margin: 0 0 4px;
+        }
+
+        .paper-header-content h3 {
+          font-size: 12pt;
+          font-weight: 700;
+          text-transform: uppercase;
+          margin: 0 0 4px;
+        }
+
+        .paper-header-content p {
+          margin: 2px 0;
+          font-size: 11pt;
+        }
+
+        .paper-header-block table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 6px;
+          border: none !important;
+        }
+
+        .paper-header-block td,
+        .paper-header-block th {
+          border: none !important;
+          padding: 2px 0;
+          font-size: 11pt;
+        }
+
+        .paper-header-block td:last-child,
+        .paper-header-block th:last-child {
+          text-align: right;
+        }
+
+        .paper-header-delete {
+          border: 1px solid #000000;
+          background: #ffffff;
+          color: #000000;
+          border-radius: 999px;
+          padding: 2px;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+          height: 20px;
+          width: 20px;
           display: flex;
           align-items: center;
           justify-content: center;
         }
-        .paper-header-block .paper-header-logo-image {
-          max-width: 100%;
-          max-height: 8rem;
-          object-fit: contain;
-        }
-        .paper-header-block .paper-header-logo-empty {
-          display: none;
-        }
 
-        /* ===== Question Block Styles ===== */
-        .question-block {
-          position: relative;
-          transition: border-color 0.2s;
-        }
-        /* Force the first paragraph in a question to have zero top margin */
-        .question-block [data-node-view-content] > div > p:first-child,
-        .question-block [data-node-view-content] > p:first-child,
-        .question-block .question-content > div > p:first-child,
-        .question-block .question-content > p:first-child {
-          margin-top: 0 !important;
-          padding-top: 0 !important;
-        }
-        .question-block .question-content p:first-child {
-          margin-top: 0 !important;
-        }
-        .question-block:hover {
-          border-left-color: rgba(99, 102, 241, 0.5);
-        }
-        .question-block .question-number {
-          font-family: 'Times New Roman', serif;
-          font-size: 0.95rem;
-        }
-        /* ===== Question Block Controls Cursor Override ===== */
-        /* ProseMirror sets cursor:text on all editable content. These rules
-           ensure the non-editable controls always show the correct cursor
-           regardless of ProseMirror's own cascade. */
-        .question-block [contenteditable="false"] {
-          cursor: default !important;
-        }
-        .question-block [contenteditable="false"] button {
-          cursor: pointer !important;
-        }
-        .question-block [contenteditable="false"] input[type="number"] {
-          cursor: text !important;
+        .paper-header-block:hover .paper-header-delete {
+          opacity: 1;
         }
 
         /* ===== Section Block ===== */
         .section-block {
-          page-break-before: auto;
+          position: relative;
+          margin: 10px 0 6px;
+          break-inside: avoid;
           page-break-inside: avoid;
+        }
+
+        .section-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          border-top: 1px solid #000000;
+          border-bottom: 1px solid #000000;
+          padding: 4px 0;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          font-size: 10pt;
+        }
+
+        .section-title {
+          flex: 1;
+        }
+
+        .section-summary {
+          text-transform: none;
+          letter-spacing: 0;
+          font-size: 10pt;
+        }
+
+        .section-instructions {
+          margin-top: 4px;
+          font-size: 10pt;
+        }
+
+        .section-table-header {
+          display: grid;
+          grid-template-columns: 56px 1fr 56px;
+          border: 1px solid #000000;
+          background: #ffffff;
+          margin: 4px 0;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .section-table-cell {
+          padding: 5px 6px;
+          font-size: 10pt;
+          font-weight: 700;
+          text-transform: uppercase;
+          text-align: center;
+        }
+
+        .section-table-cell + .section-table-cell {
+          border-left: 1px solid #000000;
+        }
+
+        .section-table-cell:nth-child(2) {
+          text-align: left;
+        }
+
+        .section-controls {
+          position: absolute;
+          right: -6px;
+          top: -6px;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+        }
+
+        .section-block:hover .section-controls {
+          opacity: 1;
+        }
+
+        .section-delete {
+          border: 1px solid #000000;
+          background: #ffffff;
+          color: #000000;
+          border-radius: 999px;
+          padding: 2px;
+          height: 20px;
+          width: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        /* ===== Question Block ===== */
+        .question-block {
+          position: relative;
+          margin: 4px 0;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .question-row {
+          display: grid;
+          grid-template-columns: 56px 1fr 56px;
+          border: 1px solid #000000;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .question-cell {
+          padding: 6px 8px;
+        }
+
+        .question-cell + .question-cell {
+          border-left: 1px solid #000000;
+        }
+
+        .question-no {
+          text-align: center;
+          font-weight: 700;
+          white-space: nowrap;
+        }
+
+        .question-body {
+          line-height: 1.35;
+        }
+
+        .question-marks {
+          text-align: center;
+          white-space: nowrap;
+        }
+
+        .question-marks-input {
+          width: 24px;
+          border: none;
+          text-align: center;
+          font-family: inherit;
+          font-size: 11pt;
+          background: transparent;
+          padding: 0;
+          margin: 0;
+          outline: none;
+          color: #000000;
+        }
+
+        .question-marks-label {
+          font-size: 10pt;
+          margin-left: 2px;
+        }
+
+        .question-controls {
+          position: absolute;
+          right: -6px;
+          top: 4px;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+        }
+
+        .question-block:hover .question-controls {
+          opacity: 1;
+        }
+
+        .question-delete {
+          border: 1px solid #000000;
+          background: #ffffff;
+          color: #000000;
+          border-radius: 999px;
+          padding: 2px;
+          height: 20px;
+          width: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        /* ===== MCQ Options ===== */
+        .question-body ul,
+        .question-body ol {
+          margin: 4px 0 0;
+          padding: 0;
+          list-style: none;
+          counter-reset: option;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          column-gap: 12px;
+          row-gap: 2px;
+        }
+
+        .question-body ul li,
+        .question-body ol li {
+          display: flex;
+          gap: 6px;
+          min-width: 0;
+        }
+
+        .question-body ul li::before,
+        .question-body ol li::before {
+          counter-increment: option;
+          content: "(" counter(option, upper-alpha) ") ";
+          font-weight: 700;
+          flex-shrink: 0;
+        }
+
+        .question-body ul li p,
+        .question-body ol li p {
+          margin: 0;
         }
 
         /* ===== Instruction Block ===== */
         .instruction-block {
+          position: relative;
+          margin: 10px 0;
+          padding: 8px 10px;
+          border: 1px solid #000000;
+          background: #ffffff;
+          break-inside: avoid;
           page-break-inside: avoid;
+        }
+
+        .instruction-header {
+          font-weight: 700;
+          text-transform: uppercase;
+          font-size: 10pt;
+          margin-bottom: 4px;
+        }
+
+        .instruction-list {
+          margin: 0 0 4px 18px;
+          padding: 0;
+        }
+
+        .instruction-content p {
+          margin: 0 0 4px;
+        }
+
+        .instruction-controls {
+          position: absolute;
+          right: -6px;
+          top: -6px;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+        }
+
+        .instruction-block:hover .instruction-controls {
+          opacity: 1;
+        }
+
+        .instruction-delete {
+          border: 1px solid #000000;
+          background: #ffffff;
+          color: #000000;
+          border-radius: 999px;
+          padding: 2px;
+          height: 20px;
+          width: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         /* ===== Question Group (OR) ===== */
         .question-group {
+          position: relative;
+          margin: 8px 0;
+          padding: 6px 0;
+          border-top: 1px solid #000000;
+          border-bottom: 1px solid #000000;
+          background: #ffffff;
+          break-inside: avoid;
           page-break-inside: avoid;
         }
 
-        /* ===== Math Block ===== */
+        .question-group-label {
+          text-align: center;
+          font-weight: 700;
+          font-size: 10pt;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .question-group-content {
+          margin-top: 6px;
+        }
+
+        .question-group-controls {
+          position: absolute;
+          right: -6px;
+          top: -6px;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+        }
+
+        .question-group:hover .question-group-controls {
+          opacity: 1;
+        }
+
+        .question-group-delete {
+          border: 1px solid #000000;
+          background: #ffffff;
+          color: #000000;
+          border-radius: 999px;
+          padding: 2px;
+          height: 20px;
+          width: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        /* ===== Math ===== */
         .math-block {
+          border: 1px solid #000000;
+          margin: 6px 0;
+          padding: 6px;
+          text-align: center;
+          background: #ffffff;
+          break-inside: avoid;
           page-break-inside: avoid;
+        }
+
+        .math-block-display {
+          cursor: pointer;
+        }
+
+        .math-block-empty {
+          color: #000000;
+          font-style: italic;
+        }
+
+        .math-block-editor {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .math-block-input {
+          width: 100%;
+          border: 1px solid #000000;
+          padding: 4px;
+          font-family: "Courier New", monospace;
+          font-size: 10pt;
+          resize: vertical;
+          min-height: 60px;
+          outline: none;
+        }
+
+        .math-block-hint {
+          font-size: 9pt;
+          color: #000000;
+          text-align: left;
+        }
+
+        .inline-math {
+          display: inline-block;
+          margin: 0 2px;
+        }
+
+        .inline-math-display {
+          cursor: pointer;
+          border-bottom: 1px dotted #000000;
+          padding: 0 2px;
+        }
+
+        .inline-math-empty {
+          color: #000000;
+          font-style: italic;
+        }
+
+        .inline-math-editor {
+          display: inline-flex;
+          align-items: center;
+          border: 1px solid #000000;
+          padding: 0 2px;
+          background: #ffffff;
+        }
+
+        .inline-math-input {
+          border: none;
+          outline: none;
+          font-family: "Courier New", monospace;
+          font-size: 10pt;
+          width: 100px;
+          background: transparent;
+        }
+
+        /* ===== Drawing Block ===== */
+        .drawing-block {
+          position: relative;
+          border: 1px solid #000000;
+          padding: 6px;
+          margin: 6px 0;
+          background: #ffffff;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .drawing-toolbar {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          border-bottom: 1px solid #000000;
+          padding-bottom: 6px;
+          margin-bottom: 6px;
+        }
+
+        .drawing-tool {
+          border: 1px solid #000000;
+          background: #ffffff;
+          padding: 2px;
+          border-radius: 2px;
+        }
+
+        .drawing-tool.is-active {
+          background: #000000;
+          color: #ffffff;
+        }
+
+        .drawing-divider {
+          width: 1px;
+          height: 16px;
+          background: #000000;
+        }
+
+        .drawing-color {
+          width: 24px;
+          height: 24px;
+          padding: 0;
+          border: 1px solid #000000;
+          background: #ffffff;
+        }
+
+        .drawing-clear {
+          margin-left: auto;
+          font-size: 9pt;
+          color: #000000;
+        }
+
+        .drawing-canvas {
+          display: flex;
+          justify-content: center;
+          border: 1px solid #000000;
+          background: #ffffff;
+        }
+
+        .drawing-surface {
+          cursor: crosshair;
+          background: #ffffff;
+        }
+
+        .drawing-delete {
+          border: 1px solid #000000;
+          background: #ffffff;
+          color: #000000;
+          border-radius: 999px;
+          padding: 2px;
+          height: 20px;
+          width: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         /* ===== Page Break ===== */
@@ -633,126 +1298,69 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
         /* ===== Focus Styles ===== */
         .has-focus {
-          border-radius: 2px;
-          box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
+          outline: 1px solid #000000;
+          outline-offset: 0;
+          box-shadow: none;
         }
 
         /* ===== Table Styles ===== */
         .ProseMirror table {
-          border-collapse: collapse;
+          border-collapse: separate;
+          border-spacing: 0;
           width: 100%;
-          margin: 16px 0;
-          overflow: hidden;
-        }
-        .ProseMirror table td,
-        .ProseMirror table th {
-          border: 1px solid rgba(63, 63, 70, 0.5);
-          padding: 8px 12px;
-          vertical-align: top;
-          position: relative;
-        }
-        .ProseMirror table th {
-          background: rgba(63, 63, 70, 0.2);
-          font-weight: 600;
-        }
-        .ProseMirror table .selectedCell {
-          background: rgba(99, 102, 241, 0.15);
-        }
-        .ProseMirror .tableWrapper {
-          overflow-x: auto;
-          margin: 16px 0;
-        }
-        .ProseMirror .column-resize-handle {
-          position: absolute;
-          right: -2px;
-          top: 0;
-          bottom: 0;
-          width: 4px;
-          background-color: #6366f1;
-          pointer-events: none;
+          margin: 8px 0;
+          break-inside: avoid;
+          page-break-inside: avoid;
         }
 
-        /* ===== Custom Scrollbar ===== */
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
+        .ProseMirror table td,
+        .ProseMirror table th {
+          border-top: 1px solid #000000;
+          border-right: 1px solid #000000;
+          border-bottom: 0;
+          border-left: 0;
+          padding: 4px 6px;
+          vertical-align: top;
+          break-inside: avoid;
+          page-break-inside: avoid;
         }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: transparent;
+
+        .ProseMirror table th {
+          font-weight: 700;
+          background: #ffffff;
         }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(63, 63, 70, 0.5);
-          border-radius: 3px;
+
+        .ProseMirror table tr td:first-child,
+        .ProseMirror table tr th:first-child {
+          border-left: 1px solid #000000;
         }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(99, 102, 241, 0.5);
+
+        .ProseMirror table {
+          border-bottom: 1px solid #000000;
+        }
+
+        .ProseMirror table tr {
+          break-inside: avoid;
+          page-break-inside: avoid;
         }
 
         /* ===== List Styles ===== */
-        .ProseMirror ul {
-          list-style-type: disc;
-          padding-left: 1.5em;
-        }
+        .ProseMirror ul,
         .ProseMirror ol {
-          list-style-type: decimal;
-          padding-left: 1.5em;
+          margin: 0 0 6px 18px;
+          padding: 0;
         }
 
-        .question-block ul,
-        .question-block ol {
-          list-style-type: lower-alpha;
-          padding-left: 1.5rem;
-        }
-
-        .question-block ul li p,
-        .question-block ol li p {
-          display: inline;
-          margin: 0 !important;
-        }
-
-        .ProseMirror ul ul {
-          list-style-type: circle;
-        }
-        .ProseMirror ul ul ul {
-          list-style-type: square;
-        }
+        .ProseMirror ul ul,
         .ProseMirror ol ol {
-          list-style-type: lower-alpha;
-        }
-        .ProseMirror ol ol ol {
-          list-style-type: lower-roman;
-        }
-
-        .question-block ul,
-        .question-block ol {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          align-items: start;
-          column-gap: 2rem;
-          row-gap: 0.5rem;
-          margin-top: 0.5rem !important;
-        }
-
-        .question-block ul li,
-        .question-block ol li {
-          list-style-position: inside;
-          min-width: 0;
-          overflow-wrap: anywhere;
-          word-break: break-word;
-          align-self: start;
-        }
-
-        .question-block ul li p,
-        .question-block ol li p {
-          margin: 0 !important;
-          overflow-wrap: anywhere;
-          word-break: break-word;
+          margin-bottom: 0;
         }
 
         /* ===== Placeholder ===== */
         .ProseMirror .is-editor-empty:first-child::before {
           content: attr(data-placeholder);
           float: left;
-          color: rgba(161, 161, 170, 0.4);
+          color: #000000;
           pointer-events: none;
           height: 0;
           font-style: italic;
@@ -761,37 +1369,48 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
         /* ===== Horizontal Rule ===== */
         .ProseMirror hr {
           border: none;
-          border-top: 2px solid rgba(63, 63, 70, 0.3);
-          margin: 24px 0;
+          border-top: 1px solid #000000;
+          margin: 10px 0;
         }
 
         /* ===== Print Styles ===== */
         @media print {
+          @page {
+            size: A4;
+            margin: 12mm;
+          }
+
           body * {
             visibility: hidden;
           }
+
           #tiptap-paper-container,
           #tiptap-paper-container * {
             visibility: visible;
           }
+
           #tiptap-paper-container {
             position: static;
             width: 100%;
             margin: 0 !important;
             padding: 0 !important;
-            color: black !important;
-            background: white !important;
+            color: #000000 !important;
+            background: #ffffff !important;
             border: none !important;
             box-shadow: none !important;
             max-width: none !important;
           }
+
           .document-editor {
             gap: 0;
             padding: 0;
+            background: #ffffff;
           }
+
           .doc-page {
-            width: 100%;
-            height: auto;
+            width: 210mm;
+            min-height: 297mm;
+            height: 297mm;
             margin: 0 !important;
             border: none !important;
             box-shadow: none !important;
@@ -799,20 +1418,32 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
             page-break-after: always;
             break-after: page;
           }
+
           .doc-page-content {
-            padding: 15mm !important;
+            padding: 15mm 16mm !important;
             min-height: auto !important;
             height: auto !important;
             overflow: visible !important;
           }
+
+          .question-controls,
+          .section-controls,
+          .instruction-controls,
+          .question-group-controls,
+          .paper-header-delete,
+          .logo-remove-btn,
+          .drawing-delete {
+            display: none !important;
+          }
+
+          .paper-header-logo-area.is-empty {
+            display: none;
+          }
+
           #tiptap-paper-container [data-type="page-break"] {
             display: none !important;
           }
-          .question-marks span {
-            background: transparent !important;
-            border: none !important;
-            color: #333 !important;
-          }
+
           .custom-scrollbar {
             overflow: visible !important;
           }

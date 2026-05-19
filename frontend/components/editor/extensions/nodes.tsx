@@ -13,40 +13,20 @@ import { Trash } from "lucide-react";
 
 const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
   return (
-    <NodeViewWrapper className="question-block relative flex items-baseline gap-2 my-3 py-2 border-l-2 border-transparent hover:border-indigo-500/50 transition-colors group">
-      {/* Question number — always visible, non-editable */}
-      <div
-        className="question-number w-10 text-right font-bold text-zinc-400 text-sm leading-[1.7] select-none shrink-0"
-        contentEditable={false}
-        style={{ cursor: "default" }}
-      >
-        {node.attrs.number ? `${node.attrs.number}.` : ""}
-      </div>
-
-      {/* Content — right padding reserves space so text never slides under controls */}
-      <NodeViewContent className="question-content min-w-0 flex-1 pr-28" />
-
-      {/* Controls — positioned inside the wrapper's right padding area */}
-      <div
-        className="absolute right-0 top-1.5 flex items-center gap-1.5 z-10"
-        contentEditable={false}
-        style={{ cursor: "default" }}
-      >
-        {/* Delete button — fade in on hover */}
-        <button
-          onClick={deleteNode}
-          onMouseDown={(e) => e.preventDefault()}
-          className="opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity bg-red-500 text-white p-1 rounded shadow hover:bg-red-600"
-          title="Delete question"
-          style={{ cursor: "pointer" }}
-        >
-          <Trash className="w-3 h-3" />
-        </button>
-
-        {/* Marks — always visible at reduced opacity, full on hover */}
+    <NodeViewWrapper className="question-block group">
+      <div className="question-row">
         <div
-          className="flex items-center gap-0.5 opacity-50 group-hover:opacity-100 transition-opacity bg-white border border-zinc-200 shadow-sm rounded px-1.5 py-0.5"
-          onMouseDown={(e) => e.stopPropagation()}
+          className="question-cell question-no"
+          contentEditable={false}
+          style={{ cursor: "default" }}
+        >
+          {node.attrs.number ? `${node.attrs.number}.` : ""}
+        </div>
+        <NodeViewContent className="question-cell question-body" />
+        <div
+          className="question-cell question-marks"
+          contentEditable={false}
+          style={{ cursor: "default" }}
         >
           <input
             type="number"
@@ -59,14 +39,22 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
                 marks: Number.isNaN(nextValue) ? 1 : nextValue,
               });
             }}
-            className="w-8 text-center text-[11px] font-mono bg-transparent text-zinc-700 focus:outline-none"
+            className="question-marks-input"
             title="Marks for this question"
-            style={{ cursor: "text" }}
+            onMouseDown={(e) => e.stopPropagation()}
           />
-          <span className="text-[11px] font-mono text-zinc-500 font-medium leading-none">
-            M
-          </span>
+          <span className="question-marks-label">M</span>
         </div>
+      </div>
+      <div className="question-controls" contentEditable={false}>
+        <button
+          onClick={deleteNode}
+          onMouseDown={(e) => e.preventDefault()}
+          className="question-delete"
+          title="Delete question"
+        >
+          <Trash className="w-3 h-3" />
+        </button>
       </div>
     </NodeViewWrapper>
   );
@@ -92,7 +80,20 @@ export const QuestionBlock = Node.create({
 
   parseHTML() {
     return [
-      { tag: 'div[data-type="question-block"]' },
+      {
+        tag: 'div[data-type="question-block"]',
+        getAttrs: (element) => {
+          const el = element as HTMLElement;
+          const marksAttr = el.getAttribute("data-marks");
+          const numberAttr = el.getAttribute("data-number");
+          const marks = marksAttr ? Number(marksAttr) : 1;
+          const number = numberAttr ? Number(numberAttr) : null;
+          return {
+            marks: Number.isNaN(marks) ? 1 : marks,
+            number: Number.isNaN(number) ? null : number,
+          };
+        },
+      },
       { tag: 'div[data-type="question"]' },
     ];
   },
@@ -100,7 +101,11 @@ export const QuestionBlock = Node.create({
   renderHTML({ HTMLAttributes }) {
     return [
       "div",
-      mergeAttributes(HTMLAttributes, { "data-type": "question-block" }),
+      mergeAttributes(HTMLAttributes, {
+        "data-type": "question-block",
+        "data-marks": HTMLAttributes.marks ?? "",
+        "data-number": HTMLAttributes.number ?? "",
+      }),
       ["div", { class: "question-content" }, 0],
     ];
   },
@@ -115,18 +120,40 @@ export const QuestionBlock = Node.create({
 // ==========================================
 
 const SectionComponent = ({ node, deleteNode }: any) => {
+  const summaryText = node.attrs?.summaryText || "";
+  const instructions = node.attrs?.instructions || "";
+
   return (
-    <NodeViewWrapper className="section-block w-full border-y border-zinc-200 py-3 my-6 text-center font-bold tracking-[0.2em] uppercase text-sm bg-zinc-50 select-none group relative">
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+    <NodeViewWrapper className="section-block group">
+      <div className="section-header">
+        <div className="section-title">
+          <NodeViewContent />
+        </div>
+        {summaryText ? (
+          <div className="section-summary" contentEditable={false}>
+            ({summaryText})
+          </div>
+        ) : null}
+      </div>
+      {instructions ? (
+        <div className="section-instructions" contentEditable={false}>
+          {instructions}
+        </div>
+      ) : null}
+      <div className="section-table-header" contentEditable={false}>
+        <div className="section-table-cell">Q. No</div>
+        <div className="section-table-cell">Question</div>
+        <div className="section-table-cell">Marks</div>
+      </div>
+      <div className="section-controls" contentEditable={false}>
         <button
           onClick={deleteNode}
-          className="bg-red-500 text-white p-1 rounded shadow-lg hover:bg-red-600 transition-colors"
+          className="section-delete"
           title="Delete Section"
         >
           <Trash className="w-3 h-3" />
         </button>
       </div>
-      <NodeViewContent />
     </NodeViewWrapper>
   );
 };
@@ -142,7 +169,10 @@ export const SectionBlock = Node.create({
     return {
       title: { default: "SECTION A" },
       instructions: { default: "" },
-      totalMarks: { default: null },
+      totalMarks: { default: null, renderHTML: () => ({}) },
+      questionCount: { default: 0, renderHTML: () => ({}) },
+      marksEach: { default: null, renderHTML: () => ({}) },
+      summaryText: { default: "", renderHTML: () => ({}) },
     };
   },
 
@@ -153,11 +183,22 @@ export const SectionBlock = Node.create({
     ];
   },
 
-  renderHTML({ HTMLAttributes }) {
+  renderHTML({ node, HTMLAttributes }) {
+    const summaryText = node.attrs?.summaryText;
+    const children: any[] = [0];
+
+    if (summaryText) {
+      children.push([
+        "span",
+        { class: "section-summary" },
+        ` (${summaryText})`,
+      ]);
+    }
+
     return [
       "div",
       mergeAttributes(HTMLAttributes, { "data-type": "section-block" }),
-      0,
+      ...children,
     ];
   },
 
@@ -170,25 +211,31 @@ export const SectionBlock = Node.create({
 // InstructionBlock
 // ==========================================
 
-const InstructionComponent = ({ deleteNode }: any) => {
+const InstructionComponent = ({ node, deleteNode }: any) => {
+  const summaryItems = node.attrs?.summaryItems || [];
+
   return (
-    <NodeViewWrapper className="instruction-block my-4 p-4 bg-amber-50 border border-amber-200 rounded-lg group relative">
-      <div className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+    <NodeViewWrapper className="instruction-block group">
+      <div className="instruction-header" contentEditable={false}>
+        General Instructions
+      </div>
+      {summaryItems.length > 0 ? (
+        <ol className="instruction-list" contentEditable={false}>
+          {summaryItems.map((item: string, index: number) => (
+            <li key={`${index}-${item}`}>{item}</li>
+          ))}
+        </ol>
+      ) : null}
+      <NodeViewContent className="instruction-content" />
+      <div className="instruction-controls" contentEditable={false}>
         <button
           onClick={deleteNode}
-          className="bg-red-500 text-white p-1 rounded-full shadow-lg hover:bg-red-600 transition-colors"
+          className="instruction-delete"
           title="Delete Instructions"
         >
           <Trash className="w-3 h-3" />
         </button>
       </div>
-      <div
-        className="text-[10px] uppercase tracking-widest text-amber-600 font-bold mb-2 select-none"
-        contentEditable={false}
-      >
-        General Instructions
-      </div>
-      <NodeViewContent className="instruction-content text-sm text-zinc-800" />
     </NodeViewWrapper>
   );
 };
@@ -202,6 +249,10 @@ export const InstructionBlock = Node.create({
   addAttributes() {
     return {
       variant: { default: "general" },
+      summaryItems: {
+        default: [],
+        renderHTML: () => ({}),
+      },
     };
   },
 
@@ -209,11 +260,29 @@ export const InstructionBlock = Node.create({
     return [{ tag: 'div[data-type="instruction-block"]' }];
   },
 
-  renderHTML({ HTMLAttributes }) {
+  renderHTML({ node, HTMLAttributes }) {
+    const summaryItems = Array.isArray(node.attrs.summaryItems)
+      ? node.attrs.summaryItems
+      : [];
+
+    const children: any[] = [
+      ["div", { class: "instruction-header" }, "General Instructions"],
+    ];
+
+    if (summaryItems.length > 0) {
+      children.push([
+        "ol",
+        { class: "instruction-list" },
+        ...summaryItems.map((item: string) => ["li", {}, item]),
+      ]);
+    }
+
+    children.push(0);
+
     return [
       "div",
       mergeAttributes(HTMLAttributes, { "data-type": "instruction-block" }),
-      0,
+      ...children,
     ];
   },
 
@@ -228,23 +297,20 @@ export const InstructionBlock = Node.create({
 
 const QuestionGroupComponent = ({ node, deleteNode }: any) => {
   return (
-    <NodeViewWrapper className="question-group my-4 border border-dashed border-zinc-300 rounded-lg p-4 bg-zinc-50 group relative">
-      <div className="absolute -right-2 -top-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+    <NodeViewWrapper className="question-group group">
+      <div className="question-group-label" contentEditable={false}>
+        {node.attrs.label || "Answer any ONE"}
+      </div>
+      <NodeViewContent className="question-group-content" />
+      <div className="question-group-controls" contentEditable={false}>
         <button
           onClick={deleteNode}
-          className="bg-red-500 text-white p-1 rounded-full shadow-lg hover:bg-red-600 transition-colors"
+          className="question-group-delete"
           title="Delete Group"
         >
           <Trash className="w-3 h-3" />
         </button>
       </div>
-      <div
-        className="text-[11px] text-center uppercase tracking-wider text-zinc-400 font-semibold mb-3 select-none"
-        contentEditable={false}
-      >
-        {node.attrs.label || "Answer any ONE"}
-      </div>
-      <NodeViewContent className="question-group-content space-y-2" />
     </NodeViewWrapper>
   );
 };
@@ -264,13 +330,24 @@ export const QuestionGroupBlock = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: 'div[data-type="question-group"]' }];
+    return [
+      {
+        tag: 'div[data-type="question-group"]',
+        getAttrs: (element) => {
+          const el = element as HTMLElement;
+          return { label: el.getAttribute("data-label") || undefined };
+        },
+      },
+    ];
   },
 
   renderHTML({ HTMLAttributes }) {
     return [
       "div",
-      mergeAttributes(HTMLAttributes, { "data-type": "question-group" }),
+      mergeAttributes(HTMLAttributes, {
+        "data-type": "question-group",
+        "data-label": HTMLAttributes.label || undefined,
+      }),
       0,
     ];
   },
