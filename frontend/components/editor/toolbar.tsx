@@ -471,15 +471,33 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
 
   const handleExportPDF = async () => {
     const filename = `paper-${Date.now()}.pdf`;
-    await exportToPDF("tiptap-paper-container", filename);
+    const toastId = toast.loading("Generating PDF…");
+    try {
+      await exportToPDF("tiptap-paper-container", filename);
+      toast.success("PDF downloaded!", { id: toastId });
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to export PDF. Please try again.", { id: toastId });
+    }
   };
 
   const handleExportDocx = async () => {
     const filename = `paper-${Date.now()}.docx`;
-    await exportToDocx(editor.getHTML(), filename);
+    const toastId = toast.loading("Generating DOCX…");
+    try {
+      await exportToDocx(editor.getHTML(), filename);
+      toast.success("DOCX downloaded!", { id: toastId });
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to export DOCX. Please try again.", { id: toastId });
+    }
   };
 
-  const insertAfterCurrentBlock = (type: string, content?: any, attrs?: any) => {
+  const insertAfterCurrentBlock = (
+    type: string,
+    content?: any,
+    attrs?: any,
+  ) => {
     const { state } = editor;
     const { selection } = state;
     const { $from } = selection;
@@ -796,7 +814,10 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
                 const reader = new FileReader();
                 reader.onload = (e) => {
                   const result = e.target?.result as string;
-                  editor.chain().focus().setImage({ src: result }).run();
+                  // Insert as a block-level float image (resizable + draggable)
+                  (editor.chain().focus() as any)
+                    .insertFloatImage({ src: result })
+                    .run();
                 };
                 reader.readAsDataURL(file);
               }
@@ -1093,27 +1114,31 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() =>
-            insertAfterCurrentBlock("instructionBlock", [
-              {
-                type: "orderedList",
-                content: [
-                  {
-                    type: "listItem",
-                    content: [
-                      {
-                        type: "paragraph",
-                        content: [
-                          {
-                            type: "text",
-                            text: "All questions are compulsory.",
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              },
-            ], { variant: "general" })
+            insertAfterCurrentBlock(
+              "instructionBlock",
+              [
+                {
+                  type: "orderedList",
+                  content: [
+                    {
+                      type: "listItem",
+                      content: [
+                        {
+                          type: "paragraph",
+                          content: [
+                            {
+                              type: "text",
+                              text: "All questions are compulsory.",
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+              { variant: "general" },
+            )
           }
           className="h-6 px-2 text-[10px] font-medium text-amber-400 hover:bg-amber-500/10 rounded transition-colors flex items-center gap-1"
         >
@@ -1176,7 +1201,8 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
             toast.warning("Clear the entire paper?", {
-              description: "This removes all editor content in the current document.",
+              description:
+                "This removes all editor content in the current document.",
               action: {
                 label: "Clear",
                 onClick: () => editor.commands.clearContent(),
