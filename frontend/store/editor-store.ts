@@ -21,6 +21,7 @@ interface EditorState {
   editorContent: string;
   pages: Array<{ id: string; blocks: any[] }>;
   template: string;
+  saveState: "saving" | "saved" | "unsaved" | "offline" | "failed";
 
   appendQuestions: (questions: Question[]) => void;
   clearQuestionsToAppend: () => void;
@@ -33,6 +34,7 @@ interface EditorState {
   setEditorContent: (content: string) => void;
   setPages: (pages: Array<{ id: string; blocks: any[] }>) => void;
   setTemplate: (template: string) => void;
+  setSaveState: (state: "saving" | "saved" | "unsaved" | "offline" | "failed") => void;
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -41,6 +43,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   questionsToSave: [],
   saveModalOpen: false,
   template: "cbse",
+  saveState: "saved",
 
   appendQuestions: (questions) =>
     set((state) => ({
@@ -64,4 +67,5 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   setQuestionsToSave: (questions) => set({ questionsToSave: questions }),
   setSaveModalOpen: (isOpen) => set({ saveModalOpen: isOpen }),
+  setSaveState: (saveState) => set({ saveState }),
 }));

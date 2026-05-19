@@ -140,11 +140,6 @@ const SectionComponent = ({ node, deleteNode }: any) => {
           {instructions}
         </div>
       ) : null}
-      <div className="section-table-header" contentEditable={false}>
-        <div className="section-table-cell">Q. No</div>
-        <div className="section-table-cell">Question</div>
-        <div className="section-table-cell">Marks</div>
-      </div>
       <div className="section-controls" contentEditable={false}>
         <button
           onClick={deleteNode}

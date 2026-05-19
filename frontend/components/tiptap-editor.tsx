@@ -52,6 +52,8 @@ import {
 import { useEditorStore } from "@/store/editor-store";
 import { useEffect, useState, useMemo, useRef, memo } from "react";
 import debounce from "lodash.debounce";
+import { saveDraft, getDraft } from "@/lib/autosave-db";
+import { toast } from "sonner";
 
 // ==================================
 // Auto-numbering utility
@@ -116,10 +118,11 @@ function updateSectionSummaries(editor: any) {
 
   doc.descendants((node: any, pos: number) => {
     if (node.type.name === "sectionBlock") {
-      if (currentSection) {
+      const sec = currentSection;
+      if (sec) {
         const marksEach = currentMarks.size === 1 ? [...currentMarks][0] : null;
         sections.push({
-          ...currentSection,
+          ...(sec as SectionSummary),
           marksEach,
         });
       }
@@ -143,10 +146,11 @@ function updateSectionSummaries(editor: any) {
     }
   });
 
-  if (currentSection) {
+  const finalSec = currentSection;
+  if (finalSec) {
     const marksEach = currentMarks.size === 1 ? [...currentMarks][0] : null;
     sections.push({
-      ...currentSection,
+      ...(finalSec as SectionSummary),
       marksEach,
     });
   }
@@ -210,19 +214,61 @@ function updateSectionSummaries(editor: any) {
 // ==================================
 // Word count status bar
 // ==================================
+import { Cloud, CloudOff, CloudLightning, RefreshCw, CheckCircle2 } from "lucide-react";
+
 const StatusBar = memo(({ editor }: { editor: any }) => {
   if (!editor) return null;
 
   const chars = editor.storage.characterCount?.characters() || 0;
   const words = editor.storage.characterCount?.words() || 0;
+  const saveState = useEditorStore((state) => state.saveState);
+
+  const getSaveStateLabel = () => {
+    switch (saveState) {
+      case "saving":
+        return (
+          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium animate-pulse">
+            <RefreshCw className="h-3 w-3 animate-spin" /> Saving...
+          </span>
+        );
+      case "saved":
+        return (
+          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+            <Cloud className="h-3 w-3" /> Saved locally
+          </span>
+        );
+      case "unsaved":
+        return (
+          <span className="flex items-center gap-1 text-zinc-400 dark:text-zinc-500 font-medium">
+            <CheckCircle2 className="h-3 w-3 text-zinc-300" /> Unsaved changes
+          </span>
+        );
+      case "offline":
+        return (
+          <span className="flex items-center gap-1 text-orange-600 dark:text-orange-400 font-medium animate-pulse">
+            <CloudOff className="h-3 w-3" /> Offline (draft saved)
+          </span>
+        );
+      case "failed":
+        return (
+          <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-medium animate-shake">
+            <CloudLightning className="h-3 w-3" /> Sync failed
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div className="flex items-center justify-between px-4 py-1 bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800 text-[10px] text-zinc-500 select-none flex-shrink-0">
+    <div className="flex items-center justify-between px-4 py-1.5 bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800 text-[10px] text-zinc-500 select-none flex-shrink-0">
       <div className="flex items-center gap-4">
         <span>Words: {words}</span>
         <span>Characters: {chars}</span>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 font-mono">
+        {getSaveStateLabel()}
+        <span className="text-zinc-200 dark:text-zinc-850">|</span>
         <span>A4 | Portrait</span>
         <span>100%</span>
       </div>
@@ -342,6 +388,71 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     [],
   );
 
+  const setSaveState = useEditorStore((state) => state.setSaveState);
+
+  const debouncedAutosave = useMemo(
+    () =>
+      debounce(async (editor: any) => {
+        if (!editor || editor.isDestroyed) return;
+        setSaveState("saving");
+
+        try {
+          const editorJSON = editor.getJSON();
+          const sections: any[] = [];
+          const questions: any[] = [];
+
+          editor.state.doc.descendants((node: any) => {
+            if (node.type.name === "sectionBlock") {
+              sections.push({
+                title: (node.textContent || "").trim(),
+                attrs: node.attrs,
+              });
+            } else if (node.type.name === "questionBlock") {
+              let text = "";
+              node.descendants((child: any) => {
+                if (child.isText) text += child.text;
+              });
+              questions.push({
+                content: text.trim() || (node.textContent || "").trim(),
+                marks: node.attrs?.marks || 1,
+                type: node.attrs?.questionType || "SHORT",
+              });
+            }
+          });
+
+          const isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
+          const currentPaperId = typeof window !== "undefined"
+            ? new URLSearchParams(window.location.search).get("paperId")
+            : null;
+
+          const draft = {
+            id: "current_draft",
+            paperId: currentPaperId,
+            title: "Autosaved Draft",
+            template,
+            editorJSON,
+            structuredData: {
+              metadata: {
+                title: "Autosaved Draft",
+                template,
+                updatedAt: Date.now(),
+              },
+              sections,
+              questions,
+            },
+            updatedAt: Date.now(),
+          };
+
+          await saveDraft(draft);
+          setSaveState(isOnline ? "saved" : "offline");
+        } catch (error) {
+          console.error("Autosave error:", error);
+          setSaveState("failed");
+        }
+      }, 1500),
+    [template, setSaveState]
+  );
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -431,9 +542,11 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
       },
     },
     onUpdate: ({ editor }) => {
+      setSaveState("unsaved");
       debouncedNumbering(editor);
       debouncedPageState(editor);
       debouncedSectionSummaries(editor);
+      debouncedAutosave(editor);
     },
   });
 
@@ -451,13 +564,76 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     });
   }, [editor, template]);
 
+  // Session Recovery & Local Offline detection
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+
+    const checkDraft = async () => {
+      try {
+        const draft = await getDraft("current_draft");
+        if (!draft) return;
+
+        const currentPaperId = new URLSearchParams(window.location.search).get("paperId");
+
+        // Verify if this local draft belongs to the current editor session/paper context
+        if (draft.paperId === currentPaperId) {
+          const localTime = new Date(draft.updatedAt).toLocaleTimeString();
+          toast.info(`Unsaved local draft found from ${localTime}.`, {
+            duration: 15000,
+            action: {
+              label: "Restore Draft",
+              onClick: () => {
+                editor.commands.setContent(draft.editorJSON);
+                setPages(extractPagesFromDoc(editor.state.doc));
+                updateQuestionNumbers(editor);
+                updateSectionSummaries(editor);
+                setSaveState("saved");
+                toast.success("Draft restored successfully!");
+              },
+            },
+          });
+        }
+      } catch (err) {
+        console.error("Failed to check draft recovery:", err);
+      }
+    };
+
+    const timer = setTimeout(checkDraft, 1000);
+    return () => clearTimeout(timer);
+  }, [editor, setPages, setSaveState]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      const state = useEditorStore.getState().saveState;
+      if (state === "offline") {
+        setSaveState("saved");
+      }
+    };
+    const handleOffline = () => {
+      setSaveState("offline");
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", handleOnline);
+      window.addEventListener("offline", handleOffline);
+    }
+
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("online", handleOnline);
+        window.removeEventListener("offline", handleOffline);
+      }
+    };
+  }, [setSaveState]);
+
   useEffect(() => {
     return () => {
       debouncedNumbering.cancel();
       debouncedPageState.cancel();
       debouncedSectionSummaries.cancel();
+      debouncedAutosave.cancel();
     };
-  }, [debouncedNumbering, debouncedPageState, debouncedSectionSummaries]);
+  }, [debouncedNumbering, debouncedPageState, debouncedSectionSummaries, debouncedAutosave]);
 
   // Handle question insertion from AI generator
   const questionsToAppend = useEditorStore((state) => state.questionsToAppend);

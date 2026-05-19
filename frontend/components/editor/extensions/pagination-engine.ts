@@ -213,10 +213,26 @@ function paginateOnce(view: EditorView) {
 
     if (!nextFirstBlock) continue;
 
-    const projectedHeight =
-      contentEl.scrollHeight + nextFirstBlock.getBoundingClientRect().height;
+    // Measure the actual cumulative height of children inside the content container.
+    // We cannot use scrollHeight directly because the page has a fixed 100% height
+    // during underflow, making scrollHeight equal to clientHeight.
+    const computedStyle = window.getComputedStyle(contentEl);
+    const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
+    const paddingBottom = parseFloat(computedStyle.paddingBottom) || 0;
+    const availableHeight = contentEl.clientHeight - paddingTop - paddingBottom;
 
-    if (projectedHeight <= contentEl.clientHeight) {
+    const children = Array.from(contentEl.children) as HTMLElement[];
+    const actualContentHeight = children.reduce((acc, child) => {
+      return acc + child.getBoundingClientRect().height;
+    }, 0);
+
+    const nextFirstBlockHeight = nextFirstBlock.getBoundingClientRect().height;
+
+    // Use a small safety buffer (12px) to account for block margins and prevent layout oscillations
+    // (where a block is repeatedly pulled and then split back).
+    const safetyBuffer = 12;
+
+    if (actualContentHeight + nextFirstBlockHeight + safetyBuffer <= availableHeight) {
       return moveFirstBlockToPreviousPage(
         state,
         pagePos,
