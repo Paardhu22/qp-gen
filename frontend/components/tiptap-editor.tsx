@@ -6,7 +6,6 @@ import Typography from "@tiptap/extension-typography";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
-import Image from "@tiptap/extension-image";
 import ImageResize from "tiptap-extension-resize-image";
 import { Table } from "@tiptap/extension-table";
 import { TableRow } from "@tiptap/extension-table-row";
@@ -34,6 +33,7 @@ import {
 import { PaperHeaderBlock as PaperHeaderBlockExt } from "./editor/extensions/header-node";
 import { MathBlock, InlineMath } from "./editor/extensions/math-nodes";
 import { DrawingBlock } from "./editor/extensions/drawing-node";
+import { FloatImage } from "./editor/extensions/float-image";
 import { PaginatedDocument } from "./editor/extensions/document-node";
 import { PageNode } from "./editor/extensions/page-node";
 import { PaginationEngine } from "./editor/extensions/pagination-engine";
@@ -179,14 +179,15 @@ function updateSectionSummaries(editor: any) {
     }
   });
 
-  const instructionLines = sections.length > 0
-    ? [
-        `This question paper has ${sections.length} section${
-          sections.length === 1 ? "" : "s"
-        }.`,
-        ...sections.map((section) => buildInstructionLine(section)),
-      ]
-    : [];
+  const instructionLines =
+    sections.length > 0
+      ? [
+          `This question paper has ${sections.length} section${
+            sections.length === 1 ? "" : "s"
+          }.`,
+          ...sections.map((section) => buildInstructionLine(section)),
+        ]
+      : [];
 
   doc.descendants((node: any, pos: number) => {
     if (node.type.name !== "instructionBlock") return;
@@ -196,7 +197,9 @@ function updateSectionSummaries(editor: any) {
     const isSame =
       Array.isArray(currentItems) &&
       currentItems.length === instructionLines.length &&
-      currentItems.every((item: string, index: number) => item === instructionLines[index]);
+      currentItems.every(
+        (item: string, index: number) => item === instructionLines[index],
+      );
 
     if (!isSame) {
       tr.setNodeMarkup(pos, undefined, {
@@ -214,7 +217,13 @@ function updateSectionSummaries(editor: any) {
 // ==================================
 // Word count status bar
 // ==================================
-import { Cloud, CloudOff, CloudLightning, RefreshCw, CheckCircle2 } from "lucide-react";
+import {
+  Cloud,
+  CloudOff,
+  CloudLightning,
+  RefreshCw,
+  CheckCircle2,
+} from "lucide-react";
 
 const StatusBar = memo(({ editor }: { editor: any }) => {
   if (!editor) return null;
@@ -287,7 +296,72 @@ function createEmptyDocument() {
       {
         type: "page",
         attrs: { pageId: createPageId() },
-        content: [{ type: "paragraph" }],
+        content: [
+          // ── Paper header ────────────────────────────────────────────────
+          // Pre-filled with placeholder text so new documents always have a
+          // professional title block at the top.  The user can edit or delete it.
+          {
+            type: "paperHeaderBlock",
+            attrs: { logoUrl: null },
+            content: [
+              {
+                type: "heading",
+                attrs: { level: 1 },
+                content: [{ type: "text", text: "SCHOOL / INSTITUTION NAME" }],
+              },
+              {
+                type: "heading",
+                attrs: { level: 2 },
+                content: [{ type: "text", text: "SUBJECT — QUESTION PAPER" }],
+              },
+              {
+                type: "paragraph",
+                content: [
+                  { type: "text", text: "Class —  |  Academic Year 20__–26" },
+                ],
+              },
+              {
+                type: "table",
+                content: [
+                  {
+                    type: "tableRow",
+                    content: [
+                      {
+                        type: "tableCell",
+                        attrs: {},
+                        content: [
+                          {
+                            type: "paragraph",
+                            content: [
+                              {
+                                type: "text",
+                                text: "Time Allowed: __ Hours",
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                      {
+                        type: "tableCell",
+                        attrs: {},
+                        content: [
+                          {
+                            type: "paragraph",
+                            content: [
+                              { type: "text", text: "Maximum Marks: __" },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          // ── Body starts here ─────────────────────────────────────────────
+          { type: "paragraph" },
+        ],
       },
     ],
   };
@@ -332,8 +406,7 @@ function scrollToDocumentPosition(editor: any, position: number) {
     try {
       const domAtPos = editor.view.domAtPos(Math.max(position + 1, 1));
       const node = domAtPos.node;
-      const element =
-        node instanceof HTMLElement ? node : node.parentElement;
+      const element = node instanceof HTMLElement ? node : node.parentElement;
 
       element?.scrollIntoView({
         behavior: "smooth",
@@ -420,10 +493,12 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
             }
           });
 
-          const isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
-          const currentPaperId = typeof window !== "undefined"
-            ? new URLSearchParams(window.location.search).get("paperId")
-            : null;
+          const isOnline =
+            typeof navigator !== "undefined" ? navigator.onLine : true;
+          const currentPaperId =
+            typeof window !== "undefined"
+              ? new URLSearchParams(window.location.search).get("paperId")
+              : null;
 
           const draft = {
             id: "current_draft",
@@ -450,7 +525,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           setSaveState("failed");
         }
       }, 1500),
-    [template, setSaveState]
+    [template, setSaveState],
   );
 
   const editor = useEditor({
@@ -491,14 +566,14 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           "instructionBlock",
         ],
       }),
-      Image.configure({
-        inline: true,
-        allowBase64: true,
-      }),
+      // ImageResize extends @tiptap/extension-image — do NOT also register
+      // the base Image extension, or the two will conflict on the 'image' node name.
       ImageResize.configure({
         inline: true,
         allowBase64: true,
       }),
+      // Block-level draggable image with resize + alignment controls
+      FloatImage,
       Placeholder.configure({
         placeholder: "Start writing your exam paper...",
       }),
@@ -573,7 +648,9 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
         const draft = await getDraft("current_draft");
         if (!draft) return;
 
-        const currentPaperId = new URLSearchParams(window.location.search).get("paperId");
+        const currentPaperId = new URLSearchParams(window.location.search).get(
+          "paperId",
+        );
 
         // Verify if this local draft belongs to the current editor session/paper context
         if (draft.paperId === currentPaperId) {
@@ -633,7 +710,12 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
       debouncedSectionSummaries.cancel();
       debouncedAutosave.cancel();
     };
-  }, [debouncedNumbering, debouncedPageState, debouncedSectionSummaries, debouncedAutosave]);
+  }, [
+    debouncedNumbering,
+    debouncedPageState,
+    debouncedSectionSummaries,
+    debouncedAutosave,
+  ]);
 
   // Handle question insertion from AI generator
   const questionsToAppend = useEditorStore((state) => state.questionsToAppend);
@@ -1465,6 +1547,95 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           justify-content: center;
         }
 
+        /* ===== Float Image Block ===== */
+        .float-image-wrapper {
+          margin: 8px 0;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .float-image-img {
+          display: block;
+          width: 100%;
+          height: auto;
+          border: 1px solid #000000;
+        }
+
+        /* Alignment + delete toolbar — sits above the image */
+        .float-image-controls {
+          position: absolute;
+          top: -28px;
+          left: 50%;
+          transform: translateX(-50%);
+          display: flex;
+          align-items: center;
+          gap: 2px;
+          padding: 3px 5px;
+          background: #ffffff;
+          border: 1px solid #000000;
+          opacity: 0;
+          transition: opacity 0.15s;
+          z-index: 20;
+          white-space: nowrap;
+          pointer-events: none;
+        }
+
+        .float-image-wrapper:hover .float-image-controls,
+        .float-image-container.is-selected .float-image-controls {
+          opacity: 1;
+          pointer-events: auto;
+        }
+
+        .float-img-btn {
+          border: 1px solid #000000;
+          background: #ffffff;
+          color: #000000;
+          padding: 2px;
+          border-radius: 2px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          height: 18px;
+          width: 18px;
+        }
+
+        .float-img-btn.active {
+          background: #000000;
+          color: #ffffff;
+        }
+
+        .float-img-divider {
+          display: inline-block;
+          width: 1px;
+          height: 14px;
+          background: #000000;
+          flex-shrink: 0;
+          align-self: center;
+          margin: 0 2px;
+        }
+
+        /* Resize handle — bottom-right corner triangle */
+        .float-image-resize-handle {
+          position: absolute;
+          bottom: 0;
+          right: 0;
+          width: 0;
+          height: 0;
+          border-style: solid;
+          border-width: 0 0 14px 14px;
+          border-color: transparent transparent #000000 transparent;
+          cursor: nwse-resize;
+          opacity: 0;
+          transition: opacity 0.15s;
+        }
+
+        .float-image-wrapper:hover .float-image-resize-handle,
+        .float-image-container.is-selected .float-image-resize-handle,
+        .float-image-container.is-resizing .float-image-resize-handle {
+          opacity: 1;
+        }
+
         /* ===== Page Break ===== */
         .ProseMirror [data-type="page-break"] {
           display: none !important;
@@ -1608,7 +1779,8 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           .question-group-controls,
           .paper-header-delete,
           .logo-remove-btn,
-          .drawing-delete {
+          .drawing-delete,
+          .float-image-hide-in-pdf {
             display: none !important;
           }
 

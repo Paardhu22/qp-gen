@@ -63,7 +63,8 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
 export const QuestionBlock = Node.create({
   name: "questionBlock",
   group: "block paperBlock",
-  content: "(paragraph | bulletList | orderedList | mathBlock | drawingBlock)+",
+  content:
+    "(paragraph | bulletList | orderedList | mathBlock | drawingBlock | floatImage)+",
   draggable: true,
   isolating: true,
 
@@ -238,7 +239,8 @@ const InstructionComponent = ({ node, deleteNode }: any) => {
 export const InstructionBlock = Node.create({
   name: "instructionBlock",
   group: "block paperBlock",
-  content: "(paragraph | bulletList | orderedList | mathBlock | drawingBlock)+",
+  content:
+    "(paragraph | bulletList | orderedList | mathBlock | drawingBlock | floatImage)+",
   draggable: true,
 
   addAttributes() {
