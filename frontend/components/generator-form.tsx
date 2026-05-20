@@ -27,6 +27,7 @@ import { readStreamableValue } from "@ai-sdk/rsc";
 import { useEditorStore } from "@/store/editor-store";
 import { toast } from "sonner";
 import { FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
+import { getAccessToken } from "@/lib/token-storage";
 
 const formSchema = z.object({
   subject: z.string().min(2, "Subject is required"),
@@ -105,9 +106,17 @@ export const GeneratorForm = () => {
       try {
         const formData = new FormData();
         formData.append("file", file);
+
+        const accessToken = getAccessToken();
+        const headers: Record<string, string> = {};
+        if (accessToken) {
+          headers["Authorization"] = `Bearer ${accessToken}`;
+        }
+
         const res = await fetch("/api/upload", {
           method: "POST",
           body: formData,
+          headers,
         });
 
         if (!res.ok) {
