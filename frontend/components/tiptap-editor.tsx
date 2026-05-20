@@ -54,6 +54,7 @@ import { useEffect, useState, useMemo, useRef, memo } from "react";
 import debounce from "lodash.debounce";
 import { saveDraft, getDraft } from "@/lib/autosave-db";
 import { toast } from "sonner";
+import { useSession } from "@/lib/auth-client";
 
 // ==================================
 // Auto-numbering utility
@@ -431,6 +432,14 @@ type TiptapEditorProps = {
 export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
   const [isClient, setIsClient] = useState(false);
   const template = useEditorStore((state) => state.template);
+  const { data: sessionData } = useSession();
+  const userIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (sessionData?.user?.id) {
+      userIdRef.current = sessionData.user.id;
+    }
+  }, [sessionData]);
 
   useEffect(() => {
     setIsClient(true);
@@ -493,6 +502,9 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
             }
           });
 
+          const currentUserId = userIdRef.current;
+          if (!currentUserId) return; // Do not save drafts before the user session is resolved
+
           const isOnline =
             typeof navigator !== "undefined" ? navigator.onLine : true;
           const currentPaperId =
@@ -500,8 +512,12 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
               ? new URLSearchParams(window.location.search).get("paperId")
               : null;
 
+          const draftId = currentPaperId
+            ? `draft_${currentPaperId}_${currentUserId}`
+            : `draft_new_${currentUserId}`;
+
           const draft = {
-            id: "current_draft",
+            id: draftId,
             paperId: currentPaperId,
             title: "Autosaved Draft",
             template,
@@ -645,30 +661,59 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
     const checkDraft = async () => {
       try {
-        const draft = await getDraft("current_draft");
-        if (!draft) return;
+        const currentUserId = userIdRef.current;
+        if (!currentUserId) return; // Wait until session resolves
 
         const currentPaperId = new URLSearchParams(window.location.search).get(
           "paperId",
         );
 
+        const draftId = currentPaperId
+          ? `draft_${currentPaperId}_${currentUserId}`
+          : `draft_new_${currentUserId}`;
+
+        const draft = await getDraft(draftId);
+        if (!draft) return;
+
         // Verify if this local draft belongs to the current editor session/paper context
         if (draft.paperId === currentPaperId) {
           const localTime = new Date(draft.updatedAt).toLocaleTimeString();
-          toast.info(`Unsaved local draft found from ${localTime}.`, {
-            duration: 15000,
-            action: {
-              label: "Restore Draft",
-              onClick: () => {
-                editor.commands.setContent(draft.editorJSON);
-                setPages(extractPagesFromDoc(editor.state.doc));
-                updateQuestionNumbers(editor);
-                updateSectionSummaries(editor);
-                setSaveState("saved");
-                toast.success("Draft restored successfully!");
-              },
-            },
-          });
+          
+          toast.custom((t) => (
+            <div className="bg-card text-foreground border border-border rounded-xl p-4 shadow-xl flex items-center justify-between gap-4 w-[350px]">
+              <div className="flex flex-col gap-1 min-w-0">
+                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
+                  Unsaved draft found
+                </span>
+                <span className="text-[11px] text-muted-foreground truncate">
+                  Created at {localTime}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => {
+                    editor.commands.setContent(draft.editorJSON);
+                    setPages(extractPagesFromDoc(editor.state.doc));
+                    updateQuestionNumbers(editor);
+                    updateSectionSummaries(editor);
+                    setSaveState("saved");
+                    toast.dismiss(t);
+                    toast.success("Draft restored successfully!");
+                  }}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11.5px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all"
+                >
+                  Restore
+                </button>
+                <button
+                  onClick={() => toast.dismiss(t)}
+                  className="text-muted-foreground hover:text-foreground text-[12px] font-bold hover:bg-muted/80 p-1.5 rounded-lg transition-all"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          ), { duration: 15000 });
         }
       } catch (err) {
         console.error("Failed to check draft recovery:", err);
@@ -677,7 +722,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
 
     const timer = setTimeout(checkDraft, 1000);
     return () => clearTimeout(timer);
-  }, [editor, setPages, setSaveState]);
+  }, [editor, setPages, setSaveState, sessionData]);
 
   useEffect(() => {
     const handleOnline = () => {

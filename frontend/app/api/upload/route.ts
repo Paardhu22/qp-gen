@@ -19,7 +19,6 @@ export async function POST(req: NextRequest) {
 
     const formData = await req.formData();
     const file = formData.get('file') as File;
-    const projectId = formData.get('projectId') as string | undefined;
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -29,6 +28,7 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(bytes);
     const fileName = file.name;
     const fileType = file.type;
+    const fileSize = file.size;
 
     let extractedText = '';
     let pages: { pageNumber: number; content: string }[] = [];
@@ -49,12 +49,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to extract text from document' }, { status: 400 });
     }
 
-    const document = await db.document.create({
+    const pdfSource = await db.pdfSource.create({
       data: {
-        title: fileName,
-        type: fileType,
+        name: fileName,
+        size: fileSize,
+        url: '', // local upload, no URL yet unless we store it
         userId: session.user.id,
-        projectId: projectId || null,
+        status: 'processing',
       },
     });
 
@@ -76,13 +77,18 @@ export async function POST(req: NextRequest) {
         const vectorString = `[${embedding.join(',')}]`;
 
         await db.$executeRawUnsafe(
-          `INSERT INTO "DocumentChunk" ("id", "content", "page", "chunkIndex", "documentId", "embedding")
-           VALUES ('${crypto.randomUUID()}', ${JSON.stringify(chunk.content)}, ${chunk.page || 'NULL'}, ${chunk.chunkIndex}, '${document.id}', '${vectorString}'::vector);`
+          `INSERT INTO "DocumentChunk" ("id", "content", "page", "chunkIndex", "pdfSourceId", "embedding")
+           VALUES ('${crypto.randomUUID()}', ${JSON.stringify(chunk.content)}, ${chunk.page || 'NULL'}, ${chunk.chunkIndex}, '${pdfSource.id}', '${vectorString}'::vector);`
         );
       }
     }
 
-    return NextResponse.json({ documentId: document.id });
+    await db.pdfSource.update({
+      where: { id: pdfSource.id },
+      data: { status: 'ready' },
+    });
+
+    return NextResponse.json({ documentId: pdfSource.id });
   } catch (error: any) {
     console.error('Upload error:', error);
     return NextResponse.json({ error: error.message || 'Failed to process document' }, { status: 500 });

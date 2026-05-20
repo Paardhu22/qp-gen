@@ -4,8 +4,10 @@ import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 
-export async function saveQuestionsToWorkspace(data: {
-  projectName: string;
+export async function saveQuestionsToBank(data: {
+  class: string;
+  subject: string;
+  topic: string;
   questions: any[];
 }) {
   const session = await auth.api.getSession({
@@ -16,51 +18,50 @@ export async function saveQuestionsToWorkspace(data: {
     throw new Error("Unauthorized");
   }
 
-  // Find or create project
-  let project = await db.project.findFirst({
-    where: {
-      name: data.projectName,
-      userId: session.user.id
-    }
-  });
-
-  if (!project) {
-    project = await db.project.create({
-      data: {
-        name: data.projectName,
-        userId: session.user.id
-      }
-    });
-  }
-
-  // Create questions
+  const createdQuestions = [];
+  
   for (const q of data.questions) {
-    await db.question.create({
+    const newQ = await db.question.create({
       data: {
+        userId: session.user.id,
+        class: data.class,
+        subject: data.subject,
+        topic: data.topic,
         content: q.content,
-        answer: q.answer,
-        type: q.type || "mcq",
+        answer: q.answer || "",
+        questionType: q.type || "mcq",
         marks: Number(q.marks) || 1,
         options: q.options || [],
-        projectId: project.id
       }
     });
+    createdQuestions.push(newQ);
   }
 
-  return { success: true };
+  return { success: true, count: createdQuestions.length };
 }
 
-export async function getUserProjects() {
+export async function getQuestionsFromBank(query?: string) {
   const session = await auth.api.getSession({
     headers: await headers()
   });
 
   if (!session?.user) {
-    return [];
+    throw new Error("Unauthorized");
   }
 
-  return db.project.findMany({
-    where: { userId: session.user.id },
+  const whereClause: any = { userId: session.user.id };
+  if (query) {
+    whereClause.OR = [
+      { content: { contains: query, mode: 'insensitive' } },
+      { topic: { contains: query, mode: 'insensitive' } },
+      { subject: { contains: query, mode: 'insensitive' } },
+    ];
+  }
+
+  const questions = await db.question.findMany({
+    where: whereClause,
     orderBy: { createdAt: "desc" }
   });
+
+  return questions;
 }

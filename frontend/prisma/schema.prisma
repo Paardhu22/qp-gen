@@ -15,14 +15,9 @@ model User {
   updatedAt     DateTime
   sessions      Session[]
   accounts      Account[]
-
-  projects       Project[]
-  papers         Paper[]
-  documents      Document[]
-  history        GenerationHistory[]
-  paperTemplates PaperTemplate[]
-  equations      Equation[]
-
+  papers        Paper[]
+  questions     Question[]
+  pdfSources    PdfSource[]
   @@map("user")
 }
 
@@ -70,133 +65,78 @@ model Verification {
   @@map("verification")
 }
 
-model Project {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  documents Document[]
-  papers    Paper[]
-  questions Question[]
-}
-
-model Document {
-  id        String          @id @default(cuid())
-  title     String
-  type      String          @default("pdf")
-  userId    String
-  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectId String?
-  project   Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  chunks    DocumentChunk[]
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-}
-
-model DocumentChunk {
-  id         String                       @id @default(cuid())
-  content    String
-  page       Int?
-  chunkIndex Int
-  embedding  Unsupported("vector(1536)")?
-  documentId String
-  document   Document                     @relation(fields: [documentId], references: [id], onDelete: Cascade)
-
-  @@index([documentId])
-}
-
 model Paper {
-  id               String            @id @default(cuid())
-  title            String
-  content          String // Tiptap JSON or HTML content
-  projectId        String
-  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id               String   @id @default(cuid())
   userId           String
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  questions        Question[]
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  documentVersions DocumentVersion[]
-  editorState      EditorState?
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  class            String
+  subject          String
+  examName         String
+
+  content          String?  // The editor document content
+  metadata         Json?
+  layoutSettings   Json?
+  questionRefs     String[] // Array of Question IDs used in this paper
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("paper")
 }
 
 model Question {
-  id            String   @id @default(cuid())
-  type          String // MCQ, Short Answer, etc.
-  content       String // The question
-  answer        String? // Suggested answer
-  options       String[] // For MCQs
-  marks         Int      @default(1)
-  bloomTaxonomy String? // e.g., Remember, Understand, Apply...
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  projectId String?
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  class        String
+  subject      String
+  topic        String
 
-  paperId          String?
-  paper            Paper?            @relation(fields: [paperId], references: [id], onDelete: Cascade)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  questionMetadata QuestionMetadata?
+  questionType String
+  marks        Int      @default(1)
+  difficulty   String?
+
+  content      String
+  options      String[] // For MCQs
+  answer       String?
+  explanation  String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("question")
 }
 
-model GenerationHistory {
+model PdfSource {
   id        String   @id @default(cuid())
-  prompt    String
-  settings  Json // Settings used like difficulty, bloom type etc.
-  result    Json // The generated output
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name      String
+  size      Int
+  url       String
+  
+  status    String   @default("uploading") // uploading, processing, ready, error
+  error     String?
+  
+  chunks    DocumentChunk[]
+
   createdAt DateTime @default(now())
-}
-
-model PaperTemplate {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  content     String
-  isDefault   Boolean  @default(false)
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model QuestionMetadata {
-  id          String   @id @default(cuid())
-  questionId  String   @unique
-  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  tags        String[]
-  difficulty  String?
-  source      String?
-  aiGenerated Boolean  @default(false)
-}
-
-model DocumentVersion {
-  id        String   @id @default(cuid())
-  paperId   String
-  paper     Paper    @relation(fields: [paperId], references: [id], onDelete: Cascade)
-  content   String
-  version   Int
-  createdAt DateTime @default(now())
-}
-
-model EditorState {
-  id        String   @id @default(cuid())
-  paperId   String   @unique
-  paper     Paper    @relation(fields: [paperId], references: [id], onDelete: Cascade)
-  state     Json
   updatedAt DateTime @updatedAt
+
+  @@map("pdf_source")
 }
 
-model Equation {
-  id          String   @id @default(cuid())
-  latex       String
-  description String?
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
+model DocumentChunk {
+  id           String                       @id @default(cuid())
+  content      String
+  page         Int?
+  chunkIndex   Int
+  embedding    Unsupported("vector(1536)")?
+  pdfSourceId  String
+  pdfSource    PdfSource                    @relation(fields: [pdfSourceId], references: [id], onDelete: Cascade)
+
+  @@index([pdfSourceId])
 }

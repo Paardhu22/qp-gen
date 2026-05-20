@@ -1020,19 +1020,26 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             </Badge>
           </div>
 
-          {/* Save */}
+          {/* Add Existing Question */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-[10px] px-3 font-medium text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+            onClick={() => {
+              const store = useEditorStore.getState();
+              store.setQuestionBankBrowserOpen(true);
+            }}
+          >
+            <PlusCircle className="h-3 w-3 mr-1" /> Add Existing
+          </Button>
+
+          {/* Save Questions */}
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-[10px] px-4 font-medium"
+            className="h-7 text-[10px] px-3 font-medium text-indigo-600 border-indigo-200 hover:bg-indigo-50"
             onClick={() => {
               const store = useEditorStore.getState();
-
-              // Capture current editor JSON for the save modal
-              store.setEditorContent(JSON.stringify(editor.getJSON()));
-              store.setPages(extractPagesFromDoc(editor.state.doc));
-
-              // Extract every questionBlock from the document as a plain Question object
               const questions: any[] = [];
               editor.state.doc.descendants((node: any) => {
                 if (node.type.name !== "questionBlock") return;
@@ -1044,10 +1051,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
                       if (inline.text) questionText += inline.text;
                     });
                   }
-                  if (
-                    child.type.name === "bulletList" ||
-                    child.type.name === "orderedList"
-                  ) {
+                  if (child.type.name === "bulletList" || child.type.name === "orderedList") {
                     child.forEach((li: any) => {
                       let optText = "";
                       li.forEach((p: any) => {
@@ -1067,11 +1071,25 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
                 });
               });
               store.setQuestionsToSave(questions);
-
-              store.setSaveModalOpen(true);
+              store.setSaveQuestionModalOpen(true);
             }}
           >
-            <Save className="h-3 w-3 mr-1" /> Save
+            <Save className="h-3 w-3 mr-1" /> Save Questions
+          </Button>
+
+          {/* Save Paper */}
+          <Button
+            variant="default"
+            size="sm"
+            className="h-7 text-[10px] px-4 font-medium"
+            onClick={() => {
+              const store = useEditorStore.getState();
+              store.setEditorContent(JSON.stringify(editor.getJSON()));
+              store.setPages(extractPagesFromDoc(editor.state.doc));
+              store.setSavePaperModalOpen(true);
+            }}
+          >
+            <Save className="h-3 w-3 mr-1" /> Save Paper
           </Button>
         </div>
       </div>

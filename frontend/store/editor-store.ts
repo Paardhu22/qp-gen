@@ -17,7 +17,9 @@ interface EditorState {
   questionsToAppend: Question[];
   sectionsToAppend: SectionToAppend[];
   questionsToSave: Question[];
-  saveModalOpen: boolean;
+  savePaperModalOpen: boolean;
+  saveQuestionModalOpen: boolean;
+  questionBankBrowserOpen: boolean;
   editorContent: string;
   pages: Array<{ id: string; blocks: any[] }>;
   template: string;
@@ -30,7 +32,9 @@ interface EditorState {
   clearSectionsToAppend: () => void;
 
   setQuestionsToSave: (questions: Question[]) => void;
-  setSaveModalOpen: (isOpen: boolean) => void;
+  setSavePaperModalOpen: (isOpen: boolean) => void;
+  setSaveQuestionModalOpen: (isOpen: boolean) => void;
+  setQuestionBankBrowserOpen: (isOpen: boolean) => void;
   setEditorContent: (content: string) => void;
   setPages: (pages: Array<{ id: string; blocks: any[] }>) => void;
   setTemplate: (template: string) => void;
@@ -41,7 +45,9 @@ export const useEditorStore = create<EditorState>((set) => ({
   questionsToAppend: [],
   sectionsToAppend: [],
   questionsToSave: [],
-  saveModalOpen: false,
+  savePaperModalOpen: false,
+  saveQuestionModalOpen: false,
+  questionBankBrowserOpen: false,
   template: "cbse",
   saveState: "saved",
 
@@ -66,6 +72,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   setTemplate: (template) => set({ template }),
 
   setQuestionsToSave: (questions) => set({ questionsToSave: questions }),
-  setSaveModalOpen: (isOpen) => set({ saveModalOpen: isOpen }),
+  setSavePaperModalOpen: (isOpen) => set({ savePaperModalOpen: isOpen }),
+  setSaveQuestionModalOpen: (isOpen) => set({ saveQuestionModalOpen: isOpen }),
+  setQuestionBankBrowserOpen: (isOpen) => set({ questionBankBrowserOpen: isOpen }),
   setSaveState: (saveState) => set({ saveState }),
 }));
