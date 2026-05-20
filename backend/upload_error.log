@@ -94,3 +94,45 @@ django.db.utils.ProgrammingError: relation "Document" does not exist
 LINE 1: INSERT INTO "Document" ("createdAt", "updatedAt", "id", "tit...
                     ^
 
+Error: Missing credentials. Please pass an `api_key`, `workload_identity`, `admin_api_key`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.
+Traceback (most recent call last):
+  File "C:\qp-gen\backend\apps\documents\views.py", line 19, in post
+    pdf_source = process_pdf_upload(
+        file=serializer.validated_data["file"],
+        user=request.user,
+    )
+  File "C:\qp-gen\backend\services\document_service.py", line 64, in process_pdf_upload
+    embeddings = generate_embeddings(
+        [chunk.content for chunk in batch], user=user
+    )
+  File "C:\qp-gen\backend\services\embedding_service.py", line 13, in generate_embeddings
+    client = get_openai_client()
+  File "C:\qp-gen\backend\services\openai_service.py", line 15, in get_openai_client
+    _client = OpenAI(api_key=settings.OPENAI_API_KEY)
+  File "C:\qp-gen\backend\.venv\Lib\site-packages\openai\_client.py", line 194, in __init__
+    raise OpenAIError(
+        "Missing credentials. Please pass an `api_key`, `workload_identity`, `admin_api_key`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable."
+    )
+openai.OpenAIError: Missing credentials. Please pass an `api_key`, `workload_identity`, `admin_api_key`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.
+
+Error: Missing credentials. Please pass an `api_key`, `workload_identity`, `admin_api_key`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.
+Traceback (most recent call last):
+  File "C:\qp-gen\backend\apps\documents\views.py", line 19, in post
+    pdf_source = process_pdf_upload(
+        file=serializer.validated_data["file"],
+        user=request.user,
+    )
+  File "C:\qp-gen\backend\services\document_service.py", line 64, in process_pdf_upload
+    embeddings = generate_embeddings(
+        [chunk.content for chunk in batch], user=user
+    )
+  File "C:\qp-gen\backend\services\embedding_service.py", line 13, in generate_embeddings
+    client = get_openai_client()
+  File "C:\qp-gen\backend\services\openai_service.py", line 15, in get_openai_client
+    _client = OpenAI(api_key=settings.OPENAI_API_KEY)
+  File "C:\qp-gen\backend\.venv\Lib\site-packages\openai\_client.py", line 194, in __init__
+    raise OpenAIError(
+        "Missing credentials. Please pass an `api_key`, `workload_identity`, `admin_api_key`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable."
+    )
+openai.OpenAIError: Missing credentials. Please pass an `api_key`, `workload_identity`, `admin_api_key`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.
+

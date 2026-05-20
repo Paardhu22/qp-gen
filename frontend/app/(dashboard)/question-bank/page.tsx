@@ -1,26 +1,9 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import { fetchJson } from "@/lib/api-client";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { useEffect, useMemo, useState } from "react";
+import { fetchPapers, deletePaper, fetchJson } from "@/lib/api-client";
+import { BookOpen, FileText, Search, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  Search,
-  History,
-  Calendar,
-  FileText,
-  ChevronDown,
-  ChevronUp,
-  Trash2,
-} from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,198 +15,181 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { useEditorStore } from "@/store/editor-store";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type HistoryItem = {
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type Paper = {
   id: string;
-  prompt: string;
-  settings: {
-    topic: string;
-    count: number;
-    difficulty: string;
-    documentIds: string[];
-    instructions?: string;
-  };
-  result: {
-    sections?: Array<{
-      title: string;
-      questions: Array<{
-        content: string;
-        type: string;
-        options?: string[];
-        answer?: string;
-        marks: number;
-      }>;
-    }>;
-    questions?: Array<{
-      content: string;
-      type: string;
-      options?: string[];
-      answer?: string;
-      marks: number;
-    }>;
-  };
-  created_at: string;
+  title: string;
+  projectName?: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
-const formatDate = (value?: string) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString(undefined, {
-    year: "numeric",
+type ParsedPaper = Paper & { classLabel: string; subjectLabel: string };
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function parsePaper(paper: Paper): ParsedPaper {
+  const parts = (paper.projectName || "").split(" — ");
+  return {
+    ...paper,
+    classLabel: parts[0]?.trim() || "—",
+    subjectLabel: parts[1]?.trim() || "—",
+  };
+}
+
+function formatDate(value?: string): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    year: "numeric",
   });
-};
+}
 
-export default function HistoryPage() {
-  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export default function QuestionBankPage() {
+  const router = useRouter();
+
+  const [papers, setPapers] = useState<Paper[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [paperSearch, setPaperSearch] = useState("");
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [isClearing, setIsClearing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
+  // ---- fetch on mount ----
   useEffect(() => {
-    fetchJson<HistoryItem[]>("/api/generation/history")
-      .then(setHistoryItems)
-      .catch((err) => {
-        console.error(err);
-        toast.error("Failed to load generation history.");
-      })
+    setIsLoading(true);
+    fetchPapers<Paper[]>()
+      .then((data) => setPapers(data ?? []))
+      .catch(() => toast.error("Failed to load saved papers."))
       .finally(() => setIsLoading(false));
   }, []);
 
-  const toggleExpand = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
+  // ---- derived ----
+  const parsedPapers = useMemo<ParsedPaper[]>(
+    () => papers.map(parsePaper),
+    [papers],
+  );
+
+  const filteredPapers = useMemo<ParsedPaper[]>(() => {
+    const term = paperSearch.trim().toLowerCase();
+    if (!term) return parsedPapers;
+    return parsedPapers.filter(
+      (p) =>
+        p.title.toLowerCase().includes(term) ||
+        p.classLabel.toLowerCase().includes(term) ||
+        p.subjectLabel.toLowerCase().includes(term),
+    );
+  }, [parsedPapers, paperSearch]);
+
+  // ---- actions ----
+  async function deletePaperById(id: string) {
+    setDeletingIds((prev) => new Set(prev).add(id));
+    try {
+      await deletePaper(id);
+      setPapers((prev) => prev.filter((p) => p.id !== id));
+      toast.success("Paper deleted.");
+    } catch {
+      toast.error("Failed to delete paper.");
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
         next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
+        return next;
+      });
+    }
+  }
+
+  function handleDeletePaper(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    toast.warning("Delete this paper?", {
+      action: {
+        label: "Delete",
+        onClick: () => deletePaperById(id),
+      },
     });
-  };
+  }
 
-  const handleInsertIntoEditor = (item: HistoryItem) => {
-    const { result } = item;
-    if (!result) {
-      toast.error("No questions found in this generation.");
-      return;
-    }
-
-    const hasSections = result.sections && result.sections.length > 0;
-
-    if (hasSections) {
-      const sections = result.sections!.map((section) => ({
-        title: section.title,
-        questions: section.questions.map((q) => ({
-          content: q.content,
-          type: q.type,
-          options: q.options || [],
-          answer: q.answer || "",
-          marks: q.marks,
-        })),
-      }));
-      useEditorStore.getState().appendSections(sections);
-      toast.success("Inserted generated sections into the editor.");
-    } else if (result.questions && result.questions.length > 0) {
-      const allQuestions = result.questions.map((q) => ({
-        content: q.content,
-        type: q.type,
-        options: q.options || [],
-        answer: q.answer || "",
-        marks: q.marks,
-      }));
-      useEditorStore.getState().appendQuestions(allQuestions);
-      toast.success("Inserted generated questions into the editor.");
-    } else {
-      toast.error("No valid questions or sections found to insert.");
-    }
-  };
-
-  const handleClearHistory = async () => {
+  async function handleClearAll() {
     setIsClearing(true);
     try {
-      await fetchJson("/api/generation/history", { method: "DELETE" });
-      setHistoryItems([]);
-      setExpandedIds(new Set());
-      toast.success("Generation history cleared.");
+      await fetchJson("/api/projects/papers/clear", { method: "DELETE" });
+      setPapers([]);
+      toast.success("All papers cleared.");
     } catch {
-      toast.error("Failed to clear history. Please try again.");
+      toast.error("Failed to clear papers.");
     } finally {
       setIsClearing(false);
     }
-  };
+  }
 
-  const filteredHistory = useMemo(() => {
-    const term = searchQuery.trim().toLowerCase();
-    if (!term) return historyItems;
-    return historyItems.filter((item) => {
-      const topic = item.settings.topic.toLowerCase();
-      const prompt = item.prompt.toLowerCase();
-      const difficulty = item.settings.difficulty.toLowerCase();
-      return (
-        topic.includes(term) ||
-        prompt.includes(term) ||
-        difficulty.includes(term)
-      );
-    });
-  }, [historyItems, searchQuery]);
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-8 bg-background min-h-full">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2.5">
-            <History className="h-7 w-7 text-indigo-500" />
-            Generation History
-          </h2>
-          <p className="text-muted-foreground mt-2">
-            Browse and manage all exam question sets generated by AI so far.
-          </p>
+    <div className="p-8 space-y-6 bg-background min-h-full">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        {/* Left: title block */}
+        <div className="flex items-center gap-3">
+          <BookOpen className="h-7 w-7 text-indigo-500 shrink-0" />
+          <div>
+            <h1 className="text-3xl font-bold leading-tight">Question Bank</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Browse and open your saved exam papers in the editor.
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="w-full md:w-80 relative">
-            <Search className="absolute left-3 top-2.5 h-4.5 w-4.5 text-muted-foreground" />
+
+        {/* Right: search + clear */}
+        <div className="flex items-center gap-3">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input
-              placeholder="Search generations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-background border-border text-foreground"
+              className="w-64 pl-9"
+              placeholder="Search papers…"
+              value={paperSearch}
+              onChange={(e) => setPaperSearch(e.target.value)}
             />
           </div>
-          {historyItems.length > 0 && (
+
+          {/* Clear All — only when there are papers and not loading */}
+          {!isLoading && papers.length > 0 && (
             <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive gap-2 shrink-0"
-                  disabled={isClearing}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Clear History
-                </Button>
+              <AlertDialogTrigger
+                className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                disabled={isClearing}
+              >
+                <Trash2 className="h-4 w-4" />
+                Clear All
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Clear all history?</AlertDialogTitle>
+                  <AlertDialogTitle>Clear all saved papers?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will permanently delete all {historyItems.length}{" "}
-                    generation{historyItems.length !== 1 ? "s" : ""} from your
-                    history. This action cannot be undone.
+                    This will permanently delete every saved paper. This action
+                    cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction
-                    onClick={handleClearHistory}
-                    className="bg-destructive hover:bg-destructive/90 text-white"
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={handleClearAll}
                   >
                     Yes, clear all
                   </AlertDialogAction>
@@ -234,206 +200,100 @@ export default function HistoryPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="text-center py-20 border border-dashed border-border rounded-xl bg-card">
-          <p className="text-muted-foreground text-sm">
-            Loading generation history...
-          </p>
+      {/* ── Loading skeletons ───────────────────────────────────────────────── */}
+      {isLoading && (
+        <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="animate-pulse h-44 rounded-xl border bg-muted/40"
+            />
+          ))}
         </div>
-      ) : filteredHistory.length === 0 ? (
-        <div className="text-center py-20 border border-dashed border-border rounded-xl bg-card">
-          <p className="text-muted-foreground text-sm">
-            {searchQuery
-              ? "No history matches your search filter."
-              : "No generation history found."}
-          </p>
+      )}
+
+      {/* ── Empty state ─────────────────────────────────────────────────────── */}
+      {!isLoading && filteredPapers.length === 0 && (
+        <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed py-20 text-center">
+          <BookOpen className="h-10 w-10 opacity-30" />
+          <div>
+            <p className="font-semibold text-foreground">
+              No saved papers yet.
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Save a paper from the Editor to see it here.
+            </p>
+          </div>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {filteredHistory.map((item) => {
-            const isExpanded = expandedIds.has(item.id);
-            const questionCount = item.settings.count;
+      )}
+
+      {/* ── Paper grid ──────────────────────────────────────────────────────── */}
+      {!isLoading && filteredPapers.length > 0 && (
+        <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredPapers.map((paper) => {
+            const isDeleting = deletingIds.has(paper.id);
 
             return (
-              <Card
-                key={item.id}
-                className="bg-card border-border hover:shadow-sm transition-all duration-200"
+              <div
+                key={paper.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => router.push(`/editor?paperId=${paper.id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    router.push(`/editor?paperId=${paper.id}`);
+                  }
+                }}
+                className={cn(
+                  "group relative bg-card border border-border rounded-xl p-5 flex flex-col gap-4",
+                  "cursor-pointer transition-all hover:border-primary/50 hover:shadow-md",
+                  isDeleting && "opacity-50 pointer-events-none",
+                )}
               >
-                {/* Header */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => toggleExpand(item.id)}
-                  onKeyDown={(e) => e.key === "Enter" && toggleExpand(item.id)}
-                  className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 cursor-pointer select-none"
-                >
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-bold text-foreground tracking-tight">
-                        {item.settings.topic}
-                      </h3>
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500 border-indigo-500/35 bg-indigo-500/5"
-                      >
-                        {item.settings.difficulty}
-                      </Badge>
-                      <Badge
-                        variant="secondary"
-                        className="text-[10px] font-bold"
-                      >
-                        {questionCount} Questions
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3.5 w-3.5" />
-                        {formatDate(item.created_at)}
-                      </span>
-                    </div>
+                {/* Top row: icon + delete button */}
+                <div className="flex items-center justify-between">
+                  <div className="p-2 rounded-lg bg-indigo-500/10">
+                    <FileText className="h-5 w-5 text-indigo-500" />
                   </div>
-
-                  <div className="flex items-center gap-2 self-stretch md:self-auto justify-end">
-                    <Button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleInsertIntoEditor(item);
-                      }}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs py-1.5 h-8 gap-1.5"
-                    >
-                      <FileText className="h-3.5 w-3.5" />
-                      Insert into Editor
-                    </Button>
-                    <div className="text-muted-foreground p-1.5 hover:bg-accent rounded-lg transition-colors">
-                      {isExpanded ? (
-                        <ChevronUp className="h-5 w-5" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5" />
-                      )}
-                    </div>
-                  </div>
+                  <button
+                    type="button"
+                    aria-label="Delete paper"
+                    onClick={(e) => handleDeletePaper(paper.id, e)}
+                    className={cn(
+                      "opacity-0 group-hover:opacity-100 transition-opacity",
+                      "p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10",
+                    )}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </div>
 
-                {/* Expanded content */}
-                {isExpanded && (
-                  <CardContent className="border-t border-border pt-6 pb-6 bg-muted/5 space-y-6">
-                    {/* Raw prompt / info */}
-                    {item.settings.instructions && (
-                      <div className="space-y-1.5">
-                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
-                          AI Directives
-                        </span>
-                        <div className="text-xs bg-muted/40 p-3 rounded-lg border border-border text-foreground max-h-24 overflow-y-auto whitespace-pre-wrap">
-                          {item.settings.instructions}
-                        </div>
-                      </div>
-                    )}
+                {/* Exam name */}
+                <p className="text-base font-bold text-foreground line-clamp-2 leading-snug">
+                  {paper.title}
+                </p>
 
-                    {/* Render generated output preview */}
-                    <div className="space-y-4">
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
-                        Generated Questions Preview
-                      </span>
+                {/* Metadata badges */}
+                <div className="flex flex-wrap gap-1.5">
+                  <span className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[11px] px-2 py-0.5 rounded font-medium">
+                    {paper.classLabel}
+                  </span>
+                  <span className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[11px] px-2 py-0.5 rounded font-medium">
+                    {paper.subjectLabel}
+                  </span>
+                </div>
 
-                      <div className="space-y-4">
-                        {/* Sections layout */}
-                        {item.result.sections &&
-                        item.result.sections.length > 0 ? (
-                          item.result.sections.map((section, sIdx) => (
-                            <div key={sIdx} className="space-y-3">
-                              <h4 className="text-xs font-bold text-indigo-500 uppercase tracking-wide">
-                                {section.title}
-                              </h4>
-                              <div className="grid gap-3 md:grid-cols-2">
-                                {section.questions.map((q, qIdx) => (
-                                  <div
-                                    key={qIdx}
-                                    className="p-4 bg-background border border-border rounded-xl space-y-2"
-                                  >
-                                    <div className="flex justify-between items-start gap-2">
-                                      <p className="font-semibold text-sm text-foreground">
-                                        {q.content}
-                                      </p>
-                                      <Badge
-                                        variant="secondary"
-                                        className="text-[10px] font-bold flex-shrink-0"
-                                      >
-                                        {q.marks} Marks
-                                      </Badge>
-                                    </div>
-                                    {q.options && q.options.length > 0 && (
-                                      <div className="grid grid-cols-2 gap-2 mt-2">
-                                        {q.options.map((opt, oIdx) => (
-                                          <div
-                                            key={oIdx}
-                                            className="text-[10px] text-muted-foreground p-1.5 border border-border rounded bg-muted/10 truncate"
-                                          >
-                                            {String.fromCharCode(65 + oIdx)}.{" "}
-                                            {opt}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                    {q.answer && (
-                                      <div className="mt-2 pt-2 border-t border-border text-[10px] text-green-600 dark:text-green-500 font-semibold truncate">
-                                        Ans: {q.answer}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))
-                        ) : item.result.questions &&
-                          item.result.questions.length > 0 ? (
-                          <div className="grid gap-3 md:grid-cols-2">
-                            {item.result.questions.map((q, qIdx) => (
-                              <div
-                                key={qIdx}
-                                className="p-4 bg-background border border-border rounded-xl space-y-2"
-                              >
-                                <div className="flex justify-between items-start gap-2">
-                                  <p className="font-semibold text-sm text-foreground">
-                                    {q.content}
-                                  </p>
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[10px] font-bold flex-shrink-0"
-                                  >
-                                    {q.marks} Marks
-                                  </Badge>
-                                </div>
-                                {q.options && q.options.length > 0 && (
-                                  <div className="grid grid-cols-2 gap-2 mt-2">
-                                    {q.options.map((opt, oIdx) => (
-                                      <div
-                                        key={oIdx}
-                                        className="text-[10px] text-muted-foreground p-1.5 border border-border rounded bg-muted/10 truncate"
-                                      >
-                                        {String.fromCharCode(65 + oIdx)}. {opt}
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                {q.answer && (
-                                  <div className="mt-2 pt-2 border-t border-border text-[10px] text-green-600 dark:text-green-500 font-semibold truncate">
-                                    Ans: {q.answer}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">
-                            No questions found in this generation result.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
+                {/* Footer row */}
+                <div className="mt-auto flex items-center justify-between gap-2">
+                  <span className="text-xs text-indigo-500 font-medium">
+                    Open in Editor →
+                  </span>
+                  <span className="text-[10px] text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded border">
+                    {formatDate(paper.updated_at ?? paper.created_at)}
+                  </span>
+                </div>
+              </div>
             );
           })}
         </div>

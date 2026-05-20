@@ -1,67 +1,54 @@
-"use server";
+import { saveQuestions, fetchProjectsWithQuestions } from "@/lib/api-client";
 
-import { db } from "@/lib/db";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
-
+/**
+ * Save questions to the Django Question Bank.
+ *
+ * Questions are grouped under a Project named "<class> — <subject> — <topic>".
+ * Auth is handled by api-client (JWT Bearer token from localStorage), matching
+ * the rest of the app — NOT better-auth, which is not used here.
+ */
 export async function saveQuestionsToBank(data: {
   class: string;
   subject: string;
   topic: string;
   questions: any[];
-}) {
-  const session = await auth.api.getSession({
-    headers: await headers()
+}): Promise<{ success: boolean; count: number }> {
+  const projectName = `${data.class} — ${data.subject} — ${data.topic}`;
+
+  await saveQuestions<{ success: boolean; projectId: string }>({
+    projectName,
+    questions: data.questions.map((q) => ({
+      type: q.type || "short",
+      content: q.content,
+      answer: q.answer || "",
+      options: q.options || [],
+      marks: Number(q.marks) || 1,
+    })),
   });
 
-  if (!session?.user) {
-    throw new Error("Unauthorized");
-  }
-
-  const createdQuestions = [];
-  
-  for (const q of data.questions) {
-    const newQ = await db.question.create({
-      data: {
-        userId: session.user.id,
-        class: data.class,
-        subject: data.subject,
-        topic: data.topic,
-        content: q.content,
-        answer: q.answer || "",
-        questionType: q.type || "mcq",
-        marks: Number(q.marks) || 1,
-        options: q.options || [],
-      }
-    });
-    createdQuestions.push(newQ);
-  }
-
-  return { success: true, count: createdQuestions.length };
+  return { success: true, count: data.questions.length };
 }
 
-export async function getQuestionsFromBank(query?: string) {
-  const session = await auth.api.getSession({
-    headers: await headers()
-  });
+/**
+ * Fetch all questions from the Django Question Bank, optionally filtered by
+ * a search query matched against question content or project name.
+ */
+export async function getQuestionsFromBank(query?: string): Promise<any[]> {
+  const projects = await fetchProjectsWithQuestions<any[]>();
 
-  if (!session?.user) {
-    throw new Error("Unauthorized");
-  }
+  const allQuestions = (projects as any[]).flatMap((project: any) =>
+    (project.questions || []).map((q: any) => ({
+      ...q,
+      projectName: project.name,
+    })),
+  );
 
-  const whereClause: any = { userId: session.user.id };
-  if (query) {
-    whereClause.OR = [
-      { content: { contains: query, mode: 'insensitive' } },
-      { topic: { contains: query, mode: 'insensitive' } },
-      { subject: { contains: query, mode: 'insensitive' } },
-    ];
-  }
+  if (!query?.trim()) return allQuestions;
 
-  const questions = await db.question.findMany({
-    where: whereClause,
-    orderBy: { createdAt: "desc" }
-  });
-
-  return questions;
+  const term = query.trim().toLowerCase();
+  return allQuestions.filter(
+    (q: any) =>
+      q.content?.toLowerCase().includes(term) ||
+      q.projectName?.toLowerCase().includes(term),
+  );
 }
