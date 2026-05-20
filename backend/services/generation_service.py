@@ -1,9 +1,9 @@
 import json
 from typing import Iterable, List
 
+from apps.generation.models import GenerationHistory
 from django.conf import settings
 
-from apps.generation.models import GenerationHistory
 from services.openai_service import get_openai_client
 from services.retrieval_service import retrieve_relevant_chunks
 
@@ -12,10 +12,22 @@ def _sse_event(data: dict, event: str = "update") -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-def stream_generated_questions(user, document_ids: List[str], topic: str, count: int, difficulty: str, instructions: str = "") -> Iterable[str]:
-    context = retrieve_relevant_chunks(topic, document_ids, 15, user=user)
+def stream_generated_questions(
+    user,
+    document_ids: List[str],
+    topic: str,
+    count: int,
+    difficulty: str,
+    instructions: str = "",
+) -> Iterable[str]:
+    context = retrieve_relevant_chunks(
+        topic, document_ids, 15, user=user
+    )  # document_ids are PdfSource IDs
     if not context:
-        yield _sse_event({"error": "No relevant content found in the uploaded documents."}, event="error")
+        yield _sse_event(
+            {"error": "No relevant content found in the uploaded documents."},
+            event="error",
+        )
         return
 
     context_text = "\n\n".join(item["content"] for item in context)
@@ -34,16 +46,16 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
         "8. Return the output as a valid JSON object matching the schema below.\n\n"
         "Schema:\n"
         "{\n"
-        "  \"sections\": [\n"
+        '  "sections": [\n'
         "    {\n"
-        "      \"title\": \"Section Name (e.g. Section A: Multiple Choice)\",\n"
-        "      \"questions\": [\n"
+        '      "title": "Section Name (e.g. Section A: Multiple Choice)",\n'
+        '      "questions": [\n'
         "        {\n"
-        "          \"content\": \"Question text\",\n"
-        "          \"type\": \"MCQ | SHORT | LONG | TF\",\n"
-        "          \"options\": [\"Option 1\", \"Option 2\", \"Option 3\", \"Option 4\"], (for MCQ only; empty [] for TF)\n"
-        "          \"answer\": \"Correct Answer\",\n"
-        "          \"marks\": 1\n"
+        '          "content": "Question text",\n'
+        '          "type": "MCQ | SHORT | LONG | TF",\n'
+        '          "options": ["Option 1", "Option 2", "Option 3", "Option 4"], (for MCQ only; empty [] for TF)\n'
+        '          "answer": "Correct Answer",\n'
+        '          "marks": 1\n'
         "        }\n"
         "      ]\n"
         "    }\n"
@@ -53,16 +65,14 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
     )
 
     if instructions:
-        system_prompt = (
-            system_prompt.replace(
-                f"Context:\n{context_text}",
-                (
-                    "QUESTION PAPER STRUCTURE INSTRUCTIONS (MUST FOLLOW EXACTLY):\n"
-                    f"{instructions}\n\n"
-                    "You MUST create sections and distribute questions EXACTLY as specified above.\n\n"
-                    f"Context:\n{context_text}"
-                ),
-            )
+        system_prompt = system_prompt.replace(
+            f"Context:\n{context_text}",
+            (
+                "QUESTION PAPER STRUCTURE INSTRUCTIONS (MUST FOLLOW EXACTLY):\n"
+                f"{instructions}\n\n"
+                "You MUST create sections and distribute questions EXACTLY as specified above.\n\n"
+                f"Context:\n{context_text}"
+            ),
         )
 
     prompt = f"Generate {count} {difficulty} difficulty questions about '{topic}'."
@@ -129,6 +139,9 @@ def stream_generated_questions(user, document_ids: List[str], topic: str, count:
         )
         if usage_info:
             from services.openai_service import _record_usage
-            _record_usage(user, "question_generation", settings.OPENAI_MODEL, usage_info)
+
+            _record_usage(
+                user, "question_generation", settings.OPENAI_MODEL, usage_info
+            )
 
     yield _sse_event({"done": True}, event="done")
