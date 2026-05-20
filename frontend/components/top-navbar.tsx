@@ -5,9 +5,9 @@ import { ThemeToggle } from "./ui/curtain-theme-toggle";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  FolderOpen,
+  ListChecks,
   FileText,
-  History,
+  BookOpen,
   Settings,
 } from "lucide-react";
 import Image from "next/image";
@@ -16,9 +16,9 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-  { icon: FolderOpen, label: "Paper Library", href: "/paper-library" },
+  { icon: ListChecks, label: "Saved Questions", href: "/paper-library" },
   { icon: FileText, label: "Editor", href: "/editor" },
-  { icon: History, label: "Question Bank", href: "/question-bank" },
+  { icon: BookOpen, label: "Question Bank", href: "/question-bank" },
   { icon: Settings, label: "Settings", href: "/settings" },
 ];
 

@@ -1,38 +1,72 @@
-"use server";
+import { savePaper, updatePaper, fetchPaper } from "@/lib/api-client";
 
-import { db } from "@/lib/db";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
+/**
+ * Shape the Django API returns for a paper detail.
+ * (id, title, content, projectName, created_at, updated_at)
+ */
+type DjangoPaper = {
+  id: string;
+  title: string;
+  content: string;
+  projectName?: string;
+  created_at?: string;
+  updated_at?: string;
+};
 
+/**
+ * Shape the editor expects when it loads a paper.
+ * `class` and `subject` are parsed back out of `projectName`.
+ */
+export type EditorPaper = {
+  id: string;
+  content: string;
+  examName: string;
+  class: string;
+  subject: string;
+};
+
+/**
+ * Parse the Django response into the shape the editor uses.
+ * projectName format: "<class> — <subject>"  (em-dash)
+ */
+function toEditorPaper(paper: DjangoPaper): EditorPaper {
+  const parts = (paper.projectName || "").split(" — ");
+  return {
+    id: paper.id,
+    content: paper.content,
+    examName: paper.title,
+    class: parts[0]?.trim() || "",
+    subject: parts[1]?.trim() || "",
+  };
+}
+
+/**
+ * Save a new paper via the Django backend.
+ *
+ * Auth is handled by api-client (JWT Bearer token), NOT better-auth.
+ * Django stores the paper as:
+ *   title       = examName
+ *   projectName = "<class> — <subject>"
+ *   content     = raw HTML from the editor
+ */
 export async function savePaperAction(data: {
   class: string;
   subject: string;
   examName: string;
   content: string;
   questionRefs: string[];
-}) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
+}): Promise<{ success: boolean; paperId: string }> {
+  return savePaper<{ success: boolean; paperId: string }>({
+    projectName: `${data.class} — ${data.subject}`,
+    title: data.examName,
+    content: data.content,
+    questions: [],
   });
-
-  if (!session?.user) {
-    throw new Error("Unauthorized");
-  }
-
-  const newPaper = await db.paper.create({
-    data: {
-      userId: session.user.id,
-      class: data.class,
-      subject: data.subject,
-      examName: data.examName,
-      content: data.content,
-      questionRefs: data.questionRefs,
-    },
-  });
-
-  return { success: true, paperId: newPaper.id };
 }
 
+/**
+ * Update an existing paper via the Django backend.
+ */
 export async function updatePaperAction(
   paperId: string,
   data: {
@@ -41,42 +75,21 @@ export async function updatePaperAction(
     examName?: string;
     content?: string;
     questionRefs?: string[];
-  }
-) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
+  },
+): Promise<{ success: boolean; paperId: string }> {
+  return updatePaper<{ success: boolean; paperId: string }>(paperId, {
+    projectName: `${data.class ?? ""} — ${data.subject ?? ""}`,
+    title: data.examName ?? "",
+    content: data.content ?? "",
+    questions: [],
   });
-
-  if (!session?.user) {
-    throw new Error("Unauthorized");
-  }
-
-  const paper = await db.paper.findUnique({ where: { id: paperId } });
-  if (!paper || paper.userId !== session.user.id) {
-    throw new Error("Paper not found or unauthorized");
-  }
-
-  const updatedPaper = await db.paper.update({
-    where: { id: paperId },
-    data,
-  });
-
-  return { success: true, paperId: updatedPaper.id };
 }
 
-export async function getPaperAction(paperId: string) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (!session?.user) {
-    throw new Error("Unauthorized");
-  }
-
-  const paper = await db.paper.findUnique({ where: { id: paperId } });
-  if (!paper || paper.userId !== session.user.id) {
-    throw new Error("Paper not found or unauthorized");
-  }
-
-  return paper;
+/**
+ * Load a saved paper by ID.
+ * Returns the shape the editor expects (examName, class, subject).
+ */
+export async function getPaperAction(paperId: string): Promise<EditorPaper> {
+  const paper = await fetchPaper<DjangoPaper>(paperId);
+  return toEditorPaper(paper);
 }

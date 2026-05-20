@@ -18,18 +18,33 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
-import { savePaperAction, updatePaperAction, getPaperAction } from "@/actions/savePaper";
-import { saveQuestionsToBank, getQuestionsFromBank } from "@/actions/saveQuestions";
+import {
+  savePaperAction,
+  updatePaperAction,
+  getPaperAction,
+} from "@/actions/savePaper";
+import {
+  saveQuestionsToBank,
+  getQuestionsFromBank,
+} from "@/actions/saveQuestions";
 
 export default function EditorPage() {
   const router = useRouter();
-  
+
   // Modals state from store
-  const savePaperModalOpen = useEditorStore((state) => state.savePaperModalOpen);
-  const setSavePaperModalOpen = useEditorStore((state) => state.setSavePaperModalOpen);
-  
-  const saveQuestionModalOpen = useEditorStore((state) => state.saveQuestionModalOpen);
-  const setSaveQuestionModalOpen = useEditorStore((state) => state.setSaveQuestionModalOpen);
+  const savePaperModalOpen = useEditorStore(
+    (state) => state.savePaperModalOpen,
+  );
+  const setSavePaperModalOpen = useEditorStore(
+    (state) => state.setSavePaperModalOpen,
+  );
+
+  const saveQuestionModalOpen = useEditorStore(
+    (state) => state.saveQuestionModalOpen,
+  );
+  const setSaveQuestionModalOpen = useEditorStore(
+    (state) => state.setSaveQuestionModalOpen,
+  );
 
   const questionsToSave = useEditorStore((state) => state.questionsToSave);
   const editorContent = useEditorStore((state) => state.editorContent);
@@ -45,17 +60,25 @@ export default function EditorPage() {
   const [questionTopic, setQuestionTopic] = useState("");
 
   // Question Bank Browser state
-  const questionBankBrowserOpen = useEditorStore((state) => state.questionBankBrowserOpen);
-  const setQuestionBankBrowserOpen = useEditorStore((state) => state.setQuestionBankBrowserOpen);
+  const questionBankBrowserOpen = useEditorStore(
+    (state) => state.questionBankBrowserOpen,
+  );
+  const setQuestionBankBrowserOpen = useEditorStore(
+    (state) => state.setQuestionBankBrowserOpen,
+  );
   const appendQuestions = useEditorStore((state) => state.appendQuestions);
 
   const [browserSearchQuery, setBrowserSearchQuery] = useState("");
   const [browserQuestions, setBrowserQuestions] = useState<any[]>([]);
   const [browserLoading, setBrowserLoading] = useState(false);
-  const [selectedBankQuestions, setSelectedBankQuestions] = useState<Set<string>>(new Set());
+  const [selectedBankQuestions, setSelectedBankQuestions] = useState<
+    Set<string>
+  >(new Set());
 
   const [isSaving, setIsSaving] = useState(false);
-  const [paperContent, setPaperContent] = useState<string | undefined>(undefined);
+  const [paperContent, setPaperContent] = useState<string | undefined>(
+    undefined,
+  );
   const [loadedPaperTitle, setLoadedPaperTitle] = useState<string | null>(null);
   const [paperLoading, setPaperLoading] = useState(false);
   const [paperError, setPaperError] = useState<string | null>(null);
@@ -81,19 +104,25 @@ export default function EditorPage() {
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
 
-  const onDragStart = useCallback((e: React.MouseEvent) => {
-    isDragging.current = true;
-    dragStartX.current = e.clientX;
-    dragStartWidth.current = sidebarWidth;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, [sidebarWidth]);
+  const onDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      isDragging.current = true;
+      dragStartX.current = e.clientX;
+      dragStartWidth.current = sidebarWidth;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    },
+    [sidebarWidth],
+  );
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging.current) return;
       const delta = e.clientX - dragStartX.current;
-      const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, dragStartWidth.current + delta));
+      const next = Math.min(
+        SIDEBAR_MAX,
+        Math.max(SIDEBAR_MIN, dragStartWidth.current + delta),
+      );
       setSidebarWidth(next);
     };
     const onMouseUp = () => {
@@ -125,13 +154,15 @@ export default function EditorPage() {
       setLoadedPaperTitle(null);
       setPaperError(null);
       setCurrentPaperId(null);
-      return () => { active = false; };
+      return () => {
+        active = false;
+      };
     }
 
     setPaperLoading(true);
     setPaperError(null);
     setPaperContent(undefined);
-    
+
     getPaperAction(paperId)
       .then((paper) => {
         if (!active) return;
@@ -154,7 +185,9 @@ export default function EditorPage() {
         if (active) setPaperLoading(false);
       });
 
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [paperId]);
 
   const handleSavePaper = async () => {
@@ -193,7 +226,11 @@ export default function EditorPage() {
   };
 
   const handleSaveQuestions = async () => {
-    if (!questionClass.trim() || !questionSubject.trim() || !questionTopic.trim()) {
+    if (
+      !questionClass.trim() ||
+      !questionSubject.trim() ||
+      !questionTopic.trim()
+    ) {
       toast.error("Please fill in all fields: Class, Subject, Topic.");
       return;
     }
@@ -214,8 +251,10 @@ export default function EditorPage() {
 
       const res = await saveQuestionsToBank(payload);
       setSaveQuestionModalOpen(false);
-      toast.success(`Saved ${res.count} question(s) to the Question Bank successfully!`);
-      
+      toast.success(
+        `Saved ${res.count} question(s) to the Question Bank successfully!`,
+      );
+
       // Reset form
       setQuestionTopic("");
     } catch (error: any) {
@@ -241,7 +280,9 @@ export default function EditorPage() {
           if (active) setBrowserLoading(false);
         });
     }
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [questionBankBrowserOpen, browserSearchQuery]);
 
   const toggleQuestionSelection = (questionId: string) => {
@@ -257,13 +298,16 @@ export default function EditorPage() {
   };
 
   const handleInsertSelectedQuestions = () => {
-    const toInsert = browserQuestions.filter((q) => selectedBankQuestions.has(q.id));
+    const toInsert = browserQuestions.filter((q) =>
+      selectedBankQuestions.has(q.id),
+    );
     if (toInsert.length === 0) return;
 
-    // Convert from db format to Editor format
+    // Convert from Django API format to Editor format.
+    // The Django API returns `type` (not `questionType`).
     const formattedQuestions = toInsert.map((q) => ({
       content: q.content,
-      type: q.questionType || "SHORT",
+      type: q.type || "short",
       marks: q.marks || 1,
       options: q.options || [],
     }));
@@ -271,18 +315,27 @@ export default function EditorPage() {
     appendQuestions(formattedQuestions);
     setQuestionBankBrowserOpen(false);
     setSelectedBankQuestions(new Set());
-    toast.success(`Inserted ${formattedQuestions.length} question(s) into the paper.`);
+    toast.success(
+      `Inserted ${formattedQuestions.length} question(s) into the paper.`,
+    );
   };
 
   return (
     <div className="flex h-[calc(100vh-4.5rem)] w-full overflow-hidden bg-white dark:bg-zinc-950">
       {/* Left Panel: Generator Form */}
-      <div className="flex-shrink-0 bg-white dark:bg-zinc-950 flex flex-col h-full overflow-hidden" style={{ width: sidebarWidth }}>
+      <div
+        className="flex-shrink-0 bg-white dark:bg-zinc-950 flex flex-col h-full overflow-hidden"
+        style={{ width: sidebarWidth }}
+      >
         <GeneratorForm />
       </div>
 
       {/* Drag handle */}
-      <div onMouseDown={onDragStart} className="flex-shrink-0 w-px h-full cursor-col-resize group relative z-20 bg-zinc-200 dark:bg-zinc-800 hover:bg-indigo-500 transition-colors" title="Drag to resize">
+      <div
+        onMouseDown={onDragStart}
+        className="flex-shrink-0 w-px h-full cursor-col-resize group relative z-20 bg-zinc-200 dark:bg-zinc-800 hover:bg-indigo-500 transition-colors"
+        title="Drag to resize"
+      >
         <div className="absolute inset-y-0 -left-2 -right-2 z-0" />
         <div className="z-10 w-1.5 h-12 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 group-hover:border-indigo-500 group-hover:bg-indigo-600 transition-all flex flex-col items-center justify-center gap-1 shadow-sm pointer-events-none">
           <div className="w-0.5 h-0.5 rounded-full bg-zinc-300 dark:bg-zinc-700 group-hover:bg-indigo-200" />
@@ -315,18 +368,27 @@ export default function EditorPage() {
       </div>
 
       {/* Save Paper Modal */}
-      <Dialog open={savePaperModalOpen} onOpenChange={(open) => { if (!isSaving) setSavePaperModalOpen(open); }}>
+      <Dialog
+        open={savePaperModalOpen}
+        onOpenChange={(open) => {
+          if (!isSaving) setSavePaperModalOpen(open);
+        }}
+      >
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Save Paper</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              {currentPaperId ? "Update your saved paper." : "Save this paper to the Paper Library."}
+              {currentPaperId
+                ? "Update your saved paper."
+                : "Save this paper to the Paper Library."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="space-y-4">
               <div className="flex flex-col gap-2">
-                <Label htmlFor="paperClass">Class <span className="text-red-400">*</span></Label>
+                <Label htmlFor="paperClass">
+                  Class <span className="text-red-400">*</span>
+                </Label>
                 <Input
                   id="paperClass"
                   placeholder="e.g. Class 10"
@@ -336,7 +398,9 @@ export default function EditorPage() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="paperSubject">Subject <span className="text-red-400">*</span></Label>
+                <Label htmlFor="paperSubject">
+                  Subject <span className="text-red-400">*</span>
+                </Label>
                 <Input
                   id="paperSubject"
                   placeholder="e.g. Mathematics"
@@ -346,7 +410,9 @@ export default function EditorPage() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="paperExamName">Exam Name <span className="text-red-400">*</span></Label>
+                <Label htmlFor="paperExamName">
+                  Exam Name <span className="text-red-400">*</span>
+                </Label>
                 <Input
                   id="paperExamName"
                   placeholder="e.g. Mid-Term Examination"
@@ -358,26 +424,42 @@ export default function EditorPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button disabled={isSaving} onClick={handleSavePaper} className="bg-indigo-600 hover:bg-indigo-700 text-white w-full gap-2">
-              {isSaving ? "Saving..." : currentPaperId ? "Update Paper" : "Save Paper"}
+            <Button
+              disabled={isSaving}
+              onClick={handleSavePaper}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white w-full gap-2"
+            >
+              {isSaving
+                ? "Saving..."
+                : currentPaperId
+                  ? "Update Paper"
+                  : "Save Paper"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Save Questions Modal */}
-      <Dialog open={saveQuestionModalOpen} onOpenChange={(open) => { if (!isSaving) setSaveQuestionModalOpen(open); }}>
+      <Dialog
+        open={saveQuestionModalOpen}
+        onOpenChange={(open) => {
+          if (!isSaving) setSaveQuestionModalOpen(open);
+        }}
+      >
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Save to Question Bank</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Save {questionsToSave.length} question(s) to the reusable Question Bank.
+              Save {questionsToSave.length} question(s) to the reusable Question
+              Bank.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="space-y-4">
               <div className="flex flex-col gap-2">
-                <Label htmlFor="questionClass">Class <span className="text-red-400">*</span></Label>
+                <Label htmlFor="questionClass">
+                  Class <span className="text-red-400">*</span>
+                </Label>
                 <Input
                   id="questionClass"
                   placeholder="e.g. Class 10"
@@ -387,7 +469,9 @@ export default function EditorPage() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="questionSubject">Subject <span className="text-red-400">*</span></Label>
+                <Label htmlFor="questionSubject">
+                  Subject <span className="text-red-400">*</span>
+                </Label>
                 <Input
                   id="questionSubject"
                   placeholder="e.g. Mathematics"
@@ -397,7 +481,9 @@ export default function EditorPage() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="questionTopic">Topic <span className="text-red-400">*</span></Label>
+                <Label htmlFor="questionTopic">
+                  Topic <span className="text-red-400">*</span>
+                </Label>
                 <Input
                   id="questionTopic"
                   placeholder="e.g. Probability"
@@ -409,14 +495,21 @@ export default function EditorPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button disabled={isSaving} onClick={handleSaveQuestions} className="bg-indigo-600 hover:bg-indigo-700 text-white w-full gap-2">
+            <Button
+              disabled={isSaving}
+              onClick={handleSaveQuestions}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white w-full gap-2"
+            >
               {isSaving ? "Saving..." : "Save Questions"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       {/* Question Bank Browser Modal */}
-      <Dialog open={questionBankBrowserOpen} onOpenChange={setQuestionBankBrowserOpen}>
+      <Dialog
+        open={questionBankBrowserOpen}
+        onOpenChange={setQuestionBankBrowserOpen}
+      >
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[700px] max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Question Bank Browser</DialogTitle>
@@ -436,7 +529,10 @@ export default function EditorPage() {
             {browserLoading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="p-3 border border-border rounded-md animate-pulse">
+                  <div
+                    key={i}
+                    className="p-3 border border-border rounded-md animate-pulse"
+                  >
                     <div className="flex justify-between mb-2">
                       <div className="flex gap-2">
                         <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded"></div>
@@ -479,9 +575,13 @@ export default function EditorPage() {
                           {q.topic}
                         </span>
                       </div>
-                      <span className="text-xs font-bold text-zinc-400">{q.marks} Marks</span>
+                      <span className="text-xs font-bold text-zinc-400">
+                        {q.marks} Marks
+                      </span>
                     </div>
-                    <p className="text-sm text-foreground line-clamp-3">{q.content}</p>
+                    <p className="text-sm text-foreground line-clamp-3">
+                      {q.content}
+                    </p>
                   </div>
                 );
               })
@@ -499,7 +599,10 @@ export default function EditorPage() {
               disabled={selectedBankQuestions.size === 0}
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
             >
-              Insert {selectedBankQuestions.size > 0 && `(${selectedBankQuestions.size})`} Questions
+              Insert{" "}
+              {selectedBankQuestions.size > 0 &&
+                `(${selectedBankQuestions.size})`}{" "}
+              Questions
             </Button>
           </DialogFooter>
         </DialogContent>
