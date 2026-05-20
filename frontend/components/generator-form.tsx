@@ -22,7 +22,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { streamSse, fetchForm } from "@/lib/api-client";
+import { generateQuestionsStream } from "@/actions/generateQuestions";
+import { readStreamableValue } from "@ai-sdk/rsc";
 import { useEditorStore } from "@/store/editor-store";
 import { toast } from "sonner";
 import { FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
@@ -59,7 +60,7 @@ export const GeneratorForm = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedResult, setGeneratedResult] = useState<any>(null);
   const [uploadedDocs, setUploadedDocs] = useState<
-    { id: string; name: string }[]
+    { id: string; name: string; size: number }[]
   >([]);
   const [uploadingDocs, setUploadingDocs] = useState<UploadingDoc[]>([]);
   const [generalInstructions, setGeneralInstructions] = useState("");
@@ -74,7 +75,27 @@ export const GeneratorForm = () => {
     // Reset input so the same file can be selected again if needed
     e.target.value = "";
 
+    const currentTotalSize = uploadedDocs.reduce((acc, doc) => acc + (doc.size || 0), 0);
+    let newTotalSize = currentTotalSize;
+    let newDocCount = uploadedDocs.length + uploadingDocs.length;
+
     for (const file of files) {
+      if (newDocCount >= 5) {
+        toast.error("Maximum of 5 sources allowed.");
+        break;
+      }
+      if (file.size > 100 * 1024 * 1024) {
+        toast.error(`File ${file.name} exceeds 100MB limit.`);
+        continue;
+      }
+      if (newTotalSize + file.size > 500 * 1024 * 1024) {
+        toast.error("Total upload size cannot exceed 500MB.");
+        continue;
+      }
+      
+      newTotalSize += file.size;
+      newDocCount += 1;
+
       const tempId = `${Date.now()}-${Math.random()}`;
       setUploadingDocs((prev) => [
         ...prev,
@@ -84,15 +105,23 @@ export const GeneratorForm = () => {
       try {
         const formData = new FormData();
         formData.append("file", file);
-        const data = await fetchForm<{ documentId: string }>(
-          "/api/documents/upload",
-          formData,
-        );
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.error || "Upload failed");
+        }
+
+        const data = await res.json();
+
         // Upload succeeded — move from uploading to uploaded
         setUploadingDocs((prev) => prev.filter((d) => d.tempId !== tempId));
         setUploadedDocs((prev) => [
           ...prev,
-          { id: data.documentId, name: file.name },
+          { id: data.documentId, name: file.name, size: file.size },
         ]);
       } catch (err: any) {
         setUploadingDocs((prev) =>
@@ -124,24 +153,18 @@ export const GeneratorForm = () => {
       setIsGenerating(true);
       setGeneratedResult(null);
 
-      await streamSse(
-        "/api/generation/questions/stream",
-        {
-          documentIds: uploadedDocs.map((d) => d.id),
-          topic: values.subject,
-          count: parseInt(values.numberOfQuestions, 10),
-          difficulty: values.difficulty,
-          instructions: generalInstructions,
-        },
-        (event, data) => {
-          if (event === "update") {
-            setGeneratedResult(data);
-          }
-          if (event === "error") {
-            throw new Error(data.error || "Failed to generate questions");
-          }
-        },
-      );
+      const { object } = await generateQuestionsStream({
+        documentIds: uploadedDocs.map((d) => d.id),
+        topic: values.subject,
+        count: parseInt(values.numberOfQuestions, 10),
+        difficulty: values.difficulty,
+      });
+
+      for await (const partialObject of readStreamableValue(object)) {
+        if (partialObject) {
+          setGeneratedResult(partialObject);
+        }
+      }
     } catch (error: any) {
       console.error(error);
       toast.error(
@@ -247,7 +270,7 @@ export const GeneratorForm = () => {
             >
               <div className="flex items-center gap-2 min-w-0">
                 {doc.status === "uploading" ? (
-                  <Loader2 className="h-4 w-4 text-primary flex-shrink-0 animate-spin" />
+                  <div className="h-4 w-4 rounded-full bg-zinc-200 dark:bg-zinc-700 animate-pulse flex-shrink-0" />
                 ) : (
                   <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
                 )}

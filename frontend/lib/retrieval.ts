@@ -20,7 +20,7 @@ export async function retrieveRelevantChunks(
   const results = await db.$queryRawUnsafe<any[]>(
     `SELECT content, page, 1 - (embedding <=> '${vectorString}'::vector) as similarity
      FROM "DocumentChunk"
-     WHERE "documentId" IN (${documentIds.map(id => `'${id}'`).join(",")})
+     WHERE "pdfSourceId" IN (${documentIds.map(id => `'${id}'`).join(",")})
      ORDER BY embedding <=> '${vectorString}'::vector
      LIMIT ${limit};`
   );
