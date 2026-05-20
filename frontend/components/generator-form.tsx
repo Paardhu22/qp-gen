@@ -22,12 +22,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { generateQuestionsStream } from "@/actions/generateQuestions";
-import { readStreamableValue } from "@ai-sdk/rsc";
 import { useEditorStore } from "@/store/editor-store";
 import { toast } from "sonner";
 import { FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
-import { getAccessToken } from "@/lib/token-storage";
+import { fetchForm, streamSse } from "@/lib/api-client";
 
 const formSchema = z.object({
   subject: z.string().min(2, "Subject is required"),
@@ -76,7 +74,10 @@ export const GeneratorForm = () => {
     // Reset input so the same file can be selected again if needed
     e.target.value = "";
 
-    const currentTotalSize = uploadedDocs.reduce((acc, doc) => acc + (doc.size || 0), 0);
+    const currentTotalSize = uploadedDocs.reduce(
+      (acc, doc) => acc + (doc.size || 0),
+      0,
+    );
     let newTotalSize = currentTotalSize;
     let newDocCount = uploadedDocs.length + uploadingDocs.length;
 
@@ -93,7 +94,7 @@ export const GeneratorForm = () => {
         toast.error("Total upload size cannot exceed 500MB.");
         continue;
       }
-      
+
       newTotalSize += file.size;
       newDocCount += 1;
 
@@ -107,24 +108,10 @@ export const GeneratorForm = () => {
         const formData = new FormData();
         formData.append("file", file);
 
-        const accessToken = getAccessToken();
-        const headers: Record<string, string> = {};
-        if (accessToken) {
-          headers["Authorization"] = `Bearer ${accessToken}`;
-        }
-
-        const res = await fetch("/api/upload", {
-          method: "POST",
-          body: formData,
-          headers,
-        });
-
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          throw new Error(errorData.error || "Upload failed");
-        }
-
-        const data = await res.json();
+        const data = await fetchForm<{ documentId: string }>(
+          "/api/documents/upload",
+          formData,
+        );
 
         // Upload succeeded — move from uploading to uploaded
         setUploadingDocs((prev) => prev.filter((d) => d.tempId !== tempId));
@@ -162,17 +149,29 @@ export const GeneratorForm = () => {
       setIsGenerating(true);
       setGeneratedResult(null);
 
-      const { object } = await generateQuestionsStream({
-        documentIds: uploadedDocs.map((d) => d.id),
-        topic: values.subject,
-        count: parseInt(values.numberOfQuestions, 10),
-        difficulty: values.difficulty,
-      });
+      let generationError: string | null = null;
 
-      for await (const partialObject of readStreamableValue(object)) {
-        if (partialObject) {
-          setGeneratedResult(partialObject);
-        }
+      await streamSse(
+        "/api/generation/questions/stream",
+        {
+          documentIds: uploadedDocs.map((d) => d.id),
+          topic: values.subject,
+          count: parseInt(values.numberOfQuestions, 10),
+          difficulty: values.difficulty,
+          instructions: generalInstructions || "",
+        },
+        (event, data) => {
+          if (event === "error") {
+            generationError = data.error || "Generation failed";
+          } else if (event === "update" || event === "message") {
+            setGeneratedResult(data);
+          }
+          // "done" event signals stream end — no action needed
+        },
+      );
+
+      if (generationError) {
+        toast.error(generationError);
       }
     } catch (error: any) {
       console.error(error);

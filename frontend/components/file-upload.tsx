@@ -1,19 +1,25 @@
 "use client";
 
-import React, { useCallback, useState } from 'react';
-import { useDropzone } from 'react-dropzone';
-import { Upload, File, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { Progress } from '@/components/ui/progress';
-import { Button } from '@/components/ui/button';
-import { fetchForm } from '@/lib/api-client';
+import React, { useCallback, useState } from "react";
+import { useDropzone } from "react-dropzone";
+import {
+  Upload,
+  File,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { fetchForm } from "@/lib/api-client";
 
 interface FileUploadProps {
   onUploadComplete: (documentId: string) => void;
-  projectId?: string;
 }
 
-export function FileUpload({ onUploadComplete, projectId }: FileUploadProps) {
+export function FileUpload({ onUploadComplete }: FileUploadProps) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -33,12 +39,13 @@ export function FileUpload({ onUploadComplete, projectId }: FileUploadProps) {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'application/pdf': ['.pdf'],
-      'text/plain': ['.txt'],
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx']
+      "application/pdf": [".pdf"],
+      "text/plain": [".txt"],
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        [".docx"],
     },
     maxFiles: 1,
-    disabled: uploading
+    disabled: uploading,
   });
 
   const handleUpload = async () => {
@@ -50,19 +57,21 @@ export function FileUpload({ onUploadComplete, projectId }: FileUploadProps) {
 
     try {
       const formData = new FormData();
-      formData.append('file', file);
-      if (projectId) formData.append('projectId', projectId);
+      formData.append("file", file);
 
       // We'll use a fetch request to a route handler for uploading
       // Since server actions have size limits and complex streaming might be needed
-      const data = await fetchForm<{ documentId: string }>('/api/documents/upload', formData);
-      
+      const data = await fetchForm<{ documentId: string }>(
+        "/api/documents/upload",
+        formData,
+      );
+
       setProgress(100);
       setSuccess(true);
       onUploadComplete(data.documentId);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Something went wrong during upload');
+      setError(err.message || "Something went wrong during upload");
     } finally {
       setUploading(false);
     }
@@ -82,8 +91,10 @@ export function FileUpload({ onUploadComplete, projectId }: FileUploadProps) {
           {...getRootProps()}
           className={cn(
             "border-2 border-dashed rounded-xl p-8 transition-all cursor-pointer flex flex-col items-center justify-center gap-4",
-            isDragActive ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 bg-muted/50",
-            uploading && "opacity-50 cursor-not-allowed"
+            isDragActive
+              ? "border-primary bg-primary/5"
+              : "border-border hover:border-primary/50 bg-muted/50",
+            uploading && "opacity-50 cursor-not-allowed",
           )}
         >
           <input {...getInputProps()} />
@@ -91,8 +102,12 @@ export function FileUpload({ onUploadComplete, projectId }: FileUploadProps) {
             <Upload className="h-6 w-6 text-muted-foreground" />
           </div>
           <div className="text-center">
-            <p className="text-foreground font-medium">Click to upload or drag and drop</p>
-            <p className="text-muted-foreground text-sm mt-1">PDF, TXT, or DOCX (max. 10MB)</p>
+            <p className="text-foreground font-medium">
+              Click to upload or drag and drop
+            </p>
+            <p className="text-muted-foreground text-sm mt-1">
+              PDF, TXT, or DOCX (max. 10MB)
+            </p>
           </div>
         </div>
       ) : (
@@ -103,16 +118,27 @@ export function FileUpload({ onUploadComplete, projectId }: FileUploadProps) {
                 <File className="h-5 w-5 text-primary" />
               </div>
               <div className="min-w-0">
-                <p className="text-foreground font-medium truncate">{file.name}</p>
-                <p className="text-muted-foreground text-xs">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                <p className="text-foreground font-medium truncate">
+                  {file.name}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {(file.size / (1024 * 1024)).toFixed(2)} MB
+                </p>
               </div>
             </div>
             {!uploading && !success && (
-              <Button variant="ghost" size="icon" onClick={removeFile} className="text-muted-foreground hover:text-foreground">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={removeFile}
+                className="text-muted-foreground hover:text-foreground"
+              >
                 <X className="h-4 w-4" />
               </Button>
             )}
-            {success && <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />}
+            {success && (
+              <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+            )}
           </div>
 
           {(uploading || progress > 0) && !success && !error && (
@@ -133,13 +159,19 @@ export function FileUpload({ onUploadComplete, projectId }: FileUploadProps) {
           )}
 
           {!uploading && !success && !error && (
-            <Button onClick={handleUpload} className="w-full mt-4 bg-primary hover:bg-primary/90 text-primary-foreground">
+            <Button
+              onClick={handleUpload}
+              className="w-full mt-4 bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
               Process Document
             </Button>
           )}
 
           {uploading && (
-            <Button disabled className="w-full mt-4 bg-muted text-muted-foreground flex items-center gap-2">
+            <Button
+              disabled
+              className="w-full mt-4 bg-muted text-muted-foreground flex items-center gap-2"
+            >
               <Loader2 className="h-4 w-4 animate-spin" />
               Processing...
             </Button>
