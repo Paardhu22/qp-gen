@@ -1,7 +1,11 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { Sora } from "next/font/google";
 import Grainient from "@/components/Grainient";
+import { useEffect, useState } from "react";
+import { getAccessToken } from "@/lib/token-storage";
 
 const sora = Sora({
   subsets: ["latin"],
@@ -9,6 +13,14 @@ const sora = Sora({
 });
 
 export default function Home() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    setIsAuthenticated(!!getAccessToken());
+    setIsLoading(false);
+  }, []);
+
   return (
     <main
       className={`${sora.className} relative min-h-screen overflow-hidden bg-neutral-950 text-neutral-900`}
@@ -57,23 +69,25 @@ export default function Home() {
             />
           </div>
 
-          <div
-            className="flex items-center gap-3 landing-fade"
-            style={{ animationDelay: "160ms" }}
-          >
-            <Link
-              href="/login"
-              className="rounded-full border border-neutral-200 px-4 py-2 text-sm text-neutral-700 transition hover:border-neutral-400 hover:text-neutral-900"
+          {!isLoading && !isAuthenticated && (
+            <div
+              className="flex items-center gap-3 landing-fade"
+              style={{ animationDelay: "160ms" }}
             >
-              Login
-            </Link>
-            <Link
-              href="/register"
-              className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white transition hover:bg-neutral-800"
-            >
-              Get started
-            </Link>
-          </div>
+              <Link
+                href="/login"
+                className="rounded-full border border-neutral-200 px-4 py-2 text-sm text-neutral-700 transition hover:border-neutral-400 hover:text-neutral-900"
+              >
+                Login
+              </Link>
+              <Link
+                href="/register"
+                className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white transition hover:bg-neutral-800"
+              >
+                Sign up
+              </Link>
+            </div>
+          )}
         </header>
 
         <section className="flex flex-1 items-center justify-center px-6 pb-12 text-center">
@@ -91,6 +105,18 @@ export default function Home() {
             >
               Build, review, and export polished papers in minutes.
             </p>
+
+            <div
+              className="landing-fade mt-8"
+              style={{ animationDelay: "440ms" }}
+            >
+              <Link
+                href={isAuthenticated ? "/dashboard" : "/login"}
+                className="inline-block rounded-full bg-neutral-900 px-8 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800"
+              >
+                Get started →
+              </Link>
+            </div>
           </div>
         </section>
       </div>

@@ -395,9 +395,9 @@ type PaperMetadata = {
 
 function resolvePaperMetadata(metadata?: PaperMetadata | null) {
   return {
-    title: metadata?.examName?.trim() || "Untitled Paper",
-    className: metadata?.className?.trim() || "Unclassified",
-    subject: metadata?.subject?.trim() || "General",
+    title: metadata?.examName?.trim() || "",
+    className: metadata?.className?.trim() || "",
+    subject: metadata?.subject?.trim() || "",
   };
 }
 
@@ -648,141 +648,148 @@ export const TiptapEditor = ({
     [template, setEditorContent, setSaveState],
   );
 
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: [
-      PaginatedDocument,
-      PageNode,
-      PaginationEngine,
-      StarterKit.configure({
-        document: false,
-        heading: {
-          levels: [1, 2, 3, 4, 5, 6],
+  const editor = useEditor(
+    {
+      immediatelyRender: false,
+      extensions: [
+        PaginatedDocument,
+        PageNode,
+        PaginationEngine,
+        StarterKit.configure({
+          document: false,
+          heading: {
+            levels: [1, 2, 3, 4, 5, 6],
+          },
+          dropcursor: false,
+          gapcursor: false,
+          hardBreak: false,
+          underline: false,
+        }),
+        Typography,
+        Underline,
+        Superscript,
+        Subscript,
+        Highlight.configure({
+          multicolor: true,
+        }),
+        TextStyle,
+        Color,
+        FontFamily,
+        FontSize,
+        LineHeight,
+        IndentExtension,
+        TextAlign.configure({
+          types: [
+            "heading",
+            "paragraph",
+            "questionBlock",
+            "sectionBlock",
+            "instructionBlock",
+          ],
+        }),
+        // ImageResize extends @tiptap/extension-image — do NOT also register
+        // the base Image extension, or the two will conflict on the 'image' node name.
+        ImageResize.configure({
+          inline: true,
+          allowBase64: true,
+        }),
+        // Block-level draggable image with resize + alignment controls
+        FloatImage,
+        Placeholder.configure({
+          placeholder: "Start writing your exam paper...",
+        }),
+        Table.configure({
+          resizable: true,
+          allowTableNodeSelection: true,
+        }),
+        TableRow,
+        TableHeader,
+        TableCell,
+        // Custom exam nodes
+        QuestionBlock,
+        SectionBlock,
+        InstructionBlock,
+        QuestionGroupBlock,
+        PaperHeaderBlockExt,
+        MathBlock,
+        InlineMath,
+        DrawingBlock,
+        PageBreak,
+        // Utilities
+        CharacterCount,
+        Focus.configure({
+          className: "has-focus",
+          mode: "deepest",
+        }),
+        Dropcursor.configure({
+          color: "#000000",
+          width: 2,
+        }),
+        Gapcursor,
+        HardBreak,
+      ],
+      content: createEmptyDocument(),
+      editorProps: {
+        attributes: {
+          id: "tiptap-paper-container",
+          class: "document-editor focus:outline-none text-black",
+          "data-template": template,
+          spellcheck: "true",
         },
-        dropcursor: false,
-        gapcursor: false,
-        hardBreak: false,
-        underline: false,
-      }),
-      Typography,
-      Underline,
-      Superscript,
-      Subscript,
-      Highlight.configure({
-        multicolor: true,
-      }),
-      TextStyle,
-      Color,
-      FontFamily,
-      FontSize,
-      LineHeight,
-      IndentExtension,
-      TextAlign.configure({
-        types: [
-          "heading",
-          "paragraph",
-          "questionBlock",
-          "sectionBlock",
-          "instructionBlock",
-        ],
-      }),
-      // ImageResize extends @tiptap/extension-image — do NOT also register
-      // the base Image extension, or the two will conflict on the 'image' node name.
-      ImageResize.configure({
-        inline: true,
-        allowBase64: true,
-      }),
-      // Block-level draggable image with resize + alignment controls
-      FloatImage,
-      Placeholder.configure({
-        placeholder: "Start writing your exam paper...",
-      }),
-      Table.configure({
-        resizable: true,
-        allowTableNodeSelection: true,
-      }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      // Custom exam nodes
-      QuestionBlock,
-      SectionBlock,
-      InstructionBlock,
-      QuestionGroupBlock,
-      PaperHeaderBlockExt,
-      MathBlock,
-      InlineMath,
-      DrawingBlock,
-      PageBreak,
-      // Utilities
-      CharacterCount,
-      Focus.configure({
-        className: "has-focus",
-        mode: "deepest",
-      }),
-      Dropcursor.configure({
-        color: "#000000",
-        width: 2,
-      }),
-      Gapcursor,
-      HardBreak,
-    ],
-    content: createEmptyDocument(),
-    editorProps: {
-      attributes: {
-        id: "tiptap-paper-container",
-        class: "document-editor focus:outline-none text-black",
-        "data-template": template,
-        spellcheck: "true",
+      },
+      onCreate: ({ editor }) => {
+        console.log("[DEBUG TiptapEditor] Editor CREATED");
+        if (typeof window !== "undefined") {
+          (window as any).__activeEditor = editor;
+          (window as any).__activeEditorDestroy = () => {
+            console.log(
+              "[DEBUG TiptapEditor] EDITOR DESTROY START (manual/nav)",
+            );
+            try {
+              if (editor && !editor.isDestroyed) {
+                if (editor.view) {
+                  (editor.view as any).domObserver?.stop?.();
+                }
+                editor.destroy();
+                console.log(
+                  "[DEBUG TiptapEditor] EDITOR DESTROY COMPLETE (manual/nav)",
+                );
+              }
+            } catch (e) {
+              console.error("Error during activeEditorDestroy:", e);
+            }
+          };
+        }
+      },
+      onDestroy: () => {
+        console.log("[DEBUG TiptapEditor] Editor DESTROYED");
+        if (typeof window !== "undefined") {
+          (window as any).__activeEditor = null;
+          (window as any).__activeEditorDestroy = null;
+        }
+      },
+      onUpdate: ({ editor }) => {
+        const updatedAt = new Date().getTime();
+        const editorJSON = editor.getJSON();
+        const pages = extractPagesFromDoc(editor.state.doc);
+        const contentPayload = buildPersistedPaperContent({
+          editorJSON,
+          pages,
+          template,
+          metadata: paperMetadataRef.current,
+          updatedAt,
+        });
+
+        setEditorContent(JSON.stringify(contentPayload));
+        setSaveState("saving");
+        debouncedNumbering(editor);
+        debouncedPageState(editor);
+        debouncedSectionSummaries(editor);
+        debouncedLiveSync(editor);
       },
     },
-    onCreate: ({ editor }) => {
-      console.log("[DEBUG TiptapEditor] Editor CREATED");
-      if (typeof window !== "undefined") {
-        (window as any).__activeEditor = editor;
-        (window as any).__activeEditorDestroy = () => {
-          console.log("[DEBUG TiptapEditor] EDITOR DESTROY START (manual/nav)");
-          try {
-            if (editor && !editor.isDestroyed) {
-              if (editor.view) {
-                (editor.view as any).domObserver?.stop?.();
-              }
-              editor.destroy();
-              console.log("[DEBUG TiptapEditor] EDITOR DESTROY COMPLETE (manual/nav)");
-            }
-          } catch (e) {
-            console.error("Error during activeEditorDestroy:", e);
-          }
-        };
-      }
-    },
-    onDestroy: () => {
-      console.log("[DEBUG TiptapEditor] Editor DESTROYED");
-      if (typeof window !== "undefined") {
-        (window as any).__activeEditor = null;
-        (window as any).__activeEditorDestroy = null;
-      }
-    },
-    onUpdate: ({ editor }) => {
-      const updatedAt = new Date().getTime();
-      const editorJSON = editor.getJSON();
-      const pages = extractPagesFromDoc(editor.state.doc);
-      const contentPayload = buildPersistedPaperContent({
-        editorJSON,
-        pages,
-        template,
-        metadata: paperMetadataRef.current,
-        updatedAt,
-      });
-
-      setEditorContent(JSON.stringify(contentPayload));
-      setSaveState("saving");
-      debouncedNumbering(editor);
-      debouncedPageState(editor);
-      debouncedSectionSummaries(editor);
-      debouncedLiveSync(editor);
-    },
-  }, []);
+    [],
+  );
 
   useEffect(() => {
     if (!editor) return;
@@ -856,8 +863,14 @@ export const TiptapEditor = ({
         const href = target.getAttribute("href");
         // Intercept route changes away from /editor
         if (href && href.startsWith("/") && !href.startsWith("/editor")) {
-          console.log("[DEBUG TiptapEditor] ROUTE CHANGE START via link:", href);
-          if (typeof window !== "undefined" && (window as any).__activeEditorDestroy) {
+          console.log(
+            "[DEBUG TiptapEditor] ROUTE CHANGE START via link:",
+            href,
+          );
+          if (
+            typeof window !== "undefined" &&
+            (window as any).__activeEditorDestroy
+          ) {
             (window as any).__activeEditorDestroy();
           }
         }
@@ -866,7 +879,10 @@ export const TiptapEditor = ({
 
     const handleBeforeUnload = () => {
       console.log("[DEBUG TiptapEditor] beforeunload event");
-      if (typeof window !== "undefined" && (window as any).__activeEditorDestroy) {
+      if (
+        typeof window !== "undefined" &&
+        (window as any).__activeEditorDestroy
+      ) {
         (window as any).__activeEditorDestroy();
       }
     };
@@ -878,7 +894,9 @@ export const TiptapEditor = ({
 
     return () => {
       if (typeof window !== "undefined") {
-        document.removeEventListener("click", handleGlobalClick, { capture: true });
+        document.removeEventListener("click", handleGlobalClick, {
+          capture: true,
+        });
         window.removeEventListener("beforeunload", handleBeforeUnload);
       }
     };
@@ -887,15 +905,21 @@ export const TiptapEditor = ({
   // Standard unmount effect ensuring observer is stopped first
   useEffect(() => {
     return () => {
-      console.log("[DEBUG TiptapEditor] NODEVIEW UNMOUNT (TiptapEditor unmount)");
+      console.log(
+        "[DEBUG TiptapEditor] NODEVIEW UNMOUNT (TiptapEditor unmount)",
+      );
       if (editor && !editor.isDestroyed) {
-        console.log("[DEBUG TiptapEditor] EDITOR DESTROY START (lifecycle cleanup)");
+        console.log(
+          "[DEBUG TiptapEditor] EDITOR DESTROY START (lifecycle cleanup)",
+        );
         try {
           if (editor.view) {
             (editor.view as any).domObserver?.stop?.();
           }
           editor.destroy();
-          console.log("[DEBUG TiptapEditor] EDITOR DESTROY COMPLETE (lifecycle cleanup)");
+          console.log(
+            "[DEBUG TiptapEditor] EDITOR DESTROY COMPLETE (lifecycle cleanup)",
+          );
         } catch (e) {
           console.error("Error during unmount lifecycle destroy:", e);
         }
@@ -949,7 +973,9 @@ export const TiptapEditor = ({
 
       if (
         liveDocument &&
-        (currentPaperId === "current" || !currentPaperId || liveDocument.paperId === currentPaperId) &&
+        (currentPaperId === "current" ||
+          !currentPaperId ||
+          liveDocument.paperId === currentPaperId) &&
         (!currentPaperId || liveDocument.updatedAt >= serverUpdatedTime)
       ) {
         contentToLoad = ensurePageDocument(liveDocument.editorJSON);
