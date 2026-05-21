@@ -28,7 +28,12 @@ import {
   getQuestionsFromBank,
 } from "@/actions/saveQuestions";
 import { useSession } from "@/lib/auth-client";
-import { deleteLiveDocument, getLiveDocumentId } from "@/lib/live-document-db";
+import {
+  deleteLiveDocument,
+  getLiveDocumentId,
+  getLatestLiveDocumentForUser,
+  getLiveDocument,
+} from "@/lib/live-document-db";
 
 export default function EditorPage() {
   const router = useRouter();
@@ -150,9 +155,75 @@ export default function EditorPage() {
 
   const searchParams = useSearchParams();
   const paperId = searchParams.get("paperId");
+  const isNew = searchParams.get("new") === "true";
+
+  const [resumeDoc, setResumeDoc] = useState<any>(null);
+  const [showResumePrompt, setShowResumePrompt] = useState(false);
+  const [checkedResume, setCheckedResume] = useState(false);
+
+  // Check for resume doc on mount if no explicit paperId is selected and not creating a new paper
+  useEffect(() => {
+    if (!sessionData?.user?.id || paperId || checkedResume || isNew) return;
+
+    const checkResume = async () => {
+      try {
+        const latestDoc = await getLatestLiveDocumentForUser(sessionData.user.id);
+        if (latestDoc) {
+          setResumeDoc(latestDoc);
+          setShowResumePrompt(true);
+        }
+      } catch (error) {
+        console.error("Failed to check for resume doc:", error);
+      } finally {
+        setCheckedResume(true);
+      }
+    };
+
+    checkResume();
+  }, [sessionData?.user?.id, paperId, checkedResume, isNew]);
+
+  const handleContinueEditing = () => {
+    setShowResumePrompt(false);
+    if (resumeDoc) {
+      if (resumeDoc.paperId) {
+        router.replace(`/editor?paperId=${resumeDoc.paperId}`);
+      } else {
+        router.replace(`/editor?paperId=current`);
+      }
+    }
+  };
+
+  const handleCreateNewPaper = async () => {
+    setShowResumePrompt(false);
+    if (sessionData?.user?.id && resumeDoc) {
+      await deleteLiveDocument(resumeDoc.id).catch((err) =>
+        console.error("Failed to delete draft:", err)
+      );
+    }
+    setPaperExamName("");
+    setPaperClass("");
+    setPaperSubject("");
+    setLoadedPaperTitle(null);
+    setCurrentPaperId(null);
+    setPaperContent("");
+  };
 
   useEffect(() => {
     let active = true;
+
+    if (isNew) {
+      setPaperContent("");
+      setLoadedPaperTitle(null);
+      setPaperError(null);
+      setPaperUpdatedAt(null);
+      setCurrentPaperId(null);
+      setPaperClass("");
+      setPaperSubject("");
+      setPaperExamName("");
+      setCheckedResume(true); // Bypass resume prompt for explicitly new papers
+      router.replace("/editor");
+      return;
+    }
 
     if (!paperId) {
       setPaperContent("");
@@ -160,6 +231,45 @@ export default function EditorPage() {
       setPaperError(null);
       setPaperUpdatedAt(null);
       setCurrentPaperId(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    if (paperId === "current") {
+      const loadLocalDraft = async () => {
+        const userId = sessionData?.user?.id;
+        if (!userId) return;
+        try {
+          const draft = await getLiveDocument(getLiveDocumentId(userId, "current"));
+          if (draft && active) {
+            setPaperContent(draft.editorJSON ? JSON.stringify(draft.editorJSON) : "");
+            setLoadedPaperTitle(draft.metadata?.title || "Unsaved Draft");
+            setPaperExamName(draft.metadata?.title || "");
+            setPaperClass(draft.metadata?.className || "");
+            setPaperSubject(draft.metadata?.subject || "");
+            setPaperUpdatedAt(new Date(draft.updatedAt).toISOString());
+            setCurrentPaperId("current");
+            setPaperError(null);
+          } else if (active) {
+            setPaperContent("");
+            setLoadedPaperTitle("Unsaved Draft");
+            setPaperExamName("");
+            setPaperClass("");
+            setPaperSubject("");
+            setPaperUpdatedAt(null);
+            setCurrentPaperId("current");
+            setPaperError(null);
+          }
+        } catch (error) {
+          console.error("Failed to load local draft metadata:", error);
+        } finally {
+          if (active) setPaperLoading(false);
+        }
+      };
+
+      setPaperLoading(true);
+      loadLocalDraft();
       return () => {
         active = false;
       };
@@ -219,7 +329,7 @@ export default function EditorPage() {
     return () => {
       active = false;
     };
-  }, [paperId, sessionData?.user?.id, router]);
+  }, [paperId, isNew, sessionData?.user?.id, router]);
 
   const handleLivePaperCreated = useCallback(
     (newPaperId: string) => {
@@ -676,6 +786,53 @@ export default function EditorPage() {
               {selectedBankQuestions.size > 0 &&
                 `(${selectedBankQuestions.size})`}{" "}
               Questions
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Resume Session Dialog */}
+      <Dialog
+        open={showResumePrompt}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowResumePrompt(false);
+          }
+        }}
+      >
+        <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Resume previous paper?</DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              We found a previous active paper session. Would you like to continue editing it?
+            </DialogDescription>
+          </DialogHeader>
+          {resumeDoc && (
+            <div className="py-4 px-4 bg-muted/30 border border-border rounded-lg space-y-1 my-2">
+              <p className="text-sm font-semibold text-foreground">
+                {resumeDoc.metadata?.title || resumeDoc.title || "Untitled Paper"}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Class: {resumeDoc.metadata?.className || "—"} | Subject: {resumeDoc.metadata?.subject || "—"}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Last active: {new Date(resumeDoc.updatedAt).toLocaleString()}
+              </p>
+            </div>
+          )}
+          <DialogFooter className="grid grid-cols-2 gap-2 sm:space-x-0">
+            <Button
+              variant="outline"
+              onClick={handleCreateNewPaper}
+              className="w-full border-border text-foreground hover:bg-muted"
+            >
+              Create New Paper
+            </Button>
+            <Button
+              onClick={handleContinueEditing}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white w-full"
+            >
+              Continue Editing
             </Button>
           </DialogFooter>
         </DialogContent>

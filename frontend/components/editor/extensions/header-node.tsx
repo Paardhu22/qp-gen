@@ -11,6 +11,15 @@ import { Image as ImageIcon, Trash, X } from "lucide-react";
 const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
+  React.useEffect(() => {
+    console.log("[DEBUG PaperHeaderComponent] MOUNT");
+    return () => {
+      console.log("[DEBUG PaperHeaderComponent] UNMOUNT");
+    };
+  }, []);
+
+  console.log("[DEBUG PaperHeaderComponent] RERENDER");
+
   const handleLogoClick = () => {
     fileInputRef.current?.click();
   };

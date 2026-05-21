@@ -7,6 +7,7 @@ from docx import Document as DocxDocument
 from services.chunking_service import chunk_pages, chunk_text
 from services.embedding_service import generate_embeddings
 from services.pdf_service import extract_text_from_pdf
+from services.semantic_pipeline import process_semantic_pipeline
 
 
 def _extract_text_from_docx(buffer: bytes) -> str:
@@ -56,7 +57,12 @@ def process_pdf_upload(file, user) -> PdfSource:
         )
 
         try:
-            chunks = chunk_pages(pages) if pages else chunk_text(extracted_text)
+            if pages:
+                # Use the new semantically optimized pipeline
+                chunks = process_semantic_pipeline(pages)
+            else:
+                # Fallback for plain text or docx (can also be enhanced later)
+                chunks = chunk_text(extracted_text)
 
             batch_size = 50
             for i in range(0, len(chunks), batch_size):
@@ -73,6 +79,7 @@ def process_pdf_upload(file, user) -> PdfSource:
                             chunk_index=chunk.chunk_index,
                             embedding=embedding,
                             pdf_source=pdf_source,
+                            metadata=getattr(chunk, 'metadata', {})
                         )
                         for chunk, embedding in zip(batch, embeddings)
                     ]
