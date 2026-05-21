@@ -22,7 +22,9 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
         >
           {node.attrs.number ? `${node.attrs.number}.` : ""}
         </div>
-        <NodeViewContent className="question-cell question-body" />
+        <div style={{ display: "contents" }}>
+          <NodeViewContent className="question-cell question-body" />
+        </div>
         <div
           className="question-cell question-marks"
           contentEditable={false}
@@ -222,7 +224,9 @@ const InstructionComponent = ({ node, deleteNode }: any) => {
           ))}
         </ol>
       ) : null}
-      <NodeViewContent className="instruction-content" />
+      <div style={{ display: "contents" }}>
+        <NodeViewContent className="instruction-content" />
+      </div>
       <div className="instruction-controls" contentEditable={false}>
         <button
           onClick={deleteNode}
@@ -298,7 +302,9 @@ const QuestionGroupComponent = ({ node, deleteNode }: any) => {
       <div className="question-group-label" contentEditable={false}>
         {node.attrs.label || "Answer any ONE"}
       </div>
-      <NodeViewContent className="question-group-content" />
+      <div style={{ display: "contents" }}>
+        <NodeViewContent className="question-group-content" />
+      </div>
       <div className="question-group-controls" contentEditable={false}>
         <button
           onClick={deleteNode}
