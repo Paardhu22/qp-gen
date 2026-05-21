@@ -248,6 +248,18 @@
     filter: saturate(1.1) contrast(1.05);
 }
 
+@keyframes loading-bar {
+    0% {
+        transform: translateX(-100%);
+    }
+    50% {
+        transform: translateX(60%);
+    }
+    100% {
+        transform: translateX(200%);
+    }
+}
+
 @keyframes landing-shimmer {
     0% {
         background-position: 0% 50%;
