@@ -27,9 +27,12 @@ import {
   saveQuestionsToBank,
   getQuestionsFromBank,
 } from "@/actions/saveQuestions";
+import { useSession } from "@/lib/auth-client";
+import { deleteLiveDocument, getLiveDocumentId } from "@/lib/live-document-db";
 
 export default function EditorPage() {
   const router = useRouter();
+  const { data: sessionData } = useSession();
 
   // Modals state from store
   const savePaperModalOpen = useEditorStore(
@@ -181,9 +184,33 @@ export default function EditorPage() {
       .catch((error) => {
         if (!active) return;
         console.error(error);
-        setPaperError("Failed to load paper. Please try again.");
-        setPaperContent("");
-        toast.error(error?.message || "Failed to load paper.");
+
+        const is404 =
+          error &&
+          (error.status === 404 ||
+            String(error.message || "").toLowerCase().includes("not found"));
+
+        if (is404) {
+          toast.error("This paper no longer exists. Opening a fresh paper...");
+          setPaperContent("");
+          setLoadedPaperTitle(null);
+          setPaperError(null);
+          setPaperUpdatedAt(null);
+          setCurrentPaperId(null);
+
+          router.replace("/editor");
+
+          const userId = sessionData?.user?.id;
+          if (userId && paperId) {
+            deleteLiveDocument(getLiveDocumentId(userId, paperId)).catch((err) =>
+              console.error("Failed to delete stale autosave:", err)
+            );
+          }
+        } else {
+          setPaperError("Failed to load paper. Please try again.");
+          setPaperContent("");
+          toast.error(error?.message || "Failed to load paper.");
+        }
       })
       .finally(() => {
         if (active) setPaperLoading(false);
@@ -192,7 +219,7 @@ export default function EditorPage() {
     return () => {
       active = false;
     };
-  }, [paperId]);
+  }, [paperId, sessionData?.user?.id, router]);
 
   const handleLivePaperCreated = useCallback(
     (newPaperId: string) => {

@@ -755,7 +755,7 @@ export const TiptapEditor = ({
       debouncedSectionSummaries(editor);
       debouncedLiveSync(editor);
     },
-  });
+  }, []);
 
   useEffect(() => {
     if (!editor) return;

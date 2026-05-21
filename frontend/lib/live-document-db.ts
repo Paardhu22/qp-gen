@@ -114,3 +114,39 @@ export async function getLatestLiveDocumentForUser(
     };
   });
 }
+
+export async function deleteLiveDocument(id: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.delete(id);
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve();
+  });
+}
+
+export async function clearLiveDocumentsForUser(userId: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.getAll();
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const documents = (request.result || []) as LiveEditorDocument[];
+      const userDocs = documents.filter((doc) => doc.userId === userId);
+      const deletePromises = userDocs.map(
+        (doc) =>
+          new Promise<void>((res, rej) => {
+            const req = store.delete(doc.id);
+            req.onerror = () => rej(req.error);
+            req.onsuccess = () => res();
+          }),
+      );
+      Promise.all(deletePromises).then(() => resolve()).catch(reject);
+    };
+  });
+}
