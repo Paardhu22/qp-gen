@@ -6,7 +6,7 @@ from apps.projects.models import Project, Question, Paper
 class QuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Question
-        fields = ["id", "type", "content", "answer", "options", "marks", "bloom_taxonomy"]
+        fields = ["id", "type", "content", "answer", "options", "marks", "bloom_taxonomy", "grade_class", "subject", "inferred_topic", "inferred_chapter", "source_pdf", "difficulty"]
         read_only_fields = ["id"]
 
 
@@ -35,7 +35,7 @@ class PaperDetailSerializer(serializers.ModelSerializer):
 
 
 class SaveQuestionsSerializer(serializers.Serializer):
-    projectName = serializers.CharField()
+    projectName = serializers.CharField(required=False, allow_null=True, default=None)
     questions = QuestionSerializer(many=True)
 
 

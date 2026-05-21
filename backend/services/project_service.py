@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from django.db import transaction
 
@@ -19,9 +19,27 @@ def get_paper_for_user(user, paper_id: str) -> Paper:
 
 def save_questions_to_project(user, project_name: str, questions: List[dict]) -> Project:
     with transaction.atomic():
-        project, _ = Project.objects.get_or_create(name=project_name, user=user)
+        # If project_name is provided, use it for all questions (Legacy single-topic flow)
+        if project_name:
+            project, _ = Project.objects.get_or_create(name=project_name, user=user)
+            projects_cache = {project_name: project}
+        else:
+            projects_cache = {}
+
         question_objects = []
         for question in questions:
+            # If no project_name provided, infer it from the question metadata
+            q_project_name = project_name
+            if not q_project_name:
+                q_class = question.get("grade_class", "Unknown Class")
+                q_subject = question.get("subject", "Unknown Subject")
+                q_topic = question.get("inferred_topic", "Unknown Topic")
+                q_project_name = f"{q_class} — {q_subject} — {q_topic}"
+
+            if q_project_name not in projects_cache:
+                p, _ = Project.objects.get_or_create(name=q_project_name, user=user)
+                projects_cache[q_project_name] = p
+
             question_objects.append(
                 Question(
                     content=question.get("content", ""),
@@ -29,12 +47,19 @@ def save_questions_to_project(user, project_name: str, questions: List[dict]) ->
                     type=question.get("type", "mcq"),
                     marks=int(question.get("marks") or 1),
                     options=question.get("options") or [],
-                    project=project,
+                    project=projects_cache[q_project_name],
+                    grade_class=question.get("grade_class"),
+                    subject=question.get("subject"),
+                    inferred_topic=question.get("inferred_topic"),
+                    inferred_chapter=question.get("inferred_chapter"),
+                    source_pdf=question.get("source_pdf"),
+                    difficulty=question.get("difficulty"),
                 )
             )
         Question.objects.bulk_create(question_objects)
 
-    return project
+    # Return the first created/fetched project as a fallback for the response
+    return list(projects_cache.values())[0] if projects_cache else None
 
 
 def save_paper_to_project(
@@ -42,8 +67,8 @@ def save_paper_to_project(
     project_name: str,
     title: str,
     content: str,
-    questions: List[dict] = None,
-    paper_id: str = None,
+    questions: Optional[List[dict]] = None,
+    paper_id: Optional[str] = None,
 ) -> Paper:
     """Create or update a Paper and persist its questions."""
     if questions is None:

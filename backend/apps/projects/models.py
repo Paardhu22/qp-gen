@@ -37,6 +37,12 @@ class Question(TimeStampedModel):
     bloom_taxonomy = models.CharField(max_length=50, null=True, blank=True, db_column="bloomTaxonomy")
     project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True, blank=True, db_column="projectId", related_name="questions")
     paper = models.ForeignKey(Paper, on_delete=models.CASCADE, null=True, blank=True, db_column="paperId", related_name="questions")
+    grade_class = models.CharField(max_length=100, null=True, blank=True, db_column="gradeClass")
+    subject = models.CharField(max_length=255, null=True, blank=True)
+    inferred_topic = models.CharField(max_length=255, null=True, blank=True, db_column="inferredTopic")
+    inferred_chapter = models.CharField(max_length=255, null=True, blank=True, db_column="inferredChapter")
+    source_pdf = models.CharField(max_length=255, null=True, blank=True, db_column="sourcePdf")
+    difficulty = models.CharField(max_length=50, null=True, blank=True)
 
     class Meta:
         db_table = "Question"
