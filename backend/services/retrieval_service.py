@@ -40,6 +40,7 @@ def retrieve_relevant_chunks(
                 "content": chunk.content,
                 "page": chunk.page,
                 "similarity": similarity,
+                "metadata": chunk.metadata,
             }
         )
 

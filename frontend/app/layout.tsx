@@ -3,6 +3,12 @@ import "./globals.css";
 import "katex/dist/katex.min.css";
 import { Providers } from "@/components/providers";
 import { Toaster } from "sonner";
+import { Sora } from "next/font/google";
+
+const sora = Sora({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+});
 
 export const metadata: Metadata = {
   title: "Paper Gen -  Question Paper Generator",
@@ -16,7 +22,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="bg-background text-foreground">
+      <body className={`${sora.className} bg-background text-foreground`}>
         <Providers>
           {children}
           <Toaster position="top-right" richColors theme="system" />

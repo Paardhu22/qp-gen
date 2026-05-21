@@ -11,10 +11,27 @@ type PageContainerProps = {
 };
 
 export const PageContent = () => {
+  React.useEffect(() => {
+    console.log("[DEBUG PageContent] MOUNT");
+    return () => {
+      console.log("[DEBUG PageContent] UNMOUNT");
+    };
+  }, []);
+  
+  console.log("[DEBUG PageContent] RERENDER");
   return <NodeViewContent />;
 };
 
 export const PageContainer = ({ node }: PageContainerProps) => {
+  React.useEffect(() => {
+    console.log("[DEBUG PageContainer] MOUNT for pageId:", node.attrs.pageId);
+    return () => {
+      console.log("[DEBUG PageContainer] UNMOUNT for pageId:", node.attrs.pageId);
+    };
+  }, [node.attrs.pageId]);
+
+  console.log("[DEBUG PageContainer] RERENDER for pageId:", node.attrs.pageId, "childCount:", node.childCount);
+
   return (
     <NodeViewWrapper className="doc-page" data-page-id={node.attrs.pageId}>
       <div className="doc-page-inner">

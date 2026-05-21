@@ -44,6 +44,7 @@ class DocumentChunk(models.Model):
     content = models.TextField()
     page = models.IntegerField(null=True, blank=True)
     chunk_index = models.IntegerField(db_column="chunkIndex")
+    metadata = models.JSONField(default=dict, blank=True)
     embedding = VectorField(dimensions=1536, null=True, blank=True)
     pdf_source = models.ForeignKey(
         PdfSource,

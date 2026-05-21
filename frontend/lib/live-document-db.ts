@@ -63,7 +63,9 @@ export function getLiveDocumentId(
   userId: string,
   paperId?: string | null,
 ): string {
-  return paperId ? `paper:${userId}:${paperId}` : `current:${userId}`;
+  return paperId && paperId !== "current"
+    ? `paper:${userId}:${paperId}`
+    : `current:${userId}`;
 }
 
 export async function saveLiveDocument(

@@ -736,6 +736,33 @@ export const TiptapEditor = ({
         spellcheck: "true",
       },
     },
+    onCreate: ({ editor }) => {
+      console.log("[DEBUG TiptapEditor] Editor CREATED");
+      if (typeof window !== "undefined") {
+        (window as any).__activeEditor = editor;
+        (window as any).__activeEditorDestroy = () => {
+          console.log("[DEBUG TiptapEditor] EDITOR DESTROY START (manual/nav)");
+          try {
+            if (editor && !editor.isDestroyed) {
+              if (editor.view) {
+                (editor.view as any).domObserver?.stop?.();
+              }
+              editor.destroy();
+              console.log("[DEBUG TiptapEditor] EDITOR DESTROY COMPLETE (manual/nav)");
+            }
+          } catch (e) {
+            console.error("Error during activeEditorDestroy:", e);
+          }
+        };
+      }
+    },
+    onDestroy: () => {
+      console.log("[DEBUG TiptapEditor] Editor DESTROYED");
+      if (typeof window !== "undefined") {
+        (window as any).__activeEditor = null;
+        (window as any).__activeEditorDestroy = null;
+      }
+    },
     onUpdate: ({ editor }) => {
       const updatedAt = new Date().getTime();
       const editorJSON = editor.getJSON();
@@ -817,6 +844,65 @@ export const TiptapEditor = ({
     debouncedLiveSync,
   ]);
 
+  // Synchronous Editor Lifecycle Teardown Management
+  useEffect(() => {
+    const handleGlobalClick = (event: MouseEvent) => {
+      let target = event.target as HTMLElement | null;
+      while (target && target.tagName !== "A") {
+        target = target.parentElement;
+      }
+
+      if (target && target.tagName === "A") {
+        const href = target.getAttribute("href");
+        // Intercept route changes away from /editor
+        if (href && href.startsWith("/") && !href.startsWith("/editor")) {
+          console.log("[DEBUG TiptapEditor] ROUTE CHANGE START via link:", href);
+          if (typeof window !== "undefined" && (window as any).__activeEditorDestroy) {
+            (window as any).__activeEditorDestroy();
+          }
+        }
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      console.log("[DEBUG TiptapEditor] beforeunload event");
+      if (typeof window !== "undefined" && (window as any).__activeEditorDestroy) {
+        (window as any).__activeEditorDestroy();
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      document.addEventListener("click", handleGlobalClick, { capture: true });
+      window.addEventListener("beforeunload", handleBeforeUnload);
+    }
+
+    return () => {
+      if (typeof window !== "undefined") {
+        document.removeEventListener("click", handleGlobalClick, { capture: true });
+        window.removeEventListener("beforeunload", handleBeforeUnload);
+      }
+    };
+  }, []);
+
+  // Standard unmount effect ensuring observer is stopped first
+  useEffect(() => {
+    return () => {
+      console.log("[DEBUG TiptapEditor] NODEVIEW UNMOUNT (TiptapEditor unmount)");
+      if (editor && !editor.isDestroyed) {
+        console.log("[DEBUG TiptapEditor] EDITOR DESTROY START (lifecycle cleanup)");
+        try {
+          if (editor.view) {
+            (editor.view as any).domObserver?.stop?.();
+          }
+          editor.destroy();
+          console.log("[DEBUG TiptapEditor] EDITOR DESTROY COMPLETE (lifecycle cleanup)");
+        } catch (e) {
+          console.error("Error during unmount lifecycle destroy:", e);
+        }
+      }
+    };
+  }, [editor]);
+
   // Handle question insertion from AI generator
   const questionsToAppend = useEditorStore((state) => state.questionsToAppend);
   const clearQuestionsToAppend = useEditorStore(
@@ -856,18 +942,21 @@ export const TiptapEditor = ({
           ? await getLiveDocument(
               getLiveDocumentId(currentUserId, currentPaperId),
             )
-          : await getLatestLiveDocumentForUser(currentUserId);
+          : null;
       } catch (error) {
         console.error("Failed to load live editor state:", error);
       }
 
       if (
         liveDocument &&
-        (!currentPaperId || liveDocument.paperId === currentPaperId) &&
+        (currentPaperId === "current" || !currentPaperId || liveDocument.paperId === currentPaperId) &&
         (!currentPaperId || liveDocument.updatedAt >= serverUpdatedTime)
       ) {
         contentToLoad = ensurePageDocument(liveDocument.editorJSON);
-        if (!currentPaperId && liveDocument.paperId) {
+        if (currentPaperId === "current" && liveDocument.paperId) {
+          paperIdRef.current = liveDocument.paperId;
+          onPaperCreatedRef.current?.(liveDocument.paperId);
+        } else if (!currentPaperId && liveDocument.paperId) {
           paperIdRef.current = liveDocument.paperId;
           onPaperCreatedRef.current?.(liveDocument.paperId);
         }

@@ -55,7 +55,10 @@ import {
   FileText,
   FlaskConical,
   PenTool,
+  FolderOpen,
+  Plus,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Button } from "../ui/button";
 import {
   Select,
@@ -441,6 +444,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
   editor,
   onFindReplace,
 }) => {
+  const router = useRouter();
   const [totalMarks, setTotalMarks] = useState(0);
   const template = useEditorStore((state) => state.template);
   const setTemplate = useEditorStore((state) => state.setTemplate);
@@ -1031,6 +1035,35 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             }}
           >
             <PlusCircle className="h-3 w-3 mr-1" /> Add Existing
+          </Button>
+
+          {/* New Paper */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-[10px] px-3 font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+            onClick={() => {
+              const confirm = window.confirm(
+                "Are you sure you want to start a new paper? Any unsaved changes in the editor will be discarded."
+              );
+              if (confirm) {
+                router.push("/editor?new=true");
+              }
+            }}
+          >
+            <Plus className="h-3 w-3 mr-1" /> New Paper
+          </Button>
+
+          {/* Open Paper */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-[10px] px-3 font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+            onClick={() => {
+              router.push("/question-bank");
+            }}
+          >
+            <FolderOpen className="h-3 w-3 mr-1" /> Open Paper
           </Button>
 
           {/* Save Questions */}
