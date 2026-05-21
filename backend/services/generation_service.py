@@ -14,18 +14,18 @@ def _sse_event(data: dict, event: str = "update") -> str:
 
 def stream_generated_questions(
     user,
-    document_ids: List[str],
+    pdf_source_ids: List[str],
     topic: str,
     count: int,
     difficulty: str,
     instructions: str = "",
 ) -> Iterable[str]:
     context = retrieve_relevant_chunks(
-        topic, document_ids, 15, user=user
-    )  # document_ids are PdfSource IDs
+        topic, pdf_source_ids, 15, user=user
+    )
     if not context:
         yield _sse_event(
-            {"error": "No relevant content found in the uploaded documents."},
+            {"error": "No relevant content found in the uploaded sources."},
             event="error",
         )
         return
@@ -131,7 +131,7 @@ def stream_generated_questions(
                 "topic": topic,
                 "count": count,
                 "difficulty": difficulty,
-                "documentIds": document_ids,
+                "pdfSourceIds": pdf_source_ids,
                 "instructions": instructions,
             },
             result=last_valid,

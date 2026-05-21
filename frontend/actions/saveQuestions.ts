@@ -1,7 +1,7 @@
 import { saveQuestions, fetchProjectsWithQuestions } from "@/lib/api-client";
 
 /**
- * Save questions to the Django Question Bank.
+ * Save questions to the Question Paper.
  *
  * Questions are grouped under a Project named "<class> — <subject> — <topic>".
  * Auth is handled by api-client (JWT Bearer token from localStorage), matching
@@ -30,7 +30,7 @@ export async function saveQuestionsToBank(data: {
 }
 
 /**
- * Fetch all questions from the Django Question Bank, optionally filtered by
+ * Fetch all questions from the Question Paper, optionally filtered by
  * a search query matched against question content or project name.
  */
 export async function getQuestionsFromBank(query?: string): Promise<any[]> {

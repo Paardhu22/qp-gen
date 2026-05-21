@@ -9,10 +9,10 @@ export interface RetrievalResult {
 
 export async function retrieveRelevantChunks(
   query: string,
-  documentIds: string[],
+  pdfSourceIds: string[],
   limit: number = 5
 ): Promise<RetrievalResult[]> {
-  if (documentIds.length === 0) return [];
+  if (pdfSourceIds.length === 0) return [];
 
   const queryEmbedding = await generateSingleEmbedding(query);
   const vectorString = `[${queryEmbedding.join(",")}]`;
@@ -20,7 +20,7 @@ export async function retrieveRelevantChunks(
   const results = await db.$queryRawUnsafe<any[]>(
     `SELECT content, page, 1 - (embedding <=> '${vectorString}'::vector) as similarity
      FROM "DocumentChunk"
-     WHERE "pdfSourceId" IN (${documentIds.map(id => `'${id}'`).join(",")})
+     WHERE "pdfSourceId" IN (${pdfSourceIds.map(id => `'${id}'`).join(",")})
      ORDER BY embedding <=> '${vectorString}'::vector
      LIMIT ${limit};`
   );

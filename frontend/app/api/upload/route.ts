@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
       data: { status: 'ready' },
     });
 
-    return NextResponse.json({ documentId: pdfSource.id });
+    return NextResponse.json({ pdfSourceId: pdfSource.id });
   } catch (error: any) {
     console.error('Upload error:', error);
     return NextResponse.json({ error: error.message || 'Failed to process document' }, { status: 500 });

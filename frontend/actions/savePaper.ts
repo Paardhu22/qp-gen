@@ -23,6 +23,7 @@ export type EditorPaper = {
   examName: string;
   class: string;
   subject: string;
+  updatedAt?: string;
 };
 
 /**
@@ -37,6 +38,7 @@ function toEditorPaper(paper: DjangoPaper): EditorPaper {
     examName: paper.title,
     class: parts[0]?.trim() || "",
     subject: parts[1]?.trim() || "",
+    updatedAt: paper.updated_at,
   };
 }
 

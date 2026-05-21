@@ -27,5 +27,5 @@ class DocumentUploadView(APIView):
                 f.write(f"Error: {exc}\n{traceback.format_exc()}\n")
             return Response({"error": f"Internal server error: {exc}"}, status=500)
 
-        # Return "documentId" for API compatibility with the frontend.
-        return Response({"documentId": pdf_source.id})
+        # Return "pdfSourceId" to match the new architecture.
+        return Response({"pdfSourceId": pdf_source.id})

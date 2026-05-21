@@ -18,7 +18,7 @@ const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
   { icon: ListChecks, label: "Saved Questions", href: "/paper-library" },
   { icon: FileText, label: "Editor", href: "/editor" },
-  { icon: BookOpen, label: "Question Bank", href: "/question-bank" },
+  { icon: BookOpen, label: "Question Paper", href: "/question-bank" },
   { icon: Settings, label: "Settings", href: "/settings" },
 ];
 
@@ -65,7 +65,7 @@ export const TopNavbar = () => {
                     : "text-muted-foreground hover:text-foreground hover:bg-accent",
                 )}
               >
-                <Icon className="h-4 w-4" />
+                {Icon && <Icon className="h-4 w-4" />}
                 <span>{label}</span>
               </Link>
             );

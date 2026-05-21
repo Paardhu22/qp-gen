@@ -144,10 +144,9 @@ export default function QuestionBankPage() {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         {/* Left: title block */}
-        <div className="flex items-center gap-3">
-          <BookOpen className="h-7 w-7 text-indigo-500 shrink-0" />
+        <div>
           <div>
-            <h1 className="text-3xl font-bold leading-tight">Question Bank</h1>
+            <h1 className="text-3xl font-bold leading-tight">Question Paper</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               Browse and open your saved exam papers in the editor.
             </p>

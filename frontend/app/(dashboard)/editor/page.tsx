@@ -48,6 +48,7 @@ export default function EditorPage() {
 
   const questionsToSave = useEditorStore((state) => state.questionsToSave);
   const editorContent = useEditorStore((state) => state.editorContent);
+  const setEditorContent = useEditorStore((state) => state.setEditorContent);
 
   // Paper Form state
   const [paperClass, setPaperClass] = useState("");
@@ -59,7 +60,7 @@ export default function EditorPage() {
   const [questionSubject, setQuestionSubject] = useState("");
   const [questionTopic, setQuestionTopic] = useState("");
 
-  // Question Bank Browser state
+  // Question Paper Browser state
   const questionBankBrowserOpen = useEditorStore(
     (state) => state.questionBankBrowserOpen,
   );
@@ -80,6 +81,7 @@ export default function EditorPage() {
     undefined,
   );
   const [loadedPaperTitle, setLoadedPaperTitle] = useState<string | null>(null);
+  const [paperUpdatedAt, setPaperUpdatedAt] = useState<string | null>(null);
   const [paperLoading, setPaperLoading] = useState(false);
   const [paperError, setPaperError] = useState<string | null>(null);
   const [currentPaperId, setCurrentPaperId] = useState<string | null>(null);
@@ -153,6 +155,7 @@ export default function EditorPage() {
       setPaperContent("");
       setLoadedPaperTitle(null);
       setPaperError(null);
+      setPaperUpdatedAt(null);
       setCurrentPaperId(null);
       return () => {
         active = false;
@@ -167,19 +170,20 @@ export default function EditorPage() {
       .then((paper) => {
         if (!active) return;
         setPaperContent(paper.content || "");
-        setLoadedPaperTitle(paper.examName || "Saved Paper");
+        setLoadedPaperTitle(paper.examName || "Untitled Paper");
         setPaperExamName(paper.examName || "");
         setPaperClass(paper.class || "");
         setPaperSubject(paper.subject || "");
+        setPaperUpdatedAt(paper.updatedAt || null);
         setCurrentPaperId(paper.id);
         setPaperError(null);
       })
       .catch((error) => {
         if (!active) return;
         console.error(error);
-        setPaperError("Failed to load saved paper. Please try again.");
+        setPaperError("Failed to load paper. Please try again.");
         setPaperContent("");
-        toast.error(error?.message || "Failed to load saved paper.");
+        toast.error(error?.message || "Failed to load paper.");
       })
       .finally(() => {
         if (active) setPaperLoading(false);
@@ -190,6 +194,18 @@ export default function EditorPage() {
     };
   }, [paperId]);
 
+  const handleLivePaperCreated = useCallback(
+    (newPaperId: string) => {
+      setCurrentPaperId(newPaperId);
+      setLoadedPaperTitle(
+        (title) => title || paperExamName.trim() || "Untitled Paper",
+      );
+      setPaperUpdatedAt(new Date().toISOString());
+      router.replace(`/editor?paperId=${newPaperId}`);
+    },
+    [paperExamName, router],
+  );
+
   const handleSavePaper = async () => {
     if (!paperClass.trim() || !paperSubject.trim() || !paperExamName.trim()) {
       toast.error("Please fill in all fields: Class, Subject, Exam Name.");
@@ -198,11 +214,35 @@ export default function EditorPage() {
 
     setIsSaving(true);
     try {
+      const trimmedClass = paperClass.trim();
+      const trimmedSubject = paperSubject.trim();
+      const trimmedExamName = paperExamName.trim();
+      const updatedAt = new Date().getTime();
+      let contentToSave = editorContent;
+
+      try {
+        const parsed = JSON.parse(editorContent);
+        if (parsed && typeof parsed === "object") {
+          parsed.metadata = {
+            ...(parsed.metadata || {}),
+            title: trimmedExamName,
+            className: trimmedClass,
+            subject: trimmedSubject,
+            updatedAt,
+          };
+          parsed.updatedAt = updatedAt;
+          contentToSave = JSON.stringify(parsed);
+          setEditorContent(contentToSave);
+        }
+      } catch {
+        // Older papers may contain raw HTML/JSON. They remain loadable.
+      }
+
       const payload = {
-        class: paperClass.trim(),
-        subject: paperSubject.trim(),
-        examName: paperExamName.trim(),
-        content: editorContent,
+        class: trimmedClass,
+        subject: trimmedSubject,
+        examName: trimmedExamName,
+        content: contentToSave,
         questionRefs: [], // Can implement question refs extracting later if needed
       };
 
@@ -215,11 +255,12 @@ export default function EditorPage() {
       }
 
       setLoadedPaperTitle(paperExamName.trim());
+      setPaperUpdatedAt(new Date().toISOString());
       setSavePaperModalOpen(false);
-      toast.success(`Paper "${paperExamName.trim()}" saved successfully!`);
+      toast.success(`Paper details updated.`);
     } catch (error: any) {
       console.error(error);
-      toast.error(error?.message || "Failed to save paper.");
+      toast.error(error?.message || "Failed to update paper details.");
     } finally {
       setIsSaving(false);
     }
@@ -252,7 +293,7 @@ export default function EditorPage() {
       const res = await saveQuestionsToBank(payload);
       setSaveQuestionModalOpen(false);
       toast.success(
-        `Saved ${res.count} question(s) to the Question Bank successfully!`,
+        `Saved ${res.count} question(s) to the Question Paper successfully!`,
       );
 
       // Reset form
@@ -364,10 +405,20 @@ export default function EditorPage() {
             "New Document"
           )}
         </div>
-        <TiptapEditor initialContent={paperContent} />
+        <TiptapEditor
+          initialContent={paperContent}
+          paperId={currentPaperId}
+          serverUpdatedAt={paperUpdatedAt}
+          paperMetadata={{
+            examName: paperExamName,
+            className: paperClass,
+            subject: paperSubject,
+          }}
+          onPaperCreatedAction={handleLivePaperCreated}
+        />
       </div>
 
-      {/* Save Paper Modal */}
+      {/* Paper Details Modal */}
       <Dialog
         open={savePaperModalOpen}
         onOpenChange={(open) => {
@@ -376,11 +427,10 @@ export default function EditorPage() {
       >
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Save Paper</DialogTitle>
+            <DialogTitle>Paper Details</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              {currentPaperId
-                ? "Update your saved paper."
-                : "Save this paper to the Paper Library."}
+              Update the paper metadata. Document content is saved
+              automatically.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -429,11 +479,7 @@ export default function EditorPage() {
               onClick={handleSavePaper}
               className="bg-indigo-600 hover:bg-indigo-700 text-white w-full gap-2"
             >
-              {isSaving
-                ? "Saving..."
-                : currentPaperId
-                  ? "Update Paper"
-                  : "Save Paper"}
+              {isSaving ? "Updating..." : "Update Details"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -448,10 +494,10 @@ export default function EditorPage() {
       >
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Save to Question Bank</DialogTitle>
+            <DialogTitle>Save to Question Paper</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Save {questionsToSave.length} question(s) to the reusable Question
-              Bank.
+              Save {questionsToSave.length} question(s) to the Question Paper
+              collection.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -505,16 +551,16 @@ export default function EditorPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* Question Bank Browser Modal */}
+      {/* Question Paper Browser Modal */}
       <Dialog
         open={questionBankBrowserOpen}
         onOpenChange={setQuestionBankBrowserOpen}
       >
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[700px] max-h-[85vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Question Bank Browser</DialogTitle>
+            <DialogTitle>Question Paper Browser</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Search and select existing questions to add to your current paper.
+              Search and select saved questions to add to your current paper.
             </DialogDescription>
           </DialogHeader>
           <div className="flex-shrink-0 py-2">

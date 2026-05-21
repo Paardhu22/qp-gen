@@ -10,7 +10,7 @@ class GenerationHistorySerializer(serializers.ModelSerializer):
 
 
 class QuestionGenerationSerializer(serializers.Serializer):
-    documentIds = serializers.ListField(child=serializers.CharField(), allow_empty=False)
+    pdfSourceIds = serializers.ListField(child=serializers.CharField(), allow_empty=False)
     topic = serializers.CharField()
     count = serializers.IntegerField(min_value=1, max_value=50)
     difficulty = serializers.CharField()

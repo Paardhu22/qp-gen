@@ -18,7 +18,7 @@ class QuestionGenerationStreamView(APIView):
 
         stream = stream_generated_questions(
             user=request.user,
-            document_ids=serializer.validated_data["documentIds"],
+            pdf_source_ids=serializer.validated_data["pdfSourceIds"],
             topic=serializer.validated_data["topic"],
             count=serializer.validated_data["count"],
             difficulty=serializer.validated_data["difficulty"],

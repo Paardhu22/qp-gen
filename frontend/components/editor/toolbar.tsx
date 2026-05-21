@@ -1051,7 +1051,10 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
                       if (inline.text) questionText += inline.text;
                     });
                   }
-                  if (child.type.name === "bulletList" || child.type.name === "orderedList") {
+                  if (
+                    child.type.name === "bulletList" ||
+                    child.type.name === "orderedList"
+                  ) {
                     child.forEach((li: any) => {
                       let optText = "";
                       li.forEach((p: any) => {
@@ -1077,19 +1080,18 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             <Save className="h-3 w-3 mr-1" /> Save Questions
           </Button>
 
-          {/* Save Paper */}
+          {/* Paper Details */}
           <Button
             variant="default"
             size="sm"
             className="h-7 text-[10px] px-4 font-medium"
             onClick={() => {
               const store = useEditorStore.getState();
-              store.setEditorContent(JSON.stringify(editor.getJSON()));
               store.setPages(extractPagesFromDoc(editor.state.doc));
               store.setSavePaperModalOpen(true);
             }}
           >
-            <Save className="h-3 w-3 mr-1" /> Save Paper
+            <Save className="h-3 w-3 mr-1" /> Paper Details
           </Button>
         </div>
       </div>
@@ -1253,7 +1255,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           </button>
           <span className="flex items-center gap-1">
             <span className="h-1 w-1 rounded-full bg-green-500 animate-pulse" />
-            Autosave
+            Live Sync
           </span>
         </div>
       </div>
