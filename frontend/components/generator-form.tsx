@@ -108,7 +108,7 @@ export const GeneratorForm = () => {
         const formData = new FormData();
         formData.append("file", file);
 
-        const data = await fetchForm<{ documentId: string }>(
+        const data = await fetchForm<{ pdfSourceId: string }>(
           "/api/documents/upload",
           formData,
         );
@@ -117,7 +117,7 @@ export const GeneratorForm = () => {
         setUploadingDocs((prev) => prev.filter((d) => d.tempId !== tempId));
         setUploadedDocs((prev) => [
           ...prev,
-          { id: data.documentId, name: file.name, size: file.size },
+          { id: data.pdfSourceId, name: file.name, size: file.size },
         ]);
       } catch (err: any) {
         setUploadingDocs((prev) =>
@@ -141,7 +141,7 @@ export const GeneratorForm = () => {
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     if (uploadedDocs.length === 0) {
-      toast.error("Upload at least one source document first.");
+      toast.error("Upload at least one source file first.");
       return;
     }
 
@@ -154,7 +154,7 @@ export const GeneratorForm = () => {
       await streamSse(
         "/api/generation/questions/stream",
         {
-          documentIds: uploadedDocs.map((d) => d.id),
+          pdfSourceIds: uploadedDocs.map((d) => d.id),
           topic: values.subject,
           count: parseInt(values.numberOfQuestions, 10),
           difficulty: values.difficulty,
@@ -177,7 +177,7 @@ export const GeneratorForm = () => {
       console.error(error);
       toast.error(
         error?.message ||
-          "Failed to generate questions. Check whether your documents contain relevant content.",
+          "Failed to generate questions. Check whether your source files contain relevant content.",
       );
     } finally {
       setIsGenerating(false);
@@ -242,11 +242,11 @@ export const GeneratorForm = () => {
         onChange={handleFileChange}
       />
 
-      {/* Source Documents */}
+      {/* Source Files */}
       <div className="mb-6 space-y-3">
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Source Documents
+            Source Files
           </label>
           <Button
             type="button"
@@ -265,7 +265,7 @@ export const GeneratorForm = () => {
           {!hasAnyDocs && (
             <div className="text-center py-6 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50 dark:bg-zinc-900/30">
               <p className="text-xs text-zinc-500">
-                No documents uploaded yet.
+                No files uploaded yet.
               </p>
             </div>
           )}

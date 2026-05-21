@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { fetchForm } from "@/lib/api-client";
 
 interface FileUploadProps {
-  onUploadComplete: (documentId: string) => void;
+  onUploadComplete: (pdfSourceId: string) => void;
 }
 
 export function FileUpload({ onUploadComplete }: FileUploadProps) {
@@ -61,14 +61,14 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
 
       // We'll use a fetch request to a route handler for uploading
       // Since server actions have size limits and complex streaming might be needed
-      const data = await fetchForm<{ documentId: string }>(
+      const data = await fetchForm<{ pdfSourceId: string }>(
         "/api/documents/upload",
         formData,
       );
 
       setProgress(100);
       setSuccess(true);
-      onUploadComplete(data.documentId);
+      onUploadComplete(data.pdfSourceId);
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Something went wrong during upload");
@@ -163,7 +163,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
               onClick={handleUpload}
               className="w-full mt-4 bg-primary hover:bg-primary/90 text-primary-foreground"
             >
-              Process Document
+              Process Source
             </Button>
           )}
 

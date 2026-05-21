@@ -23,7 +23,7 @@ interface EditorState {
   editorContent: string;
   pages: Array<{ id: string; blocks: any[] }>;
   template: string;
-  saveState: "saving" | "saved" | "unsaved" | "offline" | "failed";
+  saveState: "saving" | "saved" | "offline" | "failed";
 
   appendQuestions: (questions: Question[]) => void;
   clearQuestionsToAppend: () => void;
@@ -38,7 +38,7 @@ interface EditorState {
   setEditorContent: (content: string) => void;
   setPages: (pages: Array<{ id: string; blocks: any[] }>) => void;
   setTemplate: (template: string) => void;
-  setSaveState: (state: "saving" | "saved" | "unsaved" | "offline" | "failed") => void;
+  setSaveState: (state: "saving" | "saved" | "offline" | "failed") => void;
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -74,6 +74,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   setQuestionsToSave: (questions) => set({ questionsToSave: questions }),
   setSavePaperModalOpen: (isOpen) => set({ savePaperModalOpen: isOpen }),
   setSaveQuestionModalOpen: (isOpen) => set({ saveQuestionModalOpen: isOpen }),
-  setQuestionBankBrowserOpen: (isOpen) => set({ questionBankBrowserOpen: isOpen }),
+  setQuestionBankBrowserOpen: (isOpen) =>
+    set({ questionBankBrowserOpen: isOpen }),
   setSaveState: (saveState) => set({ saveState }),
 }));

@@ -20,21 +20,21 @@ const questionSchema = z.object({
 });
 
 export async function generateQuestionsStream(params: {
-  documentIds: string[];
+  pdfSourceIds: string[];
   topic: string;
   count: number;
   difficulty: string;
 }) {
-  const { documentIds, topic, count, difficulty } = params;
+  const { pdfSourceIds, topic, count, difficulty } = params;
   const stream = createStreamableValue();
 
   (async () => {
     try {
-      const context = await retrieveRelevantChunks(topic, documentIds, 15);
+      const context = await retrieveRelevantChunks(topic, pdfSourceIds, 15);
       const contextText = context.map(c => c.content).join('\n\n');
 
       if (context.length === 0) {
-        stream.error("No relevant content found in the uploaded documents.");
+        stream.error("No relevant content found in the uploaded sources.");
         return;
       }
 
