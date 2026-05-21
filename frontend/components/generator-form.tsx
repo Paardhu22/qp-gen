@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -25,7 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useEditorStore } from "@/store/editor-store";
 import { toast } from "sonner";
 import { FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
-import { fetchForm, streamSse } from "@/lib/api-client";
+import { fetchForm, streamSse, saveQuestions } from "@/lib/api-client";
 
 const formSchema = z.object({
   subject: z.string().min(2, "Subject is required"),
@@ -63,6 +63,8 @@ export const GeneratorForm = () => {
   >([]);
   const [uploadingDocs, setUploadingDocs] = useState<UploadingDoc[]>([]);
   const [generalInstructions, setGeneralInstructions] = useState("");
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
+  const [isSavingToBank, setIsSavingToBank] = useState(false);
 
   const handleAddSourceClick = () => {
     fileInputRef.current?.click();
@@ -184,27 +186,39 @@ export const GeneratorForm = () => {
     }
   };
 
-  const handleAddToEditor = () => {
+  const handleAddToEditor = async () => {
     if (!generatedResult) return;
 
     const hasSections =
       generatedResult.sections && generatedResult.sections.length > 0;
 
+    let allQuestions: any[] = [];
     if (hasSections) {
-      const sections = generatedResult.sections.map((section: any) => ({
-        title: section.title,
-        questions: section.questions.map((q: any) => ({
-          content: q.content,
-          type: q.type,
-          options: q.options,
-          answer: q.answer,
-          marks: q.marks,
-        })),
-      }));
+      const sections = generatedResult.sections.map((section: any) => {
+        section.questions.forEach((q: any) => {
+          allQuestions.push({
+            content: q.content,
+            type: q.type,
+            options: q.options,
+            answer: q.answer,
+            marks: q.marks,
+            metadata: q.metadata,
+          });
+        });
+        return {
+          title: section.title,
+          questions: section.questions.map((q: any) => ({
+            content: q.content,
+            type: q.type,
+            options: q.options,
+            answer: q.answer,
+            marks: q.marks,
+          })),
+        };
+      });
       useEditorStore.getState().appendSections(sections);
       toast.success("Inserted generated sections into the editor.");
     } else {
-      const allQuestions: any[] = [];
       (generatedResult.questions || []).forEach((q: any) => {
         allQuestions.push({
           content: q.content,
@@ -212,12 +226,54 @@ export const GeneratorForm = () => {
           options: q.options,
           answer: q.answer,
           marks: q.marks,
+          metadata: q.metadata,
         });
       });
       useEditorStore.getState().appendQuestions(allQuestions);
       toast.success("Inserted generated questions into the editor.");
     }
+
+    if (autoSaveEnabled && allQuestions.length > 0) {
+      setIsSavingToBank(true);
+      try {
+        const questionsPayload = allQuestions.map((q) => ({
+          type: q.type || "short",
+          content: q.content,
+          answer: q.answer || "",
+          options: q.options || [],
+          marks: Number(q.marks) || 1,
+          grade_class: q.metadata?.gradeClass || form.getValues().subject,
+          subject: q.metadata?.subject || "Generated Subject",
+          inferred_topic: q.metadata?.inferredTopic || "Generated Topic",
+          inferred_chapter: q.metadata?.inferredChapter || "Generated Chapter",
+          source_pdf: q.metadata?.sourcePdf || "",
+          difficulty: q.metadata?.difficulty || form.getValues().difficulty,
+        }));
+        await saveQuestions({ questions: questionsPayload });
+        toast.success("Questions automatically saved to the Question Bank!");
+      } catch (err: any) {
+        toast.error(err.message || "Failed to auto-save questions.");
+      } finally {
+        setIsSavingToBank(false);
+      }
+    }
   };
+
+  const hasMultipleSources = uploadedDocs.length > 1;
+  const hasMultipleChapters = useMemo(() => {
+    if (!generatedResult) return false;
+    const chapters = new Set<string>();
+    (generatedResult.sections || []).forEach((s: any) => {
+      (s.questions || []).forEach((q: any) => {
+        if (q.metadata?.inferredChapter) {
+          chapters.add(q.metadata.inferredChapter);
+        }
+      });
+    });
+    return chapters.size > 1;
+  }, [generatedResult]);
+
+  const showAutoSave = hasMultipleSources || hasMultipleChapters;
 
   const hasAnyDocs = uploadedDocs.length > 0 || uploadingDocs.length > 0;
 
@@ -487,11 +543,35 @@ export const GeneratorForm = () => {
           <div className="mt-6 flex flex-col gap-2">
             {!isGenerating && (
               <>
+                {showAutoSave && (
+                  <div className="flex items-center gap-2 p-3 mb-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-100 dark:border-indigo-800/30">
+                    <input
+                      type="checkbox"
+                      id="autoSave"
+                      checked={autoSaveEnabled}
+                      onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+                      className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <label
+                      htmlFor="autoSave"
+                      className="text-sm font-medium text-indigo-900 dark:text-indigo-200 cursor-pointer"
+                    >
+                      Auto Save Questions by Chapter
+                    </label>
+                  </div>
+                )}
                 <Button
                   className="w-full bg-indigo-600 text-white hover:bg-indigo-700 font-semibold"
                   onClick={handleAddToEditor}
+                  disabled={isSavingToBank}
                 >
-                  Insert All into Editor
+                  {isSavingToBank ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Saving...
+                    </span>
+                  ) : (
+                    "Insert All into Editor"
+                  )}
                 </Button>
                 <Button
                   variant="ghost"

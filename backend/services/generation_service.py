@@ -55,7 +55,15 @@ def stream_generated_questions(
         '          "type": "MCQ | SHORT | LONG | TF",\n'
         '          "options": ["Option 1", "Option 2", "Option 3", "Option 4"], (for MCQ only; empty [] for TF)\n'
         '          "answer": "Correct Answer",\n'
-        '          "marks": 1\n'
+        '          "marks": 1,\n'
+        '          "metadata": {\n'
+        '            "gradeClass": "e.g. 10th Grade",\n'
+        '            "subject": "e.g. Science",\n'
+        '            "inferredTopic": "e.g. Chemical Bonds",\n'
+        '            "inferredChapter": "e.g. Chapter 3",\n'
+        '            "sourcePdf": "Extracted filename/context",\n'
+        '            "difficulty": "Easy | Medium | Hard"\n'
+        '          }\n'
         "        }\n"
         "      ]\n"
         "    }\n"
