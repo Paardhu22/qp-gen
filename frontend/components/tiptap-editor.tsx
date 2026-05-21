@@ -52,9 +52,15 @@ import {
 import { useEditorStore } from "@/store/editor-store";
 import { useEffect, useState, useMemo, useRef, memo } from "react";
 import debounce from "lodash.debounce";
-import { saveDraft, getDraft } from "@/lib/autosave-db";
-import { toast } from "sonner";
+import {
+  getLatestLiveDocumentForUser,
+  getLiveDocument,
+  getLiveDocumentId,
+  saveLiveDocument,
+  type LiveEditorDocument,
+} from "@/lib/live-document-db";
 import { useSession } from "@/lib/auth-client";
+import { savePaperAction, updatePaperAction } from "@/actions/savePaper";
 
 // ==================================
 // Auto-numbering utility
@@ -218,13 +224,7 @@ function updateSectionSummaries(editor: any) {
 // ==================================
 // Word count status bar
 // ==================================
-import {
-  Cloud,
-  CloudOff,
-  CloudLightning,
-  RefreshCw,
-  CheckCircle2,
-} from "lucide-react";
+import { Cloud, CloudOff, CloudLightning, RefreshCw } from "lucide-react";
 
 const StatusBar = memo(({ editor }: { editor: any }) => {
   if (!editor) return null;
@@ -244,19 +244,14 @@ const StatusBar = memo(({ editor }: { editor: any }) => {
       case "saved":
         return (
           <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-            <Cloud className="h-3 w-3" /> Saved locally
+            <Cloud className="h-3 w-3" /> Saved
           </span>
         );
-      case "unsaved":
-        return (
-          <span className="flex items-center gap-1 text-zinc-400 dark:text-zinc-500 font-medium">
-            <CheckCircle2 className="h-3 w-3 text-zinc-300" /> Unsaved changes
-          </span>
-        );
+
       case "offline":
         return (
           <span className="flex items-center gap-1 text-orange-600 dark:text-orange-400 font-medium animate-pulse">
-            <CloudOff className="h-3 w-3" /> Offline (draft saved)
+            <CloudOff className="h-3 w-3" /> Offline
           </span>
         );
       case "failed":
@@ -379,11 +374,59 @@ function normalizeInitialContent(rawContent: string | undefined) {
     if (parsed && parsed.type === "doc") {
       return ensurePageDocument(parsed);
     }
+    if (parsed?.editorJSON?.type === "doc") {
+      return ensurePageDocument(parsed.editorJSON);
+    }
+    if (parsed?.document?.type === "doc") {
+      return ensurePageDocument(parsed.document);
+    }
   } catch {
     // Fall through to HTML handling.
   }
 
   return wrapHtmlInPage(trimmed);
+}
+
+type PaperMetadata = {
+  examName?: string;
+  className?: string;
+  subject?: string;
+};
+
+function resolvePaperMetadata(metadata?: PaperMetadata | null) {
+  return {
+    title: metadata?.examName?.trim() || "Untitled Paper",
+    className: metadata?.className?.trim() || "Unclassified",
+    subject: metadata?.subject?.trim() || "General",
+  };
+}
+
+function buildPersistedPaperContent(params: {
+  editorJSON: any;
+  pages: Array<{ id: string; blocks: any[] }>;
+  template: string;
+  metadata?: PaperMetadata | null;
+  updatedAt: number;
+}) {
+  const metadata = resolvePaperMetadata(params.metadata);
+
+  return {
+    version: 1,
+    editorJSON: params.editorJSON,
+    pages: params.pages,
+    metadata: {
+      ...metadata,
+      template: params.template,
+      updatedAt: params.updatedAt,
+    },
+    layout: {
+      pageSize: "A4" as const,
+      orientation: "portrait" as const,
+      template: params.template,
+      pages: params.pages,
+    },
+    updatedAt: params.updatedAt,
+  };
 }
 
 function getLastPageInsertPos(editor: any) {
@@ -427,19 +470,46 @@ function scrollToDocumentPosition(editor: any, position: number) {
 // ==================================
 type TiptapEditorProps = {
   initialContent?: string;
+  paperId?: string | null;
+  serverUpdatedAt?: string | null;
+  paperMetadata?: PaperMetadata;
+  onPaperCreatedAction?: (paperId: string) => void;
 };
 
-export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
+export const TiptapEditor = ({
+  initialContent,
+  paperId = null,
+  serverUpdatedAt = null,
+  paperMetadata,
+  onPaperCreatedAction,
+}: TiptapEditorProps) => {
   const [isClient, setIsClient] = useState(false);
   const template = useEditorStore((state) => state.template);
   const { data: sessionData } = useSession();
   const userIdRef = useRef<string | null>(null);
+  const paperIdRef = useRef<string | null>(paperId);
+  const paperMetadataRef = useRef<PaperMetadata | undefined>(paperMetadata);
+  const onPaperCreatedRef =
+    useRef<TiptapEditorProps["onPaperCreatedAction"]>(onPaperCreatedAction);
+  const syncPromiseRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (sessionData?.user?.id) {
       userIdRef.current = sessionData.user.id;
     }
   }, [sessionData]);
+
+  useEffect(() => {
+    paperIdRef.current = paperId;
+  }, [paperId]);
+
+  useEffect(() => {
+    paperMetadataRef.current = paperMetadata;
+  }, [paperMetadata]);
+
+  useEffect(() => {
+    onPaperCreatedRef.current = onPaperCreatedAction;
+  }, [onPaperCreatedAction]);
 
   useEffect(() => {
     setIsClient(true);
@@ -471,77 +541,111 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
   );
 
   const setSaveState = useEditorStore((state) => state.setSaveState);
+  const setEditorContent = useEditorStore((state) => state.setEditorContent);
 
-  const debouncedAutosave = useMemo(
+  const debouncedLiveSync = useMemo(
     () =>
-      debounce(async (editor: any) => {
+      debounce((editor: any) => {
         if (!editor || editor.isDestroyed) return;
-        setSaveState("saving");
 
-        try {
-          const editorJSON = editor.getJSON();
-          const sections: any[] = [];
-          const questions: any[] = [];
+        syncPromiseRef.current = syncPromiseRef.current
+          .then(async () => {
+            const currentUserId = userIdRef.current;
+            if (!currentUserId) return;
 
-          editor.state.doc.descendants((node: any) => {
-            if (node.type.name === "sectionBlock") {
-              sections.push({
-                title: (node.textContent || "").trim(),
-                attrs: node.attrs,
-              });
-            } else if (node.type.name === "questionBlock") {
-              let text = "";
-              node.descendants((child: any) => {
-                if (child.isText) text += child.text;
-              });
-              questions.push({
-                content: text.trim() || (node.textContent || "").trim(),
-                marks: node.attrs?.marks || 1,
-                type: node.attrs?.questionType || "SHORT",
-              });
-            }
-          });
+            setSaveState("saving");
 
-          const currentUserId = userIdRef.current;
-          if (!currentUserId) return; // Do not save drafts before the user session is resolved
-
-          const isOnline =
-            typeof navigator !== "undefined" ? navigator.onLine : true;
-          const currentPaperId =
-            typeof window !== "undefined"
-              ? new URLSearchParams(window.location.search).get("paperId")
-              : null;
-
-          const draftId = currentPaperId
-            ? `draft_${currentPaperId}_${currentUserId}`
-            : `draft_new_${currentUserId}`;
-
-          const draft = {
-            id: draftId,
-            paperId: currentPaperId,
-            title: "Autosaved Draft",
-            template,
-            editorJSON,
-            structuredData: {
-              metadata: {
-                title: "Autosaved Draft",
-                template,
-                updatedAt: Date.now(),
+            const updatedAt = new Date().getTime();
+            const editorJSON = editor.getJSON();
+            const pages = extractPagesFromDoc(editor.state.doc);
+            const contentPayload = buildPersistedPaperContent({
+              editorJSON,
+              pages,
+              template,
+              metadata: paperMetadataRef.current,
+              updatedAt,
+            });
+            const content = JSON.stringify(contentPayload);
+            const metadata = resolvePaperMetadata(paperMetadataRef.current);
+            const currentPaperId = paperIdRef.current;
+            const liveDocument: LiveEditorDocument = {
+              id: getLiveDocumentId(currentUserId, currentPaperId),
+              userId: currentUserId,
+              paperId: currentPaperId,
+              title: metadata.title,
+              template,
+              editorJSON,
+              pages,
+              metadata: contentPayload.metadata,
+              layout: contentPayload.layout,
+              sync: {
+                status: "pending",
+                lastSyncedAt: null,
+                error: null,
               },
-              sections,
-              questions,
-            },
-            updatedAt: Date.now(),
-          };
+              updatedAt,
+            };
 
-          await saveDraft(draft);
-          setSaveState(isOnline ? "saved" : "offline");
-        } catch (error) {
-          console.error("Autosave error:", error);
-          setSaveState("failed");
-        }
-      }, 1500),
-    [template, setSaveState],
+            try {
+              await saveLiveDocument(liveDocument);
+              setEditorContent(content);
+
+              const isOnline =
+                typeof navigator !== "undefined" ? navigator.onLine : true;
+              if (!isOnline) {
+                setSaveState("offline");
+                return;
+              }
+
+              let syncedPaperId = currentPaperId;
+              if (syncedPaperId) {
+                await updatePaperAction(syncedPaperId, {
+                  class: metadata.className,
+                  subject: metadata.subject,
+                  examName: metadata.title,
+                  content,
+                  questionRefs: [],
+                });
+              } else {
+                const result = await savePaperAction({
+                  class: metadata.className,
+                  subject: metadata.subject,
+                  examName: metadata.title,
+                  content,
+                  questionRefs: [],
+                });
+                syncedPaperId = result.paperId;
+                paperIdRef.current = syncedPaperId;
+                onPaperCreatedRef.current?.(syncedPaperId);
+              }
+
+              await saveLiveDocument({
+                ...liveDocument,
+                id: getLiveDocumentId(currentUserId, syncedPaperId),
+                paperId: syncedPaperId,
+                sync: {
+                  status: "synced",
+                  lastSyncedAt: new Date().getTime(),
+                  error: null,
+                },
+              });
+              setSaveState("saved");
+            } catch (error: any) {
+              console.error("Live sync error:", error);
+              await saveLiveDocument({
+                ...liveDocument,
+                sync: {
+                  status: "failed",
+                  lastSyncedAt: null,
+                  error: error?.message || "Sync failed",
+                },
+              });
+              setSaveState("failed");
+            }
+          })
+          .catch((err) => console.error("Sync chain error:", err));
+      }, 1000),
+    [template, setEditorContent, setSaveState],
   );
 
   const editor = useEditor({
@@ -633,11 +737,23 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
       },
     },
     onUpdate: ({ editor }) => {
-      setSaveState("unsaved");
+      const updatedAt = new Date().getTime();
+      const editorJSON = editor.getJSON();
+      const pages = extractPagesFromDoc(editor.state.doc);
+      const contentPayload = buildPersistedPaperContent({
+        editorJSON,
+        pages,
+        template,
+        metadata: paperMetadataRef.current,
+        updatedAt,
+      });
+
+      setEditorContent(JSON.stringify(contentPayload));
+      setSaveState("saving");
       debouncedNumbering(editor);
       debouncedPageState(editor);
       debouncedSectionSummaries(editor);
-      debouncedAutosave(editor);
+      debouncedLiveSync(editor);
     },
   });
 
@@ -655,80 +771,19 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     });
   }, [editor, template]);
 
-  // Session Recovery & Local Offline detection
-  useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
-
-    const checkDraft = async () => {
-      try {
-        const currentUserId = userIdRef.current;
-        if (!currentUserId) return; // Wait until session resolves
-
-        const currentPaperId = new URLSearchParams(window.location.search).get(
-          "paperId",
-        );
-
-        const draftId = currentPaperId
-          ? `draft_${currentPaperId}_${currentUserId}`
-          : `draft_new_${currentUserId}`;
-
-        const draft = await getDraft(draftId);
-        if (!draft) return;
-
-        // Verify if this local draft belongs to the current editor session/paper context
-        if (draft.paperId === currentPaperId) {
-          const localTime = new Date(draft.updatedAt).toLocaleTimeString();
-          
-          toast.custom((t) => (
-            <div className="bg-card text-foreground border border-border rounded-xl p-4 shadow-xl flex items-center justify-between gap-4 w-[350px]">
-              <div className="flex flex-col gap-1 min-w-0">
-                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
-                  Unsaved draft found
-                </span>
-                <span className="text-[11px] text-muted-foreground truncate">
-                  Created at {localTime}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => {
-                    editor.commands.setContent(draft.editorJSON);
-                    setPages(extractPagesFromDoc(editor.state.doc));
-                    updateQuestionNumbers(editor);
-                    updateSectionSummaries(editor);
-                    setSaveState("saved");
-                    toast.dismiss(t);
-                    toast.success("Draft restored successfully!");
-                  }}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11.5px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition-all"
-                >
-                  Restore
-                </button>
-                <button
-                  onClick={() => toast.dismiss(t)}
-                  className="text-muted-foreground hover:text-foreground text-[12px] font-bold hover:bg-muted/80 p-1.5 rounded-lg transition-all"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          ), { duration: 15000 });
-        }
-      } catch (err) {
-        console.error("Failed to check draft recovery:", err);
-      }
-    };
-
-    const timer = setTimeout(checkDraft, 1000);
-    return () => clearTimeout(timer);
-  }, [editor, setPages, setSaveState, sessionData]);
+  // Local offline detection for the live sync indicator.
 
   useEffect(() => {
     const handleOnline = () => {
       const state = useEditorStore.getState().saveState;
-      if (state === "offline") {
-        setSaveState("saved");
+      if (
+        (state === "offline" || state === "failed") &&
+        editor &&
+        !editor.isDestroyed
+      ) {
+        setSaveState("saving");
+        debouncedLiveSync(editor);
+        debouncedLiveSync.flush();
       }
     };
     const handleOffline = () => {
@@ -746,20 +801,20 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
         window.removeEventListener("offline", handleOffline);
       }
     };
-  }, [setSaveState]);
+  }, [debouncedLiveSync, editor, setSaveState]);
 
   useEffect(() => {
     return () => {
       debouncedNumbering.cancel();
       debouncedPageState.cancel();
       debouncedSectionSummaries.cancel();
-      debouncedAutosave.cancel();
+      debouncedLiveSync.cancel();
     };
   }, [
     debouncedNumbering,
     debouncedPageState,
     debouncedSectionSummaries,
-    debouncedAutosave,
+    debouncedLiveSync,
   ]);
 
   // Handle question insertion from AI generator
@@ -775,21 +830,94 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
   const lastLoadedContentRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     if (initialContent === undefined) return;
-    if (lastLoadedContentRef.current === initialContent) return;
 
-    // Mark as loaded immediately so a rapid re-render doesn't fire this twice.
-    const content = initialContent ?? "";
-    lastLoadedContentRef.current = content;
-    const normalizedContent = normalizeInitialContent(content);
+    const currentUserId = sessionData?.user?.id;
+    if (!currentUserId) return;
 
-    queueMicrotask(() => {
-      editor.commands.setContent(normalizedContent, { emitUpdate: false });
-      setPages(extractPagesFromDoc(editor.state.doc));
-      updateSectionSummaries(editor);
-    });
-  }, [editor, initialContent, setPages]);
+    const loadKey = `${currentUserId}:${paperId ?? "current"}:${serverUpdatedAt ?? "local"}:${initialContent}`;
+    if (lastLoadedContentRef.current === loadKey) return;
+    lastLoadedContentRef.current = loadKey;
+
+    let cancelled = false;
+
+    const loadLatestDocument = async () => {
+      const currentPaperId = paperIdRef.current;
+      const serverUpdatedTime = serverUpdatedAt
+        ? new Date(serverUpdatedAt).getTime()
+        : 0;
+
+      let contentToLoad = normalizeInitialContent(initialContent ?? "");
+      let liveDocument: LiveEditorDocument | null = null;
+
+      try {
+        liveDocument = currentPaperId
+          ? await getLiveDocument(
+              getLiveDocumentId(currentUserId, currentPaperId),
+            )
+          : await getLatestLiveDocumentForUser(currentUserId);
+      } catch (error) {
+        console.error("Failed to load live editor state:", error);
+      }
+
+      if (
+        liveDocument &&
+        (!currentPaperId || liveDocument.paperId === currentPaperId) &&
+        (!currentPaperId || liveDocument.updatedAt >= serverUpdatedTime)
+      ) {
+        contentToLoad = ensurePageDocument(liveDocument.editorJSON);
+        if (!currentPaperId && liveDocument.paperId) {
+          paperIdRef.current = liveDocument.paperId;
+          onPaperCreatedRef.current?.(liveDocument.paperId);
+        }
+      }
+
+      if (cancelled || editor.isDestroyed) return;
+
+      queueMicrotask(() => {
+        if (cancelled || editor.isDestroyed) return;
+        editor.commands.setContent(contentToLoad, { emitUpdate: false });
+        const pages = extractPagesFromDoc(editor.state.doc);
+        const editorJSON = editor.getJSON();
+        const updatedAt = liveDocument?.updatedAt || Date.now();
+        const contentPayload = buildPersistedPaperContent({
+          editorJSON,
+          pages,
+          template,
+          metadata: paperMetadataRef.current,
+          updatedAt,
+        });
+
+        setPages(pages);
+        setEditorContent(JSON.stringify(contentPayload));
+        updateSectionSummaries(editor);
+        setSaveState(
+          typeof navigator !== "undefined" && !navigator.onLine
+            ? "offline"
+            : liveDocument?.sync.status === "failed"
+              ? "failed"
+              : "saved",
+        );
+      });
+    };
+
+    loadLatestDocument();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    editor,
+    initialContent,
+    paperId,
+    serverUpdatedAt,
+    sessionData?.user?.id,
+    setEditorContent,
+    setPages,
+    setSaveState,
+    template,
+  ]);
 
   useEffect(() => {
     if (questionsToAppend.length === 0 || !editor) return;
@@ -839,8 +967,12 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       editor.commands.focus("end");
       scrollToDocumentPosition(editor, insertPosition);
+
+      // Force a live sync immediately so the AI generated questions are persisted.
+      debouncedLiveSync(editor);
+      debouncedLiveSync.flush();
     });
-  }, [questionsToAppend, editor, clearQuestionsToAppend]);
+  }, [questionsToAppend, editor, clearQuestionsToAppend, debouncedLiveSync]);
 
   // Handle section-wise insertion from AI generator
   useEffect(() => {
@@ -900,8 +1032,12 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       editor.commands.focus("end");
       scrollToDocumentPosition(editor, insertPosition);
+
+      // Force a live sync immediately so the AI generated questions are persisted.
+      debouncedLiveSync(editor);
+      debouncedLiveSync.flush();
     });
-  }, [sectionsToAppend, editor, clearSectionsToAppend]);
+  }, [sectionsToAppend, editor, clearSectionsToAppend, debouncedLiveSync]);
 
   // Find/Replace state
   const [showFindReplace, setShowFindReplace] = useState(false);
@@ -1139,7 +1275,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
         /* ===== Section Block ===== */
         .section-block {
           position: relative;
-          margin: 10px 0 6px;
+          margin: 10px 0 2px;
           break-inside: avoid;
           page-break-inside: avoid;
         }
@@ -1148,9 +1284,7 @@ export const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
           display: flex;
           justify-content: space-between;
           align-items: baseline;
-          border-top: 1px solid #000000;
-          border-bottom: 1px solid #000000;
-          padding: 4px 0;
+          padding: 2px 0;
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 0.08em;
