@@ -28,7 +28,9 @@ export const PageContainer = ({ node }: PageContainerProps) => {
     <NodeViewWrapper className="doc-page" data-page-id={node.attrs.pageId}>
       <div className="doc-page-inner">
         <div className="doc-page-header" contentEditable={false} />
-        <PageContent className="doc-page-content" />
+        <div style={{ display: "contents" }}>
+          <PageContent className="doc-page-content" />
+        </div>
         <div className="doc-page-footer" contentEditable={false} />
       </div>
     </NodeViewWrapper>
