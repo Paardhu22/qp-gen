@@ -10,17 +10,8 @@ type PageContainerProps = {
   node: any;
 };
 
-type PageContentProps = {
-  className?: string;
-};
-
-export const PageContent = ({ className }: PageContentProps) => {
-  return (
-    <NodeViewContent
-      className={className}
-      data-page-content="true"
-    />
-  );
+export const PageContent = () => {
+  return <NodeViewContent />;
 };
 
 export const PageContainer = ({ node }: PageContainerProps) => {
@@ -28,8 +19,8 @@ export const PageContainer = ({ node }: PageContainerProps) => {
     <NodeViewWrapper className="doc-page" data-page-id={node.attrs.pageId}>
       <div className="doc-page-inner">
         <div className="doc-page-header" contentEditable={false} />
-        <div style={{ display: "contents" }}>
-          <PageContent className="doc-page-content" />
+        <div className="doc-page-content editable-container" data-page-content="true">
+          <PageContent />
         </div>
         <div className="doc-page-footer" contentEditable={false} />
       </div>

@@ -18,6 +18,12 @@ import {
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useSession } from "@/lib/auth-client";
+import {
+  deleteLiveDocument,
+  clearLiveDocumentsForUser,
+  getLiveDocumentId,
+} from "@/lib/live-document-db";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +67,7 @@ function formatDate(value?: string): string {
 
 export default function QuestionBankPage() {
   const router = useRouter();
+  const { data: sessionData } = useSession();
 
   const [papers, setPapers] = useState<Paper[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -100,6 +107,14 @@ export default function QuestionBankPage() {
     try {
       await deletePaper(id);
       setPapers((prev) => prev.filter((p) => p.id !== id));
+      
+      const userId = sessionData?.user?.id;
+      if (userId) {
+        await deleteLiveDocument(getLiveDocumentId(userId, id)).catch((err) =>
+          console.error("Failed to delete local autosave:", err)
+        );
+      }
+      
       toast.success("Paper deleted.");
     } catch {
       toast.error("Failed to delete paper.");
@@ -127,6 +142,14 @@ export default function QuestionBankPage() {
     try {
       await fetchJson("/api/projects/papers/clear", { method: "DELETE" });
       setPapers([]);
+      
+      const userId = sessionData?.user?.id;
+      if (userId) {
+        await clearLiveDocumentsForUser(userId).catch((err) =>
+          console.error("Failed to clear local autosaves:", err)
+        );
+      }
+      
       toast.success("All papers cleared.");
     } catch {
       toast.error("Failed to clear papers.");
