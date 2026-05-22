@@ -3,6 +3,8 @@ import re
 import dataclasses
 from typing import List, Dict, Any, Iterable
 
+from django.conf import settings
+
 from q_instructions.master.facade import AcademicGenerationFacade, GeneratePaperRequest
 
 logger = logging.getLogger("[GEN_ROUTER]")
@@ -16,6 +18,10 @@ def should_use_new_engine(payload: dict) -> bool:
     """
     logger.info(f"[GEN_ROUTER] RAW PAYLOAD:\n{payload}")
     
+    if not settings.QG_NEW_ENGINE_ENABLED:
+        logger.info("[ROUTE_DECISION] Feature flag disabled for new engine")
+        return False
+
     if not payload:
         logger.info("[ROUTE_DECISION] Missing payload entirely")
         return False
@@ -83,76 +89,9 @@ def adapt_response_to_legacy(new_response) -> dict:
     """
     Adapts a GeneratedPaperResponse from the new engine to the legacy JSON format.
     """
-    # 1. Build a lookup for expected answers from answer_keys
-    answer_lookup = {}
-    for ak in new_response.answer_keys:
-        answer_lookup[ak["question_id"]] = ak.get("expected_answer", "Explanatory points with scientific reasoning.")
+    from apps.question_generation.adapters.legacy_response import adapt_questions_to_legacy
 
-    # 2. Convert standard questions to legacy structure
-    legacy_questions = []
-    for q in new_response.questions:
-        q_id = q.question_id
-        content = q.content_text
-        q_type = q.question_type # e.g. "MCQ", "SHORT_ANSWER", "NUMERICAL", "DIAGRAM", "CASE_STUDY", "LONG_ANSWER"
-        
-        # Normalize question types to legacy: MCQ, SHORT, LONG, TF
-        legacy_type = "SHORT"
-        if q_type == "MCQ":
-            legacy_type = "MCQ"
-        elif q_type == "LONG_ANSWER":
-            legacy_type = "LONG"
-        elif q_type in ["SHORT_ANSWER", "NUMERICAL", "DIAGRAM", "CASE_STUDY"]:
-            legacy_type = "SHORT"
-            
-        # Parse MCQ options if type is MCQ
-        options = []
-        if q_type == "MCQ":
-            content, options = extract_mcq_options(content)
-            
-        answer = answer_lookup.get(q_id, "Explanatory points with scientific reasoning.")
-        
-        # Build metadata
-        metadata = {
-            "gradeClass": "10th Grade",
-            "subject": "Science",
-            "inferredTopic": q.stream, # E.g., Physics, Chemistry, Biology
-            "inferredChapter": q.metadata.get("inferredChapter", "Electricity"),
-            "sourcePdf": q.metadata.get("sourcePdf", ""),
-            "difficulty": q.metadata.get("difficulty", "Medium")
-        }
-        
-        legacy_questions.append({
-            "content": content,
-            "type": legacy_type,
-            "options": options,
-            "answer": answer,
-            "marks": q.assigned_marks,
-            "metadata": metadata
-        })
-
-    # Group legacy_questions by type into sections
-    sections_map = {}
-    for lq in legacy_questions:
-        lq_type = lq["type"]
-        if lq_type == "MCQ":
-            sec_title = "Section A: Multiple Choice Questions (1 Mark)"
-        elif lq_type == "LONG":
-            sec_title = "Section C: Long Answer Questions (5 Marks)"
-        else:
-            sec_title = "Section B: Short Answer Questions"
-            
-        if sec_title not in sections_map:
-            sections_map[sec_title] = []
-        sections_map[sec_title].append(lq)
-        
-    sections = []
-    for title, qs in sections_map.items():
-        sections.append({
-            "title": title,
-            "questions": qs
-        })
-        
-    return {"sections": sections}
+    return adapt_questions_to_legacy(new_response)
 
 
 def build_blueprint_instructions(
@@ -165,27 +104,16 @@ def build_blueprint_instructions(
     returning a strict pedagogical prompt for the LLM.
     """
     logger.info("[NEW_ENGINE] Compiling academic blueprint for LLM guidance...")
-    facade = AcademicGenerationFacade()
     
     chapters_list = [t.strip() for t in topic.split(",")] if "," in topic else [topic]
     
     # Map incoming request fields into the new engine request schema
-    paper_req = GeneratePaperRequest(
-        board="CBSE",
-        academic_class="CLASS_10",
-        exam_type="FINAL",
-        chapters=chapters_list,
-        difficulty=difficulty,
-        count=count,
-        institution_id="CBSE_OFFICIAL",
-        seed=42
-    )
-    
-    # Compile blueprint (we use the internal orchestrator's compiler here since facade.generate_paper drafts static templates)
     try:
-        from q_instructions.core.enums import EducationBoard, AcademicClass, ExamType
-        policy = facade._orchestrator._institutions.get_policy(paper_req.institution_id)
-        blueprint = facade._orchestrator._compiler.compile(
+        from apps.question_generation.domain.blueprints.compiler import BlueprintCompiler
+        from apps.question_generation.domain.enums import EducationBoard, AcademicClass, ExamType
+
+        compiler = BlueprintCompiler()
+        blueprint = compiler.compile(
             board=EducationBoard.CBSE,
             academic_class=AcademicClass.CLASS_10,
             exam_type=ExamType.FINAL,
@@ -193,7 +121,7 @@ def build_blueprint_instructions(
             chapters=chapters_list,
             difficulty=difficulty,
             count=count,
-            institution_policy=policy
+            institution_policy=None,
         )
         
         rules = [
