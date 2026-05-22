@@ -66,8 +66,13 @@ class TestScienceEngineView(APIView):
     permission_classes = [AllowAny] # Set to AllowAny for testing the vertical slice
 
     def post(self, request):
-        from q_instructions.master.facade import AcademicGenerationFacade, GeneratePaperRequest
-        
+        from django.conf import settings
+
+        if settings.QG_NEW_ENGINE_ENABLED:
+            from apps.question_generation.services.facade import AcademicGenerationFacade, GeneratePaperRequest
+        else:
+            from q_instructions.master.facade import AcademicGenerationFacade, GeneratePaperRequest
+
         facade = AcademicGenerationFacade()
         
         # Hardcoded parameters for the isolated vertical slice test
@@ -78,12 +83,15 @@ class TestScienceEngineView(APIView):
             chapters=["Electricity"],
             difficulty="medium",
             institution_id="DPS_E_DELHI",
-            seed=42
+            seed=42,
         )
         
         try:
             # Execute the real generation flow
-            response_dto = facade.generate_paper(paper_req)
+            if settings.QG_NEW_ENGINE_ENABLED:
+                response_dto = facade.generate_paper(paper_req)
+            else:
+                response_dto = facade.generate_paper(paper_req)
             
             # Convert the dataclass to dict for JSON serialization
             response_data = dataclasses.asdict(response_dto)

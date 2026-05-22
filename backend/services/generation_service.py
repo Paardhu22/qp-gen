@@ -5,8 +5,25 @@ from typing import Iterable, List, Optional
 from apps.generation.models import GenerationHistory
 from django.conf import settings
 
-from services.openai_service import get_openai_client
-from services.retrieval_service import retrieve_relevant_chunks
+from apps.question_generation.domain.context import (
+    GenerationConstraints,
+    GenerationContext,
+    TokenBudget,
+)
+from apps.question_generation.domain.enums import AcademicClass, EducationBoard
+from apps.question_generation.infrastructure.observability.metrics import GenerationMetrics
+from apps.question_generation.infrastructure.providers.openai_provider import OpenAIProvider
+from apps.question_generation.infrastructure.token_budget.budgeter import (
+    allocate_budget,
+    trim_chunks_to_budget,
+)
+from apps.question_generation.services.prompting.assembler import PromptAssembler, default_system_rules
+from apps.question_generation.services.prompting.request_factory import LLMRequestFactory
+from apps.question_generation.services.retrieval.context_service import (
+    get_all_chunks,
+    retrieve_relevant_chunks,
+    retrieval_quality_summary,
+)
 
 logger = logging.getLogger("[LEGACY_ENGINE]")
 
@@ -45,8 +62,6 @@ def stream_generated_questions(
             logger.error(f"[NEW_ENGINE] Blueprint compilation failed. Safely falling back. Error: {exc}", exc_info=True)
             
     logger.info("[LEGACY_ENGINE] Starting legacy question generation process with LLM...")
-    from services.retrieval_service import get_all_chunks
-    
     # User requested FULL document context without arbitrary semantic limits
     context = get_all_chunks(pdf_source_ids)
     
@@ -63,23 +78,49 @@ def stream_generated_questions(
         )
         return
 
-    context_text = "\n\n".join(item["content"] for item in context)
+    retrieval_metrics = retrieval_quality_summary(context)
+    logger.info(f"[RETRIEVAL_METRICS] {retrieval_metrics}")
 
-    system_prompt = (
-        "You are an expert exam question generator. "
-        "Your task is to generate high-quality exam questions based ONLY on the provided context.\n\n"
-        "STRICT RULES:\n"
-        "1. Do NOT hallucinate.\n"
-        "2. ONLY use the retrieved context below.\n"
-        "3. If a question or its answer cannot be fully supported by the context, do NOT generate it.\n"
-        "4. If there is insufficient context to generate the requested questions, generate only what is possible.\n"
-        "5. Distribute questions across realistic CBSE formats (MCQ, ASSERTION_REASON, SHORT, LONG, CASE_STUDY) and strictly align them with the requested Bloom's Taxonomy targets (e.g., use ASSERTION_REASON for Analyze, CASE_STUDY for Evaluate/Apply).\n"
-        "6. STRICT LIMITS: Do NOT over-generate CASE_STUDY or ASSERTION_REASON questions. Even for 'hard' papers, an exam should contain a MAXIMUM of 3 CASE_STUDY questions and 4 ASSERTION_REASON questions. The vast majority of questions MUST be MCQ, SHORT, and LONG.\n"
-        "7. For MCQ: Provide exactly 4 options in the options array.\n"
-        "8. For ASSERTION_REASON: Format the content as 'Assertion (A): [statement]\nReason (R): [statement]'. The options array MUST be exactly: ['Both A and R are true and R is the correct explanation of A', 'Both A and R are true but R is not the correct explanation of A', 'A is true but R is false', 'A is false but R is true'].\n"
-        "9. For CASE_STUDY: Format the content as a passage followed by 3 sub-questions ((i), (ii), (iii)). Leave the options array empty [].\n"
-        "10. Return the output as a valid JSON object matching the schema below.\n\n"
-        "Schema:\n"
+    raw_chunks = [item["content"] for item in context]
+    max_input_tokens, max_output_tokens = allocate_budget(
+        total_max_tokens=12000,
+        reserved_system_tokens=600,
+        max_output_tokens=1500,
+    )
+    budget_result = trim_chunks_to_budget(raw_chunks, max_input_tokens)
+
+    constraints = GenerationConstraints(count=count, difficulty=difficulty)
+    board = EducationBoard.CBSE
+    academic_class = AcademicClass.CLASS_10
+    if payload:
+        board_raw = str(payload.get("board", "CBSE")).strip().upper()
+        class_raw = str(
+            payload.get("class", payload.get("class_level", payload.get("gradeClass", "CLASS_10")))
+        ).strip()
+        if board_raw in EducationBoard.__members__:
+            board = EducationBoard[board_raw]
+        digits = "".join(filter(str.isdigit, class_raw))
+        if digits:
+            class_name = f"CLASS_{digits}"
+            if class_name in AcademicClass.__members__:
+                academic_class = AcademicClass[class_name]
+    gen_context = GenerationContext(
+        subject="Science",
+        board=board,
+        academic_class=academic_class,
+        difficulty=difficulty,
+        retrieved_chunks=budget_result.selected_chunks,
+        token_budget=TokenBudget(
+            model=settings.OPENAI_MODEL,
+            max_input_tokens=max_input_tokens,
+            max_output_tokens=max_output_tokens,
+            reserved_system_tokens=600,
+        ),
+        generation_constraints=constraints,
+        prompt_version="v1",
+    )
+
+    output_schema = (
         "{\n"
         '  "sections": [\n'
         "    {\n"
@@ -103,20 +144,17 @@ def stream_generated_questions(
         "      ]\n"
         "    }\n"
         "  ]\n"
-        "}\n\n"
-        f"Context:\n{context_text}"
+        "}\n"
     )
 
-    if enhanced_instructions:
-        system_prompt = system_prompt.replace(
-            f"Context:\n{context_text}",
-            (
-                "QUESTION PAPER STRUCTURE INSTRUCTIONS (MUST FOLLOW EXACTLY):\n"
-                f"{enhanced_instructions}\n\n"
-                "You MUST create sections and distribute questions EXACTLY as specified above.\n\n"
-                f"Context:\n{context_text}"
-            ),
-        )
+    assembler = PromptAssembler(version_id="v1")
+    prompt_document = assembler.assemble(
+        context=gen_context,
+        system_rules=default_system_rules(constraints),
+        output_schema=output_schema,
+        blueprint_instructions=enhanced_instructions,
+        extra_instructions=instructions if instructions else None,
+    )
 
     prompt = (
         f"CRITICAL REQUIREMENT: You MUST generate EXACTLY {count} {difficulty} difficulty questions about '{topic}'.\n"
@@ -126,18 +164,22 @@ def stream_generated_questions(
     if enhanced_instructions:
         prompt += f"\n\nStructure instructions to follow strictly: {enhanced_instructions}"
 
-    client = get_openai_client()
+    metrics = GenerationMetrics(
+        prompt_version=gen_context.prompt_version,
+        model=settings.OPENAI_MODEL,
+        chunk_count=len(gen_context.retrieved_chunks),
+        estimated_input_tokens=budget_result.estimated_tokens,
+        estimated_output_tokens=max_output_tokens,
+        truncation_events=budget_result.truncation_events,
+        provider_failures=0,
+    )
+    logger.info(f"[PROMPT_METRICS] {metrics.to_dict()}")
+
+    provider = OpenAIProvider()
+    request_factory = LLMRequestFactory()
+    llm_request = request_factory.build(prompt_document, prompt, model=settings.OPENAI_MODEL)
     try:
-        stream = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
-            stream=True,
-            stream_options={"include_usage": True},
-        )
+        stream = provider.stream_chat(llm_request)
     except Exception as exc:
         yield _sse_event({"error": str(exc)}, event="error")
         return
@@ -151,15 +193,7 @@ def stream_generated_questions(
     # stream_options={"include_usage": True} is set. Breaking out early
     # and re-iterating the stream to grab usage does NOT work with the
     # OpenAI Python SDK — the stream cannot be iterated twice.
-    for chunk in stream:
-        # Capture usage whenever it appears (typically the last chunk)
-        if hasattr(chunk, "usage") and chunk.usage is not None:
-            usage_info = chunk.usage
-
-        if not chunk.choices:
-            continue
-
-        delta = chunk.choices[0].delta.content or ""
+    for delta in stream:
         if delta:
             buffer += delta
 
@@ -187,8 +221,6 @@ def stream_generated_questions(
         if usage_info:
             from services.openai_service import _record_usage
 
-            _record_usage(
-                user, "question_generation", settings.OPENAI_MODEL, usage_info
-            )
+            _record_usage(user, "question_generation", settings.OPENAI_MODEL, usage_info)
 
     yield _sse_event({"done": True}, event="done")
