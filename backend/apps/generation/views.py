@@ -23,6 +23,7 @@ class QuestionGenerationStreamView(APIView):
             count=serializer.validated_data["count"],
             difficulty=serializer.validated_data["difficulty"],
             instructions=serializer.validated_data["instructions"],
+            payload=request.data,
         )
 
         response = StreamingHttpResponse(stream, content_type="text/event-stream")
@@ -52,3 +53,49 @@ class GenerationHistoryListView(APIView):
     def delete(self, request):
         deleted_count, _ = GenerationHistory.objects.filter(user=request.user).delete()
         return Response({"deleted": deleted_count})
+
+from rest_framework.permissions import AllowAny
+import dataclasses
+
+class TestScienceEngineView(APIView):
+    """
+    Isolated integration test view for the new AOS Academic Generation Facade.
+    Executes a real generation pipeline for a single vertical slice:
+    CBSE -> Class 10 -> Science -> Electricity chapter.
+    """
+    permission_classes = [AllowAny] # Set to AllowAny for testing the vertical slice
+
+    def post(self, request):
+        from q_instructions.master.facade import AcademicGenerationFacade, GeneratePaperRequest
+        
+        facade = AcademicGenerationFacade()
+        
+        # Hardcoded parameters for the isolated vertical slice test
+        paper_req = GeneratePaperRequest(
+            board="CBSE",
+            academic_class="CLASS_10",
+            exam_type="FINAL",
+            chapters=["Electricity"],
+            difficulty="medium",
+            institution_id="DPS_E_DELHI",
+            seed=42
+        )
+        
+        try:
+            # Execute the real generation flow
+            response_dto = facade.generate_paper(paper_req)
+            
+            # Convert the dataclass to dict for JSON serialization
+            response_data = dataclasses.asdict(response_dto)
+            
+            return Response({
+                "status": "success",
+                "message": "Science engine vertical slice executed successfully.",
+                "data": response_data
+            })
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": str(e)
+            }, status=500)
+

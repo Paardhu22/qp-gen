@@ -28,7 +28,10 @@ import { FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
 import { fetchForm, streamSse, saveQuestions } from "@/lib/api-client";
 
 const formSchema = z.object({
-  subject: z.string().min(2, "Subject is required"),
+  board: z.string(),
+  academicClass: z.string(),
+  subject: z.string(),
+  topic: z.string().min(2, "Topic is required"),
   difficulty: z.string(),
   questionType: z.string(),
   numberOfQuestions: z.string().min(1),
@@ -46,7 +49,10 @@ export const GeneratorForm = () => {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      subject: "",
+      board: "CBSE",
+      academicClass: "10",
+      subject: "Science",
+      topic: "",
       difficulty: "medium",
       questionType: "mcq",
       numberOfQuestions: "5",
@@ -157,10 +163,13 @@ export const GeneratorForm = () => {
         "/api/generation/questions/stream",
         {
           pdfSourceIds: uploadedDocs.map((d) => d.id),
-          topic: values.subject,
+          topic: values.topic,
           count: parseInt(values.numberOfQuestions, 10),
           difficulty: values.difficulty,
           instructions: generalInstructions || "",
+          board: values.board,
+          subject: values.subject,
+          class: values.academicClass,
         },
         (event, data) => {
           if (event === "error") {
@@ -242,8 +251,8 @@ export const GeneratorForm = () => {
           answer: q.answer || "",
           options: q.options || [],
           marks: Number(q.marks) || 1,
-          grade_class: q.metadata?.gradeClass || form.getValues().subject,
-          subject: q.metadata?.subject || "Generated Subject",
+          grade_class: q.metadata?.gradeClass || form.getValues().academicClass,
+          subject: q.metadata?.subject || form.getValues().subject,
           inferred_topic: q.metadata?.inferredTopic || "Generated Topic",
           inferred_chapter: q.metadata?.inferredChapter || "Generated Chapter",
           source_pdf: q.metadata?.sourcePdf || "",
@@ -388,9 +397,69 @@ export const GeneratorForm = () => {
           onSubmit={form.handleSubmit(onSubmit)}
           className="space-y-6 flex-1"
         >
+          <div className="grid grid-cols-3 gap-4">
+            <FormField
+              control={form.control}
+              name="board"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-zinc-700 dark:text-zinc-300">Board</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
+                    </FormControl>
+                    <SelectContent className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                      <SelectItem value="CBSE">CBSE</SelectItem>
+                      <SelectItem value="ICSE">ICSE</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="academicClass"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-zinc-700 dark:text-zinc-300">Class</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
+                    </FormControl>
+                    <SelectContent className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                      <SelectItem value="10">Class 10</SelectItem>
+                      <SelectItem value="12">Class 12</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="subject"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-zinc-700 dark:text-zinc-300">Subject</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
+                    </FormControl>
+                    <SelectContent className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                      <SelectItem value="Science">Science</SelectItem>
+                      <SelectItem value="Mathematics">Mathematics</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
           <FormField
             control={form.control}
-            name="subject"
+            name="topic"
             render={({ field }) => (
               <FormItem>
                 <FormLabel className="text-zinc-700 dark:text-zinc-300">

@@ -15,6 +15,9 @@ class QuestionGenerationSerializer(serializers.Serializer):
     count = serializers.IntegerField(min_value=1, max_value=50)
     difficulty = serializers.CharField()
     instructions = serializers.CharField(required=False, allow_blank=True, default="")
+    board = serializers.CharField(required=False, allow_blank=True, default="")
+    subject = serializers.CharField(required=False, allow_blank=True, default="")
+    class_level = serializers.CharField(source="class", required=False, allow_blank=True, default="")
 
 
 class AnswerKeySerializer(serializers.Serializer):

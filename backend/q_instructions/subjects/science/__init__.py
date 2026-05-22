@@ -1,0 +1,1 @@
+"""AOS Science Subject Plugin."""
