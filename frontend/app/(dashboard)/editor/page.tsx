@@ -167,7 +167,9 @@ export default function EditorPage() {
 
     const checkResume = async () => {
       try {
-        const latestDoc = await getLatestLiveDocumentForUser(sessionData.user.id);
+        const latestDoc = await getLatestLiveDocumentForUser(
+          sessionData.user.id,
+        );
         if (latestDoc) {
           setResumeDoc(latestDoc);
           setShowResumePrompt(true);
@@ -197,7 +199,7 @@ export default function EditorPage() {
     setShowResumePrompt(false);
     if (sessionData?.user?.id && resumeDoc) {
       await deleteLiveDocument(resumeDoc.id).catch((err) =>
-        console.error("Failed to delete draft:", err)
+        console.error("Failed to delete draft:", err),
       );
     }
     setPaperExamName("");
@@ -241,9 +243,13 @@ export default function EditorPage() {
         const userId = sessionData?.user?.id;
         if (!userId) return;
         try {
-          const draft = await getLiveDocument(getLiveDocumentId(userId, "current"));
+          const draft = await getLiveDocument(
+            getLiveDocumentId(userId, "current"),
+          );
           if (draft && active) {
-            setPaperContent(draft.editorJSON ? JSON.stringify(draft.editorJSON) : "");
+            setPaperContent(
+              draft.editorJSON ? JSON.stringify(draft.editorJSON) : "",
+            );
             setLoadedPaperTitle(draft.metadata?.title || "Unsaved Draft");
             setPaperExamName(draft.metadata?.title || "");
             setPaperClass(draft.metadata?.className || "");
@@ -298,7 +304,9 @@ export default function EditorPage() {
         const is404 =
           error &&
           (error.status === 404 ||
-            String(error.message || "").toLowerCase().includes("not found"));
+            String(error.message || "")
+              .toLowerCase()
+              .includes("not found"));
 
         if (is404) {
           toast.error("This paper no longer exists. Opening a fresh paper...");
@@ -312,8 +320,8 @@ export default function EditorPage() {
 
           const userId = sessionData?.user?.id;
           if (userId && paperId) {
-            deleteLiveDocument(getLiveDocumentId(userId, paperId)).catch((err) =>
-              console.error("Failed to delete stale autosave:", err)
+            deleteLiveDocument(getLiveDocumentId(userId, paperId)).catch(
+              (err) => console.error("Failed to delete stale autosave:", err),
             );
           }
         } else {
@@ -383,8 +391,12 @@ export default function EditorPage() {
         questionRefs: [], // Can implement question refs extracting later if needed
       };
 
-      if (currentPaperId) {
-        await updatePaperAction(currentPaperId, payload);
+      // "current" is a sentinel for an unsaved local draft; treat it as null
+      // so we create a real backend paper instead of trying to PUT /papers/current/.
+      const realPaperId =
+        currentPaperId && currentPaperId !== "current" ? currentPaperId : null;
+      if (realPaperId) {
+        await updatePaperAction(realPaperId, payload);
       } else {
         const result = await savePaperAction(payload);
         router.replace(`/editor?paperId=${result.paperId}`);
@@ -804,16 +816,20 @@ export default function EditorPage() {
           <DialogHeader>
             <DialogTitle>Resume previous paper?</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              We found a previous active paper session. Would you like to continue editing it?
+              We found a previous active paper session. Would you like to
+              continue editing it?
             </DialogDescription>
           </DialogHeader>
           {resumeDoc && (
             <div className="py-4 px-4 bg-muted/30 border border-border rounded-lg space-y-1 my-2">
               <p className="text-sm font-semibold text-foreground">
-                {resumeDoc.metadata?.title || resumeDoc.title || "Untitled Paper"}
+                {resumeDoc.metadata?.title ||
+                  resumeDoc.title ||
+                  "Untitled Paper"}
               </p>
               <p className="text-[11px] text-muted-foreground">
-                Class: {resumeDoc.metadata?.className || "—"} | Subject: {resumeDoc.metadata?.subject || "—"}
+                Class: {resumeDoc.metadata?.className || "—"} | Subject:{" "}
+                {resumeDoc.metadata?.subject || "—"}
               </p>
               <p className="text-[11px] text-muted-foreground">
                 Last active: {new Date(resumeDoc.updatedAt).toLocaleString()}

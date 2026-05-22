@@ -452,7 +452,10 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
   const calculateTotalMarks = useCallback(() => {
     let total = 0;
     editor.state.doc.descendants((node: any) => {
-      if (node.type.name === "questionBlock") {
+      if (
+        node.type.name === "questionBlock" ||
+        node.type.name === "groupedQuestionBlock"
+      ) {
         total += Number(node.attrs.marks) || 0;
       }
     });
@@ -1245,6 +1248,60 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           className="h-6 px-2 text-[10px] font-medium text-purple-400 hover:bg-purple-500/10 rounded transition-colors flex items-center gap-1"
         >
           <PlusCircle className="h-3 w-3" /> OR Group
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() =>
+            insertAfterCurrentBlock(
+              "groupedQuestionBlock",
+              [
+                {
+                  type: "paragraph",
+                  content: [
+                    { type: "text", text: "Main question statement..." },
+                  ],
+                },
+                {
+                  type: "orderedList",
+                  content: [
+                    {
+                      type: "listItem",
+                      content: [
+                        {
+                          type: "paragraph",
+                          content: [
+                            {
+                              type: "text",
+                              text: "Sub-question (a)...",
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                    {
+                      type: "listItem",
+                      content: [
+                        {
+                          type: "paragraph",
+                          content: [
+                            {
+                              type: "text",
+                              text: "Sub-question (b)...",
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+              { marks: 5 },
+            )
+          }
+          className="h-6 px-2 text-[10px] font-medium text-sky-500 hover:bg-sky-500/10 rounded transition-colors flex items-center gap-1"
+        >
+          <PlusCircle className="h-3 w-3" /> Grouped Questions
         </button>
 
         <ToolbarDivider />

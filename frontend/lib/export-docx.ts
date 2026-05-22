@@ -125,6 +125,34 @@ class CustomHtmlToDocxParser {
           }));
           return;
         }
+        if (dataType === "grouped-question-block") {
+          const num = el.getAttribute("data-number") || "";
+          const marks = el.getAttribute("data-marks");
+          const marksText = marks ? ` [${marks}M]` : "";
+          const stem = el.querySelector(".question-content > p");
+          const stemText = stem ? (stem as HTMLElement).innerText : "";
+
+          docxElements.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: `${num ? num + ". " : ""}`, bold: true }),
+                new TextRun({ text: stemText }),
+                new TextRun({ text: marksText, bold: true }),
+              ],
+            }),
+          );
+
+          const listItems = el.querySelectorAll(".question-content ol li, .question-content ul li");
+          listItems.forEach((li, index) => {
+            const label = String.fromCharCode(97 + index);
+            docxElements.push(
+              new Paragraph({
+                text: `${label}) ${(li as HTMLElement).innerText}`,
+              }),
+            );
+          });
+          return;
+        }
         if (dataType === "math-block") {
           const latex = el.getAttribute("data-latex") || el.innerText;
           docxElements.push(new Paragraph({ text: `$$ ${latex} $$`, alignment: AlignmentType.CENTER }));
