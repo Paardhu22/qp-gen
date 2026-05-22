@@ -107,14 +107,14 @@ export default function QuestionBankPage() {
     try {
       await deletePaper(id);
       setPapers((prev) => prev.filter((p) => p.id !== id));
-      
+
       const userId = sessionData?.user?.id;
       if (userId) {
         await deleteLiveDocument(getLiveDocumentId(userId, id)).catch((err) =>
-          console.error("Failed to delete local autosave:", err)
+          console.error("Failed to delete local autosave:", err),
         );
       }
-      
+
       toast.success("Paper deleted.");
     } catch {
       toast.error("Failed to delete paper.");
@@ -142,14 +142,14 @@ export default function QuestionBankPage() {
     try {
       await fetchJson("/api/projects/papers/clear", { method: "DELETE" });
       setPapers([]);
-      
+
       const userId = sessionData?.user?.id;
       if (userId) {
         await clearLiveDocumentsForUser(userId).catch((err) =>
-          console.error("Failed to clear local autosaves:", err)
+          console.error("Failed to clear local autosaves:", err),
         );
       }
-      
+
       toast.success("All papers cleared.");
     } catch {
       toast.error("Failed to clear papers.");
@@ -169,7 +169,16 @@ export default function QuestionBankPage() {
         {/* Left: title block */}
         <div>
           <div>
-            <h1 className="text-3xl font-bold leading-tight">Question Paper</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold leading-tight">
+                Question Paper
+              </h1>
+              {!isLoading && papers.length > 0 && (
+                <span className="inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold dark:bg-indigo-950 dark:text-indigo-400">
+                  {papers.length}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-muted-foreground mt-0.5">
               Browse and open your saved exam papers in the editor.
             </p>

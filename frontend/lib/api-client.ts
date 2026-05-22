@@ -20,11 +20,30 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Thrown when a request is intentionally cancelled by the caller (e.g. because
+ * a newer sync superseded it).  Callers should catch this and return silently
+ * rather than showing an error to the user.
+ */
+export class SyncCancelledError extends Error {
+  constructor() {
+    super("Sync cancelled");
+    this.name = "SyncCancelledError";
+  }
+}
+
 export async function fetchJson<T>(
   path: string,
   options: FetchJsonOptions = {},
 ): Promise<T> {
-  const { skipAuth, timeoutMs = 10000, ...requestInit } = options;
+  // Separate the caller-supplied signal from the rest of RequestInit so we
+  // can merge it with our own internal timeout signal.
+  const {
+    skipAuth,
+    timeoutMs = 10000,
+    signal: callerSignal,
+    ...requestInit
+  } = options;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...((requestInit.headers || {}) as Record<string, string>),
@@ -39,8 +58,16 @@ export async function fetchJson<T>(
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
+  // Bail immediately if the caller already cancelled before we even started.
+  if (callerSignal?.aborted) throw new SyncCancelledError();
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  // Forward the caller's cancellation into our internal controller so a single
+  // AbortSignal drives the actual fetch.
+  const forwardAbort = () => controller.abort();
+  callerSignal?.addEventListener("abort", forwardAbort, { once: true });
 
   let response: Response;
   try {
@@ -51,16 +78,32 @@ export async function fetchJson<T>(
     });
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") {
+      // Distinguish intentional cancellation from a genuine timeout.
+      if (callerSignal?.aborted) throw new SyncCancelledError();
       throw new ApiError("Request timed out. Please try again.", 408);
     }
     throw err;
   } finally {
     clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", forwardAbort);
   }
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    const message = errorBody?.detail || errorBody?.error || "Request failed";
+    // DRF can return field-level errors as { fieldName: ["msg"] } with no top-level
+    // "detail" or "error" key. Flatten those into a readable string.
+    const message =
+      errorBody?.detail ||
+      errorBody?.error ||
+      (typeof errorBody === "object" && errorBody !== null
+        ? Object.entries(errorBody)
+            .map(
+              ([field, msgs]) =>
+                `${field}: ${Array.isArray(msgs) ? msgs.join(", ") : msgs}`,
+            )
+            .join(" | ")
+        : null) ||
+      "Request failed";
     throw new ApiError(message, response.status);
   }
 
@@ -91,7 +134,18 @@ export async function fetchForm<T>(
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    const message = errorBody?.detail || errorBody?.error || "Request failed";
+    const message =
+      errorBody?.detail ||
+      errorBody?.error ||
+      (typeof errorBody === "object" && errorBody !== null
+        ? Object.entries(errorBody)
+            .map(
+              ([field, msgs]) =>
+                `${field}: ${Array.isArray(msgs) ? msgs.join(", ") : msgs}`,
+            )
+            .join(" | ")
+        : null) ||
+      "Request failed";
     throw new ApiError(message, response.status);
   }
 
@@ -186,20 +240,29 @@ export async function saveQuestions<T>(
   });
 }
 
-export async function savePaper<T>(payload: Record<string, any>): Promise<T> {
+export async function savePaper<T>(
+  payload: Record<string, any>,
+  signal?: AbortSignal,
+): Promise<T> {
   return fetchJson<T>("/api/projects/papers/", {
     method: "POST",
     body: JSON.stringify(payload),
+    // Paper saves talk to Neon which may need to wake from cold-start — 30 s.
+    timeoutMs: 30000,
+    signal,
   });
 }
 
 export async function updatePaper<T>(
   paperId: string,
   payload: Record<string, any>,
+  signal?: AbortSignal,
 ): Promise<T> {
   return fetchJson<T>(`/api/projects/papers/${paperId}/`, {
     method: "PUT",
     body: JSON.stringify(payload),
+    timeoutMs: 30000,
+    signal,
   });
 }
 
