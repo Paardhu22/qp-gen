@@ -45,3 +45,47 @@ def retrieve_relevant_chunks(
         )
 
     return results
+
+def get_all_chunks(
+    pdf_source_ids: List[str],
+) -> List[dict]:
+    """
+    Retrieves chunks from the specified PDFs. If the document is too large,
+    it dynamically samples chunks evenly across the document to stay safely
+    below OpenAI's 30,000 TPM rate limit while still representing the ENTIRE document.
+    """
+    if not pdf_source_ids:
+        return []
+
+    queryset = (
+        DocumentChunk.objects.filter(
+            pdf_source_id__in=pdf_source_ids
+        )
+        .order_by("pdf_source_id", "page")
+    )
+
+    all_chunks = list(queryset)
+    total_chunks = len(all_chunks)
+    
+    # Target safe ceiling of 55 chunks to guarantee staying under the 30,000 TPM limit (leaving room for generated output)
+    MAX_CHUNKS = 55
+    
+    if total_chunks > MAX_CHUNKS:
+        # Sample evenly across the full list of chunks to cover every chapter/page
+        step = total_chunks / MAX_CHUNKS
+        sampled_chunks = [all_chunks[int(i * step)] for i in range(MAX_CHUNKS)]
+    else:
+        sampled_chunks = all_chunks
+
+    results = []
+    for chunk in sampled_chunks:
+        results.append(
+            {
+                "content": chunk.content,
+                "page": chunk.page,
+                "similarity": 1.0,
+                "metadata": chunk.metadata,
+            }
+        )
+
+    return results
