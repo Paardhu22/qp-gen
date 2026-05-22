@@ -195,6 +195,14 @@
     cursor: text !important;
 }
 
+/* Drag handle — must win over cursor:text that applies to question content */
+.block-drag-handle {
+    cursor: grab !important;
+}
+.block-drag-handle:active {
+    cursor: grabbing !important;
+}
+
 /* Make the blinking text caret always visible on the light paper (#fcfbf9)
    regardless of the OS / browser theme. */
 #tiptap-paper-container {
@@ -246,6 +254,18 @@
 .landing-grainient {
     opacity: 1;
     filter: saturate(1.1) contrast(1.05);
+}
+
+@keyframes loading-bar {
+    0% {
+        transform: translateX(-100%);
+    }
+    50% {
+        transform: translateX(60%);
+    }
+    100% {
+        transform: translateX(200%);
+    }
 }
 
 @keyframes landing-shimmer {

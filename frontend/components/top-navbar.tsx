@@ -1,15 +1,23 @@
 "use client";
 
-import { useSession } from "@/lib/auth-client";
+import { useSession, signOut } from "@/lib/auth-client";
 import { ThemeToggle } from "./ui/curtain-theme-toggle";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   ListChecks,
   FileText,
   BookOpen,
   Settings,
+  LogOut,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -25,6 +33,15 @@ const navItems = [
 export const TopNavbar = () => {
   const { data: session } = useSession();
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleSignOut = async () => {
+    await signOut({
+      fetchOptions: {
+        onSuccess: () => router.push("/login"),
+      },
+    });
+  };
 
   return (
     <div className="flex items-center px-4 border-b border-border bg-background/50 backdrop-blur-md h-[4.5rem]">
@@ -75,12 +92,34 @@ export const TopNavbar = () => {
         {/* Right side */}
         <div className="flex items-center gap-x-3">
           <ThemeToggle variant="icon" />
-          <span className="text-sm font-medium text-foreground hidden md:block">
-            {session?.user?.name || "User"}
-          </span>
-          <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-sm font-bold text-primary-foreground">
-            {session?.user?.name?.charAt(0).toUpperCase() || "U"}
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer">
+              <span className="text-sm font-medium text-foreground hidden md:block">
+                {session?.user?.name || "User"}
+              </span>
+              <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-sm font-bold text-primary-foreground hover:opacity-80 transition-opacity">
+                {session?.user?.name?.charAt(0).toUpperCase() || "U"}
+              </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <div className="px-2 py-1.5 flex flex-col gap-0.5">
+                <span className="font-semibold text-sm text-foreground">
+                  {session?.user?.name || "User"}
+                </span>
+                <span className="text-xs text-muted-foreground truncate">
+                  {session?.user?.email || ""}
+                </span>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleSignOut}
+                className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer gap-2"
+              >
+                <LogOut className="h-4 w-4" />
+                Log out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </div>

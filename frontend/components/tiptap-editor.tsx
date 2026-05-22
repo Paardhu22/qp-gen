@@ -28,6 +28,7 @@ import {
   SectionBlock,
   InstructionBlock,
   QuestionGroupBlock,
+  GroupedQuestionBlock,
   PageBreak,
 } from "./editor/extensions/nodes";
 import { PaperHeaderBlock as PaperHeaderBlockExt } from "./editor/extensions/header-node";
@@ -61,6 +62,7 @@ import {
 } from "@/lib/live-document-db";
 import { useSession } from "@/lib/auth-client";
 import { savePaperAction, updatePaperAction } from "@/actions/savePaper";
+import { SyncCancelledError } from "@/lib/api-client";
 
 // ==================================
 // Auto-numbering utility
@@ -71,7 +73,10 @@ function updateQuestionNumbers(editor: any) {
   const tr = editor.state.tr;
 
   editor.state.doc.descendants((node: any, pos: number) => {
-    if (node.type.name === "questionBlock") {
+    if (
+      node.type.name === "questionBlock" ||
+      node.type.name === "groupedQuestionBlock"
+    ) {
       if (node.attrs.number !== currentNumber) {
         tr.setNodeMarkup(pos, undefined, {
           ...node.attrs,
@@ -145,7 +150,11 @@ function updateSectionSummaries(editor: any) {
       return;
     }
 
-    if (node.type.name === "questionBlock" && currentSection) {
+    if (
+      (node.type.name === "questionBlock" ||
+        node.type.name === "groupedQuestionBlock") &&
+      currentSection
+    ) {
       const marks = Number(node.attrs?.marks ?? 0) || 0;
       currentSection.questionCount += 1;
       currentSection.totalMarks += marks;
@@ -395,9 +404,9 @@ type PaperMetadata = {
 
 function resolvePaperMetadata(metadata?: PaperMetadata | null) {
   return {
-    title: metadata?.examName?.trim() || "Untitled Paper",
-    className: metadata?.className?.trim() || "Unclassified",
-    subject: metadata?.subject?.trim() || "General",
+    title: metadata?.examName?.trim() || "",
+    className: metadata?.className?.trim() || "",
+    subject: metadata?.subject?.trim() || "",
   };
 }
 
@@ -492,6 +501,10 @@ export const TiptapEditor = ({
   const onPaperCreatedRef =
     useRef<TiptapEditorProps["onPaperCreatedAction"]>(onPaperCreatedAction);
   const syncPromiseRef = useRef<Promise<void>>(Promise.resolve());
+  // Holds the AbortController for the currently in-flight save/update HTTP
+  // request.  Replaced on every sync so the previous request is cancelled when
+  // a newer edit arrives.
+  const syncAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (sessionData?.user?.id) {
@@ -548,8 +561,18 @@ export const TiptapEditor = ({
       debounce((editor: any) => {
         if (!editor || editor.isDestroyed) return;
 
+        // Cancel any in-flight HTTP request from a previous sync — the new
+        // edit supersedes it.  A fresh controller is created for this sync.
+        syncAbortControllerRef.current?.abort();
+        const syncAbortController = new AbortController();
+        syncAbortControllerRef.current = syncAbortController;
+
         syncPromiseRef.current = syncPromiseRef.current
           .then(async () => {
+            // If this sync was already cancelled before the promise chain
+            // reached it, skip it silently.
+            if (syncAbortController.signal.aborted) return;
+
             const currentUserId = userIdRef.current;
             if (!currentUserId) return;
 
@@ -566,7 +589,12 @@ export const TiptapEditor = ({
               updatedAt,
             });
             const content = JSON.stringify(contentPayload);
-            const metadata = resolvePaperMetadata(paperMetadataRef.current);
+            const rawMetadata = resolvePaperMetadata(paperMetadataRef.current);
+            // Ensure title is never blank — a blank title fails backend validation.
+            const metadata = {
+              ...rawMetadata,
+              title: rawMetadata.title || "Untitled Paper",
+            };
             const currentPaperId = paperIdRef.current;
             const liveDocument: LiveEditorDocument = {
               id: getLiveDocumentId(currentUserId, currentPaperId),
@@ -597,23 +625,35 @@ export const TiptapEditor = ({
                 return;
               }
 
-              let syncedPaperId = currentPaperId;
+              // "current" is a sentinel for an unsaved local draft — treat it
+              // as null so we create a real backend paper on first sync.
+              let syncedPaperId =
+                currentPaperId && currentPaperId !== "current"
+                  ? currentPaperId
+                  : null;
               if (syncedPaperId) {
-                await updatePaperAction(syncedPaperId, {
-                  class: metadata.className,
-                  subject: metadata.subject,
-                  examName: metadata.title,
-                  content,
-                  questionRefs: [],
-                });
+                await updatePaperAction(
+                  syncedPaperId,
+                  {
+                    class: metadata.className,
+                    subject: metadata.subject,
+                    examName: metadata.title,
+                    content,
+                    questionRefs: [],
+                  },
+                  syncAbortController.signal,
+                );
               } else {
-                const result = await savePaperAction({
-                  class: metadata.className,
-                  subject: metadata.subject,
-                  examName: metadata.title,
-                  content,
-                  questionRefs: [],
-                });
+                const result = await savePaperAction(
+                  {
+                    class: metadata.className,
+                    subject: metadata.subject,
+                    examName: metadata.title,
+                    content,
+                    questionRefs: [],
+                  },
+                  syncAbortController.signal,
+                );
                 syncedPaperId = result.paperId;
                 paperIdRef.current = syncedPaperId;
                 onPaperCreatedRef.current?.(syncedPaperId);
@@ -631,6 +671,8 @@ export const TiptapEditor = ({
               });
               setSaveState("saved");
             } catch (error: any) {
+              // A newer sync cancelled this one — not an error, just move on.
+              if (error instanceof SyncCancelledError) return;
               console.error("Live sync error:", error);
               await saveLiveDocument({
                 ...liveDocument,
@@ -648,141 +690,150 @@ export const TiptapEditor = ({
     [template, setEditorContent, setSaveState],
   );
 
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: [
-      PaginatedDocument,
-      PageNode,
-      PaginationEngine,
-      StarterKit.configure({
-        document: false,
-        heading: {
-          levels: [1, 2, 3, 4, 5, 6],
+  const editor = useEditor(
+    {
+      immediatelyRender: false,
+      extensions: [
+        PaginatedDocument,
+        PageNode,
+        PaginationEngine,
+        StarterKit.configure({
+          document: false,
+          heading: {
+            levels: [1, 2, 3, 4, 5, 6],
+          },
+          dropcursor: false,
+          gapcursor: false,
+          hardBreak: false,
+          underline: false,
+        }),
+        Typography,
+        Underline,
+        Superscript,
+        Subscript,
+        Highlight.configure({
+          multicolor: true,
+        }),
+        TextStyle,
+        Color,
+        FontFamily,
+        FontSize,
+        LineHeight,
+        IndentExtension,
+        TextAlign.configure({
+          types: [
+            "heading",
+            "paragraph",
+            "questionBlock",
+            "groupedQuestionBlock",
+            "sectionBlock",
+            "instructionBlock",
+          ],
+        }),
+        // ImageResize extends @tiptap/extension-image — do NOT also register
+        // the base Image extension, or the two will conflict on the 'image' node name.
+        ImageResize.configure({
+          inline: true,
+          allowBase64: true,
+        }),
+        // Block-level draggable image with resize + alignment controls
+        FloatImage,
+        Placeholder.configure({
+          placeholder: "Start writing your exam paper...",
+        }),
+        Table.configure({
+          resizable: true,
+          allowTableNodeSelection: true,
+        }),
+        TableRow,
+        TableHeader,
+        TableCell,
+        // Custom exam nodes
+        QuestionBlock,
+        SectionBlock,
+        InstructionBlock,
+        QuestionGroupBlock,
+        GroupedQuestionBlock,
+        PaperHeaderBlockExt,
+        MathBlock,
+        InlineMath,
+        DrawingBlock,
+        PageBreak,
+        // Utilities
+        CharacterCount,
+        Focus.configure({
+          className: "has-focus",
+          mode: "deepest",
+        }),
+        Dropcursor.configure({
+          color: "#000000",
+          width: 2,
+        }),
+        Gapcursor,
+        HardBreak,
+      ],
+      content: createEmptyDocument(),
+      editorProps: {
+        attributes: {
+          id: "tiptap-paper-container",
+          class: "document-editor focus:outline-none text-black",
+          "data-template": template,
+          spellcheck: "true",
         },
-        dropcursor: false,
-        gapcursor: false,
-        hardBreak: false,
-        underline: false,
-      }),
-      Typography,
-      Underline,
-      Superscript,
-      Subscript,
-      Highlight.configure({
-        multicolor: true,
-      }),
-      TextStyle,
-      Color,
-      FontFamily,
-      FontSize,
-      LineHeight,
-      IndentExtension,
-      TextAlign.configure({
-        types: [
-          "heading",
-          "paragraph",
-          "questionBlock",
-          "sectionBlock",
-          "instructionBlock",
-        ],
-      }),
-      // ImageResize extends @tiptap/extension-image — do NOT also register
-      // the base Image extension, or the two will conflict on the 'image' node name.
-      ImageResize.configure({
-        inline: true,
-        allowBase64: true,
-      }),
-      // Block-level draggable image with resize + alignment controls
-      FloatImage,
-      Placeholder.configure({
-        placeholder: "Start writing your exam paper...",
-      }),
-      Table.configure({
-        resizable: true,
-        allowTableNodeSelection: true,
-      }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      // Custom exam nodes
-      QuestionBlock,
-      SectionBlock,
-      InstructionBlock,
-      QuestionGroupBlock,
-      PaperHeaderBlockExt,
-      MathBlock,
-      InlineMath,
-      DrawingBlock,
-      PageBreak,
-      // Utilities
-      CharacterCount,
-      Focus.configure({
-        className: "has-focus",
-        mode: "deepest",
-      }),
-      Dropcursor.configure({
-        color: "#000000",
-        width: 2,
-      }),
-      Gapcursor,
-      HardBreak,
-    ],
-    content: createEmptyDocument(),
-    editorProps: {
-      attributes: {
-        id: "tiptap-paper-container",
-        class: "document-editor focus:outline-none text-black",
-        "data-template": template,
-        spellcheck: "true",
+      },
+      onCreate: ({ editor }) => {
+        console.log("[DEBUG TiptapEditor] Editor CREATED");
+        if (typeof window !== "undefined") {
+          (window as any).__activeEditor = editor;
+          (window as any).__activeEditorDestroy = () => {
+            console.log(
+              "[DEBUG TiptapEditor] EDITOR DESTROY START (manual/nav)",
+            );
+            try {
+              if (editor && !editor.isDestroyed) {
+                if (editor.view) {
+                  (editor.view as any).domObserver?.stop?.();
+                }
+                editor.destroy();
+                console.log(
+                  "[DEBUG TiptapEditor] EDITOR DESTROY COMPLETE (manual/nav)",
+                );
+              }
+            } catch (e) {
+              console.error("Error during activeEditorDestroy:", e);
+            }
+          };
+        }
+      },
+      onDestroy: () => {
+        console.log("[DEBUG TiptapEditor] Editor DESTROYED");
+        if (typeof window !== "undefined") {
+          (window as any).__activeEditor = null;
+          (window as any).__activeEditorDestroy = null;
+        }
+      },
+      onUpdate: ({ editor }) => {
+        const updatedAt = new Date().getTime();
+        const editorJSON = editor.getJSON();
+        const pages = extractPagesFromDoc(editor.state.doc);
+        const contentPayload = buildPersistedPaperContent({
+          editorJSON,
+          pages,
+          template,
+          metadata: paperMetadataRef.current,
+          updatedAt,
+        });
+
+        setEditorContent(JSON.stringify(contentPayload));
+        setSaveState("saving");
+        debouncedNumbering(editor);
+        debouncedPageState(editor);
+        debouncedSectionSummaries(editor);
+        debouncedLiveSync(editor);
       },
     },
-    onCreate: ({ editor }) => {
-      console.log("[DEBUG TiptapEditor] Editor CREATED");
-      if (typeof window !== "undefined") {
-        (window as any).__activeEditor = editor;
-        (window as any).__activeEditorDestroy = () => {
-          console.log("[DEBUG TiptapEditor] EDITOR DESTROY START (manual/nav)");
-          try {
-            if (editor && !editor.isDestroyed) {
-              if (editor.view) {
-                (editor.view as any).domObserver?.stop?.();
-              }
-              editor.destroy();
-              console.log("[DEBUG TiptapEditor] EDITOR DESTROY COMPLETE (manual/nav)");
-            }
-          } catch (e) {
-            console.error("Error during activeEditorDestroy:", e);
-          }
-        };
-      }
-    },
-    onDestroy: () => {
-      console.log("[DEBUG TiptapEditor] Editor DESTROYED");
-      if (typeof window !== "undefined") {
-        (window as any).__activeEditor = null;
-        (window as any).__activeEditorDestroy = null;
-      }
-    },
-    onUpdate: ({ editor }) => {
-      const updatedAt = new Date().getTime();
-      const editorJSON = editor.getJSON();
-      const pages = extractPagesFromDoc(editor.state.doc);
-      const contentPayload = buildPersistedPaperContent({
-        editorJSON,
-        pages,
-        template,
-        metadata: paperMetadataRef.current,
-        updatedAt,
-      });
-
-      setEditorContent(JSON.stringify(contentPayload));
-      setSaveState("saving");
-      debouncedNumbering(editor);
-      debouncedPageState(editor);
-      debouncedSectionSummaries(editor);
-      debouncedLiveSync(editor);
-    },
-  }, []);
+    [],
+  );
 
   useEffect(() => {
     if (!editor) return;
@@ -856,8 +907,14 @@ export const TiptapEditor = ({
         const href = target.getAttribute("href");
         // Intercept route changes away from /editor
         if (href && href.startsWith("/") && !href.startsWith("/editor")) {
-          console.log("[DEBUG TiptapEditor] ROUTE CHANGE START via link:", href);
-          if (typeof window !== "undefined" && (window as any).__activeEditorDestroy) {
+          console.log(
+            "[DEBUG TiptapEditor] ROUTE CHANGE START via link:",
+            href,
+          );
+          if (
+            typeof window !== "undefined" &&
+            (window as any).__activeEditorDestroy
+          ) {
             (window as any).__activeEditorDestroy();
           }
         }
@@ -866,7 +923,10 @@ export const TiptapEditor = ({
 
     const handleBeforeUnload = () => {
       console.log("[DEBUG TiptapEditor] beforeunload event");
-      if (typeof window !== "undefined" && (window as any).__activeEditorDestroy) {
+      if (
+        typeof window !== "undefined" &&
+        (window as any).__activeEditorDestroy
+      ) {
         (window as any).__activeEditorDestroy();
       }
     };
@@ -878,7 +938,9 @@ export const TiptapEditor = ({
 
     return () => {
       if (typeof window !== "undefined") {
-        document.removeEventListener("click", handleGlobalClick, { capture: true });
+        document.removeEventListener("click", handleGlobalClick, {
+          capture: true,
+        });
         window.removeEventListener("beforeunload", handleBeforeUnload);
       }
     };
@@ -887,15 +949,21 @@ export const TiptapEditor = ({
   // Standard unmount effect ensuring observer is stopped first
   useEffect(() => {
     return () => {
-      console.log("[DEBUG TiptapEditor] NODEVIEW UNMOUNT (TiptapEditor unmount)");
+      console.log(
+        "[DEBUG TiptapEditor] NODEVIEW UNMOUNT (TiptapEditor unmount)",
+      );
       if (editor && !editor.isDestroyed) {
-        console.log("[DEBUG TiptapEditor] EDITOR DESTROY START (lifecycle cleanup)");
+        console.log(
+          "[DEBUG TiptapEditor] EDITOR DESTROY START (lifecycle cleanup)",
+        );
         try {
           if (editor.view) {
             (editor.view as any).domObserver?.stop?.();
           }
           editor.destroy();
-          console.log("[DEBUG TiptapEditor] EDITOR DESTROY COMPLETE (lifecycle cleanup)");
+          console.log(
+            "[DEBUG TiptapEditor] EDITOR DESTROY COMPLETE (lifecycle cleanup)",
+          );
         } catch (e) {
           console.error("Error during unmount lifecycle destroy:", e);
         }
@@ -949,7 +1017,9 @@ export const TiptapEditor = ({
 
       if (
         liveDocument &&
-        (currentPaperId === "current" || !currentPaperId || liveDocument.paperId === currentPaperId) &&
+        (currentPaperId === "current" ||
+          !currentPaperId ||
+          liveDocument.paperId === currentPaperId) &&
         (!currentPaperId || liveDocument.updatedAt >= serverUpdatedTime)
       ) {
         contentToLoad = ensurePageDocument(liveDocument.editorJSON);
@@ -1446,6 +1516,51 @@ export const TiptapEditor = ({
           justify-content: center;
         }
 
+        /* ===== Drag Handles ===== */
+        /*
+         * .block-drag-handle sits in the left margin of the page (inside the
+         * 56 px left padding of .doc-page-content so it is never clipped by
+         * overflow:hidden).  It is absolutely positioned relative to the
+         * block's own NodeViewWrapper which already has position:relative.
+         */
+        .block-drag-handle {
+          position: absolute;
+          left: -22px;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 18px;
+          height: 26px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          opacity: 0;
+          transition: opacity 0.15s ease;
+          cursor: grab;
+          color: #999;
+          border-radius: 3px;
+          user-select: none;
+          z-index: 10;
+        }
+
+        /* Reveal on hover of the parent block */
+        .question-block:hover > .block-drag-handle,
+        .section-block:hover > .block-drag-handle,
+        .instruction-block:hover > .block-drag-handle,
+        .question-group:hover > .block-drag-handle {
+          opacity: 1;
+        }
+
+        .block-drag-handle:hover {
+          color: #333;
+          background: rgba(0, 0, 0, 0.07);
+        }
+
+        .block-drag-handle:active {
+          cursor: grabbing;
+          color: #000;
+          background: rgba(0, 0, 0, 0.12);
+        }
+
         /* ===== Question Block ===== */
         .question-block {
           position: relative;
@@ -1509,6 +1624,8 @@ export const TiptapEditor = ({
           top: 4px;
           opacity: 0;
           transition: opacity 0.2s ease;
+          display: flex;
+          gap: 4px;
         }
 
         .question-block:hover .question-controls {
@@ -1516,6 +1633,19 @@ export const TiptapEditor = ({
         }
 
         .question-delete {
+          border: 1px solid #000000;
+          background: #ffffff;
+          color: #000000;
+          border-radius: 999px;
+          padding: 2px;
+          height: 20px;
+          width: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .question-add-sub {
           border: 1px solid #000000;
           background: #ffffff;
           color: #000000;
@@ -1558,6 +1688,52 @@ export const TiptapEditor = ({
 
         .question-body ul li p,
         .question-body ol li p {
+          margin: 0;
+        }
+
+        /* ===== Grouped Question (a, b, ...) ===== */
+        .grouped-question-block .question-body ul,
+        .grouped-question-block .question-body ol {
+          margin: 6px 0 0;
+          padding: 0;
+          list-style: none;
+          display: block;
+          grid-template-columns: none;
+          column-gap: 0;
+          row-gap: 0;
+        }
+
+        .grouped-question-block .question-body ol {
+          counter-reset: subq;
+        }
+
+        .grouped-question-block .question-body ol li,
+        .grouped-question-block .question-body ul li {
+          display: flex;
+          align-items: flex-start;
+          gap: 4px;
+          margin: 2px 0;
+        }
+
+        .grouped-question-block .question-body ol li::before {
+          counter-increment: subq;
+          content: counter(subq, lower-alpha) ") ";
+          font-weight: 700;
+          min-width: 18px;
+          display: inline-flex;
+          justify-content: flex-start;
+        }
+
+        .grouped-question-block .question-body ul li::before {
+          content: "- ";
+          font-weight: 700;
+          min-width: 18px;
+          display: inline-flex;
+          justify-content: flex-start;
+        }
+
+        .grouped-question-block .question-body ol li > p,
+        .grouped-question-block .question-body ul li > p {
           margin: 0;
         }
 
@@ -2045,6 +2221,7 @@ export const TiptapEditor = ({
           .section-controls,
           .instruction-controls,
           .question-group-controls,
+          .block-drag-handle,
           .paper-header-delete,
           .logo-remove-btn,
           .drawing-delete,

@@ -329,42 +329,52 @@ export const GeneratorForm = () => {
           {/* Empty state */}
           {!hasAnyDocs && (
             <div className="text-center py-6 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50 dark:bg-zinc-900/30">
-              <p className="text-xs text-zinc-500">
-                No files uploaded yet.
-              </p>
+              <p className="text-xs text-zinc-500">No files uploaded yet.</p>
             </div>
           )}
 
           {/* Uploading / error rows */}
           {uploadingDocs.map((doc) => (
-            <div
-              key={doc.tempId}
-              className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800"
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                {doc.status === "uploading" ? (
-                  <div className="h-4 w-4 rounded-full bg-zinc-200 dark:bg-zinc-700 animate-pulse flex-shrink-0" />
-                ) : (
-                  <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
-                )}
-                <div className="min-w-0">
-                  <span className="text-xs text-zinc-700 dark:text-zinc-200 truncate block">
-                    {doc.name}
-                  </span>
-                  {doc.status === "error" && (
-                    <span className="text-[10px] text-red-400">
-                      {doc.error}
-                    </span>
+            <div key={doc.tempId}>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800">
+                <div className="flex items-center gap-2 min-w-0">
+                  {doc.status === "uploading" ? (
+                    <Loader2 className="h-4 w-4 text-indigo-500 animate-spin flex-shrink-0" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
                   )}
+                  <div className="min-w-0">
+                    <span className="text-xs text-zinc-700 dark:text-zinc-200 truncate block">
+                      {doc.name}
+                    </span>
+                    {doc.status === "uploading" && (
+                      <span className="text-[10px] text-indigo-400 dark:text-indigo-300">
+                        Processing document, please wait…
+                      </span>
+                    )}
+                    {doc.status === "error" && (
+                      <span className="text-[10px] text-red-400">
+                        {doc.error}
+                      </span>
+                    )}
+                  </div>
                 </div>
+                {doc.status === "error" && (
+                  <button
+                    onClick={() => dismissUploadError(doc.tempId)}
+                    className="p-1 hover:text-red-400 transition-colors flex-shrink-0"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
               </div>
-              {doc.status === "error" && (
-                <button
-                  onClick={() => dismissUploadError(doc.tempId)}
-                  className="p-1 hover:text-red-400 transition-colors flex-shrink-0"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
+              {doc.status === "uploading" && (
+                <div className="mt-1 h-0.5 w-full rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-500 rounded-full animate-[loading-bar_1.4s_ease-in-out_infinite]"
+                    style={{ width: "60%" }}
+                  />
+                </div>
               )}
             </div>
           ))}

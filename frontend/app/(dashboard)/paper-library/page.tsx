@@ -230,9 +230,16 @@ export default function SavedQuestionsPage() {
         <div className="flex items-start gap-3">
           <ListChecks className="mt-1 h-7 w-7 shrink-0 text-indigo-500" />
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">
-              Saved Questions
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold tracking-tight">
+                Saved Questions
+              </h1>
+              {!isLoading && allQuestions.length > 0 && (
+                <span className="inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold dark:bg-indigo-950 dark:text-indigo-400">
+                  {allQuestions.length}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-muted-foreground mt-1">
               Browse and insert your saved exam questions.
             </p>

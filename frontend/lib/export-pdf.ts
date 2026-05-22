@@ -78,6 +78,23 @@ function patchClonedDocument(clonedDoc: Document): void {
     css = css.replace(/\boklab\s*\([^)]*\)/g, "#000");
     styleEl.textContent = css;
   });
+
+  // 3. Sanitize inline style attributes (html2canvas reads these directly)
+  clonedDoc.querySelectorAll<HTMLElement>("*").forEach((el) => {
+    const styleAttr = el.getAttribute("style");
+    if (!styleAttr) return;
+
+    let next = styleAttr;
+    for (const [from, to] of Object.entries(OKLCH_TO_HEX)) {
+      next = next.split(from).join(to);
+    }
+    next = next.replace(/oklch\s*\([^)]*\)/g, "#000");
+    next = next.replace(/\blab\s*\([^)]*\)/g, "#000");
+    next = next.replace(/\blch\s*\([^)]*\)/g, "#000");
+    next = next.replace(/\boklab\s*\([^)]*\)/g, "#000");
+
+    if (next !== styleAttr) el.setAttribute("style", next);
+  });
 }
 
 /** CSS selectors for editor UI chrome that should not appear in the PDF. */

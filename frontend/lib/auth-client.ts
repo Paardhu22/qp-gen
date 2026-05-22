@@ -63,6 +63,7 @@ export const signIn = {
         method: "POST",
         body: JSON.stringify({ email, password }),
         skipAuth: true,
+        timeoutMs: 30000,
       });
       setTokens({
         accessToken: response.accessToken,
@@ -73,7 +74,11 @@ export const signIn = {
       resetSessionCache();
       fetchOptions?.onSuccess?.();
     } catch (error: any) {
-      fetchOptions?.onError?.({ error: { message: error.message } });
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : "Unable to reach the server. Please check the backend and try again.";
+      fetchOptions?.onError?.({ error: { message } });
     }
   },
 };
@@ -95,6 +100,7 @@ export const signUp = {
         method: "POST",
         body: JSON.stringify({ email, password, name }),
         skipAuth: true,
+        timeoutMs: 30000,
       });
       setTokens({
         accessToken: response.accessToken,
@@ -105,7 +111,11 @@ export const signUp = {
       resetSessionCache();
       fetchOptions?.onSuccess?.();
     } catch (error: any) {
-      fetchOptions?.onError?.({ error: { message: error.message } });
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : "Unable to reach the server. Please check the backend and try again.";
+      fetchOptions?.onError?.({ error: { message } });
     }
   },
 };
