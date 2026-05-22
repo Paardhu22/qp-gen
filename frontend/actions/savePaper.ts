@@ -51,19 +51,25 @@ function toEditorPaper(paper: DjangoPaper): EditorPaper {
  *   projectName = "<class> — <subject>"
  *   content     = raw HTML from the editor
  */
-export async function savePaperAction(data: {
-  class: string;
-  subject: string;
-  examName: string;
-  content: string;
-  questionRefs: string[];
-}): Promise<{ success: boolean; paperId: string }> {
-  return savePaper<{ success: boolean; paperId: string }>({
-    projectName: `${data.class} — ${data.subject}`,
-    title: data.examName,
-    content: data.content,
-    questions: [],
-  });
+export async function savePaperAction(
+  data: {
+    class: string;
+    subject: string;
+    examName: string;
+    content: string;
+    questionRefs: string[];
+  },
+  signal?: AbortSignal,
+): Promise<{ success: boolean; paperId: string }> {
+  return savePaper<{ success: boolean; paperId: string }>(
+    {
+      projectName: `${data.class} — ${data.subject}`,
+      title: data.examName,
+      content: data.content,
+      questions: [],
+    },
+    signal,
+  );
 }
 
 /**
@@ -78,13 +84,18 @@ export async function updatePaperAction(
     content?: string;
     questionRefs?: string[];
   },
+  signal?: AbortSignal,
 ): Promise<{ success: boolean; paperId: string }> {
-  return updatePaper<{ success: boolean; paperId: string }>(paperId, {
-    projectName: `${data.class ?? ""} — ${data.subject ?? ""}`,
-    title: data.examName ?? "",
-    content: data.content ?? "",
-    questions: [],
-  });
+  return updatePaper<{ success: boolean; paperId: string }>(
+    paperId,
+    {
+      projectName: `${data.class ?? ""} — ${data.subject ?? ""}`,
+      title: data.examName ?? "",
+      content: data.content ?? "",
+      questions: [],
+    },
+    signal,
+  );
 }
 
 /**
