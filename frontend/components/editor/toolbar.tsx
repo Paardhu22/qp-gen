@@ -477,7 +477,12 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
   );
 
   const handleExportPDF = async () => {
-    const filename = `paper-${Date.now()}.pdf`;
+    const defaultName = `paper-${Date.now()}.pdf`;
+    const rawName = window.prompt("Enter a filename for the PDF", defaultName);
+    if (!rawName) return;
+    const filename = rawName.trim().endsWith(".pdf")
+      ? rawName.trim()
+      : `${rawName.trim()}.pdf`;
     const toastId = toast.loading("Generating PDF…");
     try {
       await exportToPDF("tiptap-paper-container", filename);
@@ -489,10 +494,21 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
   };
 
   const handleExportDocx = async () => {
-    const filename = `paper-${Date.now()}.docx`;
+    const defaultName = `paper-${Date.now()}.docx`;
+    const rawName = window.prompt("Enter a filename for the DOCX", defaultName);
+    if (!rawName) return;
+    const trimmed = rawName.trim();
+    const baseName = /\.docx$/i.test(trimmed)
+      ? trimmed
+      : trimmed.replace(/\s*docx$/i, "");
+    const filename = /\.docx$/i.test(baseName)
+      ? baseName
+      : `${baseName}.docx`;
     const toastId = toast.loading("Generating DOCX…");
     try {
-      await exportToDocx(editor.getHTML(), filename);
+      const container = document.getElementById("tiptap-paper-container");
+      if (!container) throw new Error("Editor container not found.");
+      await exportToDocx(container, filename);
       toast.success("DOCX downloaded!", { id: toastId });
     } catch (err) {
       console.error(err);
