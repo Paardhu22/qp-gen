@@ -219,12 +219,17 @@ export async function fetchProjects<T>(): Promise<T> {
   return fetchJson<T>("/api/projects/", { method: "GET" });
 }
 
-export async function fetchProjectsWithQuestions<T>(): Promise<T> {
-  return fetchJson<T>("/api/projects/?withQuestions=true", { method: "GET" });
+export async function fetchProjectsWithQuestions<T>(
+  options: FetchJsonOptions = {},
+): Promise<T> {
+  return fetchJson<T>("/api/projects/?withQuestions=true", {
+    method: "GET",
+    ...options,
+  });
 }
 
-export async function fetchPapers<T>(): Promise<T> {
-  return fetchJson<T>("/api/projects/papers/", { method: "GET" });
+export async function fetchPapers<T>(options: FetchJsonOptions = {}): Promise<T> {
+  return fetchJson<T>("/api/projects/papers/", { method: "GET", ...options });
 }
 
 export async function fetchPaper<T>(paperId: string): Promise<T> {

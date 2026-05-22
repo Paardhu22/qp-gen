@@ -28,8 +28,10 @@ export default function DashboardPage() {
     let active = true;
     const loadDashboardData = async () => {
       try {
-        const papers = await fetchPapers<Paper[]>();
-        const projects = await fetchProjectsWithQuestions<any[]>();
+        const [papers, projects] = await Promise.all([
+          fetchPapers<Paper[]>({ timeoutMs: 30000 }),
+          fetchProjectsWithQuestions<any[]>({ timeoutMs: 30000 }),
+        ]);
         
         if (active) {
           setStats({
@@ -48,7 +50,7 @@ export default function DashboardPage() {
 
     loadDashboardData();
     return () => {
-      active = true;
+      active = false;
     };
   }, []);
 
