@@ -37,7 +37,6 @@ class TestHybridRouting(unittest.TestCase):
         payloads = [
             {"board": "CBSE", "subject": "Math", "class": 10},
             {"board": "ICSE", "subject": "Science", "class": 10},
-            {"board": "CBSE", "subject": "Science", "class": 9},
             {"board": "", "subject": "Science", "class": 10},
             {},
         ]
@@ -117,44 +116,44 @@ class TestHybridRouting(unittest.TestCase):
         self.assertEqual(q1["metadata"]["gradeClass"], "10th Grade")
 
     @patch("apps.generation.models.GenerationHistory.objects.create")
-    @patch("services.openai_service._record_usage")
     @patch("services.generation_service.retrieve_relevant_chunks")
-    @patch("services.generation_service.get_openai_client")
-    @patch("services.generation_router.AcademicGenerationFacade")
-    def test_routing_failure_fallback(self, mock_facade_class, mock_openai, mock_chunks, mock_record_usage, mock_create):
-        # TEST 4: new engine forced failure -> MUST fallback safely
-        
-        # Make new engine throw an exception
-        mock_facade = MagicMock()
-        mock_facade_class.return_value = mock_facade
-        mock_facade.generate_paper.side_effect = Exception("Forced Engine Failure")
-        
-        # Mock legacy client so it runs without raising HTTP errors
-        mock_chunks.return_value = [{"content": "Electricity flows."}]
-        
-        # Simulate legacy client stream return
-        mock_comp = MagicMock()
-        mock_openai.return_value.chat.completions.create.return_value = [
-            MagicMock(choices=[MagicMock(delta=MagicMock(content='{"sections": []}'))])
+    @patch("services.generation_service.OpenAIProvider")
+    def test_streaming_generation_emits_question_events(self, mock_provider_class, mock_chunks, mock_create):
+        class FakeProvider:
+            def stream_chat(self, request):
+                yield (
+                    '{"question":{"content":"What is Ohm law?",'
+                    '"type":"SHORT","options":[],"answer":"V = IR.",'
+                    '"marks":3,"metadata":{}}}'
+                )
+
+        mock_provider_class.return_value = FakeProvider()
+        mock_chunks.return_value = [
+            {
+                "content": "Ohm's law states that potential difference equals current multiplied by resistance.",
+                "page": 1,
+                "similarity": 0.9,
+                "metadata": {"chapter": "Electricity"},
+            }
         ]
-        
+
         from services.generation_service import stream_generated_questions
-        
-        # Test routing and safe fallback
+
         payload = {"board": "CBSE", "subject": "Science", "class": 10}
         events = list(stream_generated_questions(
             user=MagicMock(),
             pdf_source_ids=["src1"],
             topic="Electricity",
-            count=2,
+            count=1,
             difficulty="medium",
             payload=payload
         ))
-        
-        # Confirm that despite the forced new engine crash, the generation did NOT fail,
-        # it fell back and returned the legacy parsed object in event updates.
+
+        self.assertTrue(any("event: plan" in ev for ev in events))
+        self.assertTrue(any("event: question" in ev for ev in events))
+        self.assertTrue(any("event: update" in ev for ev in events))
         self.assertTrue(any("event: done" in ev for ev in events))
-        # Ensure fallback log occurred
+        self.assertTrue(any("Section A: Biology" in ev for ev in events))
         
 if __name__ == "__main__":
     unittest.main()

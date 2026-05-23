@@ -39,7 +39,7 @@ export async function generateQuestionsStream(params: {
       }
 
       const { partialObjectStream } = await streamObject({
-        model: openai('gpt-4o'),
+        model: openai('gpt-5-mini'),
         schema: questionSchema,
         system: `You are an expert exam question generator. 
         Your task is to generate high-quality exam questions based ONLY on the provided context.

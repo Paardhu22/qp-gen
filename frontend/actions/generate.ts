@@ -27,7 +27,7 @@ export async function generateQuestions(data: {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-mini",
       messages: [
         { role: "system", content: "You are a helpful assistant designed to output JSON." },
         { role: "user", content: prompt }

@@ -133,80 +133,97 @@ class MasterAcademicOrchestrator:
     def _draft_questions(
         self, blueprint: CompiledPaperBlueprint, policy: InstitutionPolicy
     ) -> List[QuestionInstance]:
-        """Drafts questions from templates based on the compiled blueprint."""
+        """Drafts questions obeying V2 Rules: Bio->Chem->Phys and marks ladder."""
         from q_instructions.generation.template_selector import IntelligentTemplateSelector
         from q_instructions.generation.parameter_synthesizer import ParameterSynthesizer
-        
+        from q_instructions.subjects.science.orchestrator import ScienceOrchestratorV2
+
         template_selector = IntelligentTemplateSelector(self._templates)
         synthesizer = ParameterSynthesizer()
-        
-        questions: List[QuestionInstance] = []
+        orchestrator = ScienceOrchestratorV2()
 
-        for idx, cid in enumerate(blueprint.retrieval_targets):
+        # 1. Group by streams
+        stream_groups = {StreamType.BIOLOGY: [], StreamType.CHEMISTRY: [], StreamType.PHYSICS: []}
+        for cid in blueprint.retrieval_targets:
             node = self._graph.nodes.get(cid)
-            if not node:
-                continue
+            if node and node.stream in stream_groups:
+                stream_groups[node.stream].append(cid)
+            elif node:
+                # Default unknown to physics
+                stream_groups[StreamType.PHYSICS].append(cid)
 
-            # Determine question type from concept properties
-            qtype = self._resolve_qtype(node)
-
-            # Select template INTELLIGENTLY
-            template = template_selector.select(qtype, None)
-
-            # Retrieve context
-            context = self._retrieval.retrieve(
-                cid, [0.1, 0.8, 0.05, 0.15, 0.85, 0.02, 0.02, 0.01]
-            )
-
-            # Format question text
-            q_text = template.template_text
-            q_text = q_text.replace("[Chemical compound]", node.concept_name)
-            q_text = q_text.replace("[Product]", "gaseous oxides")
-            q_text = q_text.replace("[Reaction type]", "Thermal Decomposition")
-
-            if context:
-                q_text = q_text.replace(
-                    "[Technical passage detailing resistivity]",
-                    f"Textbook: {context[0].text_content}"
-                )
+        # 2. Sequence Biology -> Chemistry -> Physics
+        questions: List[QuestionInstance] = []
+        for stream in [StreamType.BIOLOGY, StreamType.CHEMISTRY, StreamType.PHYSICS]:
+            cids = stream_groups[stream]
+            progression = orchestrator.build_tier_progression(len(cids))
+            
+            for i, cid in enumerate(cids):
+                node = self._graph.nodes.get(cid)
+                if not node: continue
                 
-            # Synthesize numerical parameters and validate
-            q_text = synthesizer.synthesize(q_text)
-            if not synthesizer.validate_no_placeholders(q_text):
-                continue
+                # Use progression ladder to determine qtype and marks
+                if i < len(progression):
+                    base_qtype, marks = progression[i]
+                else:
+                    base_qtype, marks = QuestionTypeCode.SHORT_ANSWER, 3
 
-            # Assign marks
-            marks = {
-                QuestionTypeCode.MCQ: 1,
-                QuestionTypeCode.SHORT_ANSWER: 3,
-                QuestionTypeCode.CASE_STUDY: 4,
-                QuestionTypeCode.LONG_ANSWER: 5,
-                QuestionTypeCode.NUMERICAL: 3,
-                QuestionTypeCode.DIAGRAM: 3,
-            }.get(qtype, 2)
+                # Override with node-specific traits if logical
+                qtype = self._resolve_qtype(node, base_qtype)
+                
+                # Enforce OR choices
+                has_or_choice = orchestrator.applies_or_choice(qtype, marks)
 
-            questions.append(QuestionInstance(
-                question_id=f"Q_{cid}",
-                academic_class=blueprint.academic_class,
-                stream=node.stream,
-                question_type=qtype,
-                blooms_level=template.target_bloom,
-                assigned_marks=marks,
-                content_text=q_text,
-                expected_word_count=50 if qtype == QuestionTypeCode.MCQ else 150
-            ))
+                template = template_selector.select(qtype, None)
+                context = self._retrieval.retrieve(cid, [0.1, 0.8, 0.05, 0.15, 0.85, 0.02, 0.02, 0.01])
+
+                q_text = template.template_text
+                q_text = q_text.replace("[Chemical compound]", node.concept_name)
+                q_text = q_text.replace("[Product]", "gaseous oxides")
+                q_text = q_text.replace("[Reaction type]", "Thermal Decomposition")
+                if context:
+                    q_text = q_text.replace("[Technical passage detailing resistivity]", f"Textbook: {context[0].text_content}")
+
+                q_text = synthesizer.synthesize(q_text)
+                if not synthesizer.validate_no_placeholders(q_text):
+                    continue
+                    
+                if has_or_choice:
+                    q_text += "\n\nOR\n\n[Alternative Question of same marks and topic]"
+
+                questions.append(QuestionInstance(
+                    question_id=f"Q_{cid}",
+                    academic_class=blueprint.academic_class,
+                    stream=node.stream,
+                    question_type=qtype,
+                    blooms_level=template.target_bloom,
+                    assigned_marks=marks,
+                    content_text=q_text,
+                    expected_word_count=50 if qtype in [QuestionTypeCode.MCQ, QuestionTypeCode.ASSERTION_REASON] else 150
+                ))
+
+        # 3. Validate Realism
+        if not orchestrator.validate_realism(questions):
+            # In production this would trigger a rebuild, here we just log
+            print("[WARNING] Realism validation failed: Paper may not reflect true CBSE SQP.")
 
         return questions
 
-    def _resolve_qtype(self, node) -> QuestionTypeCode:
-        """Resolves best question type for a concept."""
-        if node.base_numerical_depth > 0.70:
+    def _resolve_qtype(self, node, base_qtype: QuestionTypeCode) -> QuestionTypeCode:
+        """Resolves best question type ensuring tier compliance."""
+        # Don't override MCQs
+        if base_qtype in [QuestionTypeCode.MCQ, QuestionTypeCode.ASSERTION_REASON]:
+            return base_qtype
+            
+        # For 3-5 marks, allow diagram/numerical/case study overrides
+        if node.base_numerical_depth > 0.70 and base_qtype != QuestionTypeCode.LONG_ANSWER:
             return QuestionTypeCode.NUMERICAL
         if "circ" in node.concept_id.lower() or "nut" in node.concept_id.lower():
             return QuestionTypeCode.DIAGRAM
         if node.base_reasoning_steps >= 4:
             return QuestionTypeCode.CASE_STUDY
-        return QuestionTypeCode.SHORT_ANSWER
+            
+        return base_qtype
 
     def _compile_answer_keys(
         self, questions: List[QuestionInstance], concept_ids: List[str]

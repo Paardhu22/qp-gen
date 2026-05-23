@@ -45,9 +45,9 @@ class ExamBlueprintRegistry:
                 BloomsLevel.CREATE: 0.03,
             },
             stream_distribution_target={
-                StreamType.PHYSICS: 0.35,
-                StreamType.CHEMISTRY: 0.30,
-                StreamType.BIOLOGY: 0.35,
+                StreamType.PHYSICS: 0.3125,
+                StreamType.CHEMISTRY: 0.3125,
+                StreamType.BIOLOGY: 0.375,
             },
             difficulty_target={
                 "easy": 0.30,

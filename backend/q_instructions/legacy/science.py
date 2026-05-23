@@ -33,13 +33,19 @@ class EducationBoard(Enum):
 
 class SubjectCode(Enum):
     """Official academic subject codes."""
-    SCIENCE_GENERAL = "086"  # CBSE Class 9 & 10 Science code
+    SCIENCE_GENERAL = "086"
+    SOCIAL_SCIENCE = "087"  # CBSE Class 9 & 10 Science code
     SCIENCE_INTEGRATED = "SCI-INT"  # Class 6-8 Integrated Science
 
 
 class AcademicClass(Enum):
     """Target classes supported by the curriculum foundation."""
-    CLASS_6 = "Class 6"
+    CLASS_1 = "Class 1"
+    CLASS_2 = "Class 2"
+    CLASS_3 = "Class 3"
+    CLASS_4 = "Class 4"
+    CLASS_5 = "Class 5"
+    CLASS_6 = "Class 6" 
     CLASS_7 = "Class 7"
     CLASS_8 = "Class 8"
     CLASS_9 = "Class 9"

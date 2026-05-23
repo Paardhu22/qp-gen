@@ -180,7 +180,7 @@ const GroupedQuestionComponent = ({ node, updateAttributes, deleteNode, editor, 
       const orderedList = schema.nodes.orderedList.create({}, [listItem]);
       tr.insert(nodeStart + node.content.size, orderedList);
     } else {
-      tr.insert(listPos + listNode.nodeSize - 1, listItem);
+      tr.insert((listPos as number) + listNode.nodeSize - 1, listItem);
     }
 
     editor.view.dispatch(tr);

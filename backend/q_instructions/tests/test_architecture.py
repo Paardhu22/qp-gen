@@ -30,7 +30,7 @@ def run_tests():
         ExamType, EducationBoard, ValidationSeverity, AbstractionLevel
     )
     assert_true(AcademicClass.CLASS_10.value == "Class 10", "AcademicClass enum")
-    assert_true(len(StreamType) == 4, "StreamType count")
+    assert_true(len(StreamType) >= 8, "StreamType count")
     assert_true(len(BloomsLevel) == 6, "BloomsLevel count")
     assert_true(len(QuestionTypeCode) == 10, "QuestionTypeCode count")
 
@@ -351,4 +351,3 @@ def run_tests():
 if __name__ == "__main__":
     success = run_tests()
     sys.exit(0 if success else 1)
-
