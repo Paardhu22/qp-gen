@@ -36,7 +36,12 @@ class InstitutionType(Enum):
 
 class AcademicClass(Enum):
     """Target classes supported by the curriculum foundation."""
-    CLASS_6 = "Class 6"
+    CLASS_1 = "Class 1"
+    CLASS_2 = "Class 2"
+    CLASS_3 = "Class 3"
+    CLASS_4 = "Class 4"
+    CLASS_5 = "Class 5"
+    CLASS_6 = "Class 6" 
     CLASS_7 = "Class 7"
     CLASS_8 = "Class 8"
     CLASS_9 = "Class 9"
@@ -46,6 +51,7 @@ class AcademicClass(Enum):
 class SubjectCode(Enum):
     """Official academic subject codes."""
     SCIENCE_GENERAL = "086"
+    SOCIAL_SCIENCE = "087"
     SCIENCE_INTEGRATED = "SCI-INT"
 
 
@@ -55,6 +61,10 @@ class StreamType(Enum):
     CHEMISTRY = "Chemistry"
     BIOLOGY = "Biology"
     INTEGRATED = "Integrated General Science"
+    HISTORY = "History"
+    GEOGRAPHY = "Geography"
+    CIVICS = "Political Science / Civics"
+    ECONOMICS = "Economics"
 
 
 class StreamMode(Enum):

@@ -31,10 +31,10 @@ const formSchema = z.object({
   board: z.string(),
   academicClass: z.string(),
   subject: z.string(),
-  topic: z.string().min(2, "Topic is required"),
   difficulty: z.string(),
   questionType: z.string(),
-  numberOfQuestions: z.string().min(1),
+  countType: z.enum(["custom", "cbse"]),
+  numberOfQuestions: z.string().optional(),
   marks: z.string().min(1),
 });
 
@@ -52,9 +52,9 @@ export const GeneratorForm = () => {
       board: "CBSE",
       academicClass: "10",
       subject: "Science",
-      topic: "",
       difficulty: "medium",
       questionType: "mcq",
+      countType: "cbse",
       numberOfQuestions: "5",
       marks: "1",
     },
@@ -71,6 +71,8 @@ export const GeneratorForm = () => {
   const [generalInstructions, setGeneralInstructions] = useState("");
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
   const [isSavingToBank, setIsSavingToBank] = useState(false);
+  const [liveInsertedCount, setLiveInsertedCount] = useState(0);
+  const liveInsertedSectionsRef = useRef<Set<string>>(new Set());
 
   const handleAddSourceClick = () => {
     fileInputRef.current?.click();
@@ -147,6 +149,49 @@ export const GeneratorForm = () => {
     setUploadedDocs((prev) => prev.filter((d) => d.id !== id));
   };
 
+  const appendQuestionToResult = (
+    current: any,
+    sectionTitle: string,
+    question: any,
+  ) => {
+    const next = current
+      ? {
+          ...current,
+          sections: (current.sections || []).map((section: any) => ({
+            ...section,
+            questions: [...(section.questions || [])],
+          })),
+        }
+      : { sections: [] };
+
+    let section = next.sections.find((item: any) => item.title === sectionTitle);
+    if (!section) {
+      section = { title: sectionTitle, questions: [] };
+      next.sections.push(section);
+    }
+    section.questions.push(question);
+    return next;
+  };
+
+  const appendQuestionToEditor = (sectionTitle: string, question: any) => {
+    const store = useEditorStore.getState();
+    const editorQuestion = {
+      content: question.content,
+      type: question.type,
+      options: question.options || [],
+      answer: question.answer,
+      marks: question.marks,
+    };
+
+    if (!liveInsertedSectionsRef.current.has(sectionTitle)) {
+      liveInsertedSectionsRef.current.add(sectionTitle);
+      store.appendSections([{ title: sectionTitle, questions: [editorQuestion] }]);
+    } else {
+      store.appendQuestions([editorQuestion]);
+    }
+    setLiveInsertedCount((count) => count + 1);
+  };
+
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     if (uploadedDocs.length === 0) {
       toast.error("Upload at least one source file first.");
@@ -156,6 +201,8 @@ export const GeneratorForm = () => {
     try {
       setIsGenerating(true);
       setGeneratedResult(null);
+      setLiveInsertedCount(0);
+      liveInsertedSectionsRef.current = new Set();
 
       let generationError: string | null = null;
 
@@ -163,8 +210,7 @@ export const GeneratorForm = () => {
         "/api/generation/questions/stream",
         {
           pdfSourceIds: uploadedDocs.map((d) => d.id),
-          topic: values.topic,
-          count: parseInt(values.numberOfQuestions, 10),
+          count: values.countType === "cbse" ? -1 : parseInt(values.numberOfQuestions || "5", 10),
           difficulty: values.difficulty,
           instructions: generalInstructions || "",
           board: values.board,
@@ -174,10 +220,18 @@ export const GeneratorForm = () => {
         (event, data) => {
           if (event === "error") {
             generationError = data.error || "Generation failed";
+          } else if (event === "plan") {
+            setGeneratedResult({ sections: [] });
+          } else if (event === "question") {
+            setGeneratedResult((current: any) =>
+              appendQuestionToResult(current, data.section, data.question),
+            );
+            appendQuestionToEditor(data.section, data.question);
           } else if (event === "update" || event === "message") {
             setGeneratedResult(data);
+          } else if (event === "done" && data.result) {
+            setGeneratedResult(data.result);
           }
-          // "done" event signals stream end — no action needed
         },
       );
 
@@ -197,6 +251,10 @@ export const GeneratorForm = () => {
 
   const handleAddToEditor = async () => {
     if (!generatedResult) return;
+    if (liveInsertedCount > 0) {
+      toast.success(`${liveInsertedCount} generated question(s) already inserted into the editor.`);
+      return;
+    }
 
     const hasSections =
       generatedResult.sections && generatedResult.sections.length > 0;
@@ -416,9 +474,9 @@ export const GeneratorForm = () => {
                   <FormLabel className="text-zinc-700 dark:text-zinc-300">Board</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
-                      <SelectTrigger className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
                     </FormControl>
-                    <SelectContent className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                    <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
                       <SelectItem value="CBSE">CBSE</SelectItem>
                       <SelectItem value="ICSE">ICSE</SelectItem>
                     </SelectContent>
@@ -435,11 +493,19 @@ export const GeneratorForm = () => {
                   <FormLabel className="text-zinc-700 dark:text-zinc-300">Class</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
-                      <SelectTrigger className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
                     </FormControl>
-                    <SelectContent className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                    <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
+                      <SelectItem value="1">Class 1</SelectItem>
+                      <SelectItem value="2">Class 2</SelectItem>
+                      <SelectItem value="3">Class 3</SelectItem>
+                      <SelectItem value="4">Class 4</SelectItem>
+                      <SelectItem value="5">Class 5</SelectItem>
+                      <SelectItem value="6">Class 6</SelectItem>
+                      <SelectItem value="7">Class 7</SelectItem>
+                      <SelectItem value="8">Class 8</SelectItem>
+                      <SelectItem value="9">Class 9</SelectItem>
                       <SelectItem value="10">Class 10</SelectItem>
-                      <SelectItem value="12">Class 12</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -454,11 +520,11 @@ export const GeneratorForm = () => {
                   <FormLabel className="text-zinc-700 dark:text-zinc-300">Subject</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
-                      <SelectTrigger className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
                     </FormControl>
-                    <SelectContent className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                    <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
                       <SelectItem value="Science">Science</SelectItem>
-                      <SelectItem value="Mathematics">Mathematics</SelectItem>
+                      <SelectItem value="Social Science">Social Science</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -467,59 +533,65 @@ export const GeneratorForm = () => {
             />
           </div>
 
+
+
           <FormField
             control={form.control}
-            name="topic"
+            name="difficulty"
             render={({ field }) => (
               <FormItem>
                 <FormLabel className="text-zinc-700 dark:text-zinc-300">
-                  Topic / Focus Area
+                  Difficulty
                 </FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder="e.g. Chemical Bonds"
-                    className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:ring-indigo-500"
-                    {...field}
-                  />
-                </FormControl>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
+                    <SelectItem value="easy">Easy</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="hard">Hard</SelectItem>
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}
           />
 
-          <div className="grid grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="difficulty"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-zinc-700 dark:text-zinc-300">
-                    Difficulty
-                  </FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl>
-                      <SelectTrigger className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
-                        <SelectValue placeholder="Select" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
-                      <SelectItem value="easy">Easy</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="hard">Hard</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <FormField
+            control={form.control}
+            name="countType"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-zinc-700 dark:text-zinc-300">
+                  Count Variation
+                </FormLabel>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
+                    <SelectItem value="cbse">CBSE Exact Pattern</SelectItem>
+                    <SelectItem value="custom">Custom Count</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
+          {form.watch("countType") === "custom" && (
             <FormField
               control={form.control}
               name="numberOfQuestions"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-zinc-700 dark:text-zinc-300">
-                    Count
+                    Exact Count
                   </FormLabel>
                   <FormControl>
                     <Input
@@ -534,7 +606,7 @@ export const GeneratorForm = () => {
                 </FormItem>
               )}
             />
-          </div>
+          )}
 
           {/* General Instructions */}
           <div className="space-y-2">
@@ -642,12 +714,14 @@ export const GeneratorForm = () => {
                 <Button
                   className="w-full bg-indigo-600 text-white hover:bg-indigo-700 font-semibold"
                   onClick={handleAddToEditor}
-                  disabled={isSavingToBank}
+                  disabled={isSavingToBank || liveInsertedCount > 0}
                 >
                   {isSavingToBank ? (
                     <span className="flex items-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin" /> Saving...
                     </span>
+                  ) : liveInsertedCount > 0 ? (
+                    `Inserted ${liveInsertedCount} into Editor`
                   ) : (
                     "Insert All into Editor"
                   )}

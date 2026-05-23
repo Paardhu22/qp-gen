@@ -146,7 +146,7 @@ if not OPENAI_API_KEY:
         "OPENAI_API_KEY is required. Add it to backend/.env and restart the server.\n"
         "Get your key at https://platform.openai.com/api-keys"
     )
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
 QG_NEW_ENGINE_ENABLED = os.environ.get("QG_NEW_ENGINE_ENABLED", "false").lower() == "true"
 OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
