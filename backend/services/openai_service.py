@@ -54,3 +54,49 @@ def generate_answer_key(paper_content_html: str, user: Optional[User] = None) ->
     content = completion.choices[0].message.content
     _record_usage(user, "answer_key", settings.OPENAI_MODEL, completion.usage)
     return content or ""
+
+
+def caption_image_for_embedding(
+    image_data_url: str,
+    page_context: str = "",
+    user: Optional[User] = None,
+) -> str:
+    """
+    Produce a concise hidden caption used only for vector retrieval.
+
+    The stored chunk embeds this caption while the public question payload keeps
+    the original image_url in metadata for later multimodal generation.
+    """
+    client = get_openai_client()
+    context = page_context.strip()
+    if len(context) > 1200:
+        context = context[:1200]
+
+    completion = client.chat.completions.create(
+        model=settings.OPENAI_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Caption textbook visuals for retrieval. Describe only visible academic content, "
+                    "labels, entities, map regions, axes, and the likely CBSE concept. Be concise."
+                ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Create a hidden retrieval caption for this textbook image. "
+                            f"Nearby page text: {context or 'None'}"
+                        ),
+                    },
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                ],
+            },
+        ],
+    )
+
+    _record_usage(user, "image_caption", settings.OPENAI_MODEL, completion.usage)
+    return (completion.choices[0].message.content or "").strip()

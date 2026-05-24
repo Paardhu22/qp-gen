@@ -474,6 +474,22 @@ function scrollToDocumentPosition(editor: any, position: number) {
   });
 }
 
+function buildQuestionContentNodes(content: string) {
+  const blocks = String(content || "")
+    .split(/\n{2,}|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (blocks.length === 0) {
+    return [{ type: "paragraph" }];
+  }
+
+  return blocks.map((line) => ({
+    type: "paragraph",
+    content: [{ type: "text", text: line }],
+  }));
+}
+
 // ==================================
 // Main Editor Component
 // ==================================
@@ -980,6 +996,10 @@ export const TiptapEditor = ({
   const clearSectionsToAppend = useEditorStore(
     (state) => state.clearSectionsToAppend,
   );
+  const instructionsToAppend = useEditorStore((state) => state.instructionsToAppend);
+  const clearInstructionsToAppend = useEditorStore(
+    (state) => state.clearInstructionsToAppend,
+  );
 
   const lastLoadedContentRef = useRef<string | null>(null);
 
@@ -1079,6 +1099,35 @@ export const TiptapEditor = ({
   ]);
 
   useEffect(() => {
+    if (!instructionsToAppend || instructionsToAppend.length === 0 || !editor) return;
+
+    const instructions = [...instructionsToAppend];
+    clearInstructionsToAppend();
+
+    const contentToInsert = [
+      {
+        type: "instructionBlock",
+        attrs: {
+          variant: "generated",
+          summaryItems: instructions,
+        },
+        content: [{ type: "paragraph" }],
+      },
+    ];
+
+    queueMicrotask(() => {
+      if (editor.isDestroyed) return;
+
+      const insertPosition = getLastPageInsertPos(editor);
+      editor.commands.insertContentAt(insertPosition, contentToInsert);
+      editor.commands.focus("end");
+      scrollToDocumentPosition(editor, insertPosition);
+      debouncedLiveSync(editor);
+      debouncedLiveSync.flush();
+    });
+  }, [instructionsToAppend, editor, clearInstructionsToAppend, debouncedLiveSync]);
+
+  useEffect(() => {
     if (questionsToAppend.length === 0 || !editor) return;
 
     const questions = [...questionsToAppend];
@@ -1086,12 +1135,19 @@ export const TiptapEditor = ({
 
     const contentToInsert: any[] = [];
     questions.forEach((q) => {
-      const questionContent: any[] = [
-        {
-          type: "paragraph",
-          content: [{ type: "text", text: q.content }],
-        },
-      ];
+      const questionContent: any[] = buildQuestionContentNodes(q.content);
+
+      if (q.image_url) {
+        questionContent.push({
+          type: "floatImage",
+          attrs: {
+            src: q.image_url,
+            alt: "Question visual",
+            width: 320,
+            align: "center",
+          },
+        });
+      }
 
       if (q.type !== "TF" && q.options && q.options.length > 0) {
         questionContent.push({
@@ -1150,12 +1206,19 @@ export const TiptapEditor = ({
 
       // Insert each question in this section
       section.questions.forEach((q) => {
-        const questionContent: any[] = [
-          {
-            type: "paragraph",
-            content: [{ type: "text", text: q.content }],
-          },
-        ];
+        const questionContent: any[] = buildQuestionContentNodes(q.content);
+
+        if (q.image_url) {
+          questionContent.push({
+            type: "floatImage",
+            attrs: {
+              src: q.image_url,
+              alt: "Question visual",
+              width: 320,
+              align: "center",
+            },
+          });
+        }
 
         if (q.type !== "TF" && q.options && q.options.length > 0) {
           questionContent.push({

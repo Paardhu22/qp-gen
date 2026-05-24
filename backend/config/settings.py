@@ -107,6 +107,10 @@ USE_TZ = True
 STATIC_URL = "static/"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+AOS_PUBLIC_MEDIA_BASE_URL = os.environ.get("AOS_PUBLIC_MEDIA_BASE_URL", "").rstrip("/")
+PDF_IMAGE_MAX_CAPTIONS = int(os.environ.get("PDF_IMAGE_MAX_CAPTIONS", "40"))
+PDF_IMAGE_MIN_BYTES = int(os.environ.get("PDF_IMAGE_MIN_BYTES", "8192"))
+PDF_IMAGE_MIN_DIMENSION = int(os.environ.get("PDF_IMAGE_MIN_DIMENSION", "96"))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

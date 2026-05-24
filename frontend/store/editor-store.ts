@@ -6,6 +6,7 @@ interface Question {
   options?: string[];
   type: string;
   marks: number;
+  image_url?: string;
 }
 
 export interface SectionToAppend {
@@ -16,6 +17,7 @@ export interface SectionToAppend {
 interface EditorState {
   questionsToAppend: Question[];
   sectionsToAppend: SectionToAppend[];
+  instructionsToAppend: string[] | null;
   questionsToSave: Question[];
   savePaperModalOpen: boolean;
   saveQuestionModalOpen: boolean;
@@ -31,6 +33,9 @@ interface EditorState {
   appendSections: (sections: SectionToAppend[]) => void;
   clearSectionsToAppend: () => void;
 
+  appendInstructions: (instructions: string[]) => void;
+  clearInstructionsToAppend: () => void;
+
   setQuestionsToSave: (questions: Question[]) => void;
   setSavePaperModalOpen: (isOpen: boolean) => void;
   setSaveQuestionModalOpen: (isOpen: boolean) => void;
@@ -44,6 +49,7 @@ interface EditorState {
 export const useEditorStore = create<EditorState>((set) => ({
   questionsToAppend: [],
   sectionsToAppend: [],
+  instructionsToAppend: null,
   questionsToSave: [],
   savePaperModalOpen: false,
   saveQuestionModalOpen: false,
@@ -62,6 +68,9 @@ export const useEditorStore = create<EditorState>((set) => ({
       sectionsToAppend: [...state.sectionsToAppend, ...sections],
     })),
   clearSectionsToAppend: () => set({ sectionsToAppend: [] }),
+
+  appendInstructions: (instructions) => set({ instructionsToAppend: instructions }),
+  clearInstructionsToAppend: () => set({ instructionsToAppend: null }),
 
   editorContent: "",
   setEditorContent: (content) => set({ editorContent: content }),

@@ -19,8 +19,8 @@ class ExamBlueprintRegistry:
             SectionBlueprint("B", QuestionTypeCode.ASSERTION_REASON, 4, 1, 0),
             SectionBlueprint("C", QuestionTypeCode.SHORT_ANSWER, 6, 2, 2),
             SectionBlueprint("D", QuestionTypeCode.SHORT_ANSWER, 7, 3, 2),
-            SectionBlueprint("E", QuestionTypeCode.CASE_STUDY, 3, 4, 1),
-            SectionBlueprint("F", QuestionTypeCode.LONG_ANSWER, 2, 5, 2),
+            SectionBlueprint("E", QuestionTypeCode.LONG_ANSWER, 3, 5, 3),
+            SectionBlueprint("F", QuestionTypeCode.CASE_STUDY, 3, 4, 0),
         ]
 
         self._blueprints[(ExamType.FINAL, AcademicClass.CLASS_10)] = ExamBlueprint(

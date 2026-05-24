@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 
 @dataclass(frozen=True)
 class LLMMessage:
     role: str
-    content: str
+    content: Any
 
 
 @dataclass(frozen=True)

@@ -41,19 +41,13 @@ class PromptAssembler:
 
 def default_system_rules(constraints: Optional[GenerationConstraints]) -> str:
     base = [
-        "You are an expert exam question generator.",
-        "Generate high-quality exam questions based ONLY on the provided context.",
-        "Do not hallucinate.",
-        "If a question or its answer cannot be fully supported by the context, do not generate it.",
-        "Distribute questions across realistic CBSE formats (MCQ, ASSERTION_REASON, SHORT, LONG, CASE_STUDY).",
-        "For MCQ: Provide exactly 4 options in the options array.",
-        "For ASSERTION_REASON: Format content as 'Assertion (A): ...\nReason (R): ...' and use the standard 4 options.",
-        "For CASE_STUDY: Format as a passage followed by 3 sub-questions ((i), (ii), (iii)).",
+        "Generate one CBSE question from the provided chunks only.",
+        "Obey the exact slot contract and JSON schema.",
+        "Never add extra question objects or split an OR choice into another question.",
+        "Use provided image payloads only for image/map/diagram slots.",
     ]
 
     if constraints:
-        base.append(
-            f"Strict limits: max {constraints.max_case_study} CASE_STUDY and max {constraints.max_assertion_reason} ASSERTION_REASON questions."
-        )
+        base.append(f"Resolved paper count: {constraints.count} question objects.")
 
     return "\n".join(base)
