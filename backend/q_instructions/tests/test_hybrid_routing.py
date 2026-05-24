@@ -13,7 +13,13 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env"))
 django.setup()
 
-from services.generation_router import should_use_new_engine, adapt_response_to_legacy, route_and_execute_new_engine
+from services.generation_router import (
+    adapt_response_to_legacy,
+    build_question_plan,
+    route_and_execute_new_engine,
+    should_use_new_engine,
+    summarize_question_plan,
+)
 from q_instructions.master.facade import GeneratedPaperResponse, QuestionDTO, AnalyticsDTO
 
 
@@ -43,6 +49,27 @@ class TestHybridRouting(unittest.TestCase):
         for p in payloads:
             with self.subTest(payload=p):
                 self.assertFalse(should_use_new_engine(p))
+
+    def test_cbse_exact_science_plan_is_80_marks(self):
+        plan = build_question_plan("", "medium", -1, class_num=10, subject="Science")
+        summary = summarize_question_plan(plan)
+
+        self.assertEqual(summary["total_questions"], 39)
+        self.assertEqual(summary["total_marks"], 80)
+        self.assertEqual(summary["or_choices"], 8)
+        self.assertEqual(summary["section_marks"]["Section A - Biology"], 30)
+        self.assertEqual(summary["section_marks"]["Section B - Chemistry"], 25)
+        self.assertEqual(summary["section_marks"]["Section C - Physics"], 25)
+
+    def test_cbse_exact_social_science_plan_is_80_marks(self):
+        plan = build_question_plan("", "medium", -1, class_num=10, subject="Social Science")
+        summary = summarize_question_plan(plan)
+
+        self.assertEqual(summary["total_questions"], 38)
+        self.assertEqual(summary["total_marks"], 80)
+        self.assertEqual(summary["or_choices"], 7)
+        self.assertEqual(summary["image_questions"], 4)
+        self.assertTrue(all(marks == 20 for marks in summary["section_marks"].values()))
 
     @patch("services.generation_router.AcademicGenerationFacade")
     def test_route_and_execute_new_engine_success(self, mock_facade_class):
@@ -153,7 +180,7 @@ class TestHybridRouting(unittest.TestCase):
         self.assertTrue(any("event: question" in ev for ev in events))
         self.assertTrue(any("event: update" in ev for ev in events))
         self.assertTrue(any("event: done" in ev for ev in events))
-        self.assertTrue(any("Section A: Biology" in ev for ev in events))
+        self.assertTrue(any("Section A - Biology" in ev for ev in events))
         
 if __name__ == "__main__":
     unittest.main()

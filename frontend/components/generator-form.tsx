@@ -181,6 +181,7 @@ export const GeneratorForm = () => {
       options: question.options || [],
       answer: question.answer,
       marks: question.marks,
+      image_url: question.image_url || question.metadata?.image_url || "",
     };
 
     if (!liveInsertedSectionsRef.current.has(sectionTitle)) {
@@ -221,7 +222,11 @@ export const GeneratorForm = () => {
           if (event === "error") {
             generationError = data.error || "Generation failed";
           } else if (event === "plan") {
-            setGeneratedResult({ sections: [] });
+            const generalInstructions = data.generalInstructions || [];
+            setGeneratedResult({ sections: [], generalInstructions });
+            if (Array.isArray(generalInstructions) && generalInstructions.length > 0) {
+              useEditorStore.getState().appendInstructions(generalInstructions);
+            }
           } else if (event === "question") {
             setGeneratedResult((current: any) =>
               appendQuestionToResult(current, data.section, data.question),
@@ -270,6 +275,7 @@ export const GeneratorForm = () => {
             answer: q.answer,
             marks: q.marks,
             metadata: q.metadata,
+            image_url: q.image_url || q.metadata?.image_url || "",
           });
         });
         return {
@@ -280,6 +286,7 @@ export const GeneratorForm = () => {
             options: q.options,
             answer: q.answer,
             marks: q.marks,
+            image_url: q.image_url || q.metadata?.image_url || "",
           })),
         };
       });
@@ -294,6 +301,7 @@ export const GeneratorForm = () => {
           answer: q.answer,
           marks: q.marks,
           metadata: q.metadata,
+          image_url: q.image_url || q.metadata?.image_url || "",
         });
       });
       useEditorStore.getState().appendQuestions(allQuestions);

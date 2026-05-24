@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from apps.accounts.models import User
 from apps.documents.models import DocumentChunk
@@ -12,6 +12,8 @@ def retrieve_relevant_chunks(
     pdf_source_ids: List[str],
     limit: int = 5,
     user: Optional[User] = None,
+    require_image: bool = False,
+    exclude_chunk_ids: Optional[Set[str]] = None,
 ) -> List[dict]:
     """
     Retrieve the most semantically relevant chunks from the given PdfSources
@@ -23,26 +25,31 @@ def retrieve_relevant_chunks(
 
     query_embedding = generate_single_embedding(query, user=user)
 
-    queryset = (
-        DocumentChunk.objects.filter(
-            pdf_source_id__in=pdf_source_ids,
-            embedding__isnull=False,
-        )
-        .annotate(distance=L2Distance("embedding", query_embedding))
-        .order_by("distance")
+    queryset = DocumentChunk.objects.filter(
+        pdf_source_id__in=pdf_source_ids,
+        embedding__isnull=False,
     )
+    if exclude_chunk_ids:
+        queryset = queryset.exclude(id__in=exclude_chunk_ids)
+    if require_image:
+        queryset = queryset.filter(metadata__has_key="image_url")
+
+    queryset = queryset.annotate(distance=L2Distance("embedding", query_embedding)).order_by("distance")
 
     results = []
     for chunk in queryset[:limit]:
+        metadata = chunk.metadata or {}
         similarity = 1 - float(chunk.distance) if chunk.distance is not None else 0
-        results.append(
-            {
-                "content": chunk.content,
-                "page": chunk.page,
-                "similarity": similarity,
-                "metadata": chunk.metadata,
-            }
-        )
+        payload = {
+            "id": chunk.id,
+            "content": chunk.content,
+            "page": chunk.page,
+            "similarity": similarity,
+            "metadata": metadata,
+        }
+        if metadata.get("image_url"):
+            payload["image_url"] = metadata.get("image_url")
+        results.append(payload)
 
     return results
 

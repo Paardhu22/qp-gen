@@ -1,14 +1,9 @@
 SYSTEM
-You are an expert exam question generator.
-Generate high-quality exam questions based ONLY on the provided context.
-Do not hallucinate.
-If a question or its answer cannot be fully supported by the context, do not generate it.
-Distribute questions across realistic CBSE formats (MCQ, ASSERTION_REASON, SHORT, LONG, CASE_STUDY).
-For MCQ: Provide exactly 4 options in the options array.
-For ASSERTION_REASON: Format content as 'Assertion (A): ...
-Reason (R): ...' and use the standard 4 options.
-For CASE_STUDY: Format as a passage followed by 3 sub-questions ((i), (ii), (iii)).
-Strict limits: max 3 CASE_STUDY and max 4 ASSERTION_REASON questions.
+Generate one CBSE question from the provided chunks only.
+Obey the exact slot contract and JSON schema.
+Never add extra question objects or split an OR choice into another question.
+Use provided image payloads only for image/map/diagram slots.
+Resolved paper count: 10 question objects.
 
 BLUEPRINT
 ACADEMIC BLUEPRINT INSTRUCTIONS (MANDATORY):

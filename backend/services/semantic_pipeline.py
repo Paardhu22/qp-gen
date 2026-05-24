@@ -116,9 +116,11 @@ def normalize_pages(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         
     return normalized_pages
 
-def build_semantic_chunks(pages: List[Dict[str, Any]], max_chunk_size: int = 1500) -> List[SemanticChunk]:
+def build_semantic_chunks(pages: List[Dict[str, Any]], max_chunk_size: int = 900) -> List[SemanticChunk]:
     """
     Chunk content semantically while respecting chapter boundaries, headings, and paragraph groups.
+    The target size is intentionally small so generation can retrieve only the
+    top paragraph-level evidence instead of prompting with whole chapters.
     """
     chunks = []
     chunk_index = 0

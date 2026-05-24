@@ -1,18 +1,136 @@
+import base64
+import logging
 from io import BytesIO
+from typing import Dict, List
 
 from apps.documents.models import DocumentChunk, PdfSource
+from django.conf import settings
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db import transaction
 from docx import Document as DocxDocument
 
-from services.chunking_service import chunk_pages, chunk_text
+from services.chunking_service import chunk_text
 from services.embedding_service import generate_embeddings
+from services.openai_service import caption_image_for_embedding
 from services.pdf_service import extract_text_from_pdf
-from services.semantic_pipeline import process_semantic_pipeline
+from services.semantic_pipeline import SemanticChunk, process_semantic_pipeline
+
+logger = logging.getLogger("[DOCUMENT_SERVICE]")
 
 
 def _extract_text_from_docx(buffer: bytes) -> str:
     doc = DocxDocument(BytesIO(buffer))
     return "\n".join(p.text for p in doc.paragraphs)
+
+
+def _public_media_url(stored_path: str) -> str:
+    media_url = default_storage.url(stored_path)
+    public_base = getattr(settings, "AOS_PUBLIC_MEDIA_BASE_URL", "")
+    if public_base:
+        return f"{public_base}{media_url if media_url.startswith('/') else '/' + media_url}"
+    return media_url
+
+
+def _normalise_image_extension(extension: str) -> str:
+    extension = (extension or "png").lower().lstrip(".")
+    if extension == "jpeg":
+        return "jpg"
+    if extension not in {"png", "jpg", "webp", "gif"}:
+        return "png"
+    return extension
+
+
+def _store_extracted_image(pdf_source: PdfSource, image: Dict[str, object]) -> tuple[str, str]:
+    extension = _normalise_image_extension(str(image.get("extension") or "png"))
+    page_number = int(image.get("pageNumber") or 0)
+    image_index = int(image.get("imageIndex") or 0)
+    stored_path = default_storage.save(
+        f"pdf_images/{pdf_source.id}/page-{page_number}-image-{image_index}.{extension}",
+        ContentFile(image.get("bytes") or b""),
+    )
+    return _public_media_url(stored_path), stored_path
+
+
+def _image_data_url(image: Dict[str, object]) -> str:
+    extension = _normalise_image_extension(str(image.get("extension") or "png"))
+    mime_type = str(image.get("mimeType") or f"image/{'jpeg' if extension == 'jpg' else extension}")
+    payload = base64.b64encode(image.get("bytes") or b"").decode("ascii")
+    return f"data:{mime_type};base64,{payload}"
+
+
+def _is_usable_image(image: Dict[str, object]) -> bool:
+    image_bytes = image.get("bytes") or b""
+    width = int(image.get("width") or 0)
+    height = int(image.get("height") or 0)
+    min_bytes = getattr(settings, "PDF_IMAGE_MIN_BYTES", 8192)
+    min_dimension = getattr(settings, "PDF_IMAGE_MIN_DIMENSION", 96)
+    if len(image_bytes) < min_bytes:
+        return False
+    if width and height and (width < min_dimension or height < min_dimension):
+        return False
+    return True
+
+
+def _build_image_chunks(
+    *,
+    pdf_source: PdfSource,
+    file_name: str,
+    images: List[Dict[str, object]],
+    pages: List[dict],
+    start_index: int,
+    user,
+) -> List[SemanticChunk]:
+    page_text = {page.get("pageNumber"): str(page.get("content") or "") for page in pages}
+    chunks: List[SemanticChunk] = []
+    caption_limit = getattr(settings, "PDF_IMAGE_MAX_CAPTIONS", 40)
+    usable_images = [image for image in images if _is_usable_image(image)][:caption_limit]
+
+    for offset, image in enumerate(usable_images):
+        page_number = int(image.get("pageNumber") or 0)
+        image_url, image_storage_path = _store_extracted_image(pdf_source, image)
+        nearby_text = page_text.get(page_number, "")
+
+        try:
+            caption = caption_image_for_embedding(
+                _image_data_url(image),
+                page_context=nearby_text,
+                user=user,
+            )
+        except Exception as exc:
+            logger.warning("Image captioning failed for %s page %s: %s", file_name, page_number, exc)
+            caption = f"Textbook visual from page {page_number}. Nearby text: {nearby_text[:500]}"
+
+        content = (
+            "# Visual Source\n"
+            f"Page: {page_number}\n"
+            f"Hidden caption: {caption}\n"
+            f"Nearby textbook text: {nearby_text[:900]}"
+        ).strip()
+
+        chunks.append(
+            SemanticChunk(
+                content=content,
+                page=page_number,
+                chunk_index=start_index + offset,
+                metadata={
+                    "chunkType": "image",
+                    "chapter": "Visual Source",
+                    "heading": f"Page {page_number} image",
+                    "semanticSection": f"Visual Source - Page {page_number}",
+                    "sourcePdf": file_name,
+                    "image_url": image_url,
+                    "image_storage_path": image_storage_path,
+                    "mimeType": image.get("mimeType"),
+                    "image_caption": caption,
+                    "width": image.get("width"),
+                    "height": image.get("height"),
+                    "requiresVision": True,
+                },
+            )
+        )
+
+    return chunks
 
 
 def process_pdf_upload(file, user) -> PdfSource:
@@ -32,11 +150,13 @@ def process_pdf_upload(file, user) -> PdfSource:
 
     extracted_text = ""
     pages = []
+    images = []
 
     if file_type == "application/pdf":
         pdf_data = extract_text_from_pdf(buffer)
         extracted_text = pdf_data.get("text", "")
         pages = pdf_data.get("pages", [])
+        images = pdf_data.get("images", [])
     elif (
         file_type
         == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -45,7 +165,7 @@ def process_pdf_upload(file, user) -> PdfSource:
     else:
         extracted_text = buffer.decode("utf-8", errors="ignore")
 
-    if not extracted_text.strip():
+    if not extracted_text.strip() and not images:
         raise ValueError("Failed to extract text from document")
 
     with transaction.atomic():
@@ -58,11 +178,22 @@ def process_pdf_upload(file, user) -> PdfSource:
 
         try:
             if pages:
-                # Use the new semantically optimized pipeline
                 chunks = process_semantic_pipeline(pages)
             else:
-                # Fallback for plain text or docx (can also be enhanced later)
                 chunks = chunk_text(extracted_text)
+
+            image_chunks = _build_image_chunks(
+                pdf_source=pdf_source,
+                file_name=file_name,
+                images=images,
+                pages=pages,
+                start_index=len(chunks),
+                user=user,
+            )
+            chunks.extend(image_chunks)
+
+            if not chunks:
+                raise ValueError("No searchable text or visual chunks could be extracted")
 
             batch_size = 50
             for i in range(0, len(chunks), batch_size):
@@ -79,7 +210,10 @@ def process_pdf_upload(file, user) -> PdfSource:
                             chunk_index=chunk.chunk_index,
                             embedding=embedding,
                             pdf_source=pdf_source,
-                            metadata=getattr(chunk, 'metadata', {})
+                            metadata={
+                                **(getattr(chunk, "metadata", {}) or {}),
+                                "sourcePdf": file_name,
+                            },
                         )
                         for chunk, embedding in zip(batch, embeddings)
                     ]

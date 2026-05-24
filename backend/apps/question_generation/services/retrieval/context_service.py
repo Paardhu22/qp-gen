@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from apps.accounts.models import User
 from apps.documents.models import DocumentChunk
@@ -12,12 +12,17 @@ logger = logging.getLogger("[QG_RETRIEVAL]")
 
 
 def _chunk_to_payload(chunk, similarity: float) -> dict:
-    return {
+    metadata = chunk.metadata or {}
+    payload = {
+        "id": chunk.id,
         "content": chunk.content,
         "page": chunk.page,
         "similarity": similarity,
-        "metadata": chunk.metadata,
+        "metadata": metadata,
     }
+    if metadata.get("image_url"):
+        payload["image_url"] = metadata.get("image_url")
+    return payload
 
 
 def _lexical_score(query: str, content: str) -> int:
@@ -36,14 +41,20 @@ def retrieve_fallback_chunks(
     query: str,
     pdf_source_ids: List[str],
     limit: int = 4,
+    require_image: bool = False,
+    exclude_chunk_ids: Optional[Set[str]] = None,
 ) -> List[dict]:
     if not pdf_source_ids:
         return []
 
+    queryset = DocumentChunk.objects.filter(pdf_source_id__in=pdf_source_ids)
+    if exclude_chunk_ids:
+        queryset = queryset.exclude(id__in=exclude_chunk_ids)
+    if require_image:
+        queryset = queryset.filter(metadata__has_key="image_url")
+
     chunks = list(
-        DocumentChunk.objects.filter(pdf_source_id__in=pdf_source_ids).order_by(
-            "pdf_source_id", "page", "chunk_index"
-        )
+        queryset.order_by("pdf_source_id", "page", "chunk_index")
     )
     ranked = sorted(
         chunks,
@@ -58,6 +69,8 @@ def retrieve_relevant_chunks(
     pdf_source_ids: List[str],
     limit: int = 4,
     user: Optional[User] = None,
+    require_image: bool = False,
+    exclude_chunk_ids: Optional[Set[str]] = None,
 ) -> List[dict]:
     if not pdf_source_ids:
         return []
@@ -66,16 +79,32 @@ def retrieve_relevant_chunks(
         query_embedding = generate_single_embedding(query, user=user)
     except Exception as exc:
         logger.warning("[RAG] Embedding retrieval failed, using lexical fallback: %s", exc)
-        return retrieve_fallback_chunks(query, pdf_source_ids, limit=limit)
-
-    queryset = (
-        DocumentChunk.objects.filter(
-            pdf_source_id__in=pdf_source_ids,
-            embedding__isnull=False,
+        fallback = retrieve_fallback_chunks(
+            query,
+            pdf_source_ids,
+            limit=limit,
+            require_image=require_image,
+            exclude_chunk_ids=exclude_chunk_ids,
         )
-        .annotate(distance=L2Distance("embedding", query_embedding))
-        .order_by("distance")
+        if fallback or not require_image:
+            return fallback
+        return retrieve_fallback_chunks(
+            query,
+            pdf_source_ids,
+            limit=limit,
+            exclude_chunk_ids=exclude_chunk_ids,
+        )
+
+    queryset = DocumentChunk.objects.filter(
+        pdf_source_id__in=pdf_source_ids,
+        embedding__isnull=False,
     )
+    if exclude_chunk_ids:
+        queryset = queryset.exclude(id__in=exclude_chunk_ids)
+    if require_image:
+        queryset = queryset.filter(metadata__has_key="image_url")
+
+    queryset = queryset.annotate(distance=L2Distance("embedding", query_embedding)).order_by("distance")
 
     results = []
     for chunk in queryset[:limit]:
@@ -83,7 +112,21 @@ def retrieve_relevant_chunks(
         results.append(_chunk_to_payload(chunk, similarity))
 
     if not results:
-        return retrieve_fallback_chunks(query, pdf_source_ids, limit=limit)
+        fallback = retrieve_fallback_chunks(
+            query,
+            pdf_source_ids,
+            limit=limit,
+            require_image=require_image,
+            exclude_chunk_ids=exclude_chunk_ids,
+        )
+        if fallback or not require_image:
+            return fallback
+        return retrieve_fallback_chunks(
+            query,
+            pdf_source_ids,
+            limit=limit,
+            exclude_chunk_ids=exclude_chunk_ids,
+        )
 
     return results
 
