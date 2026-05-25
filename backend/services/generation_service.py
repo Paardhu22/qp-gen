@@ -247,7 +247,7 @@ def _extract_reuse_terms(question: dict) -> Set[str]:
     return terms
 
 
-def _coerce_question(raw_payload: dict, slot, source_chunks: List[dict], is_retry: bool = False) -> dict:
+def _coerce_question(raw_payload: dict, slot, source_chunks: List[dict], is_retry: bool = False, is_visual_mandatory: bool = False) -> dict:
     raw_question = raw_payload.get("question", raw_payload)
     if not isinstance(raw_question, dict):
         raise ValueError("LLM returned a non-object question payload.")
@@ -268,7 +268,10 @@ def _coerce_question(raw_payload: dict, slot, source_chunks: List[dict], is_retr
     allowed_urls = _allowed_image_urls(source_chunks)
     candidate_image_url = str(raw_question.get("image_url") or raw_question.get("imageUrl") or "").strip()
     image_url = candidate_image_url if candidate_image_url in allowed_urls else ""
-    if slot.requires_image and not image_url and allowed_urls:
+    
+    if (slot.requires_image or is_visual_mandatory) and not image_url and allowed_urls:
+        if not is_retry:
+            raise ValueError("LLM omitted the mandatory visual image_url.")
         image_url = allowed_urls[0]
 
     or_choice = _coerce_or_choice(raw_question, allowed_urls)
@@ -316,33 +319,47 @@ def _coerce_question(raw_payload: dict, slot, source_chunks: List[dict], is_retr
     }
 
 
-def _single_question_schema() -> str:
-    return (
+def _single_question_schema(is_visual_mandatory: bool, slot) -> str:
+    schema = (
         "{\n"
         '  "question": {\n'
-        '    "content": "Question text",\n'
-        '    "type": "MCQ | ASSERTION_REASON | SHORT | LONG | CASE_STUDY | DIAGRAM",\n'
-        '    "options": ["Option 1", "Option 2", "Option 3", "Option 4"],\n'
-        '    "answer": "Correct answer or scoring points",\n'
-        '    "marks": 3,\n'
-        '    "image_url": "Optional copied image URL, otherwise empty string",\n'
-        '    "or_choice": null,\n'
-        '    "vi_alternative": null,\n'
-        '    "metadata": {\n'
-        '      "gradeClass": "Class 10",\n'
-        '      "subject": "Science",\n'
-        '      "inferredTopic": "Biology",\n'
-        '      "inferredChapter": "Chapter/heading from context",\n'
-        '      "sourcePdf": "source file or blank",\n'
-        '      "difficulty": "easy | medium | hard"\n'
-        "    }\n"
-        "  }\n"
-        "}\n"
-        "Rules: `or_choice` must be null when no OR choice is required. "
-        "When OR is required, set `or_choice` to an object with content, options, answer, and image_url. "
-        "Keep it inside this same question object; never create a second question for it. "
-        "When VI is required, set `vi_alternative` to the full text-based replacement question.\n"
+        f'    "content": "String (Question text)",\n'
+        f'    "type": "String ({slot.legacy_type})",\n'
     )
+    if slot.legacy_type in ["MCQ", "ASSERTION_REASON"]:
+        schema += '    "options": ["Option 1", "Option 2", "Option 3", "Option 4"],\n'
+    
+    schema += '    "answer": "String (Correct answer or scoring points)",\n'
+    schema += f'    "marks": {slot.marks},\n'
+    
+    if is_visual_mandatory:
+        schema += '    "image_url": "String (CRITICAL: MUST include the provided image URL)",\n'
+    else:
+        schema += '    "image_url": "String or omit entirely if no image is mandated",\n'
+        
+    if slot.choice_required:
+        schema += '    "or_choice": { "content": "String", "options": ["(if MCQ)"], "answer": "String", "image_url": "String" },\n'
+    else:
+        schema += '    "or_choice": "CRITICAL: Omit this key entirely unless internal choice is mandated",\n'
+        
+    if slot.vi_required:
+        schema += '    "vi_alternative": { "content": "String (Full text replacement question)" },\n'
+    else:
+        schema += '    "vi_alternative": "CRITICAL: Omit this key entirely unless visually impaired alternative is mandated",\n'
+        
+    schema += (
+        '    "metadata": {\n'
+        '      "gradeClass": "String",\n'
+        '      "subject": "String",\n'
+        '      "inferredTopic": "String",\n'
+        '      "inferredChapter": "String",\n'
+        '      "difficulty": "easy | medium | hard"\n'
+        '    }\n'
+        '  }\n'
+        '}\n'
+        'Rules: Do NOT use null. If a field is not required (like or_choice or vi_alternative), omit the key entirely from the JSON object.\n'
+    )
+    return schema
 
 
 def _build_user_prompt(
@@ -351,6 +368,7 @@ def _build_user_prompt(
     topic: str,
     image_urls: Optional[List[str]] = None,
     used_terms: Optional[Set[str]] = None,
+    is_visual_mandatory: bool = False,
 ) -> str:
     topic_line = f"Topic/focus: {topic}." if topic else "Topic/focus: infer from the retrieved chunks."
     image_line = ""
@@ -359,10 +377,15 @@ def _build_user_prompt(
     reuse_line = ""
     if used_terms:
         reuse_line = f"\nDo not reuse these concepts or exact values: {', '.join(sorted(used_terms)[:30])}."
+        
+    visual_override = ""
+    if is_visual_mandatory:
+        visual_override = "\nCRITICAL SYSTEM OVERRIDE: The context provided for this question contains a textbook diagram/image. You MUST formulate a pictorial question (e.g., 'Observe the given diagram...', 'Identify the parts labeled in the figure...'). You MUST include the provided image URL in the `image_url` key of your JSON output. Failure to output a visual question will result in system failure.\n"
+        
     return (
         f"Question {slot.index} of {total_slots}.\n"
         f"{topic_line}\n\n"
-        f"{slot.exact_instruction}{image_line}{reuse_line}\n\n"
+        f"{slot.exact_instruction}{image_line}{reuse_line}{visual_override}\n\n"
         "Return only valid JSON matching the schema. Do not include markdown."
     )
 
@@ -376,7 +399,9 @@ def stream_generated_questions(
     instructions: str = "",
     payload: Optional[dict] = None,
 ) -> Iterable[str]:
+    import concurrent.futures
     from services.generation_router import (
+        build_slot_blueprint_instructions,
         build_blueprint_instructions,
         build_general_instructions,
         build_question_plan,
@@ -391,12 +416,7 @@ def stream_generated_questions(
 
     payload = payload or {}
     if not should_use_new_engine(payload):
-        yield _sse_event(
-            {
-                "error": "Only CBSE Science and CBSE Social Science are configured in q_instructions right now."
-            },
-            event="error",
-        )
+        yield _sse_event({"error": "Only CBSE Science and CBSE Social Science are configured in q_instructions right now."}, event="error")
         return
 
     class_raw = payload.get("class", payload.get("class_level", payload.get("gradeClass", "10")))
@@ -404,30 +424,16 @@ def stream_generated_questions(
     subject_raw = str(payload.get("subject", "Science")).strip() or "Science"
     subject_norm = normalize_subject(subject_raw)
     subject_label = "Social Science" if subject_norm == "social science" else "Science"
-    count_variation = str(
-        payload.get("count_variation")
-        or payload.get("countVariation")
-        or payload.get("countType")
-        or ""
-    ).strip().lower()
+    count_variation = str(payload.get("count_variation") or payload.get("countVariation") or payload.get("countType") or "").strip().lower()
     resolved_count = -1 if count_variation in {"cbse exact pattern", "cbse", "exact"} else count
 
     try:
         plan = build_question_plan(
-            topic=topic,
-            difficulty=difficulty,
-            count=resolved_count,
-            class_num=class_num,
-            subject=subject_raw,
-            instructions=instructions,
+            topic=topic, difficulty=difficulty, count=resolved_count, class_num=class_num, subject=subject_raw, instructions=instructions, count_variation=count_variation,
         )
-        blueprint_rules = build_blueprint_instructions(
-            topic=topic,
-            difficulty=difficulty,
-            count=resolved_count,
-            class_num=class_num,
-            subject=subject_raw,
-            plan=plan,
+        # We still generate the master blueprint for history logging
+        master_blueprint = build_blueprint_instructions(
+            topic=topic, difficulty=difficulty, count=resolved_count, class_num=class_num, subject=subject_raw, plan=plan,
         )
     except Exception as exc:
         logger.error("[AOS] Failed to compile q_instructions plan: %s", exc, exc_info=True)
@@ -449,9 +455,7 @@ def stream_generated_questions(
         academic_class = AcademicClass[class_name]
 
     max_input_tokens, max_output_tokens = allocate_budget(
-        total_max_tokens=5000,
-        reserved_system_tokens=350,
-        max_output_tokens=750,
+        total_max_tokens=5000, reserved_system_tokens=350, max_output_tokens=750,
     )
     assembler = PromptAssembler(version_id="v1")
     request_factory = LLMRequestFactory()
@@ -459,65 +463,82 @@ def stream_generated_questions(
     result = _empty_result()
     general_instructions = build_general_instructions(plan, subject_raw, class_num)
     result["generalInstructions"] = general_instructions
-    prompt_audit: List[dict] = []
-    provider_failures = 0
-    total_estimated_input_tokens = 0
-    truncation_events = 0
-    used_chunk_ids: Set[str] = set()
-    used_terms: Set[str] = set()
-    retrieval_cache: Dict[tuple, List[dict]] = {}
+
+    # Phase 1: The Allocation Loop (Sequential & Instantaneous)
+    allocated_slots = []
+    used_chunk_ids = set()
+    _topic_cache = {}
+
+    for slot in plan:
+        cache_key = (slot.retrieval_query, slot.requires_image)
+        if cache_key not in _topic_cache:
+            _topic_cache[cache_key] = retrieve_relevant_chunks(
+                slot.retrieval_query,
+                pdf_source_ids,
+                limit=50,
+                user=user,
+                require_image=slot.requires_image,
+                exclude_chunk_ids=None,
+            )
+            
+        top_50 = _topic_cache[cache_key]
+        valid_chunks = [c for c in top_50 if str(c.get("id")) not in used_chunk_ids]
+        context = valid_chunks[:4]
+        
+        for item in context:
+            if item.get("id"):
+                used_chunk_ids.add(str(item["id"]))
+                
+        is_visual_mandatory = False
+        if slot.requires_image:
+            is_visual_mandatory = True
+        else:
+            for c in context:
+                if c.get("metadata", {}).get("image_url") or c.get("image_url"):
+                    is_visual_mandatory = True
+                    break
+                    
+        allocated_slots.append({
+            "slot": slot,
+            "context": context,
+            "is_visual_mandatory": is_visual_mandatory
+        })
 
     yield _sse_event(
         {
             "total": len(plan),
             "subject": subject_label,
             "class": class_num,
-            "blueprint": blueprint_rules,
+            "blueprint": master_blueprint,
             "summary": summarize_question_plan(plan),
             "generalInstructions": general_instructions,
         },
         event="plan",
     )
 
-    for slot in plan:
-        cache_key = (
-            slot.retrieval_query,
-            frozenset(used_chunk_ids),
-            slot.requires_image
-        )
-        if cache_key in retrieval_cache:
-            context = retrieval_cache[cache_key]
-        else:
-            context = retrieve_relevant_chunks(
-                slot.retrieval_query,
-                pdf_source_ids,
-                limit=4,
-                user=user,
-                require_image=slot.requires_image,
-                exclude_chunk_ids=used_chunk_ids,
-            )
-            retrieval_cache[cache_key] = context
+    prompt_audit = []
+    total_estimated_input_tokens = 0
+    truncation_events = 0
+    provider_failures = 0
 
+    def _generate_slot(allocated):
+        slot = allocated["slot"]
+        context = allocated["context"]
+        is_visual_mandatory = allocated["is_visual_mandatory"]
+        
         if not context:
-            provider_failures += 1
-            yield _sse_event(
-                {
-                    "error": f"No relevant textbook chunks found for {slot.section_title} question {slot.index}.",
-                    "index": slot.index,
-                },
-                event="warning",
+            return (
+                [_sse_event({"error": f"No relevant textbook chunks found for {slot.section_title} question {slot.index}.", "index": slot.index}, event="warning")],
+                None, None, None
             )
-            continue
 
         retrieval_metrics = retrieval_quality_summary(context)
         logger.info("[RAG] slot=%s metrics=%s", slot.index, retrieval_metrics)
 
-        image_urls = _allowed_image_urls(context) if slot.requires_image else []
-        vision_image_urls = _vision_image_payload_urls(context) if slot.requires_image else []
+        image_urls = _allowed_image_urls(context) if slot.requires_image or is_visual_mandatory else []
+        vision_image_urls = _vision_image_payload_urls(context) if slot.requires_image or is_visual_mandatory else []
         raw_chunks = [_format_chunk_for_prompt(item) for item in context]
         budget_result = trim_chunks_to_budget(raw_chunks, max_input_tokens)
-        total_estimated_input_tokens += budget_result.estimated_tokens
-        truncation_events += budget_result.truncation_events
 
         gen_context = GenerationContext(
             subject=subject_label,
@@ -534,46 +555,51 @@ def stream_generated_questions(
             generation_constraints=constraints,
             prompt_version="v1",
         )
-        slot_blueprint = blueprint_rules
+        
+        # Directive 5: Truncated prompt
+        slot_blueprint = build_slot_blueprint_instructions(slot, difficulty, class_num, subject_raw)
+        
         prompt_document = assembler.assemble(
             context=gen_context,
             system_rules=default_system_rules(constraints),
-            output_schema=_single_question_schema(),
+            output_schema=_single_question_schema(is_visual_mandatory, slot),
             blueprint_instructions=slot_blueprint,
             extra_instructions=instructions if instructions else None,
         )
-        prompt_audit.append(
-            {
-                "index": slot.index,
-                "section": slot.section_title,
-                "type": slot.legacy_type,
-                "marks": slot.marks,
-                "query": slot.retrieval_query,
-                "chunks": len(context),
-                "orChoice": slot.choice_required,
-                "imageUrls": len(image_urls),
-                "visionImages": len(vision_image_urls),
-            }
-        )
+        
+        audit_info = {
+            "index": slot.index,
+            "section": slot.section_title,
+            "type": slot.legacy_type,
+            "marks": slot.marks,
+            "query": slot.retrieval_query,
+            "chunks": len(context),
+            "orChoice": slot.choice_required,
+            "imageUrls": len(image_urls),
+            "visionImages": len(vision_image_urls),
+        }
 
+        # used_terms is dropped for parallel generation since slots are mutually exclusive via chunks
         prompt = _build_user_prompt(
             slot,
             len(plan),
             topic,
             image_urls=image_urls,
-            used_terms=used_terms,
+            used_terms=set(), 
+            is_visual_mandatory=is_visual_mandatory,
         )
         llm_request = request_factory.build(
-            prompt_document,
-            prompt,
-            model=settings.OPENAI_MODEL,
-            image_urls=vision_image_urls,
+            prompt_document, prompt, model=settings.OPENAI_MODEL, image_urls=vision_image_urls,
         )
+        
         question = None
+        events = []
+        failures = 0
+        
         for attempt in range(2):
             extractor = JsonObjectStreamExtractor()
             buffer = ""
-            parsed_payload: Optional[dict] = None
+            parsed_payload = None
 
             try:
                 for delta in provider.stream_chat(llm_request):
@@ -586,9 +612,9 @@ def stream_generated_questions(
                 if attempt == 0:
                     logger.warning("[LLM] Streaming failed for slot %s attempt 1: %s. Retrying...", slot.index, exc)
                     continue
-                provider_failures += 1
+                failures += 1
                 logger.error("[LLM] Streaming failed for slot %s: %s", slot.index, exc, exc_info=True)
-                yield _sse_event({"error": str(exc), "index": slot.index}, event="warning")
+                events.append(_sse_event({"error": str(exc), "index": slot.index}, event="warning"))
                 break
 
             if parsed_payload is None and buffer.strip():
@@ -598,57 +624,64 @@ def stream_generated_questions(
                     if attempt == 0:
                         logger.warning("[LLM] Invalid JSON for slot %s attempt 1: %s. Retrying...", slot.index, exc)
                         continue
-                    provider_failures += 1
+                    failures += 1
                     logger.error("[LLM] Invalid JSON for slot %s: %s", slot.index, exc)
-                    yield _sse_event(
-                        {"error": f"Invalid JSON for question {slot.index}", "index": slot.index},
-                        event="warning",
-                    )
+                    events.append(_sse_event({"error": f"Invalid JSON for question {slot.index}", "index": slot.index}, event="warning"))
                     break
 
             if parsed_payload is None:
                 if attempt == 0:
                     logger.warning("[LLM] No question content returned for slot %s attempt 1. Retrying...", slot.index)
                     continue
-                provider_failures += 1
-                yield _sse_event(
-                    {"error": f"No question content returned for question {slot.index}", "index": slot.index},
-                    event="warning",
-                )
+                failures += 1
+                events.append(_sse_event({"error": f"No question content returned for question {slot.index}", "index": slot.index}, event="warning"))
                 break
 
             try:
-                question = _coerce_question(parsed_payload, slot, context, is_retry=(attempt > 0))
+                question = _coerce_question(parsed_payload, slot, context, is_retry=(attempt > 0), is_visual_mandatory=is_visual_mandatory)
                 break
             except Exception as exc:
                 if attempt == 0:
                     logger.warning("[LLM] Could not normalize slot %s attempt 1: %s. Retrying...", slot.index, exc)
                     continue
-                provider_failures += 1
+                failures += 1
                 logger.error("[LLM] Could not normalize slot %s: %s", slot.index, exc, exc_info=True)
-                yield _sse_event({"error": str(exc), "index": slot.index}, event="warning")
+                events.append(_sse_event({"error": str(exc), "index": slot.index}, event="warning"))
                 break
 
-        if not question:
-            continue
-
-        section = _find_or_create_section(result, slot.section_title)
-        section["questions"].append(question)
-        for item in context:
-            chunk_id = item.get("id")
-            if chunk_id:
-                used_chunk_ids.add(str(chunk_id))
-        used_terms.update(_extract_reuse_terms(question))
-        yield _sse_event(
-            {
+        if question:
+            events.append(_sse_event({
                 "index": slot.index,
                 "total": len(plan),
                 "section": slot.section_title,
                 "question": question,
-            },
-            event="question",
-        )
-        yield _sse_event(result, event="update")
+            }, event="question"))
+            
+        return events, audit_info, question, (failures, budget_result.estimated_tokens, budget_result.truncation_events)
+
+    # Phase 2: The Generation Loop (Parallel)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_slot = {executor.submit(_generate_slot, a): a for a in allocated_slots}
+        for future in concurrent.futures.as_completed(future_to_slot):
+            try:
+                events, audit_info, question, metrics_tuple = future.result()
+                for event in events:
+                    yield event
+                
+                if audit_info:
+                    prompt_audit.append(audit_info)
+                if question:
+                    slot = future_to_slot[future]["slot"]
+                    section = _find_or_create_section(result, slot.section_title)
+                    section["questions"].append(question)
+                    yield _sse_event(result, event="update")
+                    
+                if metrics_tuple:
+                    provider_failures += metrics_tuple[0]
+                    total_estimated_input_tokens += metrics_tuple[1]
+                    truncation_events += metrics_tuple[2]
+            except Exception as exc:
+                logger.error("Future failed: %s", exc)
 
     metrics = GenerationMetrics(
         prompt_version="v1",
@@ -663,10 +696,7 @@ def stream_generated_questions(
 
     total_questions = sum(len(section.get("questions", [])) for section in result["sections"])
     if total_questions == 0:
-        yield _sse_event(
-            {"error": "Generation failed before any questions could be produced."},
-            event="error",
-        )
+        yield _sse_event({"error": "Generation failed before any questions could be produced."}, event="error")
         return
 
     if total_questions < len(plan):
@@ -679,27 +709,14 @@ def stream_generated_questions(
 
     try:
         GenerationHistory.objects.create(
-            prompt=json.dumps(
-                {
-                    "blueprint": blueprint_rules,
-                    "plan": prompt_audit,
-                },
-                ensure_ascii=False,
-            ),
+            prompt=json.dumps({"blueprint": master_blueprint, "plan": prompt_audit}, ensure_ascii=False),
             settings={
-                "topic": topic,
-                "count": count,
-                "resolvedCountInput": resolved_count,
-                "resolvedCount": len(plan),
+                "topic": topic, "count": count, "resolvedCountInput": resolved_count, "resolvedCount": len(plan),
                 "countVariation": count_variation or ("cbse" if count <= 0 else "custom"),
-                "difficulty": difficulty,
-                "pdfSourceIds": pdf_source_ids,
-                "instructions": instructions,
-                "subject": subject_label,
-                "class": class_num,
+                "difficulty": difficulty, "pdfSourceIds": pdf_source_ids, "instructions": instructions,
+                "subject": subject_label, "class": class_num,
             },
-            result=result,
-            user=user,
+            result=result, user=user,
         )
     except Exception as exc:
         logger.warning("[HISTORY] Could not persist generation history: %s", exc)

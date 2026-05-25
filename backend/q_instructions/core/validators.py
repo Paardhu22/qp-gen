@@ -65,6 +65,10 @@ class StreamBalanceRule(IValidationRule):
         if not stream_marks:
             return errors
 
+        # Bypass for custom/integrated runs
+        if "INTEGRATED" in stream_marks or StreamType.INTEGRATED in stream_marks:
+            return errors
+
         total = sum(stream_marks.values())
         if total == 0:
             return errors

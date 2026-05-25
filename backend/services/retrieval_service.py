@@ -29,15 +29,21 @@ def retrieve_relevant_chunks(
         pdf_source_id__in=pdf_source_ids,
         embedding__isnull=False,
     )
-    if exclude_chunk_ids:
-        queryset = queryset.exclude(id__in=exclude_chunk_ids)
     if require_image:
         queryset = queryset.filter(metadata__has_key="image_url")
 
     queryset = queryset.annotate(distance=L2Distance("embedding", query_embedding)).order_by("distance")
 
     results = []
-    for chunk in queryset[:limit]:
+    
+    # We fetch a larger pool and filter in memory if exclude_chunk_ids is provided.
+    # This allows upper layers to cache the query safely.
+    max_fetch = 50 if exclude_chunk_ids else limit
+    
+    for chunk in queryset[:max_fetch]:
+        if exclude_chunk_ids and str(chunk.id) in exclude_chunk_ids:
+            continue
+            
         metadata = chunk.metadata or {}
         similarity = 1 - float(chunk.distance) if chunk.distance is not None else 0
         payload = {
@@ -50,6 +56,9 @@ def retrieve_relevant_chunks(
         if metadata.get("image_url"):
             payload["image_url"] = metadata.get("image_url")
         results.append(payload)
+        
+        if len(results) >= limit:
+            break
 
     return results
 
