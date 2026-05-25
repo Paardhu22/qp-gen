@@ -106,6 +106,10 @@ class ScienceOrchestratorV2:
         """Phase 9 Validation."""
         if not questions: return True
         
+        # Bypass realism validation for custom/integrated worksheets
+        if any(getattr(q, 'stream', None) in ("INTEGRATED", StreamType.INTEGRATED) for q in questions):
+            return True
+        
         # 1. Stream order
         streams = [q.stream for q in questions if q.stream in (StreamType.BIOLOGY, StreamType.CHEMISTRY, StreamType.PHYSICS)]
         expected = sorted(streams, key=lambda s: {StreamType.BIOLOGY: 0, StreamType.CHEMISTRY: 1, StreamType.PHYSICS: 2}.get(s, 99))

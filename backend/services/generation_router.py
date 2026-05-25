@@ -175,6 +175,41 @@ def summarize_question_plan(plan: List[QuestionGenerationSlot]) -> Dict[str, Any
     }
 
 
+def build_slot_blueprint_instructions(
+    slot: QuestionGenerationSlot,
+    difficulty: str,
+    class_num: int,
+    subject: str,
+) -> str:
+    """
+    Directive 5: Truncated prompt to save TTFT.
+    Only pass what is absolutely necessary for THIS specific slot.
+    """
+    subject_label = "Social Science" if normalize_subject(subject) == "social science" else "Science"
+    lines = [
+        "ACADEMIC BLUEPRINT INSTRUCTIONS (MANDATORY):",
+        f"- Board: CBSE | Class: {class_num} | Subject: {subject_label}",
+        f"- Difficulty target: {difficulty.upper()}",
+        f"- Generate EXACTLY ONE question for {slot.marks} marks.",
+        f"- Question Type: {slot.legacy_type}",
+    ]
+    
+    # Send word limits only if it's a descriptive question
+    if slot.legacy_type in ["SHORT", "LONG", "CASE_STUDY"]:
+        if slot.marks == 2:
+            lines.append("- Word limit: Max 40 words.")
+        elif slot.marks == 3:
+            lines.append("- Word limit: Max 60 words.")
+        elif slot.marks >= 5:
+            lines.append("- Word limit: Max 120 words.")
+            
+    # Send CBQ specific rule
+    if slot.legacy_type == "CASE_STUDY":
+        lines.append("- CBQ rules: Always exactly 3 sub-questions totaling 4 marks (e.g. 1+1+2). No OR within CBQ.")
+        
+    return "\n".join(lines)
+
+
 def build_plan_blueprint_instructions(
     *,
     plan: List[QuestionGenerationSlot],
@@ -200,6 +235,15 @@ def build_plan_blueprint_instructions(
         f"- Image/map/diagram slots: {summary['image_questions']}. VI alternatives required: {summary['vi_alternatives']}.",
         "- Use only retrieved chunks and supplied images. No unsupported facts.",
     ]
+    is_custom = any(slot.stream == "INTEGRATED" for slot in plan)
+    if is_custom:
+        lines.extend([
+            "LAYER 3 — COUNT VARIATION GATE: Custom Count Worksheet Mode",
+            "- WORKSHEET MODE: ABANDON formal subject-track architecture (Hist/Geo/Civ/Econ or Bio/Chem/Phys).",
+            "- Sections MUST be built dynamically based purely on QUESTION TYPES (e.g., Section A - Objective Questions, Section B - Short Answers).",
+            "- Do NOT print subject-specific headers.",
+            "- Scale question counts and types exactly as specified in the user's General Instructions.",
+        ])
     section_line = "; ".join(
         f"{title}: {summary['section_questions'][title]} questions, {summary['section_marks'][title]} marks"
         for title in summary["section_marks"]
@@ -210,6 +254,13 @@ def build_plan_blueprint_instructions(
 
 
 def build_general_instructions(plan: List[QuestionGenerationSlot], subject: str, class_num: int) -> List[str]:
+    is_custom = any(slot.stream == "INTEGRATED" for slot in plan)
+    if is_custom:
+        return [
+            f"This question paper consists of {len(plan)} questions in dynamically structured sections.",
+            "All questions are compulsory. Internal choice is provided in some questions.",
+            "Attempt all questions based on the instructions provided in each section."
+        ]
     subject_norm = normalize_subject(subject)
     if class_num in [9, 10] and subject_norm == "science":
         return [
@@ -247,10 +298,16 @@ def build_social_science_blueprint_instructions(difficulty: str, count: int, cla
         f"- Overall Difficulty Target: {difficulty.upper()}",
     ]
     if count > 0:
-        rules.append(f"- You MUST generate exactly {count} questions in total.")
-    else:
-        rules.append("- You MUST follow the EXACT CBSE question count and pattern for this class.")
-        
+        rules.extend([
+            f"- You MUST generate exactly {count} questions in total.",
+            "LAYER 3 — COUNT VARIATION GATE: Custom Count Worksheet Mode",
+            "- WORKSHEET MODE: ABANDON formal subject-track architecture (Hist/Geo/Civ/Econ or Bio/Chem/Phys).",
+            "- Sections MUST be built dynamically based purely on QUESTION TYPES (e.g., Section A - Objective Questions, Section B - Short Answers).",
+            "- Do NOT print subject-specific headers.",
+            "- Scale question counts and types exactly as specified in the user's General Instructions.",
+        ])
+        return "\n".join(rules)
+
     rules.append("- Your questions MUST strictly use the provided PDF context. No hallucinations.")
 
     if class_num in [1, 2]:
@@ -338,9 +395,15 @@ def build_blueprint_instructions(
         f"- Overall Difficulty Target: {difficulty.upper()}",
     ]
     if count > 0:
-        rules.append(f"- You MUST generate exactly {count} questions in total.")
-    else:
-        rules.append("- You MUST follow the EXACT CBSE question count and pattern for this class.")
+        rules.extend([
+            f"- You MUST generate exactly {count} questions in total.",
+            "LAYER 3 — COUNT VARIATION GATE: Custom Count Worksheet Mode",
+            "- WORKSHEET MODE: ABANDON formal subject-track architecture (Hist/Geo/Civ/Econ or Bio/Chem/Phys).",
+            "- Sections MUST be built dynamically based purely on QUESTION TYPES (e.g., Section A - Objective Questions, Section B - Short Answers).",
+            "- Do NOT print subject-specific headers.",
+            "- Scale question counts and types exactly as specified in the user's General Instructions.",
+        ])
+        return "\n".join(rules)
         
     rules.append("- Your questions MUST strictly use the provided PDF context. No hallucinations.")
 
@@ -450,18 +513,18 @@ def _section_title_for_stream(subject_norm: str, stream_name: str, class_num: in
 
 
 def _section_title_for_question_type(subject_norm: str, class_num: int, qtype_name: str, marks: int) -> str:
-    if subject_norm == "social science" and 6 <= class_num <= 8:
-        if qtype_name in {"MCQ", "ASSERTION_REASON"}:
-            return "Section A - MCQ"
-        if marks == 2:
-            return "Section B - Very Short Answer"
-        if marks == 3:
-            return "Section C - Short Answer"
-        if marks == 5:
-            return "Section D - Long Answer"
-        if qtype_name == "CASE_STUDY" or marks == 4:
-            return "Section E - Case-Based Questions"
+    if qtype_name in {"MCQ", "ASSERTION_REASON"}:
+        return "Section A - MCQ"
+    if marks == 2:
+        return "Section B - Very Short Answer"
+    if marks == 3:
+        return "Section C - Short Answer"
+    if marks >= 5:
+        return "Section D - Long Answer"
+    if qtype_name == "CASE_STUDY" or marks == 4:
+        return "Section E - Case-Based Questions"
     return "Questions"
+
 
 
 def _slot_instruction(slot: QuestionGenerationSlot) -> str:
@@ -788,6 +851,68 @@ def _build_exact_cbse_class10_plan(
     return slots
 
 
+
+def _parse_instructions_for_slots(instructions: str):
+    from q_instructions.core.enums import QuestionTypeCode
+    import re
+    if not instructions:
+        return []
+    
+    text = instructions.lower()
+    
+    # Define mapping of keywords to (QuestionTypeCode, marks)
+    mappings = [
+        (r'\bassertion[- ]?reason[s]?\b', (QuestionTypeCode.ASSERTION_REASON, 1)),
+        (r'\bar\b', (QuestionTypeCode.ASSERTION_REASON, 1)),
+        (r'\bmcq[s]?\b', (QuestionTypeCode.MCQ, 1)),
+        (r'\bmultiple[- ]?choice[s]?\b', (QuestionTypeCode.MCQ, 1)),
+        (r'\bvery[- ]?short[s]?\b', (QuestionTypeCode.SHORT_ANSWER, 2)),
+        (r'\bvsa[s]?\b', (QuestionTypeCode.SHORT_ANSWER, 2)),
+        (r'\bshort[- ]?answer[s]?\b', (QuestionTypeCode.SHORT_ANSWER, 3)),
+        (r'\bsa[s]?\b', (QuestionTypeCode.SHORT_ANSWER, 3)),
+        (r'\bshort[s]?\b', (QuestionTypeCode.SHORT_ANSWER, 3)),
+        (r'\blong[- ]?answer[s]?\b', (QuestionTypeCode.LONG_ANSWER, 5)),
+        (r'\bla[s]?\b', (QuestionTypeCode.LONG_ANSWER, 5)),
+        (r'\blong[s]?\b', (QuestionTypeCode.LONG_ANSWER, 5)),
+        (r'\bcase[- ]?based[s]?\b', (QuestionTypeCode.CASE_STUDY, 4)),
+        (r'\bcase[- ]?study\b', (QuestionTypeCode.CASE_STUDY, 4)),
+        (r'\bcase[- ]?studies\b', (QuestionTypeCode.CASE_STUDY, 4)),
+        (r'\bcbq[s]?\b', (QuestionTypeCode.CASE_STUDY, 4)),
+    ]
+    
+    number_words = {
+        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+    }
+    
+    results = []
+    
+    # Split on commas, semicolons, and, with
+    clauses = re.split(r'[,;]|\band\b|\bwith\b', text)
+    for clause in clauses:
+        clause = clause.strip()
+        if not clause:
+            continue
+            
+        num = None
+        digit_match = re.search(r'\b(\d+)\b', clause)
+        if digit_match:
+            num = int(digit_match.group(1))
+        else:
+            for word, val in number_words.items():
+                if re.search(r'\b' + word + r'\b', clause):
+                    num = val
+                    break
+                    
+        if num is not None:
+            for pattern, (qtype, marks) in mappings:
+                if re.search(pattern, clause):
+                    results.append((qtype, marks, num))
+                    break
+                    
+    return results
+
+
 def build_question_plan(
     topic: str,
     difficulty: str,
@@ -795,6 +920,7 @@ def build_question_plan(
     class_num: int = 10,
     subject: str = "Science",
     instructions: str = "",
+    count_variation: str = "exact",
 ) -> List[QuestionGenerationSlot]:
     """
     Materializes q_instructions into one LLM contract per question.
@@ -808,7 +934,10 @@ def build_question_plan(
 
     subject_label = "Social Science" if subject_norm == "social science" else "Science"
 
-    if class_num == 10 and (not count or count <= 0):
+    count_var_norm = str(count_variation).strip().lower().replace("_", " ")
+    is_custom_mode = count_var_norm in ("custom", "custom count")
+
+    if class_num == 10 and (not count or count <= 0) and not is_custom_mode:
         return _build_exact_cbse_class10_plan(
             topic=topic,
             difficulty=difficulty,
@@ -820,6 +949,55 @@ def build_question_plan(
     total_questions = count if count and count > 0 else default_cbse_question_count(subject_norm, class_num)
     total_questions = max(1, min(total_questions, 50))
     slots: List[QuestionGenerationSlot] = []
+
+    if is_custom_mode:
+
+        from q_instructions.core.enums import QuestionTypeCode
+        parsed_templates = []
+        if instructions:
+            try:
+                parsed_templates = _parse_instructions_for_slots(instructions)
+            except Exception as e:
+                logger.warning(f"Failed to parse custom instructions: {e}")
+                
+        total_parsed = sum(tpl[2] for tpl in parsed_templates)
+        
+        if total_parsed == total_questions:
+            for qtype, marks, num in parsed_templates:
+                for _ in range(num):
+                    slots.append(
+                        _make_slot(
+                            index=len(slots) + 1,
+                            section_title=_section_title_for_question_type(subject_norm, class_num, qtype.name, marks),
+                            subject=subject_label,
+                            stream="INTEGRATED",
+                            qtype_name=qtype.name,
+                            marks=marks,
+                            difficulty=difficulty,
+                            class_num=class_num,
+                            topic=topic,
+                            instructions=instructions,
+                        )
+                    )
+        else:
+            progression = _build_primary_progression(total_questions, class_num, subject_norm)
+            for qtype, marks in progression:
+                slots.append(
+                    _make_slot(
+                        index=len(slots) + 1,
+                        section_title=_section_title_for_question_type(subject_norm, class_num, qtype.name, marks),
+                        subject=subject_label,
+                        stream="INTEGRATED",
+                        qtype_name=qtype.name,
+                        marks=marks,
+                        difficulty=difficulty,
+                        class_num=class_num,
+                        topic=topic,
+                        instructions=instructions,
+                    )
+                )
+        return slots[:total_questions]
+
 
     if subject_norm == "science" and class_num >= 9:
         from q_instructions.core.enums import StreamType

@@ -129,6 +129,10 @@ class SocialScienceOrchestratorV2:
         """Validate against SQP rules."""
         if not questions: return True
         
+        # Bypass realism validation for custom/integrated worksheets
+        if any(getattr(q, 'stream', None) in ("INTEGRATED", StreamType.INTEGRATED) for q in questions):
+            return True
+        
         # 1. Check for illegal 3-mark in Geo
         for q in questions:
             if q.stream == StreamType.GEOGRAPHY and q.assigned_marks == 3:

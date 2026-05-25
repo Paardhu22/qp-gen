@@ -182,5 +182,42 @@ class TestHybridRouting(unittest.TestCase):
         self.assertTrue(any("event: done" in ev for ev in events))
         self.assertTrue(any("Section A - Biology" in ev for ev in events))
         
+    def test_custom_count_parses_general_instructions(self):
+        from services.generation_router import build_question_plan
+        from q_instructions.core.enums import QuestionTypeCode
+
+        plan = build_question_plan(
+            topic="French Revolution",
+            difficulty="medium",
+            count=10,
+            class_num=9,
+            subject="Social Science",
+            instructions="just 3 mcq's and 5 short and 2 long",
+            count_variation="custom"
+        )
+        
+        # Verify counts
+        mcqs = [s for s in plan if s.question_type == QuestionTypeCode.MCQ.name]
+        shorts = [s for s in plan if s.question_type == QuestionTypeCode.SHORT_ANSWER.name]
+        longs = [s for s in plan if s.question_type == QuestionTypeCode.LONG_ANSWER.name]
+
+        
+        self.assertEqual(len(plan), 10)
+        self.assertEqual(len(mcqs), 3)
+        self.assertCountEqual([s.marks for s in mcqs], [1, 1, 1])
+        
+        self.assertEqual(len(shorts), 5)
+        self.assertCountEqual([s.marks for s in shorts], [3, 3, 3, 3, 3])
+        
+        self.assertEqual(len(longs), 2)
+        self.assertCountEqual([s.marks for s in longs], [5, 5])
+        
+        # Verify that they are INTEGRATED stream
+        for slot in plan:
+            self.assertEqual(slot.stream, "INTEGRATED")
+            self.assertNotEqual(slot.section_title, "Section A - History")
+
+         
 if __name__ == "__main__":
     unittest.main()
+
