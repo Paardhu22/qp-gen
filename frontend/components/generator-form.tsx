@@ -212,6 +212,8 @@ export const GeneratorForm = () => {
         {
           pdfSourceIds: uploadedDocs.map((d) => d.id),
           count: values.countType === "cbse" ? -1 : parseInt(values.numberOfQuestions || "5", 10),
+          countType: values.countType,
+          countVariation: values.countType,
           difficulty: values.difficulty,
           instructions: generalInstructions || "",
           board: values.board,

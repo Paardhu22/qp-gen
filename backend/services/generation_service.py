@@ -461,7 +461,7 @@ def stream_generated_questions(
     request_factory = LLMRequestFactory()
     provider = OpenAIProvider()
     result = _empty_result()
-    general_instructions = build_general_instructions(plan, subject_raw, class_num)
+    general_instructions = build_general_instructions(plan, subject_raw, class_num, instructions=instructions)
     result["generalInstructions"] = general_instructions
 
     # Phase 1: The Allocation Loop (Sequential & Instantaneous)

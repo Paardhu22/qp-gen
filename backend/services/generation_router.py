@@ -253,9 +253,14 @@ def build_plan_blueprint_instructions(
     return "\n".join(lines)
 
 
-def build_general_instructions(plan: List[QuestionGenerationSlot], subject: str, class_num: int) -> List[str]:
+def build_general_instructions(plan: List[QuestionGenerationSlot], subject: str, class_num: int, instructions: str = "") -> List[str]:
     is_custom = any(slot.stream == "INTEGRATED" for slot in plan)
     if is_custom:
+        if instructions:
+            import re
+            lines = [line.strip() for line in re.split(r'[\r\n]+', instructions) if line.strip()]
+            if lines:
+                return lines
         return [
             f"This question paper consists of {len(plan)} questions in dynamically structured sections.",
             "All questions are compulsory. Internal choice is provided in some questions.",
@@ -887,28 +892,120 @@ def _parse_instructions_for_slots(instructions: str):
     
     results = []
     
-    # Split on commas, semicolons, and, with
-    clauses = re.split(r'[,;]|\band\b|\bwith\b', text)
+    # Split on newlines, commas, semicolons, and, with
+    clauses = re.split(r'[\r\n;,]|\band\b|\bwith\b', text)
     for clause in clauses:
         clause = clause.strip()
         if not clause:
             continue
             
-        num = None
-        digit_match = re.search(r'\b(\d+)\b', clause)
-        if digit_match:
-            num = int(digit_match.group(1))
+        # Check for section names like "Section A", "Section 1", "Part A", "Part I", "Sec A", etc.
+        sec_match = re.search(r'\b(section|part|sec)\s*[-:]?\s*([a-zA-Z0-9]+)\b', clause, re.IGNORECASE)
+        section_title = None
+        clause_for_nums = clause
+        if sec_match:
+            sec_type = sec_match.group(1).strip().capitalize() # "Section", "Part", "Sec"
+            if sec_type == "Sec":
+                sec_type = "Section"
+            sec_val = sec_match.group(2).strip().upper()
+            section_title = f"{sec_type} {sec_val}"
+            # Replace the matched section part with empty string to avoid matching the section number/character as a count or mark
+            clause_for_nums = clause_for_nums.replace(sec_match.group(0), " ")
+            
+        # Convert any number words to digits first
+        for word, val in number_words.items():
+            clause_for_nums = re.sub(r'\b' + word + r'\b', str(val), clause_for_nums)
+
+        count = None
+        marks = None
+
+        # 1. Search for count pattern (e.g. "5 questions", "5 mcqs", "questions: 5", "5 qs")
+        count_match = re.search(
+            r'\b(\d+)\s*(?:mcq|vsa|sa|la|cbq|ar|assertion)?\s*(?:questions?|q[s]?)\b',
+            clause_for_nums,
+            re.IGNORECASE
+        )
+        if count_match:
+            count = int(count_match.group(1))
+            # Temporarily blank out the count match to not interfere with marks
+            clause_for_nums = clause_for_nums.replace(count_match.group(0), " ")
         else:
-            for word, val in number_words.items():
-                if re.search(r'\b' + word + r'\b', clause):
-                    num = val
-                    break
-                    
-        if num is not None:
-            for pattern, (qtype, marks) in mappings:
-                if re.search(pattern, clause):
-                    results.append((qtype, marks, num))
-                    break
+            # Check reverse pattern: "questions: 5"
+            count_match_rev = re.search(
+                r'\b(?:questions?|q[s]?)\s*[:\-]?\s*(\d+)\b',
+                clause_for_nums,
+                re.IGNORECASE
+            )
+            if count_match_rev:
+                count = int(count_match_rev.group(1))
+                clause_for_nums = clause_for_nums.replace(count_match_rev.group(0), " ")
+
+        # 2. Search for marks pattern (e.g. "1 mark", "5 marks", "1m", "marks: 5")
+        marks_match = re.search(
+            r'\b(\d+)\s*(?:marks?|m)\b',
+            clause_for_nums,
+            re.IGNORECASE
+        )
+        if marks_match:
+            marks = int(marks_match.group(1))
+            clause_for_nums = clause_for_nums.replace(marks_match.group(0), " ")
+        else:
+            # Check pattern "carrying X" or "of X" or "each of X" or "marks: X"
+            marks_match_alt = re.search(
+                r'\b(?:carrying|of|each|marks?)\s*[:\-]?\s*(\d+)\b',
+                clause_for_nums,
+                re.IGNORECASE
+            )
+            if marks_match_alt:
+                marks = int(marks_match_alt.group(1))
+                clause_for_nums = clause_for_nums.replace(marks_match_alt.group(0), " ")
+
+        # 3. Determine question type using keyword mappings first
+        qtype = None
+        for pattern, (qt, mk) in mappings:
+            if re.search(pattern, clause, re.IGNORECASE):
+                qtype = qt
+                if marks is None:
+                    marks = mk
+                break
+
+        # 4. If count is still missing, search remaining digits
+        remaining_digits = [int(x) for x in re.findall(r'\b\d+\b', clause_for_nums)]
+        
+        if count is None:
+            if remaining_digits:
+                count = remaining_digits[0]
+                remaining_digits = remaining_digits[1:]
+
+        # 5. If qtype/marks was not matched by keyword
+        if qtype is None:
+            if marks is None:
+                if remaining_digits:
+                    marks = remaining_digits[0]
+                else:
+                    marks = 1  # Default to 1 mark
+
+            # Determine type from marks
+            if marks == 1:
+                qtype = QuestionTypeCode.MCQ
+            elif marks == 2:
+                qtype = QuestionTypeCode.SHORT_ANSWER
+            elif marks == 3:
+                qtype = QuestionTypeCode.SHORT_ANSWER
+            elif marks == 4:
+                qtype = QuestionTypeCode.CASE_STUDY
+            elif marks >= 5:
+                qtype = QuestionTypeCode.LONG_ANSWER
+            else:
+                qtype = QuestionTypeCode.SHORT_ANSWER
+
+        if count is not None and count > 0:
+            results.append({
+                "section_title": section_title,
+                "qtype": qtype,
+                "marks": marks,
+                "count": count
+            })
                     
     return results
 
@@ -951,7 +1048,6 @@ def build_question_plan(
     slots: List[QuestionGenerationSlot] = []
 
     if is_custom_mode:
-
         from q_instructions.core.enums import QuestionTypeCode
         parsed_templates = []
         if instructions:
@@ -960,15 +1056,21 @@ def build_question_plan(
             except Exception as e:
                 logger.warning(f"Failed to parse custom instructions: {e}")
                 
-        total_parsed = sum(tpl[2] for tpl in parsed_templates)
-        
-        if total_parsed == total_questions:
-            for qtype, marks, num in parsed_templates:
+        if parsed_templates:
+            # We successfully parsed templates from instructions!
+            for tpl in parsed_templates:
+                qtype = tpl["qtype"]
+                marks = tpl["marks"]
+                num = tpl["count"]
+                section_title = tpl["section_title"]
+                if not section_title:
+                    section_title = _section_title_for_question_type(subject_norm, class_num, qtype.name, marks)
+                
                 for _ in range(num):
                     slots.append(
                         _make_slot(
                             index=len(slots) + 1,
-                            section_title=_section_title_for_question_type(subject_norm, class_num, qtype.name, marks),
+                            section_title=section_title,
                             subject=subject_label,
                             stream="INTEGRATED",
                             qtype_name=qtype.name,
@@ -996,7 +1098,7 @@ def build_question_plan(
                         instructions=instructions,
                     )
                 )
-        return slots[:total_questions]
+        return slots[:len(slots)]
 
 
     if subject_norm == "science" and class_num >= 9:

@@ -217,7 +217,36 @@ class TestHybridRouting(unittest.TestCase):
             self.assertEqual(slot.stream, "INTEGRATED")
             self.assertNotEqual(slot.section_title, "Section A - History")
 
+    def test_custom_section_names_and_newline_parsing(self):
+        from services.generation_router import build_question_plan
+        from q_instructions.core.enums import QuestionTypeCode
+
+        plan = build_question_plan(
+            topic="Human Eye",
+            difficulty="medium",
+            count=7,
+            class_num=10,
+            subject="Science",
+            instructions="Section A: 5 questions of 1 mark each\nSection B: 2 questions of 5 marks each",
+            count_variation="custom"
+        )
+
+        self.assertEqual(len(plan), 7)
+        
+        section_a_slots = [s for s in plan if s.section_title == "Section A"]
+        section_b_slots = [s for s in plan if s.section_title == "Section B"]
+
+        self.assertEqual(len(section_a_slots), 5)
+        self.assertTrue(all(s.marks == 1 for s in section_a_slots))
+        self.assertTrue(all(s.question_type == QuestionTypeCode.MCQ.name for s in section_a_slots))
+
+        self.assertEqual(len(section_b_slots), 2)
+        self.assertTrue(all(s.marks == 5 for s in section_b_slots))
+        self.assertTrue(all(s.question_type == QuestionTypeCode.LONG_ANSWER.name for s in section_b_slots))
+
+        for slot in plan:
+            self.assertEqual(slot.stream, "INTEGRATED")
+            
          
 if __name__ == "__main__":
     unittest.main()
-
