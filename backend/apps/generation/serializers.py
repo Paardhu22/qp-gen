@@ -20,6 +20,8 @@ class QuestionGenerationSerializer(serializers.Serializer):
     class_level = serializers.CharField(source="class", required=False, allow_blank=True, default="")
     countVariation = serializers.CharField(required=False, allow_blank=True, default="")
     count_variation = serializers.CharField(required=False, allow_blank=True, default="")
+    qp_type = serializers.CharField(required=False, allow_blank=True, default="board")
+    qpType = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class AnswerKeySerializer(serializers.Serializer):
