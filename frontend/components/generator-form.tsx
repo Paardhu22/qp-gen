@@ -28,6 +28,7 @@ import { FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
 import { fetchForm, streamSse, saveQuestions } from "@/lib/api-client";
 
 const formSchema = z.object({
+  qpType: z.enum(["board", "general_instructions"]),
   board: z.string(),
   academicClass: z.string(),
   subject: z.string(),
@@ -49,6 +50,7 @@ export const GeneratorForm = () => {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      qpType: "board",
       board: "CBSE",
       academicClass: "10",
       subject: "Science",
@@ -59,6 +61,8 @@ export const GeneratorForm = () => {
       marks: "1",
     },
   });
+
+  const currentQpType = form.watch("qpType");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -199,6 +203,11 @@ export const GeneratorForm = () => {
       return;
     }
 
+    if (values.qpType === "general_instructions" && !generalInstructions.trim()) {
+      toast.error("Please describe what questions you want in the instructions box.");
+      return;
+    }
+
     try {
       setIsGenerating(true);
       setGeneratedResult(null);
@@ -207,18 +216,25 @@ export const GeneratorForm = () => {
 
       let generationError: string | null = null;
 
+      const isGIM = values.qpType === "general_instructions";
+
       await streamSse(
         "/api/generation/questions/stream",
         {
           pdfSourceIds: uploadedDocs.map((d) => d.id),
-          count: values.countType === "cbse" ? -1 : parseInt(values.numberOfQuestions || "5", 10),
-          countType: values.countType,
-          countVariation: values.countType,
+          count: isGIM
+            ? parseInt(values.numberOfQuestions || "10", 10)
+            : values.countType === "cbse"
+              ? -1
+              : parseInt(values.numberOfQuestions || "5", 10),
+          countType: isGIM ? "custom" : values.countType,
+          countVariation: isGIM ? "custom" : values.countType,
           difficulty: values.difficulty,
           instructions: generalInstructions || "",
-          board: values.board,
+          board: isGIM ? "" : values.board,
           subject: values.subject,
           class: values.academicClass,
+          qp_type: values.qpType,
         },
         (event, data) => {
           if (event === "error") {
@@ -475,26 +491,57 @@ export const GeneratorForm = () => {
           onSubmit={form.handleSubmit(onSubmit)}
           className="space-y-6 flex-1"
         >
+          {/* QP Type Selector */}
+          <FormField
+            control={form.control}
+            name="qpType"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-zinc-700 dark:text-zinc-300 font-semibold">QP Type</FormLabel>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                      <SelectValue placeholder="Select QP Type" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
+                    <SelectItem value="board">Board Mode</SelectItem>
+                    <SelectItem value="general_instructions">General Instructions Mode</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-0.5">
+                  {field.value === "board"
+                    ? "Uses CBSE/board-specific structure, sections, and Bloom's taxonomy."
+                    : "The AI follows your written instructions exactly — no board patterns."}
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
           <div className="grid grid-cols-3 gap-4">
-            <FormField
-              control={form.control}
-              name="board"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-zinc-700 dark:text-zinc-300">Board</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl>
-                      <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
-                    </FormControl>
-                    <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
-                      <SelectItem value="CBSE">CBSE</SelectItem>
-                      <SelectItem value="ICSE">ICSE</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {/* Board sub-dropdown — only in Board Mode */}
+            {currentQpType === "board" && (
+              <FormField
+                control={form.control}
+                name="board"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-zinc-700 dark:text-zinc-300">Board</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
+                        <SelectItem value="CBSE">CBSE</SelectItem>
+                        <SelectItem value="ICSE">ICSE</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <FormField
               control={form.control}
               name="academicClass"
@@ -570,38 +617,42 @@ export const GeneratorForm = () => {
             )}
           />
 
-          <FormField
-            control={form.control}
-            name="countType"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="text-zinc-700 dark:text-zinc-300">
-                  Count Variation
-                </FormLabel>
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <FormControl>
-                    <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
-                    <SelectItem value="cbse">CBSE Exact Pattern</SelectItem>
-                    <SelectItem value="custom">Custom Count</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          {/* Count Variation — only in Board Mode */}
+          {currentQpType === "board" && (
+            <FormField
+              control={form.control}
+              name="countType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-zinc-700 dark:text-zinc-300">
+                    Count Variation
+                  </FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
+                      <SelectItem value="cbse">CBSE Exact Pattern</SelectItem>
+                      <SelectItem value="custom">Custom Count</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
 
-          {form.watch("countType") === "custom" && (
+          {/* Exact Count — shown in Board Custom or GIM */}
+          {(currentQpType === "general_instructions" || form.watch("countType") === "custom") && (
             <FormField
               control={form.control}
               name="numberOfQuestions"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-zinc-700 dark:text-zinc-300">
-                    Exact Count
+                    {currentQpType === "general_instructions" ? "Exact Count (optional)" : "Exact Count"}
                   </FormLabel>
                   <FormControl>
                     <Input
@@ -612,28 +663,46 @@ export const GeneratorForm = () => {
                       {...field}
                     />
                   </FormControl>
+                  {currentQpType === "general_instructions" && (
+                    <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                      Leave empty if your instructions specify the count.
+                    </p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
             />
           )}
 
-          {/* General Instructions */}
+          {/* General Instructions / Your Instructions */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              General Instructions
+              {currentQpType === "general_instructions" ? (
+                <>
+                  Your Instructions <span className="text-red-500">*</span>
+                </>
+              ) : (
+                "General Instructions"
+              )}
             </label>
             <Textarea
               placeholder={
-                "e.g. Section A: 4 short answer questions (2 marks each)\nSection B: 4 long answer questions (5 marks each)"
+                currentQpType === "general_instructions"
+                  ? "Describe exactly what you want.\nExample: 5 MCQs, 3 short answers of 2 marks each, 2 long answers."
+                  : "e.g. Section A: 4 short answer questions (2 marks each)\nSection B: 4 long answer questions (5 marks each)"
               }
-              className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-indigo-500 min-h-[90px]"
+              className={`bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-indigo-500 ${
+                currentQpType === "general_instructions"
+                  ? "min-h-[120px] border-indigo-300 dark:border-indigo-700 ring-1 ring-indigo-200 dark:ring-indigo-800/50"
+                  : "min-h-[90px]"
+              }`}
               value={generalInstructions}
               onChange={(e) => setGeneralInstructions(e.target.value)}
             />
             <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
-              Describe section structure and question types. The AI will follow
-              these instructions.
+              {currentQpType === "general_instructions"
+                ? "The AI will follow these instructions exactly. Be specific about question types, counts, and marks."
+                : "Describe section structure and question types. The AI will follow these instructions."}
             </p>
           </div>
 
