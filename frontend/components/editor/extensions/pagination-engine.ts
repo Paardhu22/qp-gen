@@ -20,6 +20,24 @@ function getPageEntries(doc: any): PageEntry[] {
   return pages;
 }
 
+function isPageEmpty(pageNode: any) {
+  if (!pageNode || pageNode.childCount === 0) return true;
+
+  for (let i = 0; i < pageNode.childCount; i += 1) {
+    const child = pageNode.child(i);
+    if (child.type?.name === "pageBreak") continue;
+
+    if (child.isTextblock) {
+      if ((child.textContent || "").trim().length > 0) return false;
+      continue;
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
 function getChildOffset(node: any, index: number) {
   let offset = 0;
   for (let i = 0; i < index; i += 1) {
@@ -139,6 +157,15 @@ function moveFirstBlockToPreviousPage(
 function paginateOnce(view: EditorView) {
   const { state } = view;
   const pages = getPageEntries(state.doc);
+
+  if (pages.length > 1) {
+    const lastPage = pages[pages.length - 1];
+    if (isPageEmpty(lastPage.node)) {
+      const tr = state.tr;
+      tr.delete(lastPage.pos, lastPage.pos + lastPage.node.nodeSize);
+      return tr;
+    }
+  }
 
   for (let i = 0; i < pages.length; i += 1) {
     const { node: pageNode, pos: pagePos } = pages[i];
