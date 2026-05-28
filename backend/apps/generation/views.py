@@ -107,3 +107,36 @@ class TestScienceEngineView(APIView):
                 "message": str(e)
             }, status=500)
 
+
+class AnswerScriptGenerateView(APIView):
+    """
+    POST /api/generation/papers/<paper_id>/generate-answer-script/
+
+    Generates a CBSE-style marking scheme / answer script for an existing
+    paper. The answer script is saved as a NEW separate paper.
+
+    Returns:
+        { "answer_script_paper_id": "...", "editor_url": "/editor?paperId=..." }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, paper_id: str):
+        from services.answer_script_service import generate_answer_script
+
+        try:
+            result = generate_answer_script(paper_id=paper_id, user=request.user)
+            return Response(result, status=201)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=400)
+        except RuntimeError as exc:
+            return Response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            import logging
+            logging.getLogger("[ANSWER_SCRIPT_VIEW]").error(
+                "Answer script generation failed: %s", exc, exc_info=True
+            )
+            return Response(
+                {"error": "Failed to generate answer script. Please try again."},
+                status=500,
+            )
+

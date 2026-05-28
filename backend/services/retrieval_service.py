@@ -14,16 +14,21 @@ def retrieve_relevant_chunks(
     user: Optional[User] = None,
     require_image: bool = False,
     exclude_chunk_ids: Optional[Set[str]] = None,
+    query_embedding: Optional[List[float]] = None,
 ) -> List[dict]:
     """
     Retrieve the most semantically relevant chunks from the given PdfSources
     for use as generation context. This never touches Question Bank or Paper
     data — it only reads from DocumentChunk via the PdfSource FK.
+
+    If query_embedding is provided, it is used directly to avoid an extra
+    embeddings API call per query.
     """
     if not pdf_source_ids:
         return []
 
-    query_embedding = generate_single_embedding(query, user=user)
+    if query_embedding is None:
+        query_embedding = generate_single_embedding(query, user=user)
 
     queryset = DocumentChunk.objects.filter(
         pdf_source_id__in=pdf_source_ids,

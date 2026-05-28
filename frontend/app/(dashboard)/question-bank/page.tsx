@@ -1,8 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { fetchPapers, deletePaper, fetchJson } from "@/lib/api-client";
-import { BookOpen, FileText, Search, Trash2 } from "lucide-react";
+import {
+  fetchPapers,
+  deletePaper,
+  fetchJson,
+  generateAnswerScript,
+} from "@/lib/api-client";
+import { BookOpen, FileText, Search, Trash2, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
@@ -74,6 +79,12 @@ export default function QuestionBankPage() {
   const [paperSearch, setPaperSearch] = useState("");
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [isClearing, setIsClearing] = useState(false);
+
+  // Answer script generation state per paper card
+  const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
+  const [generationErrors, setGenerationErrors] = useState<
+    Record<string, string>
+  >({});
 
   // ---- fetch on mount ----
   useEffect(() => {
@@ -155,6 +166,43 @@ export default function QuestionBankPage() {
       toast.error("Failed to clear papers.");
     } finally {
       setIsClearing(false);
+    }
+  }
+
+  async function handleGenerateAnswerScript(
+    paperId: string,
+    e: React.MouseEvent,
+  ) {
+    e.stopPropagation();
+
+    // Clear any previous error
+    setGenerationErrors((prev) => {
+      const next = { ...prev };
+      delete next[paperId];
+      return next;
+    });
+
+    // Set loading state
+    setGeneratingIds((prev) => new Set(prev).add(paperId));
+
+    try {
+      const result = await generateAnswerScript(paperId);
+      toast.success("Answer script generated successfully!");
+      // Navigate to the editor with the new answer script
+      router.push(result.editor_url);
+    } catch (err: any) {
+      const errorMessage =
+        err?.message || "Failed to generate. Please try again.";
+      setGenerationErrors((prev) => ({
+        ...prev,
+        [paperId]: errorMessage,
+      }));
+    } finally {
+      setGeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(paperId);
+        return next;
+      });
     }
   }
 
@@ -263,6 +311,8 @@ export default function QuestionBankPage() {
         <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {filteredPapers.map((paper) => {
             const isDeleting = deletingIds.has(paper.id);
+            const isGenerating = generatingIds.has(paper.id);
+            const generationError = generationErrors[paper.id];
 
             return (
               <div
@@ -324,6 +374,35 @@ export default function QuestionBankPage() {
                     {formatDate(paper.updated_at ?? paper.created_at)}
                   </span>
                 </div>
+
+                {/* Generate Answer Script button */}
+                <button
+                  type="button"
+                  disabled={isGenerating}
+                  onClick={(e) => handleGenerateAnswerScript(paper.id, e)}
+                  className={cn(
+                    "w-full flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-all",
+                    isGenerating
+                      ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-400 cursor-wait"
+                      : "border-border bg-background text-muted-foreground hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 dark:hover:text-indigo-400",
+                  )}
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Generating answer script…
+                    </>
+                  ) : (
+                    "Generate Answer Script"
+                  )}
+                </button>
+
+                {/* Error state */}
+                {generationError && !isGenerating && (
+                  <p className="text-[11px] text-red-500 dark:text-red-400 leading-snug">
+                    {generationError}
+                  </p>
+                )}
               </div>
             );
           })}
@@ -332,3 +411,4 @@ export default function QuestionBankPage() {
     </div>
   );
 }
+

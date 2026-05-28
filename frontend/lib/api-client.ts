@@ -282,3 +282,16 @@ export async function deletePaper(paperId: string): Promise<void> {
     method: "DELETE",
   });
 }
+
+export async function generateAnswerScript(
+  paperId: string,
+): Promise<{ answer_script_paper_id: string; editor_url: string }> {
+  return fetchJson<{ answer_script_paper_id: string; editor_url: string }>(
+    `/api/generation/papers/${paperId}/generate-answer-script/`,
+    {
+      method: "POST",
+      // Answer generation may take a while for papers with many questions
+      timeoutMs: 300000,
+    },
+  );
+}
