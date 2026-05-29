@@ -38,12 +38,15 @@ class TestHybridRouting(unittest.TestCase):
                 self.assertTrue(should_use_new_engine(p))
 
     def test_should_use_new_engine_ineligible(self):
-        # TEST 2: CBSE + Math + Class 10 -> MUST use legacy
-        # TEST 3: ICSE + Science -> MUST use legacy
+        # NOTE: Mathematics/English/Hindi/Telugu gained Class-10 new-engine blueprints
+        # (commit 925387a), so "CBSE + Math + Class 10" is now ELIGIBLE. This fixture
+        # was updated to use genuinely ineligible cases (see AUDIT_REPORT.md §10):
+        #   - unsupported subject, new-engine subject out of its class range, wrong board, empty.
         payloads = [
-            {"board": "CBSE", "subject": "Math", "class": 10},
-            {"board": "ICSE", "subject": "Science", "class": 10},
-            {"board": "", "subject": "Science", "class": 10},
+            {"board": "CBSE", "subject": "Sanskrit", "class": 10},   # unsupported subject
+            {"board": "CBSE", "subject": "English", "class": 9},     # English only eligible at class 10
+            {"board": "ICSE", "subject": "Science", "class": 10},    # non-CBSE board
+            {"board": "", "subject": "Science", "class": 10},        # missing board
             {},
         ]
         for p in payloads:

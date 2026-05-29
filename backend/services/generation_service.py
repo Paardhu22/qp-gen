@@ -26,8 +26,37 @@ from apps.question_generation.services.retrieval.context_service import (
     retrieve_relevant_chunks,
     retrieval_quality_summary,
 )
+from services.language_validation import validate_language_question
 
 logger = logging.getLogger("[LEGACY_ENGINE]")
+
+
+def _system_rules_for_slot(slot, constraints) -> str:
+    """
+    Mode-aware system rules. CONTENT keeps the original chunk-grounded rules so
+    Science/Social/Maths/literature are byte-for-byte unchanged. GRAMMAR/COMPOSITION/
+    PASSAGE must NOT be told to use retrieved chunks (there are none) — they are
+    generated from rules or a fresh scenario.
+    """
+    mode = str(getattr(slot, "generation_mode", "CONTENT") or "CONTENT").upper()
+    if mode == "CONTENT":
+        return default_system_rules(constraints)
+
+    base = [
+        "You are a CBSE examiner generating ONE question for a language paper.",
+        "Generate the QUESTION ONLY — never the student's answer except in the answer key field.",
+        "Do NOT use, quote, or rely on any uploaded textbook content; this slot is not content-retrieval based.",
+        "Obey the exact slot contract and JSON schema. Never add extra question objects or split an OR into another question.",
+    ]
+    if mode == "GRAMMAR":
+        base.append("Grammar tasks are rule-based and self-contained, each in a fresh micro-context you invent.")
+    elif mode == "PASSAGE":
+        base.append("Generate an ORIGINAL, previously-unseen passage; never reproduce prescribed/uploaded text.")
+    elif mode == "COMPOSITION":
+        base.append("Provide a self-contained scenario/stimulus/topic with hints and an explicit word limit.")
+    if constraints:
+        base.append(f"Resolved paper count: {constraints.count} question objects.")
+    return "\n".join(base)
 
 
 def _sse_event(data: dict, event: str = "update") -> str:
@@ -202,10 +231,10 @@ def _coerce_vi_alternative(raw_question: dict) -> Optional[str]:
     return content or None
 
 
-def _printable_question_content(content: str, or_choice: Optional[dict], vi_alternative: Optional[str]) -> str:
+def _printable_question_content(content: str, or_choice: Optional[dict], vi_alternative: Optional[str], or_label: str = "OR") -> str:
     parts = [content.strip()]
     if or_choice:
-        parts.extend(["OR", or_choice.get("content", "").strip()])
+        parts.extend([or_label, or_choice.get("content", "").strip()])
     if vi_alternative:
         parts.extend(
             [
@@ -304,7 +333,9 @@ def _coerce_question(raw_payload: dict, slot, source_chunks: List[dict], is_retr
     if vi_alternative:
         metadata["vi_alternative"] = True
 
-    printable_content = _printable_question_content(content, or_choice, vi_alternative)
+    _subj = str(getattr(slot, "subject", "")).strip().lower()
+    or_label = {"hindi": "अथवा", "telugu": "లేదా"}.get(_subj, "OR")
+    printable_content = _printable_question_content(content, or_choice, vi_alternative, or_label=or_label)
 
     return {
         "content": printable_content,
@@ -953,7 +984,7 @@ def stream_generated_questions(
     logger.info("[STREAM_SERVICE] Building q_instructions plan before retrieval/LLM...")
 
     if not should_use_new_engine(payload):
-        yield _sse_event({"error": "Only CBSE Science and CBSE Social Science are configured in q_instructions right now."}, event="error")
+        yield _sse_event({"error": "This CBSE subject/class is not configured in q_instructions. Supported: Science & Social Science (Classes 1-10); Mathematics, English, Hindi, Telugu (Class 10)."}, event="error")
         return
 
     class_raw = payload.get("class", payload.get("class_level", payload.get("gradeClass", "10")))
@@ -1007,6 +1038,13 @@ def stream_generated_questions(
     _topic_cache = {}
 
     for slot in plan:
+        slot_mode = str(getattr(slot, "generation_mode", "CONTENT") or "CONTENT").upper()
+        # RAG only for CONTENT slots. GRAMMAR/COMPOSITION/PASSAGE are rule-/scenario-based and
+        # must never receive educator-uploaded chunks (empty retrieval_query → no retrieval call).
+        if slot_mode != "CONTENT" or not slot.retrieval_query:
+            allocated_slots.append({"slot": slot, "context": [], "is_visual_mandatory": False})
+            continue
+
         cache_key = (slot.retrieval_query, slot.requires_image)
         if cache_key not in _topic_cache:
             _topic_cache[cache_key] = retrieve_relevant_chunks(
@@ -1017,7 +1055,7 @@ def stream_generated_questions(
                 require_image=slot.requires_image,
                 exclude_chunk_ids=None,
             )
-            
+
         top_50 = _topic_cache[cache_key]
         valid_chunks = [c for c in top_50 if str(c.get("id")) not in used_chunk_ids]
         context = valid_chunks[:4]
@@ -1063,14 +1101,18 @@ def stream_generated_questions(
         context = allocated["context"]
         is_visual_mandatory = allocated["is_visual_mandatory"]
         
-        if not context:
+        slot_mode = str(getattr(slot, "generation_mode", "CONTENT") or "CONTENT").upper()
+
+        # CONTENT slots genuinely need textbook chunks; GRAMMAR/COMPOSITION/PASSAGE do not.
+        if slot_mode == "CONTENT" and not context:
             return (
                 [_sse_event({"error": f"No relevant textbook chunks found for {slot.section_title} question {slot.index}.", "index": slot.index}, event="warning")],
                 None, None, None
             )
 
-        retrieval_metrics = retrieval_quality_summary(context)
-        logger.info("[RAG] slot=%s metrics=%s", slot.index, retrieval_metrics)
+        if context:
+            retrieval_metrics = retrieval_quality_summary(context)
+            logger.info("[RAG] slot=%s metrics=%s", slot.index, retrieval_metrics)
 
         image_urls = _allowed_image_urls(context) if slot.requires_image or is_visual_mandatory else []
         vision_image_urls = _vision_image_payload_urls(context) if slot.requires_image or is_visual_mandatory else []
@@ -1098,7 +1140,7 @@ def stream_generated_questions(
         
         prompt_document = assembler.assemble(
             context=gen_context,
-            system_rules=default_system_rules(constraints),
+            system_rules=_system_rules_for_slot(slot, constraints),
             output_schema=_single_question_schema(is_visual_mandatory, slot),
             blueprint_instructions=slot_blueprint,
             extra_instructions=instructions if instructions else None,
@@ -1132,8 +1174,13 @@ def stream_generated_questions(
         question = None
         events = []
         failures = 0
-        
-        for attempt in range(2):
+
+        # Language (non-CONTENT) slots get an extra attempt so a hard validation/script
+        # failure can be regenerated rather than silently streamed to the editor.
+        max_attempts = 3 if slot_mode != "CONTENT" else 2
+
+        for attempt in range(max_attempts):
+            is_last = attempt >= max_attempts - 1
             extractor = JsonObjectStreamExtractor()
             buffer = ""
             parsed_payload = None
@@ -1146,8 +1193,8 @@ def stream_generated_questions(
                     for parsed in extractor.feed(delta):
                         parsed_payload = parsed
             except Exception as exc:
-                if attempt == 0:
-                    logger.warning("[LLM] Streaming failed for slot %s attempt 1: %s. Retrying...", slot.index, exc)
+                if not is_last:
+                    logger.warning("[LLM] Streaming failed for slot %s (attempt %s): %s. Retrying...", slot.index, attempt + 1, exc)
                     continue
                 failures += 1
                 logger.error("[LLM] Streaming failed for slot %s: %s", slot.index, exc, exc_info=True)
@@ -1158,8 +1205,8 @@ def stream_generated_questions(
                 try:
                     parsed_payload = json.loads(buffer)
                 except json.JSONDecodeError as exc:
-                    if attempt == 0:
-                        logger.warning("[LLM] Invalid JSON for slot %s attempt 1: %s. Retrying...", slot.index, exc)
+                    if not is_last:
+                        logger.warning("[LLM] Invalid JSON for slot %s (attempt %s): %s. Retrying...", slot.index, attempt + 1, exc)
                         continue
                     failures += 1
                     logger.error("[LLM] Invalid JSON for slot %s: %s", slot.index, exc)
@@ -1167,24 +1214,38 @@ def stream_generated_questions(
                     break
 
             if parsed_payload is None:
-                if attempt == 0:
-                    logger.warning("[LLM] No question content returned for slot %s attempt 1. Retrying...", slot.index)
+                if not is_last:
+                    logger.warning("[LLM] No question content returned for slot %s (attempt %s). Retrying...", slot.index, attempt + 1)
                     continue
                 failures += 1
                 events.append(_sse_event({"error": f"No question content returned for question {slot.index}", "index": slot.index}, event="warning"))
                 break
 
             try:
-                question = _coerce_question(parsed_payload, slot, context, is_retry=(attempt > 0), is_visual_mandatory=is_visual_mandatory)
-                break
+                candidate = _coerce_question(parsed_payload, slot, context, is_retry=(attempt > 0), is_visual_mandatory=is_visual_mandatory)
             except Exception as exc:
-                if attempt == 0:
-                    logger.warning("[LLM] Could not normalize slot %s attempt 1: %s. Retrying...", slot.index, exc)
+                if not is_last:
+                    logger.warning("[LLM] Could not normalize slot %s (attempt %s): %s. Retrying...", slot.index, attempt + 1, exc)
                     continue
                 failures += 1
                 logger.error("[LLM] Could not normalize slot %s: %s", slot.index, exc, exc_info=True)
                 events.append(_sse_event({"error": str(exc), "index": slot.index}, event="warning"))
                 break
+
+            # Hard language gate (no-op for CONTENT slots). Never stream a malformed
+            # grammar/composition/passage question — regenerate, then surface a clear error.
+            is_valid, reason = validate_language_question(slot, candidate)
+            if not is_valid:
+                if not is_last:
+                    logger.warning("[VALIDATION] slot %s rejected (%s). Regenerating...", slot.index, reason)
+                    continue
+                failures += 1
+                logger.error("[VALIDATION] slot %s failed after %s attempts: %s", slot.index, max_attempts, reason)
+                events.append(_sse_event({"error": f"Question {slot.index} failed validation: {reason}", "index": slot.index}, event="warning"))
+                break
+
+            question = candidate
+            break
 
         if question:
             events.append(_sse_event({
