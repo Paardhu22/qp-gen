@@ -3,6 +3,8 @@ AOS Subjects — Subject Plugin Registry
 =========================================
 Manages registration and lookup of subject plugins.
 Depends only on core.interfaces.
+
+New subjects registered here: Mathematics (041), English (184), Hindi (085), Telugu (089).
 """
 
 from typing import Dict
@@ -12,7 +14,7 @@ from q_instructions.core.exceptions import SubjectNotRegisteredError
 
 
 class SubjectRegistry:
-    """Central registry for all subject plugins (Science, Math, Social, etc.)."""
+    """Central registry for all subject plugins (Science, Math, Social, English, Hindi, Telugu)."""
 
     def __init__(self) -> None:
         self._plugins: Dict[str, ISubjectPlugin] = {}
@@ -31,3 +33,23 @@ class SubjectRegistry:
     def list_subjects(self) -> list:
         """Lists all registered subject names."""
         return list(self._plugins.keys())
+
+
+def build_default_registry() -> SubjectRegistry:
+    """
+    Constructs a SubjectRegistry pre-loaded with all known subject plugins.
+    Imports are deferred to avoid circular import chains and side effects on module load.
+    """
+    from q_instructions.subjects.science.science import SciencePlugin
+    from q_instructions.subjects.mathematics.mathematics import MathematicsPlugin
+    from q_instructions.subjects.english.english import EnglishPlugin
+    from q_instructions.subjects.hindi.hindi import HindiPlugin
+    from q_instructions.subjects.telugu.telugu import TeluguPlugin
+
+    reg = SubjectRegistry()
+    reg.register(SciencePlugin())
+    reg.register(MathematicsPlugin())
+    reg.register(EnglishPlugin())
+    reg.register(HindiPlugin())
+    reg.register(TeluguPlugin())
+    return reg
