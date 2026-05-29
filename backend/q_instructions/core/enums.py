@@ -55,6 +55,21 @@ class SubjectCode(Enum):
     SCIENCE_INTEGRATED = "SCI-INT"
 
 
+class GenerationMode(str, Enum):
+    """
+    How a single question slot must be generated.
+
+    This is the structural switch that keeps RAG retrieval out of grammar /
+    writing / unseen-passage slots. Only CONTENT slots are allowed to retrieve
+    educator-uploaded textbook chunks; everything else is generated from rules
+    or a fresh scenario and must be fully answerable without any textbook.
+    """
+    CONTENT = "CONTENT"          # Questions ABOUT studied chapters/poems — RAG allowed
+    PASSAGE = "PASSAGE"          # Original unseen passage + sub-questions — no RAG
+    GRAMMAR = "GRAMMAR"          # Rule-based, self-contained grammar tasks — no RAG
+    COMPOSITION = "COMPOSITION"  # Writing prompt (scenario/stimulus/topic) — no RAG
+
+
 class StreamType(Enum):
     """Core sub-disciplines of Science."""
     PHYSICS = "Physics"
