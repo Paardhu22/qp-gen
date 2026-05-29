@@ -582,6 +582,10 @@ export const GeneratorForm = () => {
                     <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
                       <SelectItem value="Science">Science</SelectItem>
                       <SelectItem value="Social Science">Social Science</SelectItem>
+                      <SelectItem value="Mathematics">Mathematics Standard (Code 041)</SelectItem>
+                      <SelectItem value="English">English Language &amp; Literature (Code 184)</SelectItem>
+                      <SelectItem value="Hindi">Hindi Course B (Code 085)</SelectItem>
+                      <SelectItem value="Telugu">Telugu Telangana (Code 089)</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />

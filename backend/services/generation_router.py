@@ -12,7 +12,35 @@ logger = logging.getLogger("[GEN_ROUTER]")
 logger.setLevel(logging.INFO)
 
 
-SUPPORTED_SUBJECTS = {"science", "social science"}
+SUPPORTED_SUBJECTS = {
+    "science", "social science",
+    "mathematics", "english", "hindi", "telugu",
+}
+
+# Subject code → eligible class numbers (new engine only)
+_NEW_ENGINE_ELIGIBILITY: Dict[str, list] = {
+    "science":        list(range(1, 11)),
+    "social science": list(range(1, 11)),
+    "mathematics":    [10],
+    "english":        [10],
+    "hindi":          [10],
+    "telugu":         [10],
+}
+
+# Subject aliases → canonical name
+_SUBJECT_ALIASES: Dict[str, str] = {
+    "maths":          "mathematics",
+    "math":           "mathematics",
+    "mathematics standard": "mathematics",
+    "sst":            "social science",
+    "social studies": "social science",
+    "hindi b":        "hindi",
+    "hindi course b": "hindi",
+    "english language": "english",
+    "english literature": "english",
+    "english language and literature": "english",
+    "telugu telangana": "telugu",
+}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -38,11 +66,25 @@ class QuestionGenerationSlot:
 
 def normalize_subject(subject: str) -> str:
     subject_norm = str(subject or "").strip().lower()
+    # Check alias map first
+    if subject_norm in _SUBJECT_ALIASES:
+        return _SUBJECT_ALIASES[subject_norm]
     if subject_norm in SUPPORTED_SUBJECTS:
         return subject_norm
     if subject_norm.replace("_", " ") in SUPPORTED_SUBJECTS:
         return subject_norm.replace("_", " ")
+    # Partial alias matching (e.g. "hindi course b" vs "hindi b")
+    for alias, canonical in _SUBJECT_ALIASES.items():
+        if alias in subject_norm:
+            return canonical
     return subject_norm
+
+
+def is_eligible_for_new_engine(subject_norm: str, class_num: int) -> bool:
+    """Returns True if this subject+class combination has a new-engine blueprint."""
+    if subject_norm not in _NEW_ENGINE_ELIGIBILITY:
+        return False
+    return class_num in _NEW_ENGINE_ELIGIBILITY[subject_norm]
 
 
 def extract_class_number(class_value: object, default: int = 10) -> int:
@@ -90,7 +132,11 @@ def should_use_new_engine(payload: dict) -> bool:
     
     logger.info(f"[GEN_ROUTER] NORMALIZED VALUES:\nboard={board_norm}\nsubject={subject_norm}\nclass={class_num}")
     
-    is_eligible = (board_norm == "CBSE" and subject_norm in ["science", "social science"] and class_num is not None and 1 <= class_num <= 10)
+    is_eligible = (
+        board_norm == "CBSE"
+        and class_num is not None
+        and is_eligible_for_new_engine(subject_norm, class_num)
+    )
     
     logger.info(f"[GEN_ROUTER] ELIGIBILITY RESULT: {is_eligible}")
     
@@ -141,6 +187,10 @@ def _type_label(question_type: str, marks: int) -> str:
         "LONG_ANSWER": "Long Answers",
         "CASE_STUDY": "Case-Based",
         "DIAGRAM": "Diagram/Map",
+        "READING_COMP": "Reading Comprehension",
+        "GRAMMAR": "Grammar Tasks",
+        "LETTER": "Writing Tasks",
+        "NUMERICAL": "Numericals",
     }
     return labels.get(question_type, question_type.replace("_", " ").title())
 
@@ -185,7 +235,8 @@ def build_slot_blueprint_instructions(
     Directive 5: Truncated prompt to save TTFT.
     Only pass what is absolutely necessary for THIS specific slot.
     """
-    subject_label = "Social Science" if normalize_subject(subject) == "social science" else "Science"
+    _lmap = {"social science": "Social Science", "mathematics": "Mathematics", "english": "English", "hindi": "Hindi", "telugu": "Telugu"}
+    subject_label = _lmap.get(normalize_subject(subject), "Science")
     lines = [
         "ACADEMIC BLUEPRINT INSTRUCTIONS (MANDATORY):",
         f"- Board: CBSE | Class: {class_num} | Subject: {subject_label}",
@@ -217,7 +268,8 @@ def build_plan_blueprint_instructions(
     class_num: int,
     subject: str,
 ) -> str:
-    subject_label = "Social Science" if normalize_subject(subject) == "social science" else "Science"
+    _lmap2 = {"social science": "Social Science", "mathematics": "Mathematics", "english": "English", "hindi": "Hindi", "telugu": "Telugu"}
+    subject_label = _lmap2.get(normalize_subject(subject), "Science")
     summary = summarize_question_plan(plan)
     lines = [
         "CBSE QUESTION PLAN (STRICT):",
@@ -286,6 +338,39 @@ def build_general_instructions(plan: List[QuestionGenerationSlot], subject: str,
             "Map questions: Section A-History (2 marks), Section B-Geography (3 marks).",
             "No overall choice. Internal choice is provided in some questions.",
             "Separate VI questions are provided for visual/map/cartoon questions.",
+        ]
+    if class_num == 10 and subject_norm == "mathematics":
+        return [
+            "This question paper contains 38 questions. All questions are compulsory.",
+            "The question paper is divided into five sections: A, B, C, D, and E.",
+            "Section A comprises 20 questions of 1 mark each (Q1–Q18 MCQs, Q19–Q20 Assertion-Reason).",
+            "Section B comprises 5 questions of 2 marks each (Q21–Q25). Internal choice in Q21 and Q24.",
+            "Section C comprises 6 questions of 3 marks each (Q26–Q31). Internal choice in Q29 and Q31.",
+            "Section D comprises 4 questions of 5 marks each (Q32–Q35). Internal choice in Q34 and Q35.",
+            "Section E comprises 3 case-based questions of 4 marks each (Q36–Q38), with sub-parts (i)1+(ii)1+(iii)2. Internal OR on sub-part (iii) only.",
+            "Use of calculator is not permitted.",
+        ]
+    if class_num == 10 and subject_norm == "english":
+        return [
+            "This question paper contains 11 questions. All questions are compulsory.",
+            "Marks are indicated against each question.",
+            "Q1–Q2: Reading Comprehension (10 marks each). Q3: Grammar tasks (10 marks, do any 10 of 12). Q4–Q5: Writing tasks (5 marks each).",
+            "Q6–Q7: Literature extracts — Prose and Poetry (5 marks each). Q8: Short answer questions from First Flight and Footprints (12 marks, do any 4 of 5). Q9: Footprints long answer (6 marks, do any 2 of 3). Q10–Q11: First Flight and Footprints long answers (6 marks each, internal choice).",
+        ]
+    if class_num == 10 and subject_norm == "hindi":
+        return [
+            "इस प्रश्नपत्र में 16 प्रश्न हैं। सभी प्रश्न अनिवार्य हैं।",
+            "प्रत्येक प्रश्न के अंक उसके सामने दिए गए हैं।",
+            "Q1–Q2: अपठित बोध (7-7 अंक)। Q3–Q6: व्याकरण (4-4 अंक, 5 में से 4 करें)।",
+            "Q7–Q11: पाठ्यपुस्तक — स्पर्श/संचयन (विविध अंक)। Q12–Q16: लेखन कार्य (विविध अंक)।",
+            "जहाँ आंतरिक विकल्प है, वहाँ कोई एक विकल्प चुनें।",
+        ]
+    if class_num == 10 and subject_norm == "telugu":
+        return [
+            "ఈ ప్రశ్నపత్రంలో 18 ప్రశ్నలు ఉన్నాయి. అన్నీ తప్పనిసరి.",
+            "Q1: పఠిత గద్యం + 5 బహుళైచ్ఛిక ప్రశ్నలు (10 మార్కులు). Q2–Q3: లేఖన రచన / ప్రక్రియ.",
+            "Q4–Q11: వ్యాకరణ మరియు పదజాల బహుళైచ్ఛిక ప్రశ్నలు. Q12–Q18: పాఠ్యపుస్తక ప్రశ్నలు.",
+            "సమాధానాలు తెలుగు లిపిలో మాత్రమే రాయాలి.",
         ]
     if subject_norm == "social science" and 6 <= class_num <= 8:
         return [
@@ -369,6 +454,99 @@ def build_social_science_blueprint_instructions(difficulty: str, count: int, cla
     return "\n".join(rules)
 
 
+def _build_mathematics_blueprint_instructions(difficulty: str, count: int) -> str:
+    rules = [
+        "ACADEMIC BLUEPRINT INSTRUCTIONS (MANDATORY):",
+        "- Board: CBSE | Class: 10 | Subject: Mathematics Standard (Code 041)",
+        f"- Overall Difficulty Target: {difficulty.upper()}",
+    ]
+    if count > 0:
+        rules.extend([
+            f"- You MUST generate exactly {count} questions.",
+            "WORKSHEET MODE: Sections based on question type; no formal section split required.",
+        ])
+        return "\n".join(rules)
+    rules.extend([
+        "- Total: 38 questions, 80 marks, 3 hours.",
+        "- Section A (Q1–Q20, 20×1m): Q1–Q18 MCQs; Q19–Q20 Assertion-Reason.",
+        "- Section B (Q21–Q25, 5×2m): Internal choice in Q21 and Q24.",
+        "- Section C (Q26–Q31, 6×3m): Internal choice in Q29 and Q31.",
+        "- Section D (Q32–Q35, 4×5m): Internal choice in Q34 and Q35.",
+        "- Section E (Q36–Q38, 3×4m): Sub-parts (i)1+(ii)1+(iii)2; internal OR on sub-part (iii) only.",
+        "- Cover at least 7 distinct NCERT topics in Section A. No topic in more than 3 MCQs.",
+        "- All answers must be correct mathematically. Show working in long answers.",
+        "- Use π = 22/7 unless the question specifically states π = 3.14.",
+        "- Calculator not permitted.",
+    ])
+    return "\n".join(rules)
+
+
+def _build_english_blueprint_instructions(difficulty: str, count: int) -> str:
+    rules = [
+        "ACADEMIC BLUEPRINT INSTRUCTIONS (MANDATORY):",
+        "- Board: CBSE | Class: 10 | Subject: English Language & Literature (Code 184)",
+        f"- Overall Difficulty Target: {difficulty.upper()}",
+    ]
+    if count > 0:
+        rules.extend([f"- You MUST generate exactly {count} questions.", "WORKSHEET MODE: Dynamic sections."])
+        return "\n".join(rules)
+    rules.extend([
+        "- Total: 11 questions, 80 marks, 3 hours.",
+        "- Q1–Q2 (10m each): Reading Comprehension passages — one factual, one discursive.",
+        "- Q3 (10m): Grammar — 12 tasks, do any 10 (editing, gap-fill, reporting, transformation).",
+        "- Q4 (5m): Formal letter (complaint/request/order) or notice. Q5 (5m): Analytical paragraph.",
+        "- Q6 (5m): Extract from First Flight prose — 4-5 MCQs/very short answers.",
+        "- Q7 (5m): Extract from First Flight poetry — 4-5 MCQs/very short answers.",
+        "- Q8 (12m): Short answers — 5 questions from First Flight Prose, First Flight Poetry, and Footprints (do any 4, 3m each).",
+        "- Q9 (6m): Footprints — 3 LA options, do any 2 (3m each).",
+        "- Q10 (6m): First Flight LA — one question with internal OR.",
+        "- Q11 (6m): Footprints LA — one question with internal OR.",
+        "- Q8 must span at least 2 First Flight Prose chapters, 1 First Flight poem, and 1 Footprints story.",
+    ])
+    return "\n".join(rules)
+
+
+def _build_hindi_blueprint_instructions(difficulty: str, count: int) -> str:
+    rules = [
+        "ACADEMIC BLUEPRINT INSTRUCTIONS (MANDATORY):",
+        "- Board: CBSE | Class: 10 | Subject: Hindi Course B (Code 085)",
+        f"- Overall Difficulty Target: {difficulty.upper()}",
+        "- IMPORTANT: Every question, instruction, option, and heading MUST be in Devanagari Unicode (U+0900–U+097F). No Roman script.",
+    ]
+    if count > 0:
+        rules.extend([f"- You MUST generate exactly {count} questions.", "WORKSHEET MODE: Dynamic sections."])
+        return "\n".join(rules)
+    rules.extend([
+        "- Total: 16 questions, 80 marks, 3 hours.",
+        "- Q1–Q2 (7m each): अपठित गद्यांश — दोनों प्रश्न अलग-अलग विषयों पर होने चाहिए।",
+        "- Q3–Q6 (4m each): व्याकरण — पदबंध/वाक्य/समास/मुहावरे (5 में से 4 करें)।",
+        "- Q7 (5m): गद्यांश MCQ (स्पर्श)। Q8 (6m): गद्य SA 4-do-3। Q9 (5m): काव्यांश MCQ। Q10 (6m): काव्य SA 4-do-3।",
+        "- Q11 (6m): संचयन 3-do-2। Q12 (5m): अनुच्छेद। Q13 (5m): पत्र। Q14 (4m): सूचना। Q15 (3m): विज्ञापन। Q16 (5m): लघु-कथा/ईमेल।",
+    ])
+    return "\n".join(rules)
+
+
+def _build_telugu_blueprint_instructions(difficulty: str, count: int) -> str:
+    rules = [
+        "ACADEMIC BLUEPRINT INSTRUCTIONS (MANDATORY):",
+        "- Board: CBSE | Class: 10 | Subject: Telugu Telangana (Code 089)",
+        f"- Overall Difficulty Target: {difficulty.upper()}",
+        "- IMPORTANT: Every question, option, instruction, and section header MUST be in Telugu Unicode (U+0C00–U+0C7F). No Roman script at all.",
+    ]
+    if count > 0:
+        rules.extend([f"- You MUST generate exactly {count} questions.", "WORKSHEET MODE: Dynamic sections."])
+        return "\n".join(rules)
+    rules.extend([
+        "- Total: 18 questions, 80 marks, 3 hours.",
+        "- Q1 (10m): పఠిత గద్యం + 5 MCQs×2m. Q2 (6m): లేఖ రచన. Q3 (5m): ప్రక్రియ.",
+        "- Q4–Q7 (4m each): వ్యాకరణ MCQs — సంధి/ఛందస్సు/సమాసం/అలంకారాలు.",
+        "- Q8–Q11 (2m each): పదజాల MCQs. Q12 (5m): పరిచిత గద్యం.",
+        "- Q13–Q14 (4m each): సంగ్రహ జవాబులు. Q15–Q16 (4m each): విపులంగా జవాబులు.",
+        "- Q17 (6m): పద్య అన్వయం. Q18 (8m): ఉపవాచకం రామాయణం — 4-do-2×4m.",
+    ])
+    return "\n".join(rules)
+
+
 def build_blueprint_instructions(
     topic: str,
     difficulty: str,
@@ -388,9 +566,17 @@ def build_blueprint_instructions(
             subject=subject,
         )
 
-    subject_norm = str(subject).strip().lower()
+    subject_norm = normalize_subject(subject)
     if subject_norm == "social science":
         return build_social_science_blueprint_instructions(difficulty, count, class_num)
+    if subject_norm == "mathematics" and class_num == 10:
+        return _build_mathematics_blueprint_instructions(difficulty, count)
+    if subject_norm == "english" and class_num == 10:
+        return _build_english_blueprint_instructions(difficulty, count)
+    if subject_norm == "hindi" and class_num == 10:
+        return _build_hindi_blueprint_instructions(difficulty, count)
+    if subject_norm == "telugu" and class_num == 10:
+        return _build_telugu_blueprint_instructions(difficulty, count)
 
     logger.info(f"[NEW_ENGINE] Compiling academic blueprint for Class {class_num}...")
     
@@ -475,6 +661,14 @@ def default_cbse_question_count(subject: str, class_num: int) -> int:
         return 39
     if class_num == 10 and subject_norm == "social science":
         return 38
+    if class_num == 10 and subject_norm == "mathematics":
+        return 38
+    if class_num == 10 and subject_norm == "english":
+        return 11
+    if class_num == 10 and subject_norm == "hindi":
+        return 16
+    if class_num == 10 and subject_norm == "telugu":
+        return 18
     if class_num >= 8:
         return 20
     if class_num >= 6:
@@ -487,12 +681,13 @@ def _legacy_question_type(qtype_name: str) -> str:
         return "MCQ"
     if qtype_name == "ASSERTION_REASON":
         return "ASSERTION_REASON"
-    if qtype_name == "CASE_STUDY":
+    if qtype_name in ("CASE_STUDY", "READING_COMP"):
         return "CASE_STUDY"
-    if qtype_name == "LONG_ANSWER":
+    if qtype_name in ("LONG_ANSWER", "LETTER"):
         return "LONG"
     if qtype_name == "DIAGRAM":
         return "DIAGRAM"
+    # GRAMMAR, SHORT_ANSWER, EXTRACT_PROSE, EXTRACT_POETRY, ANALYTICAL_PARAGRAPH → SHORT
     return "SHORT"
 
 
@@ -534,9 +729,10 @@ def _section_title_for_question_type(subject_norm: str, class_num: int, qtype_na
 
 def _slot_instruction(slot: QuestionGenerationSlot) -> str:
     qtype = slot.question_type
+    subject_norm = normalize_subject(slot.subject)
     lines = [
         f"Generate exactly ONE {slot.marks}-mark {qtype} question.",
-        f"Subject: {slot.subject} | Class: {slot.class_num} | Stream/Track: {slot.stream}.",
+        f"Subject: {slot.subject} | Class: {slot.class_num} | Track: {slot.stream}.",
         f"Difficulty target: {slot.difficulty}.",
         "Use only the retrieved textbook chunks. Do not introduce unsupported facts.",
         f"The JSON field 'marks' MUST be {slot.marks}.",
@@ -548,19 +744,64 @@ def _slot_instruction(slot: QuestionGenerationSlot) -> str:
         lines.append("Provide exactly four plausible options and one correct answer.")
     elif qtype == "ASSERTION_REASON":
         lines.append(
-            "Format content as 'Assertion (A): ...\\nReason (R): ...' and provide the four standard assertion-reason options."
+            "Format content as 'Assertion (A): ...\\nReason (R): ...' and provide the four standard CBSE "
+            "assertion-reason direction options: (A) Both A and R true, R is correct explanation; "
+            "(B) Both A and R true, R is NOT correct explanation; (C) A true R false; (D) A false R true."
         )
     elif qtype == "CASE_STUDY":
-        lines.append("Create a short source-backed passage followed by exactly three sub-questions.")
+        if subject_norm in ("hindi", "telugu"):
+            lines.append(
+                "Create the passage and ALL sub-questions in the correct script "
+                "(Devanagari for Hindi, Telugu Unicode for Telugu). "
+                "Follow the sub-part structure specified in the instruction hint."
+            )
+        else:
+            lines.append("Create a short source-backed passage followed by exactly three sub-questions (1+1+2 marks).")
+    elif qtype == "READING_COMP":
+        lines.append(
+            "Generate an ORIGINAL passage (never reproduce prescribed textbook content). "
+            "Follow the exact sub-question count and marks distribution in the instruction hint. "
+            "Sub-questions must progress from lower to higher order thinking."
+        )
+        if subject_norm == "telugu":
+            lines.append("EVERY word — passage text, sub-questions, options — MUST be in Telugu Unicode script. No Roman letters.")
+    elif qtype == "GRAMMAR":
+        lines.append(
+            "Generate the exact number of grammar tasks specified in the instruction hint. "
+            "Each task is self-contained and worth 1 mark. "
+            "Cover the distinct grammar points listed — do not repeat types."
+        )
+        if subject_norm == "hindi":
+            lines.append("ALL grammar tasks and sentences MUST be in Devanagari Unicode. No transliteration.")
+    elif qtype == "LETTER":
+        lines.append(
+            "Generate a formal letter writing task with full format: "
+            "sender/date, recipient/designation, subject line, body, closing, signature. "
+            "State the word limit in the question stem."
+        )
+        if subject_norm == "hindi":
+            lines.append("The letter task and all instructions MUST be in Devanagari Unicode.")
+        elif subject_norm == "telugu":
+            lines.append("The entire letter task MUST be in Telugu Unicode script. No Roman transliteration.")
     elif qtype == "LONG_ANSWER":
         lines.append("Require structured reasoning appropriate for a long-answer response.")
+        if subject_norm == "telugu":
+            lines.append("Generate ALL content in Telugu Unicode script. No Roman transliteration anywhere.")
+        elif subject_norm == "hindi":
+            lines.append("Generate ALL content in Devanagari Unicode. No transliteration.")
+
+    # Mathematics-specific notes
+    if subject_norm == "mathematics":
+        lines.append("State π = 22/7 unless otherwise specified. Write equations in plain text/LaTeX (e.g., x² + 3x + 2 = 0).")
+        lines.append("MCQ distractors must be plausible (represent common errors), not random numbers.")
 
     if slot.instruction_hint:
         lines.append(slot.instruction_hint)
 
     if slot.choice_required:
         lines.append(
-            "Add exactly one internal choice in `question.or_choice`. Do NOT output the OR alternative as another question. Do NOT duplicate OR in content."
+            "Add exactly one internal choice in `question.or_choice`. "
+            "Do NOT output the OR alternative as a separate question object."
         )
     else:
         lines.append("Set `question.or_choice` to null.")
@@ -692,7 +933,850 @@ def _choose_stream_by_marks(
     return stream
 
 
+def _exact_class10_blueprint_entries_mathematics() -> List[Dict[str, Any]]:
+    """38 questions, 80 marks — CBSE Class 10 Mathematics Standard (Code 041) SQP 2025-26."""
+    entries: List[Dict[str, Any]] = []
+
+    # Section A — Q1–Q18 MCQ (1m) + Q19–Q20 ASSERTION_REASON (1m) = 20m
+    mcq_hints = [
+        "Q1: LCM/HCF by prime factorisation — fundamental theorem of arithmetic",
+        "Q2: Find point on y-axis equidistant from two given points (distance from y-axis)",
+        "Q3: Condition for pair of linear equations to have no solution (non-parallel lines)",
+        "Q4: Tangent lengths from external point to circumscribed circle",
+        "Q5: Use sec²θ - tan²θ = 1 identity to evaluate a trigonometric expression",
+        "Q6: Identify which of the given expressions is NOT a quadratic equation",
+        "Q7: Area of sector or segment of a circle (VI alternative: find arc length from given angle)",
+        "Q8: Probability of an event using complement rule (dice or standard cards)",
+        "Q9: Solve 2sin2θ = √3 (or similar) to find the angle θ",
+        "Q10: Find all possible HCF values given the product of two numbers",
+        "Q11: Find height of a cone given its base circumference and volume",
+        "Q12: Condition for a quadratic to have equal roots — sign condition on discriminant",
+        "Q13: Find area of a sector given arc length and radius",
+        "Q14: Find perimeter of a triangle similar to a given triangle using similarity ratio",
+        "Q15: Word problem on probability — solve for a variable in a probability equation",
+        "Q16: Classify a quadrilateral as parallelogram/rhombus/square from its vertices",
+        "Q17: Effect on median when all observations are shifted by a constant (uniform shift rule)",
+        "Q18: Find tangent length from an external point given its distance and circle radius",
+    ]
+    for hint in mcq_hints:
+        entries.append({
+            "section": "Section A - Objective Questions",
+            "stream": "MATHEMATICS",
+            "qtype": "MCQ",
+            "marks": 1,
+            "count": 1,
+            "hint": hint,
+        })
+
+    # Q19 — ASSERTION_REASON (prime numbers and powers)
+    entries.append({
+        "section": "Section A - Objective Questions",
+        "stream": "MATHEMATICS",
+        "qtype": "ASSERTION_REASON",
+        "marks": 1,
+        "count": 1,
+        "hint": (
+            "Q19 (Assertion-Reason, Real Numbers): "
+            "Assertion (A): 5^n cannot end in the digit 0 for any natural number n. "
+            "Reason (R): Any number ending in 0 must have both 2 and 5 as prime factors, but 5^n has only the prime factor 5. "
+            "Include the standard CBSE direction block verbatim."
+        ),
+    })
+    # Q20 — ASSERTION_REASON (trigonometry identity)
+    entries.append({
+        "section": "Section A - Objective Questions",
+        "stream": "MATHEMATICS",
+        "qtype": "ASSERTION_REASON",
+        "marks": 1,
+        "count": 1,
+        "hint": (
+            "Q20 (Assertion-Reason, Trigonometry): "
+            "Assertion (A): If cosA + cos²A = 1, then sin²A + sin⁴A = 1. "
+            "Reason (R): From cosA = 1 - cos²A = sin²A, we get sin²A + sin⁴A = cosA + cos²A = 1. "
+            "Include the standard CBSE direction block verbatim."
+        ),
+    })
+
+    # Section B — Q21–Q25 VSA SHORT_ANSWER 2m = 10m
+    vsa_data = [
+        (True,  "Q21 (VSA, internal choice): Find the sum of the last n terms of an AP OR find the middle term of an AP."),
+        (False, "Q22 (VSA): Given sin(A+B) = 1 and cos(A-B) = √3/2, find angle A and angle B where 0 < A,B < 90°."),
+        (False, "Q23 (VSA): Prove that the ratio of corresponding sides of similar triangles equals the ratio of their corresponding medians."),
+        (True,  "Q24 (VSA, internal choice): A horse is tied to a peg by a rope; find the area it can graze (sector area) OR find the area of a major segment of a circle."),
+        (False, "Q25 (VSA): A triangle is circumscribed about a circle; find its sides using tangent properties. VI alternative: find the inradius of a right triangle with legs 6 cm and 8 cm."),
+    ]
+    for choice, hint in vsa_data:
+        entries.append({
+            "section": "Section B - Very Short Answer",
+            "stream": "MATHEMATICS",
+            "qtype": "SHORT_ANSWER",
+            "marks": 2,
+            "count": 1,
+            "choice_required": choice,
+            "hint": hint,
+        })
+
+    # Section C — Q26–Q31 SA SHORT_ANSWER 3m = 18m
+    sa_data = [
+        (False, "Q26 (SA): Prove that tangents drawn from an external point to a circle make equal angles with the line joining the point to the centre (∠AOB = 90°). VI alternative: prove ∠APB = 2∠OAB."),
+        (False, "Q27 (SA): HCF application — find the maximum length of a measuring tape that can exactly measure two rooms of given dimensions."),
+        (False, "Q28 (SA): Find the zeroes of a given quadratic polynomial and verify the relationship between zeroes and coefficients."),
+        (True,  "Q29 (SA, internal choice): Prove a given trigonometric identity OR prove an alternate trigonometric identity of equal difficulty."),
+        (False, "Q30 (SA): A real-life scenario with two bags containing different coloured balls; compare the probabilities of drawing a specific colour from each bag."),
+        (True,  "Q31 (SA, internal choice): Solve a linear equations word problem (income/expenditure ratio) algebraically OR solve graphically and find the area of the triangle formed with the axes. VI alternative: frame and solve an ages-based linear system."),
+    ]
+    for choice, hint in sa_data:
+        entries.append({
+            "section": "Section C - Short Answer",
+            "stream": "MATHEMATICS",
+            "qtype": "SHORT_ANSWER",
+            "marks": 3,
+            "count": 1,
+            "choice_required": choice,
+            "hint": hint,
+        })
+
+    # Section D — Q32–Q35 LA LONG_ANSWER 5m = 20m
+    la_data = [
+        (False, "Q32 (LA): Speed-distance-time quadratic word problem (e.g., a train covers a distance; if it travels 10 km/h slower it takes 3 h more — find original speed)."),
+        (False, "Q33 (LA): State and prove the Basic Proportionality Theorem (Thales' theorem). Then apply it to find a side length in a given figure."),
+        (True,  "Q34 (LA, internal choice): Find the total surface area of a solid formed by combining a cone and a cylinder (or cylinder with hemispherical cavity) OR find the volume of an ice-cream cone (cone + hemisphere)."),
+        (True,  "Q35 (LA, internal choice): Find mode and mean from a grouped frequency distribution table, then use the empirical formula to find the median OR construct a 'less than' ogive from the given data and find the median graphically."),
+    ]
+    for choice, hint in la_data:
+        entries.append({
+            "section": "Section D - Long Answer",
+            "stream": "MATHEMATICS",
+            "qtype": "LONG_ANSWER",
+            "marks": 5,
+            "count": 1,
+            "choice_required": choice,
+            "hint": hint,
+        })
+
+    # Section E — Q36–Q38 CASE_STUDY 4m = 12m (sub-part iii always has OR)
+    cs_hints = [
+        (
+            "Q36 (Case Study, AP): Real-world Arithmetic Progression scenario "
+            "(e.g. stadium seating rows, weekly savings, parade formations). "
+            "Sub-parts: (i) 1m — identify if it is an AP or find first term/common difference; "
+            "(ii) 1m — find a specific term; "
+            "(iii) 2m — find sum or nth term (MUST include an internal OR choice for sub-part iii)."
+        ),
+        (
+            "Q37 (Case Study, Coordinate Geometry): Real-world coordinate geometry scenario "
+            "(e.g. park layout, town planning on a grid). "
+            "VI alternative MUST state explicit numerical coordinates in the question text. "
+            "Sub-parts: (i) 1m — find distance between two points; "
+            "(ii) 1m — find midpoint or apply section formula; "
+            "(iii) 2m — find area of triangle formed by three points OR find ratio in which a point divides a segment "
+            "(MUST include internal OR for sub-part iii)."
+        ),
+        (
+            "Q38 (Case Study, Heights & Distances): A ~42 m tall monument/tower with a ~1.6 m observer. "
+            "Sub-parts: (i) 1m — find an angle of elevation or depression; "
+            "(ii) 1m — find a horizontal distance using tan/sin/cos; "
+            "(iii) 2m — find height or distance using two different angles of elevation "
+            "(MUST include internal OR for sub-part iii). Use √3 ≈ 1.732."
+        ),
+    ]
+    for hint in cs_hints:
+        entries.append({
+            "section": "Section E - Case Based Questions",
+            "stream": "MATHEMATICS",
+            "qtype": "CASE_STUDY",
+            "marks": 4,
+            "count": 1,
+            "choice_required": True,
+            "hint": hint,
+        })
+
+    return entries
+
+
+def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
+    """11 questions, 80 marks — CBSE Class 10 English Language & Literature (Code 184) SQP 2025-26."""
+    return [
+        # Section A — Reading Comprehension (20m)
+        {
+            "section": "Section A - Reading Comprehension",
+            "stream": "ENGLISH_READING",
+            "qtype": "READING_COMP",
+            "marks": 10,
+            "count": 1,
+            "hint": (
+                "Q1 (10m): Generate an ORIGINAL ~400-word factual/discursive passage. "
+                "NEVER reproduce any text from First Flight or Footprints Without Feet. "
+                "Generate 8 sub-questions with marks distribution 1+1+1+1+1+2+1+2. "
+                "Types: (i) inferential short-answer 1m, (ii) EXCEPT-type MCQ 1m, "
+                "(iii) fill-blank-from-bracket 1m, (iv) select-True MCQ 1m, "
+                "(v) complete-analogy 1m, (vi) 2-mark explanation, (vii) main-idea MCQ 1m, "
+                "(viii) 2-mark synthesis. Questions must progress from lower to higher order thinking."
+            ),
+        },
+        {
+            "section": "Section A - Reading Comprehension",
+            "stream": "ENGLISH_READING",
+            "qtype": "READING_COMP",
+            "marks": 10,
+            "count": 1,
+            "hint": (
+                "Q2 (10m): Generate an ORIGINAL ~250-word data/survey/infographic passage "
+                "(topic MUST differ from Q1; NEVER use prescribed text). "
+                "Generate 9 sub-questions: 7×1m + 1×2m + 1×1m. "
+                "Include: MCQ data-interpretation, phrase identification, "
+                "data-comprehension fill-blank, relationship explanation, 2-mark elaboration. "
+                "Final sub-question MUST be fill-blank-ONE-word type."
+            ),
+        },
+        # Section B — Grammar & Writing (20m)
+        {
+            "section": "Section B - Grammar and Writing",
+            "stream": "ENGLISH_GRAMMAR",
+            "qtype": "GRAMMAR",
+            "marks": 10,
+            "count": 1,
+            "hint": (
+                "Q3 (10m): Generate EXACTLY 12 one-mark grammar tasks; student attempts any 10. "
+                "Cover DISTINCT grammar points without repetition: "
+                "tense correction (×2), reported speech statement (×1), reported speech command (×1), "
+                "reported speech question (×1), error-correction plain sentence (×1), "
+                "error-correction MCQ-format with options (×1), preposition MCQ (×1), "
+                "modal verb (×1), determiner (×1), quantifier (×1), participle/gerund MCQ (×1). "
+                "Use realistic contexts: market research survey, diary entry, formal letter, public notice."
+            ),
+        },
+        {
+            "section": "Section B - Grammar and Writing",
+            "stream": "ENGLISH_WRITING",
+            "qtype": "LETTER",
+            "marks": 5,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q4 (5m): Two options — attempt ONE. State word limit (~120 words) in the question stem. "
+                "(A) Formal letter to an authority (Municipal Corporation/School Principal/Editor) "
+                "proposing a community scheme or school event; full format, named sender + city. "
+                "(B) Letter to the Editor of a newspaper on a current social/environmental issue; "
+                "full format, named sender + city."
+            ),
+        },
+        {
+            "section": "Section B - Grammar and Writing",
+            "stream": "ENGLISH_WRITING",
+            "qtype": "SHORT_ANSWER",
+            "marks": 5,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q5 (5m): Analytical Paragraph — Two options — attempt ONE (120–150 words). "
+                "Provide 2 different excerpts/profiles/data points for each option. "
+                "Student must analyse and justify a choice based on stated criteria. "
+                "CRITICAL: Exactly ONE cohesive paragraph. NOT an essay. NOT a letter. NOT a list."
+            ),
+        },
+        # Section C — Literature (40m)
+        {
+            "section": "Section C - Literature",
+            "stream": "ENGLISH_LITERATURE",
+            "qtype": "SHORT_ANSWER",
+            "marks": 5,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q6 (5m): Two prose extract options (A and B) from DIFFERENT First Flight prose chapters. "
+                "Each has 4 sub-questions: 2+1+1+1 marks. "
+                "Prescribed chapters: A Letter to God, Nelson Mandela, Two Stories About Flying, "
+                "Anne Frank, Glimpses of India, Mijbil the Otter, Madam Rides the Bus, "
+                "The Sermon at Benares, The Proposal."
+            ),
+        },
+        {
+            "section": "Section C - Literature",
+            "stream": "ENGLISH_LITERATURE",
+            "qtype": "SHORT_ANSWER",
+            "marks": 5,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q7 (5m): Two poetry extract options (A and B) from DIFFERENT First Flight poems. "
+                "Each has 4 sub-questions: 1+2+1+1 marks. "
+                "Test: identify poetic device/imagery (1m), explain theme/tone (2m), "
+                "contextual meaning (1m), inferential (1m). "
+                "Prescribed poems: Dust of Snow, Fire and Ice, A Tiger in the Zoo, "
+                "How to Tell Wild Animals, The Ball Poem, Amanda!, Animals, The Trees, Fog, "
+                "Custard the Dragon, For Anne Gregory."
+            ),
+        },
+        {
+            "section": "Section C - Literature",
+            "stream": "ENGLISH_LITERATURE",
+            "qtype": "SHORT_ANSWER",
+            "marks": 12,
+            "count": 1,
+            "hint": (
+                "Q8 (12m): Generate 5 short-answer questions; student answers any 4 (×3m, ~50 words each). "
+                "MANDATORY coverage: at least 2 from First Flight Prose, "
+                "at least 1 from First Flight Poetry, at least 1 from Footprints Without Feet. "
+                "No chapter/poem repeated. ALL questions must require analysis or evaluation — "
+                "reject pure factual recall."
+            ),
+        },
+        {
+            "section": "Section C - Literature",
+            "stream": "ENGLISH_LITERATURE",
+            "qtype": "SHORT_ANSWER",
+            "marks": 6,
+            "count": 1,
+            "hint": (
+                "Q9 (6m): Generate 3 questions from Footprints Without Feet ONLY; "
+                "student answers any 2 (×3m, ~40-50 words each). "
+                "All 3 from DIFFERENT Footprints stories. "
+                "Stories: A Triumph of Surgery, The Thief's Story, The Midnight Visitor, "
+                "A Question of Trust, Footprints Without Feet, Making of a Scientist, "
+                "The Necklace, The Hack Driver, Bholi, The Book That Saved the Earth."
+            ),
+        },
+        {
+            "section": "Section C - Literature",
+            "stream": "ENGLISH_LITERATURE",
+            "qtype": "LONG_ANSWER",
+            "marks": 6,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q10 (6m): Two options from First Flight — attempt ONE (~100-120 words). "
+                "Thematic or comparative analysis across 2-3 First Flight chapters/poems. "
+                "Higher-order: evaluate theme, character development, or moral message. "
+                "NOT a plot summary."
+            ),
+        },
+        {
+            "section": "Section C - Literature",
+            "stream": "ENGLISH_LITERATURE",
+            "qtype": "LONG_ANSWER",
+            "marks": 6,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q11 (6m): Two options from Footprints Without Feet — attempt ONE (~100-120 words). "
+                "Both options from DIFFERENT Footprints stories. "
+                "Require critical commentary on narrative technique, character significance, "
+                "or thematic message. NOT a plot summary."
+            ),
+        },
+    ]
+
+
+def _exact_class10_blueprint_entries_hindi() -> List[Dict[str, Any]]:
+    """16 questions, 80 marks — CBSE Class 10 Hindi Course B (Code 085) SQP 2025-26."""
+    return [
+        # खण्ड क — अपठित बोध (14m)
+        {
+            "section": "खण्ड क - अपठित बोध",
+            "stream": "HINDI_READING",
+            "qtype": "CASE_STUDY",
+            "marks": 7,
+            "count": 1,
+            "hint": (
+                "Q1 (7m): Original Hindi prose passage ~250-300 words on theme like कर्म/योग्यता/प्रेरणा. "
+                "ALL content in Devanagari Unicode — no Roman transliteration. "
+                "Sub-parts (7 total, 7m): (i) 1m MCQ on central fact, (ii) 1m MCQ on purpose/title, "
+                "(iii) 1m कथन-कारण MCQ (4 options: i only, ii only, i and ii, neither), "
+                "(iv) 1m शब्द-अर्थ/विलोम/समानार्थी, (v) 1m उपयुक्त शीर्षक, "
+                "(vi) 1m inference MCQ, (vii) 1m fill-blank from passage."
+            ),
+        },
+        {
+            "section": "खण्ड क - अपठित बोध",
+            "stream": "HINDI_READING",
+            "qtype": "CASE_STUDY",
+            "marks": 7,
+            "count": 1,
+            "hint": (
+                "Q2 (7m): SECOND original Hindi passage ~250-300 words on a CLEARLY DIFFERENT theme from Q1 "
+                "(e.g., प्रकाश/ज्ञान/परंपरा/प्रकृति — NOT कर्म or योग्यता). "
+                "ALL content in Devanagari Unicode. "
+                "Same 7 sub-part structure as Q1 but with different MCQ types. "
+                "Both passages must be original compositions — never reproduce textbook content."
+            ),
+        },
+        # खण्ड ख — व्यावहारिक व्याकरण (16m)
+        {
+            "section": "खण्ड ख - व्यावहारिक व्याकरण",
+            "stream": "HINDI_GRAMMAR",
+            "qtype": "GRAMMAR",
+            "marks": 4,
+            "count": 1,
+            "hint": (
+                "Q3 (4m) पदबंध: Generate 5 tasks; student does any 4 (×1m each). "
+                "ALL in Devanagari Unicode. "
+                "Cover: सर्वनाम पदबंध, विशेषण पदबंध, क्रिया पदबंध, संज्ञा पदबंध, क्रिया-विशेषण पदबंध. "
+                "Tasks: identify padband type, make padband from given words, substitute in sentence."
+            ),
+        },
+        {
+            "section": "खण्ड ख - व्यावहारिक व्याकरण",
+            "stream": "HINDI_GRAMMAR",
+            "qtype": "GRAMMAR",
+            "marks": 4,
+            "count": 1,
+            "hint": (
+                "Q4 (4m) वाक्य रूपांतरण: Generate 5 tasks; student does any 4 (×1m). "
+                "ALL in Devanagari Unicode. "
+                "Cover: सरल→संयुक्त, संयुक्त→मिश्र, मिश्र→सरल वाक्य रूपांतरण, identify type. "
+                "Use varied realistic contexts (school, nature, daily life)."
+            ),
+        },
+        {
+            "section": "खण्ड ख - व्यावहारिक व्याकरण",
+            "stream": "HINDI_GRAMMAR",
+            "qtype": "GRAMMAR",
+            "marks": 4,
+            "count": 1,
+            "hint": (
+                "Q5 (4m) समास: Generate 5 tasks; student does any 4 (×1m). "
+                "ALL in Devanagari Unicode. "
+                "Cover समास bheds: द्वंद्व, द्विगु, कर्मधारय, बहुव्रीहि, नञ् समास. "
+                "Tasks: form samashik pad + name bhed, give vigrah + name bhed."
+            ),
+        },
+        {
+            "section": "खण्ड ख - व्यावहारिक व्याकरण",
+            "stream": "HINDI_GRAMMAR",
+            "qtype": "GRAMMAR",
+            "marks": 4,
+            "count": 1,
+            "hint": (
+                "Q6 (4m) मुहावरे: Generate 5 tasks; student does any 4 (×1m). "
+                "ALL in Devanagari Unicode. "
+                "Tasks: fill blank with correct muhavara, use in sentence, distinguish two similar muhavare, "
+                "identify muhavara from a line. "
+                "Common examples: नाक में दम करना, हाथ-पाँव फूलना, आँखें खुलना, मुँह में पानी आना."
+            ),
+        },
+        # खण्ड ग — पाठ्यपुस्तक (28m)
+        {
+            "section": "खण्ड ग - पाठ्यपुस्तक",
+            "stream": "HINDI_LITERATURE",
+            "qtype": "MCQ",
+            "marks": 5,
+            "count": 1,
+            "hint": (
+                "Q7 (5m) पठित गद्यांश: Select extract from a स्पर्श गद्य chapter "
+                "(बड़े भाई साहब / डायरी का एक पन्ना / तताँरा-वामीरो कथा / "
+                "तीसरी कसम के शिल्पकार / गिरगिट / अब कहाँ दूसरे के दुख से...). "
+                "ALL in Devanagari Unicode. "
+                "Generate 5 MCQs (1m each) including one कथन-कारण MCQ. "
+                "Test: comprehension, vocabulary, inference, character, theme."
+            ),
+        },
+        {
+            "section": "खण्ड ग - पाठ्यपुस्तक",
+            "stream": "HINDI_LITERATURE",
+            "qtype": "SHORT_ANSWER",
+            "marks": 6,
+            "count": 1,
+            "hint": (
+                "Q8 (6m) गद्य लघु-उत्तर: Generate 4 questions from 4 DIFFERENT स्पर्श गद्य chapters; "
+                "student answers any 3 (×2m, ~25-30 words). "
+                "ALL in Devanagari Unicode. No chapter repeated. "
+                "Chapters: बड़े भाई साहब, डायरी का एक पन्ना, तताँरा-वामीरो कथा, "
+                "तीसरी कसम के शिल्पकार शैलेंद्र, गिरगिट, अब कहाँ दूसरे के दुख से दुखी होने वाले."
+            ),
+        },
+        {
+            "section": "खण्ड ग - पाठ्यपुस्तक",
+            "stream": "HINDI_LITERATURE",
+            "qtype": "MCQ",
+            "marks": 5,
+            "count": 1,
+            "hint": (
+                "Q9 (5m) पठित काव्यांश: Select extract from a स्पर्श काव्य poem "
+                "(साखी / मीरा के पद / बिहारी / मनुष्यता / पर्वत प्रदेश में पावस / "
+                "मधुर-मधुर मेरे दीपक जल / तोप / कर चले हम फ़िदा / आत्मत्राण). "
+                "ALL in Devanagari Unicode. "
+                "Generate 5 MCQs (1m each) — meaning, poetic device, bhav, context, theme."
+            ),
+        },
+        {
+            "section": "खण्ड ग - पाठ्यपुस्तक",
+            "stream": "HINDI_LITERATURE",
+            "qtype": "SHORT_ANSWER",
+            "marks": 6,
+            "count": 1,
+            "hint": (
+                "Q10 (6m) काव्य लघु-उत्तर: Generate 4 questions from 4 DIFFERENT स्पर्श काव्य poems; "
+                "student answers any 3 (×2m, ~25-30 words). "
+                "ALL in Devanagari Unicode. No poem repeated. "
+                "Poems: साखी, मीरा के पद, बिहारी, मनुष्यता, पर्वत प्रदेश में पावस, "
+                "मधुर-मधुर मेरे दीपक जल, तोप, कर चले हम फ़िदा, आत्मत्राण."
+            ),
+        },
+        {
+            "section": "खण्ड ग - पाठ्यपुस्तक",
+            "stream": "HINDI_LITERATURE",
+            "qtype": "SHORT_ANSWER",
+            "marks": 6,
+            "count": 1,
+            "hint": (
+                "Q11 (6m) संचयन: Generate 3 questions covering ALL 3 संचयन texts; "
+                "student answers any 2 (×3m, ~40-50 words). "
+                "ALL in Devanagari Unicode. "
+                "One question each from: हरिहर काका, सपनों के-से दिन, टोपी शुक्ला. "
+                "Test character, theme, or social message — not mere plot recall."
+            ),
+        },
+        # खण्ड घ — रचनात्मक लेखन (22m)
+        {
+            "section": "खण्ड घ - रचनात्मक लेखन",
+            "stream": "HINDI_WRITING",
+            "qtype": "LONG_ANSWER",
+            "marks": 5,
+            "count": 1,
+            "hint": (
+                "Q12 (5m) अनुच्छेद लेखन: Provide 3 topic options each with 3-4 संकेत-बिन्दु; "
+                "student writes any 1 (~120 words). "
+                "ALL in Devanagari Unicode. "
+                "Topics: contemporary and relevant (e.g., डिजिटल भारत, पर्यावरण प्रदूषण, "
+                "युवा और खेल, स्वास्थ्य और आहार). "
+                "संकेत-बिन्दु must guide: भूमिका, विस्तार-1, विस्तार-2, निष्कर्ष."
+            ),
+        },
+        {
+            "section": "खण्ड घ - रचनात्मक लेखन",
+            "stream": "HINDI_WRITING",
+            "qtype": "LETTER",
+            "marks": 5,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q13 (5m) औपचारिक पत्र: Two options — write ONE (~100 words, full format). "
+                "ALL in Devanagari Unicode. "
+                "(A) Application to Principal requesting a school facility or addressing an issue. "
+                "(B) Letter to Editor of a newspaper on a social/environmental issue. "
+                "Full format: दिनांक, प्रेषक, सेवा में/श्रीमान् सम्पादक, विषय, विनम्र निवेदन, "
+                "प्रार्थना, भवदीय, हस्ताक्षर."
+            ),
+        },
+        {
+            "section": "खण्ड घ - रचनात्मक लेखन",
+            "stream": "HINDI_WRITING",
+            "qtype": "SHORT_ANSWER",
+            "marks": 4,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q14 (4m) सूचना लेखन: Two options — write ONE (~60 words). "
+                "ALL in Devanagari Unicode. "
+                "Topics: school event notice / lost & found / cultural programme / meeting notice. "
+                "Full format: शीर्षक सूचना, तिथि, सूचना का विषय, विवरण, हस्ताक्षर/पद."
+            ),
+        },
+        {
+            "section": "खण्ड घ - रचनात्मक लेखन",
+            "stream": "HINDI_WRITING",
+            "qtype": "SHORT_ANSWER",
+            "marks": 3,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q15 (3m) विज्ञापन: Two options — make ONE advertisement (~40 words with नारा/tagline). "
+                "ALL in Devanagari Unicode. "
+                "Topics: natural/organic product, health service, or environment awareness. "
+                "Must include: उत्पाद/सेवा का नाम, मुख्य विशेषता, नारा, सम्पर्क (if relevant)."
+            ),
+        },
+        {
+            "section": "खण्ड घ - रचनात्मक लेखन",
+            "stream": "HINDI_WRITING",
+            "qtype": "LONG_ANSWER",
+            "marks": 5,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q16 (5m) लघुकथा/ई-मेल: Two options — write ONE (~100 words). "
+                "ALL in Devanagari Unicode. "
+                "(A) लघुकथा: Provide a vivid opening line (e.g., 'अचानक सन्नाटा टूटा...'); "
+                "student continues with पात्र, संघर्ष, समाधान/निष्कर्ष. "
+                "(B) ई-मेल: To a friend/official; To/Subject/body/closing format."
+            ),
+        },
+    ]
+
+
+def _exact_class10_blueprint_entries_telugu() -> List[Dict[str, Any]]:
+    """18 questions, 80 marks — CBSE Class 10 Telugu Telangana (Code 089) SQP 2025-26."""
+    return [
+        # విభాగం ఎ (10m)
+        {
+            "section": "విభాగం ఎ",
+            "stream": "TELUGU_READING",
+            "qtype": "READING_COMP",
+            "marks": 10,
+            "count": 1,
+            "hint": (
+                "Q1 (10m): ORIGINAL ~300-word Telugu passage about a prominent Telugu/Telangana "
+                "scholar, writer, poet, or social reformer. "
+                "EVERY word — passage, questions, options, section headers — "
+                "MUST be in Telugu Unicode script (U+0C00–U+0C7F). No Roman transliteration. "
+                "Generate 5 MCQs ×2m (total 10m): "
+                "(i) institution/place associated with the person, "
+                "(ii) named literary/academic work, "
+                "(iii) award/research/recognition, "
+                "(iv) source of a quoted line in the passage, "
+                "(v) activities/contributions described. "
+                "Each MCQ: 4 Telugu-script options."
+            ),
+        },
+        # విభాగం బి (11m)
+        {
+            "section": "విభాగం బి",
+            "stream": "TELUGU_WRITING",
+            "qtype": "LETTER",
+            "marks": 6,
+            "count": 1,
+            "hint": (
+                "Q2 (6m) లేఖా-రచన: ENTIRE task in Telugu Unicode script only — no Roman letters. "
+                "Provide a scenario: named student writer (e.g., రాముడు/లక్ష్మి) writing to a "
+                "named recipient (ప్రధానాచార్యులు/తల్లిదండ్రులు/స్నేహితుడు) for a specific purpose "
+                "(సౌకర్యం కోసం/సమాచారం/సమస్య పరిష్కారం). ~100 words. "
+                "Full format: తేదీ, పంపే వారి పేరు+చిరునామా, స్వీకర్త, విషయం, ముఖ్య విషయం, ముగింపు."
+            ),
+        },
+        {
+            "section": "విభాగం బి",
+            "stream": "TELUGU_WRITING",
+            "qtype": "LONG_ANSWER",
+            "marks": 5,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q3 (5m) ప్రక్రియ: Two options — write ONE (~100 words). "
+                "ENTIRE task in Telugu Unicode script only. "
+                "(a) దినచర్య (Diary): entry for a meaningful day (school event/trip/achievement). "
+                "Include: తేదీ, వారం, సమయం, అనుభవం, భావాలు, ముగింపు. "
+                "(b) వార్తా-రచన (News report): Write using EXACTLY 4-6 given ఆధారాలు listed in Telugu. "
+                "Include: శీర్షిక, తేదీ+స్థలం, ముఖ్య విషయం, వివరాలు, ముగింపు."
+            ),
+        },
+        # విభాగం సి (29m)
+        {
+            "section": "విభాగం సి",
+            "stream": "TELUGU_GRAMMAR",
+            "qtype": "MCQ",
+            "marks": 4,
+            "count": 1,
+            "hint": (
+                "Q4 (4m) సంధి: 4 MCQs in Telugu Unicode only (1m each). "
+                "(i) identify సంధి సూత్రం for a given example, "
+                "(ii) identify correct విభక్తి ప్రత్యయం, "
+                "(iii) split (విడదీయడం) a sandhi word, "
+                "(iv) combine (సంధి చేయడం) two words. "
+                "Cover: అకార/ఇకార/ఉకార/గసడదవాదేశ సంధి. 4 Telugu options each."
+            ),
+        },
+        {
+            "section": "విభాగం సి",
+            "stream": "TELUGU_GRAMMAR",
+            "qtype": "MCQ",
+            "marks": 4,
+            "count": 1,
+            "hint": (
+                "Q5 (4m) ఛందస్సు: 4 MCQs in Telugu Unicode only (1m each). "
+                "Use a verse line from prescribed texts. "
+                "(i) identify యతి మైత్రి, "
+                "(ii) name the వృత్తం (ఉత్పలమాల/చంపకమాల/శార్దూలవిక్రీడితం/మత్తేభవిక్రీడితం), "
+                "(iii) identify గణాలు (pattern), "
+                "(iv) count పాదాక్షరం. "
+                "Gana patterns MUST match the named metre exactly."
+            ),
+        },
+        {
+            "section": "విభాగం సి",
+            "stream": "TELUGU_GRAMMAR",
+            "qtype": "MCQ",
+            "marks": 4,
+            "count": 1,
+            "hint": (
+                "Q6 (4m) సమాసం: 4 MCQs in Telugu Unicode only (1m each). "
+                "Cover 4 different types: రూపక సమాసం, ద్విగు సమాసం, ద్వంద్వ సమాసం, బహువ్రీహి సమాసం. "
+                "Test: lakshana of samasa, give example, identify type of given samashta-pada."
+            ),
+        },
+        {
+            "section": "విభాగం సి",
+            "stream": "TELUGU_GRAMMAR",
+            "qtype": "MCQ",
+            "marks": 4,
+            "count": 1,
+            "hint": (
+                "Q7 (4m) అలంకారాలు: 4 MCQs in Telugu Unicode only (1m each). "
+                "(i) identify అలంకారం in a given Telugu sentence, "
+                "(ii) give lakshana of a named alankara, "
+                "(iii) identify ఉపమానం in a given simile, "
+                "(iv) choose correct example for a named alankara. "
+                "Cover: ఉపమా, రూపక, ఉత్ప్రేక్ష, అతిశయోక్తి అలంకారాలు."
+            ),
+        },
+        {
+            "section": "విభాగం సి",
+            "stream": "TELUGU_GRAMMAR",
+            "qtype": "MCQ",
+            "marks": 2,
+            "count": 1,
+            "hint": (
+                "Q8 (2m) పర్యాయ పదాలు: 2 MCQs in Telugu Unicode only (1m each). "
+                "Test synonyms: (i) identify correct పర్యాయ పదం for a given word, "
+                "(ii) find the word that does NOT belong to the synonym group."
+            ),
+        },
+        {
+            "section": "విభాగం సి",
+            "stream": "TELUGU_GRAMMAR",
+            "qtype": "MCQ",
+            "marks": 2,
+            "count": 1,
+            "hint": (
+                "Q9 (2m) జాతీయాలు: 2 MCQs in Telugu Unicode only (1m each). "
+                "(i) meaning of a given Telugu idiom (జాతీయం), "
+                "(ii) identify the sentence that correctly uses a given idiom."
+            ),
+        },
+        {
+            "section": "విభాగం సి",
+            "stream": "TELUGU_GRAMMAR",
+            "qtype": "MCQ",
+            "marks": 2,
+            "count": 1,
+            "hint": (
+                "Q10 (2m) సామెతలు: 2 MCQs in Telugu Unicode only (1m each). "
+                "(i) meaning of a given Telugu proverb (సామెత), "
+                "(ii) match a described situation to the appropriate సామెత."
+            ),
+        },
+        {
+            "section": "విభాగం సి",
+            "stream": "TELUGU_GRAMMAR",
+            "qtype": "MCQ",
+            "marks": 2,
+            "count": 1,
+            "hint": (
+                "Q11 (2m) పాఠ్యాంశ ప్రక్రియ: 2 MCQs in Telugu Unicode only (1m each). "
+                "(i) given a chapter name, identify its ప్రక్రియ (గద్యం/పద్యం/ఏకాంకిక/కథ/వ్యాసం), "
+                "(ii) given a ప్రక్రియ, identify which prescribed chapter belongs to it."
+            ),
+        },
+        {
+            "section": "విభాగం సి",
+            "stream": "TELUGU_LITERATURE",
+            "qtype": "MCQ",
+            "marks": 5,
+            "count": 1,
+            "hint": (
+                "Q12 (5m) పరిచిత గద్యాంశం: Extract from a prescribed Telugu prose/verse chapter. "
+                "ENTIRE question in Telugu Unicode only. "
+                "5 MCQs (1m each): speaker/character identification, event sequence, "
+                "vocabulary meaning in context, inference, author's purpose/tone."
+            ),
+        },
+        # విభాగం డి (30m)
+        {
+            "section": "విభాగం డి",
+            "stream": "TELUGU_LITERATURE",
+            "qtype": "SHORT_ANSWER",
+            "marks": 4,
+            "count": 1,
+            "hint": (
+                "Q13 (4m) సంగ్రహ జవాబులు: 4 questions in Telugu Unicode; student answers any 2 (×2m, ~50-60 words). "
+                "Theme: నీతి/పాత్ర/తాత్విక (ethics/character/philosophical). "
+                "Chapters: గోలకొండ, కొత్తబాట, లక్ష్యసిద్ధి, భిక్ష. "
+                "Questions must require interpretation — not mere factual recall."
+            ),
+        },
+        {
+            "section": "విభాగం డి",
+            "stream": "TELUGU_LITERATURE",
+            "qtype": "SHORT_ANSWER",
+            "marks": 4,
+            "count": 1,
+            "hint": (
+                "Q14 (4m) సంగ్రహ జవాబులు-2: 4 questions in Telugu Unicode; "
+                "student answers any 2 (×2m, ~50-60 words). "
+                "Theme: సమాజం/ప్రకృతి/జీవితం (society/nature/life). "
+                "Use chapters DIFFERENT from Q13. Questions probe social/natural/life values."
+            ),
+        },
+        {
+            "section": "విభాగం డి",
+            "stream": "TELUGU_LITERATURE",
+            "qtype": "LONG_ANSWER",
+            "marks": 4,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q15 (4m) విపులంగా: Two options in Telugu Unicode — write ONE (~120 words). "
+                "(a) గోలకొండ పాఠం: analyse theme/characters/social message. "
+                "(b) కొత్తబాట పాఠం: analyse theme/moral/significance. "
+                "Analytical essay — NOT plot summary."
+            ),
+        },
+        {
+            "section": "విభాగం డి",
+            "stream": "TELUGU_LITERATURE",
+            "qtype": "LONG_ANSWER",
+            "marks": 4,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q16 (4m) విపులంగా-2: Two options in Telugu Unicode — write ONE (~120 words). "
+                "(a) శతక నీతులు: explain philosophical/ethical message of a given శతక verse. "
+                "(b) జీవనభాషం సందేశం: explain life-message of a prescribed poem/prose piece. "
+                "Critical reflection required — not mere paraphrase."
+            ),
+        },
+        {
+            "section": "విభాగం డి",
+            "stream": "TELUGU_LITERATURE",
+            "qtype": "LONG_ANSWER",
+            "marks": 6,
+            "count": 1,
+            "choice_required": True,
+            "hint": (
+                "Q17 (6m) పద్య అన్వయ క్రమం + ప్రతిపదార్థాలు: Two padya options in Telugu Unicode — do ONE. "
+                "question_text = full padya verse in Telugu Unicode. "
+                "answer_key = అన్వయ క్రమం (prose order) + ప్రతిపదార్థాలు (word-by-word meanings). "
+                "Source: కాళహస్తీశ్వర శతకం or జీవనభాషం (or other prescribed padya)."
+            ),
+        },
+        {
+            "section": "విభాగం డి",
+            "stream": "TELUGU_LITERATURE",
+            "qtype": "LONG_ANSWER",
+            "marks": 8,
+            "count": 1,
+            "hint": (
+                "Q18 (8m) ఉపవాచకం (రామాయణం): Generate ALL 4 questions in Telugu Unicode; "
+                "student answers any 2 (×4m, ~100-120 words each). "
+                "(i) వాలి-సుగ్రీవ విరోధం — causes and resolution, "
+                "(ii) రామాయణం ఎందుకు చదవాలి — relevance and values, "
+                "(iii) భరత పాదుక పట్టాభిషేకం — significance and devotion, "
+                "(iv) రామ-రావణ యుద్ధం — key events and moral lessons. "
+                "Answers require analytical/reflective response — not plot retelling."
+            ),
+        },
+    ]
+
+
 def _exact_class10_blueprint_entries(subject_norm: str) -> List[Dict[str, Any]]:
+    if subject_norm == "mathematics":
+        return _exact_class10_blueprint_entries_mathematics()
+    if subject_norm == "english":
+        return _exact_class10_blueprint_entries_english()
+    if subject_norm == "hindi":
+        return _exact_class10_blueprint_entries_hindi()
+    if subject_norm == "telugu":
+        return _exact_class10_blueprint_entries_telugu()
     if subject_norm == "social science":
         return [
             {"section": "Section A - History", "stream": "HISTORY", "qtype": "MCQ", "marks": 1, "count": 1, "hint": "History Q1 must be a match-the-following MCQ with Column I and Column II."},
@@ -850,7 +1934,15 @@ def _build_exact_cbse_class10_plan(
     total_marks = sum(slot.marks for slot in slots)
     if total_marks != 80:
         raise ValueError(f"Internal CBSE Class 10 blueprint error: expected 80 marks, got {total_marks}.")
-    expected_count = 38 if subject_norm == "social science" else 39
+    _expected_counts = {
+        "mathematics": 38,
+        "english": 11,
+        "hindi": 16,
+        "telugu": 18,
+        "social science": 38,
+        "science": 39,
+    }
+    expected_count = _expected_counts.get(subject_norm, 39)
     if len(slots) != expected_count:
         raise ValueError(f"Internal CBSE Class 10 blueprint error: expected {expected_count} questions, got {len(slots)}.")
     return slots
@@ -1027,9 +2119,16 @@ def build_question_plan(
     """
     subject_norm = normalize_subject(subject)
     if subject_norm not in SUPPORTED_SUBJECTS:
-        raise ValueError("Only Science and Social Science are configured in q_instructions.")
+        raise ValueError(f"Subject '{subject}' is not configured in q_instructions.")
 
-    subject_label = "Social Science" if subject_norm == "social science" else "Science"
+    _label_map = {
+        "social science": "Social Science",
+        "mathematics": "Mathematics",
+        "english": "English",
+        "hindi": "Hindi",
+        "telugu": "Telugu",
+    }
+    subject_label = _label_map.get(subject_norm, "Science")
 
     count_var_norm = str(count_variation).strip().lower().replace("_", " ")
     is_custom_mode = count_var_norm in ("custom", "custom count")
