@@ -161,8 +161,30 @@ export default function EditorPage() {
   const [showResumePrompt, setShowResumePrompt] = useState(false);
   const [checkedResume, setCheckedResume] = useState(false);
 
+  // ISSUE 1: Resolve the current browser-session id so we can tell in-app
+  // nav (same session) apart from a genuine "previous browser session"
+  // resume. The TipTap editor writes the same id into every IDB save
+  // (see browserSessionIdRef in tiptap-editor.tsx). We compute it inside
+  // a useEffect (not useMemo) so the impure Date.now/Math.random calls
+  // don't run during render.
+  const [browserSessionId, setBrowserSessionId] = useState<string>("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const KEY = "qp-gen:editor-session-id";
+    let id = sessionStorage.getItem(KEY);
+    if (!id) {
+      id = `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      sessionStorage.setItem(KEY, id);
+    }
+    setBrowserSessionId(id);
+  }, []);
+
   // Check for resume doc on mount if no explicit paperId is selected and not creating a new paper
   useEffect(() => {
+    // Wait until the browser-session id is resolved — otherwise the
+    // session-match check below would always fail and the resume modal
+    // would pop on in-app navigation.
+    if (!browserSessionId) return;
     if (!sessionData?.user?.id || paperId || checkedResume || isNew) return;
 
     const checkResume = async () => {
@@ -170,10 +192,28 @@ export default function EditorPage() {
         const latestDoc = await getLatestLiveDocumentForUser(
           sessionData.user.id,
         );
-        if (latestDoc) {
-          setResumeDoc(latestDoc);
-          setShowResumePrompt(true);
+        if (!latestDoc) {
+          setCheckedResume(true);
+          return;
         }
+
+        // ISSUE 1: if the latest live doc was written by THIS browser
+        // session (i.e. the user just left the editor and came back),
+        // restore silently — no modal, no friction. Only show the
+        // "Resume previous paper?" prompt when the latest doc was
+        // written in a different session.
+        if (latestDoc.sessionId && latestDoc.sessionId === browserSessionId) {
+          if (latestDoc.paperId) {
+            router.replace(`/editor?paperId=${latestDoc.paperId}`);
+          } else {
+            router.replace(`/editor?paperId=current`);
+          }
+          setCheckedResume(true);
+          return;
+        }
+
+        setResumeDoc(latestDoc);
+        setShowResumePrompt(true);
       } catch (error) {
         console.error("Failed to check for resume doc:", error);
       } finally {
@@ -182,7 +222,14 @@ export default function EditorPage() {
     };
 
     checkResume();
-  }, [sessionData?.user?.id, paperId, checkedResume, isNew]);
+  }, [
+    sessionData?.user?.id,
+    paperId,
+    checkedResume,
+    isNew,
+    browserSessionId,
+    router,
+  ]);
 
   const handleContinueEditing = () => {
     setShowResumePrompt(false);
@@ -190,6 +237,8 @@ export default function EditorPage() {
       if (resumeDoc.paperId) {
         router.replace(`/editor?paperId=${resumeDoc.paperId}`);
       } else {
+        // No backend paper id yet — load the local "current" draft, which
+        // the editor's load effect rehydrates from IndexedDB.
         router.replace(`/editor?paperId=current`);
       }
     }
@@ -197,10 +246,27 @@ export default function EditorPage() {
 
   const handleCreateNewPaper = async () => {
     setShowResumePrompt(false);
+    // ISSUE 1: "Create New Paper" must NEVER silently destroy unsaved
+    // work — the old behaviour `deleteLiveDocument(resumeDoc.id)` deleted
+    // the only copy of an unsaved draft. Instead, archive the draft by
+    // re-saving it under an `archived:{userId}:{ts}` id so it stays in
+    // IndexedDB (and out of `getLatestLiveDocumentForUser`'s "latest"
+    // result, since it goes through the same store but the user can
+    // recover it through the paper library if it had a backend paperId).
     if (sessionData?.user?.id && resumeDoc) {
-      await deleteLiveDocument(resumeDoc.id).catch((err) =>
-        console.error("Failed to delete draft:", err),
-      );
+      try {
+        const archivedId = `archived:${sessionData.user.id}:${Date.now()}`;
+        const { saveLiveDocument: saveLD } = await import(
+          "@/lib/live-document-db"
+        );
+        await saveLD({ ...resumeDoc, id: archivedId });
+        await deleteLiveDocument(resumeDoc.id);
+        toast.message("Previous draft archived. It's still in your browser.");
+      } catch (err) {
+        console.error("Failed to archive previous draft:", err);
+        // On failure, keep the original draft alive rather than deleting
+        // it — never destroy unsaved work on a best-effort cleanup.
+      }
     }
     setPaperExamName("");
     setPaperClass("");
@@ -828,9 +894,41 @@ export default function EditorPage() {
                   "Untitled Paper"}
               </p>
               <p className="text-[11px] text-muted-foreground">
-                Class: {resumeDoc.metadata?.className || "—"} | Subject:{" "}
-                {resumeDoc.metadata?.subject || "—"}
+                Class: {resumeDoc.metadata?.className || "Not set yet"} |{" "}
+                Subject: {resumeDoc.metadata?.subject || "Not set yet"}
               </p>
+              {(() => {
+                // Surface marks/questions if we can extract them from the
+                // saved doc — gives the user a real signal about which
+                // paper this resume points at.
+                let questionCount = 0;
+                let totalMarks = 0;
+                try {
+                  const visit = (node: any) => {
+                    if (!node) return;
+                    if (
+                      node.type === "questionBlock" ||
+                      node.type === "groupedQuestionBlock"
+                    ) {
+                      questionCount += 1;
+                      totalMarks += Number(node.attrs?.marks) || 0;
+                    }
+                    (node.content || []).forEach(visit);
+                  };
+                  visit(resumeDoc.editorJSON);
+                } catch {
+                  /* old/legacy doc shapes — skip the count */
+                }
+                if (questionCount > 0) {
+                  return (
+                    <p className="text-[11px] text-muted-foreground">
+                      {questionCount} question{questionCount === 1 ? "" : "s"} ·{" "}
+                      {totalMarks} mark{totalMarks === 1 ? "" : "s"}
+                    </p>
+                  );
+                }
+                return null;
+              })()}
               <p className="text-[11px] text-muted-foreground">
                 Last active: {new Date(resumeDoc.updatedAt).toLocaleString()}
               </p>
