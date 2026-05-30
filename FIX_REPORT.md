@@ -1,282 +1,362 @@
-# FIX_REPORT — `qp-gen` (AOS CBSE QP generator)
+# FIX_REPORT — `qp-gen` Editor work-loss + Selective insertion
 
-Three production bugs were observed during a live Mathematics Class-X
-generation with two source chapters (`surfaceareavol.pdf`,
-`trignometry.pdf`). All four issues (B, A1, A2, C, plus D) have been
-addressed. Sixty-one existing tests stay green; six new regression tests
-have been added (67 total backend tests passing).
+Two issues addressed without regressing the prior content-scope /
+PyMuPDF / Next-layout work. All sixty-seven prior backend tests stay
+green; one new regression test was added (68 total). Frontend
+`tsc --noEmit` and `eslint` both clean.
 
 ---
 
-## ISSUE B — Next.js "Content hole must be the only child of its parent node"
+## Current flow as it was (documented before changes)
 
-### Root cause
-`frontend/app/layout.tsx` rendered `{children}` as a direct sibling of
-`<Toaster />` inside `<Providers>`:
+- `frontend/store/editor-store.ts` — plain Zustand store, **no persistence
+  middleware**. Holds insertion plumbing, modal flags, `editorContent`
+  mirror, `saveState`. In-memory only — every TipTap unmount blew it away.
+- `frontend/lib/live-document-db.ts` — IndexedDB store of the full TipTap
+  doc keyed by `paper:{userId}:{paperId}` or `current:{userId}`.
+- `frontend/components/tiptap-editor.tsx` — debounced (1 s) live-sync
+  writes IDB and PATCHes the server. On mount, loads the newer of IDB
+  vs server.
+- `frontend/app/(dashboard)/editor/page.tsx` — on every mount with no
+  `paperId`, calls `getLatestLiveDocumentForUser` and pops the "Resume
+  previous paper?" modal if any doc exists.
+- `frontend/components/generator-form.tsx` — `appendQuestionToEditor`
+  fires inside the SSE handler for every streamed question, dumping
+  them directly into the editor store. All-or-nothing.
 
-```tsx
-<Providers>
-  {children}
-  <Toaster position="top-right" richColors theme="system" />
-</Providers>
-```
+---
 
-Next 16 + Turbopack require the layout's `{children}` slot ("content
-hole") to be the sole direct child of its immediate parent element.
-Mixing it with another sibling inside the same Client-Component wrapper
-triggers the `RangeError`.
+## ISSUE 1 — Editor work disappears between pages
+
+### Root cause (three compounding bugs)
+
+1. **The 1 s debouncer was cancelled, not flushed, on teardown.** The
+   cleanup effect did `debouncedLiveSync.cancel()`, throwing away the
+   pending invocation. A user typing the last edits and immediately
+   clicking "Dashboard" never reached IndexedDB.
+
+2. **The chain captured editor state lazily.** Even when `.flush()` was
+   called, `editor.getJSON()` ran *inside* the `.then()` chain (a
+   microtask) — after React might have already destroyed the editor.
+   `getJSON()` on a destroyed editor either throws or returns stale
+   state, so the IDB write was either skipped or wrong.
+
+3. **The resume modal fired on every visit to `/editor`.** It had no
+   way to tell in-app navigation apart from a brand-new browser
+   session, so even tabbing away to the Dashboard and back popped the
+   modal — and the modal's metadata showed "—" because the user hadn't
+   filled in the Paper Details form yet, so the IDB doc had blank
+   `className`/`subject`. "Continue Editing" routed to a paperId that
+   sometimes didn't exist, so the actual content didn't come back.
 
 ### Fix
-`frontend/app/layout.tsx:23-32` — give `{children}` its own wrapper and
-move the toaster to a sibling slot inside `<body>`:
 
-```tsx
-<body className={...}>
-  <Providers>{children}</Providers>
-  <Toaster position="top-right" richColors theme="system" />
-</body>
-```
+#### A. Persist the layered editor state
 
-`<Providers>` now has `{children}` as its sole child; the toaster lives
-outside that wrapper. The two other layouts (`(auth)/layout.tsx`,
-`(dashboard)/layout.tsx`) already satisfied the rule and were left
-untouched.
+`frontend/store/editor-store.ts:1-205` (rewritten):
 
-### Verification
-- `tsc --noEmit` clean.
-- Manual reproduction: `cd frontend && npm run dev` (script now correctly
-  named, see ISSUE D); load `/` and the Generator route; the full-screen
-  error overlay no longer appears.
+- Wrapped the store in Zustand `persist` middleware backed by
+  `localStorage`. `partialize` whitelists only the small slices that
+  belong in localStorage (`insertionMode`, `generatedTray`,
+  `generatorContext`, `template`). The large TipTap doc stays in
+  IndexedDB via the existing `live-document-db.ts` — persisting it
+  twice would blow past the ~5 MB localStorage cap.
+- Added `generatorContext: { examName, className, subject, lastActiveAt }`
+  so the resume modal has real metadata even before the user opens the
+  Paper Details modal — `GeneratorForm` mirrors the form's
+  class/subject selections into this slot on every change.
+- Added `generatedTray` + `insertionMode` for Issue 2 (see below).
 
----
+#### B. Synchronously capture editor state at flush time
 
-## ISSUE A1 — silent under-generation (12 questions for a 38-blueprint)
+`frontend/components/tiptap-editor.tsx:594-633`:
 
-### Root cause
-`backend/services/generation_service.py:stream_generated_questions`
-allocated chunks to each blueprint slot in Phase 1 and, in Phase 2,
-**silently skipped** any CONTENT slot whose retrieval returned no chunks
-(`_generate_slot` returned a `warning` event but no question — old
-lines around `1107`). With only two chapters uploaded, most of the 38
-blueprint slots couldn't be grounded, so the stream stopped at 12.
+- Moved `editor.getJSON()` / `extractPagesFromDoc` / payload
+  serialization OUT of the `.then()` chain and INTO the synchronous
+  body of the debounced function. The `.then()` block now just
+  consumes the captured `capturedContent`/`capturedMetadata` etc.
+- This is the actual data-loss fix: even when the editor is destroyed
+  microseconds after `.flush()`, the captured state survives in
+  closures and reaches IndexedDB.
 
-### Fix — explicit Content-Coverage Policy
-A new request flag `content_scope_policy` is accepted by the backend
-(`backend/services/generation_service.py:961-976`). Default: `"strict"`.
+#### C. Flush on every exit signal
 
-| Policy | Behaviour for an empty-context CONTENT slot |
-| ------ | ------------------------------------------- |
-| `strict` (default) | Generate the slot via **CBSE-curriculum fallback** — the LLM is invoked without chunks and instructed to use the standard CBSE syllabus. The structurally complete blueprint paper is produced. |
-| `source_only` | Skip the slot. The realized paper is smaller than the blueprint; the printed header is rewritten to match (see A2) and a `notice` SSE event surfaces the gap to the UI. |
+`frontend/components/tiptap-editor.tsx:915-994`:
 
-Key changes:
+- The global `<a>` click interceptor no longer destroys the editor; it
+  only flushes the live-sync (Next's router unmount destroys it
+  naturally afterwards, AFTER the captured-state save is queued).
+- `pagehide` and `visibilitychange→hidden` listeners added — covers
+  modern BFCache navigation, mobile background, and tab close.
+- `beforeunload` still flushes.
 
-- **Phase 1 allocation** (`generation_service.py:1056-1116`) now tracks
-  `curriculum_fallback_indices` and `source_only_pruned_indices`
-  instead of silently dropping slots.
-- **`_generate_slot`** (`generation_service.py:1144-1206`) treats a
-  curriculum-fallback CONTENT slot as a no-RAG generation: it swaps in
-  fallback-aware system rules ("…rely on the standard CBSE syllabus…")
-  and merges a CURRICULUM FALLBACK directive into the user prompt.
-- The previous warning-only path is preserved for `source_only`, but is
-  followed by a visible, structured `notice` event.
+`frontend/components/tiptap-editor.tsx:900-912`:
 
-This is subject-agnostic — Science / Social / English / Hindi / Telugu
-benefit from the same protection.
+- Cleanup effect now `debouncedLiveSync.flush()` instead of `.cancel()`.
 
----
+#### D. Per-session id; silent restore on in-app nav
 
-## ISSUE A2 — header / section labels lied about the realized paper
+`frontend/lib/live-document-db.ts:31` adds `sessionId?: string` to the
+`LiveEditorDocument` interface.
 
-### Root cause
-`build_general_instructions(plan, …)` in `generation_router.py:316-389`
-returned **hardcoded blueprint strings** ("This question paper contains
-38 questions… Section A comprises 20 questions of 1 mark each…"). The
-streamer wrote those strings into `result["generalInstructions"]`
-before any generation happened, so a truncated body always carried the
-full blueprint header.
+`frontend/components/tiptap-editor.tsx:540-555` initialises a
+`sessionStorage`-backed session id and stamps every IDB save with it.
 
-### Fix — single source of truth = realized paper
-Two pieces:
+`frontend/app/(dashboard)/editor/page.tsx:160-228`:
 
-1. **`build_realized_general_instructions`**
-   (`backend/services/generation_router.py:392-498`) — derives every
-   printed line from the realized `result["sections"]`:
-   - Total questions and total marks come from `sum(len(section["questions"]))`
-     and `sum(question["marks"])`.
-   - Per-section line is `"<title> comprises N question(s) of M mark(s)
-     each (N × M = T Marks)"`, computed from the realized questions in
-     that section.
-   - When a section has mixed marks, the label falls back to a total
-     ("carrying a total of T Marks"), so the Section-A MCQ + AR split
-     is honoured automatically.
-   - Subject-specific non-count lines (e.g. "Use of calculator is not
-     permitted." for Class-10 Maths) are preserved.
-   - A transparent notice is appended when realized < blueprint, naming
-     the policy.
+- Resolves the session id in a `useEffect` (impure calls kept out of
+  render to satisfy React purity rules).
+- The resume-check effect waits for the session id, then:
+  - If the latest live doc carries the **same** session id, **silently
+    `router.replace`** to its paper — no modal, no friction. This is
+    the silent restore the requirement asked for.
+  - Only when the session id differs (genuinely a prior session) does
+    the "Resume previous paper?" modal appear.
 
-2. **Streamer rewrites `generalInstructions` at done-time.**
-   `generation_service.py:1361-1395` overwrites
-   `result["generalInstructions"]` with the realized output **before**
-   the `done` event and history persistence. Headers and bodies can no
-   longer disagree, in either policy mode.
+#### E. Truthful resume metadata
 
-The frontend section-summary builder (`tiptap-editor.tsx:103-120`)
-already derives the "(n × m = T Marks)" line from the editor's
-realized question blocks, so the editor view was already correct — but
-the *printed general-instructions block* was the offender, and that's
-what the realized rewrite fixes.
+`frontend/components/tiptap-editor.tsx:626-645`:
 
-### Verification
-New tests `q_instructions/tests/test_content_scope.py:TestRealizedHeader`:
+- The IDB save now falls back to `editorStore.generatorContext`
+  (`className`, `subject`) when the user-supplied metadata is blank,
+  so the modal never shows "—" while a class/subject is selected in
+  the generator form.
 
-| Test | Scenario | Asserted |
-| ---- | -------- | -------- |
-| `test_truncated_paper_header_matches_body` | 12 realized questions, requested 38, source_only | Header says 12; explicitly surfaces 12-of-38 gap |
-| `test_section_label_uses_realized_split` | 12 realized MCQs in Section A | Label is "(12 × 1 = 12 Marks)" |
-| `test_strict_full_blueprint_header_says_38` | Full 38-question realized paper | Header says 38 + every section's `(n × m = T)` matches |
-| `test_strict_with_curriculum_fallback_surfaces_notice` | 20 realized, 7 from fallback | Header carries explicit "7 of 20 … CBSE curriculum" notice |
-| `test_empty_paper_returns_explicit_message` | No realized questions | Returns "No questions could be generated." |
+`frontend/app/(dashboard)/editor/page.tsx:881-924`:
 
-All five pass.
+- The modal displays "Not set yet" instead of "—" so the user
+  understands the difference between missing-metadata and a real value.
+- A small descendants-walk extracts the realized
+  `questionCount`/`totalMarks` from the saved doc and displays them —
+  the modal now reflects the real paper, not a shell.
+
+#### F. "Create New Paper" archives instead of destroying
+
+`frontend/app/(dashboard)/editor/page.tsx:235-263`:
+
+- Old behaviour `deleteLiveDocument(resumeDoc.id)` permanently destroyed
+  the only copy of an unsaved draft.
+- New behaviour: re-saves the doc under an `archived:{userId}:{ts}` id
+  and only then removes the original. The archive stays in IndexedDB
+  so the user's work is recoverable.
+- `frontend/lib/live-document-db.ts:121-138`: `getLatestLiveDocumentForUser`
+  now excludes `archived:*` ids so the resume modal doesn't loop back
+  to them.
+
+#### Acceptance checks
+
+| Scenario | Expected | Status |
+| -------- | -------- | ------ |
+| Editor → Dashboard → Editor (same session) | Full content restored, no modal | ✓ silent restore |
+| Browser reload on Editor | State restored from IDB; reconciles with server | ✓ load-effect picks newer `updatedAt` |
+| Genuine prior session | Truthful modal (title/class/subject/marks/last active) | ✓ |
+| "Continue Editing" | Restores full state | ✓ routes to `paperId` or `current`, both rehydrate via IDB |
+| "Create New Paper" | Old draft archived, not destroyed | ✓ |
+| Last edits before nav | Persisted to IDB | ✓ synchronous capture + flush on link-click/pagehide/visibility/beforeunload |
 
 ---
 
-## ISSUE C — `No module named 'fitz'` on every upload
+## ISSUE 2 — Selective question insertion
 
 ### Root cause
-`backend/services/pdf_service.py` did `import fitz` inside a `try/except
-Exception` and logged a generic warning before falling back to pypdf.
-PyMuPDF (1.26.x wheels) was not installed in the project venv, and
-modern PyMuPDF exposes the module under the name `pymupdf`, with `fitz`
-as an alias only in some versions — so a clean install of the newest
-release would still break the bare `import fitz`.
+
+`frontend/components/generator-form.tsx:appendQuestionToEditor` was
+called from inside the SSE `event === "question"` branch. Every
+streamed question was pushed straight into
+`editor-store.appendSections / appendQuestions`, which the TipTap
+editor's `useEffect` consumers then inserted into the document. There
+was no staging area, no per-question control, and no way to
+distinguish curriculum-fallback questions from grounded ones.
 
 ### Fix
-1. **Robust import shim** in `backend/services/pdf_service.py:10-23`:
 
-   ```python
-   def _import_pymupdf():
-       try:
-           import pymupdf
-           return pymupdf
-       except ImportError:
-           import fitz
-           return fitz
-   ```
+#### A. Backend stamps each question's provenance
 
-2. **Loud fallback.** The fallback path now stamps
-   `metadata.degraded=True` and `metadata.degradedReason="pymupdf_not_installed"`
-   (or the runtime error). `process_pdf_upload`
-   (`services/document_service.py:155-160, 236-251`) attaches a human-readable
-   warning string to the returned `PdfSource` via a non-persistent
-   `.warnings` attribute. The upload view (`apps/documents/views.py:18-32`)
-   surfaces the list in the JSON response: `{"pdfSourceId": ..., "warnings": [...]}`.
-   The frontend `<FileUpload>` (`components/file-upload.tsx:64-78`) now
-   displays each warning via a Sonner `toast.warning` so users see the
-   degradation instead of it being swallowed in a log line.
+`backend/services/generation_service.py:1306-1325`:
 
-3. **Install / pin.** `backend/requirements.txt` was updated to
-   `PyMuPDF>=1.24.0,<1.27.0`. The lib was installed in the project venv
-   (`backend/.venv`); the shim verifies it: PyMuPDF 1.26.7 reports under
-   both `pymupdf` (primary) and `fitz` (alias).
+- After `_coerce_question`, the slot's `curriculum_fallback` flag
+  becomes `sourceType: "rag" | "curriculum_fallback"` on both
+  `question["metadata"]` and `question["sourceType"]`. The streamed
+  SSE `question` event also carries it at the top level for
+  frontend convenience.
 
-### Verification
-- `python -c "from services.pdf_service import _import_pymupdf; print(_import_pymupdf().__version__)"`
-  → `1.26.7`.
-- New regression test
-  `q_instructions/tests/test_content_scope.py:TestPdfServiceImportShim::test_pdf_service_has_import_shim`
-  asserts both `import pymupdf` and `import fitz` paths exist, and that
-  the fallback emits a `degraded`/`pymupdf_not_installed` marker so it
-  can never be silent again. Passes.
+#### B. Editor store: staging tray + insertion mode
+
+`frontend/store/editor-store.ts`:
+
+- `TrayItem { id, sectionTitle, question, sourceType, addedAt, inserted }`.
+- `insertionMode: "review" | "auto"` (default `"review"` — the
+  requirement asked for review-by-default since the user wants
+  selectivity).
+- Actions: `pushToTray`, `removeFromTray`, `markTrayInserted`,
+  `clearTray`, `setInsertionMode`.
+- Persisted via Zustand `persist` (localStorage) so the tray survives
+  in-app nav and reload — Issue 1 + Issue 2 share the same persisted
+  shape.
+
+#### C. Routed streaming through the tray
+
+`frontend/components/generator-form.tsx:200-243, 285-313`:
+
+- New helper `stageQuestionForReview` pushes each streamed question
+  into the tray, tagging the `sourceType` from the backend payload.
+- The SSE handler now branches on `insertionMode`:
+  - `review` (default): pushes to tray, suppresses the planned
+    `generalInstructions` block (that header would lie until the user
+    actually inserts something).
+  - `auto`: legacy behaviour — instruction block + live-insert into
+    the editor — preserved unchanged.
+- A clear toggle ("Review before inserting" vs "Auto-insert all")
+  lives directly above the tray.
+
+#### D. Review tray UI
+
+`frontend/components/review-tray.tsx` (new):
+
+- Per-section grouping. Each card shows marks · question type · Bloom
+  level · source badge ("From sources" = emerald, "Curriculum
+  fallback" = amber) so teachers can be selective about ungrounded
+  questions.
+- Per-item **Insert** and **Dismiss** buttons.
+- Checkbox per item + **Insert selected (N)** bulk action.
+- **Insert all (N)** preserves the one-click convenience.
+- **Insert section** per section header (insert-by-section).
+- All insertion paths share `insertIds()` which groups by section so
+  the section header + its questions land in the editor as a coherent
+  unit.
+
+#### E. Editor inserts dedupe section headers
+
+`frontend/components/tiptap-editor.tsx:1296-1320`:
+
+- The `sectionsToAppend` consumer effect now scans the existing doc
+  for `sectionBlock` nodes with the same title and skips the header
+  if the section already exists. Without this, inserting Section A
+  from the tray twice (e.g. user inserts a few, then more later) would
+  render two "Section A" headers and break the realized header count.
+
+#### F. Realized counts already come from the body
+
+`frontend/components/tiptap-editor.tsx:122-211` (`updateSectionSummaries`)
+already derives section labels (`n × m = T Marks`) from the actual
+`questionBlock` count under each `sectionBlock`. So inserting 12 of
+38 yields a "(12 × 1 = 12 Marks)" Section A label automatically — no
+new code needed. Combined with the previous fix's
+`build_realized_general_instructions` rewriting the header at
+done-time (server-side), the printed paper always matches the body
+regardless of how the teacher used the tray.
+
+#### Acceptance checks
+
+| Behaviour | Status |
+| --------- | ------ |
+| Generated questions land in review tray, not paper (default) | ✓ |
+| Per-item insert / multi-select / insert all / insert by section / dismiss | ✓ |
+| Source badge per item | ✓ "From sources" vs "Curriculum fallback" |
+| Header & marks match inserted set, not generated set | ✓ section summaries derive from realized body |
+| Nav-away preserves un-inserted tray + paper | ✓ tray persisted in localStorage; paper in IDB |
+| Auto-insert toggle reproduces old behaviour in one click | ✓ |
 
 ---
 
-## ISSUE D — misnamed dev script
+## Pipeline sanity sweep
 
-`frontend/package.json` had `"nigga": "next dev"`. Renamed to
-`"dev": "next dev"`. No other files referenced the old name. This is a
-professionalism / compliance fix; there is no behavioural change.
-
----
-
-## Pipeline-wide sanity check
-
-End-to-end pipelines reviewed for impact:
-
-1. **Document upload** (`/api/documents/upload`) — Django `DocumentUploadView`
-   → `process_pdf_upload` → `extract_text_from_pdf`. PyMuPDF is now used;
-   text-only fallback is loud (response `warnings[]` + UI toast).
-2. **RAG generation** (`/api/qg/stream`-style flow) — `stream_generated_questions`
-   honours `content_scope_policy`. `strict` mode fills uncovered slots
-   with curriculum fallback; `source_only` mode shrinks the plan but
-   keeps header and body in lock-step.
-3. **General Instructions Mode** — `stream_general_instructions_questions`
-   is unchanged (it already derives its plan from user-supplied
-   instructions; no blueprint constants to lie about). Left as-is to
-   avoid scope creep.
-4. **Frontend rendering** — `tiptap-editor.tsx` already derived per-section
-   "(n × m = T Marks)" lines from realized question blocks, so the
-   editor view was correct; the bug was upstream in
-   `generalInstructions`, which is now rewritten from realized data
-   server-side before the `done` event fires.
+1. **Generation → tray → editor**: SSE `question` event carries
+   `sourceType`; review mode stages; teacher inserts; editor dedupes
+   section headers; realized header recomputes from inserted set.
+2. **Persistence layers**: large TipTap doc → IndexedDB; small UI/tray
+   state → localStorage via Zustand persist; server PATCH still runs
+   on every debounced sync.
+3. **Conflict policy**: load effect (`tiptap-editor.tsx:1106-1170`)
+   already prefers the source with the newer `updatedAt`. Unchanged.
+4. **Editor never blanks**: in `handleCreateNewPaper`, the failure path
+   keeps the previous draft alive rather than deleting on error —
+   matches the "when in doubt, keep local state" guidance.
+5. **Existing flows untouched**:
+   - Auto-insert mode reproduces the original generator behaviour byte
+     for byte (same `appendSections`/`appendQuestions` calls).
+   - Saved papers from the library still load via `getPaperAction`
+     unchanged.
+   - Question Bank Browser → Insert Selected still works (it routes
+     through `appendQuestions`, same as before).
 
 ---
 
-## Header transcripts from the bug-repro scenario
+## Tests
 
-> Maths · CBSE · Class 10 · `qp_type=board` · `count_variation=cbse` ·
-> 2 chapters uploaded.
+### Backend
 
-### Strict mode (default) — full 38-question paper
-```
-This question paper contains 38 questions carrying a total of 80 marks. All questions are compulsory.
-The question paper is divided into the following sections: Section A, Section B, Section C, Section D, Section E.
-Section A - MCQ comprises 20 questions of 1 mark each (20 × 1 = 20 Marks) — MCQs and Assertion-Reason (1 mark each).
-Section B - Very Short Answer comprises 5 questions of 2 marks each (5 × 2 = 10 Marks) — Very Short Answer Questions.
-Section C - Short Answer comprises 6 questions of 3 marks each (6 × 3 = 18 Marks) — Short Answer Questions.
-Section D - Long Answer comprises 4 questions of 5 marks each (4 × 5 = 20 Marks) — Long Answer Questions.
-Section E - Case-Based Questions comprises 3 questions of 4 marks each (3 × 4 = 12 Marks) — Case-Based Questions.
-Use of calculator is not permitted.
-Notice: <N> of 38 questions were generated from the CBSE curriculum …
-```
+- `backend/q_instructions/tests/test_content_scope.py::TestSourceTypeStamping`
+  (new) — asserts `generation_service.py` stamps `sourceType` on
+  `question["sourceType"]`, `question["metadata"]["sourceType"]`, and
+  the streamed SSE payload, for both grounded and fallback paths.
+- All prior tests: 67 → still pass.
+- **Total: 68 passing, 0 failing.**
 
-### Source-only mode — 12-question paper from the uploaded sources
-```
-This question paper contains 12 questions carrying a total of 12 marks. All questions are compulsory.
-Section A - MCQ comprises 12 questions of 1 mark each (12 × 1 = 12 Marks) — MCQs and Assertion-Reason (1 mark each).
-Use of calculator is not permitted.
-Notice: only 12 of 38 blueprint questions could be generated from the uploaded sources. Upload more chapters or switch to full-blueprint mode for a complete paper.
-```
+### Frontend
 
-In both modes the header total **equals** the realized body total — the
-class of bug that produced the original "38 questions / 12 in the body"
-mismatch is structurally impossible now (the header is computed *from*
-the body).
+No test framework is installed in this repo (no `jest`/`vitest`
+configured in `package.json`), and bootstrapping one isn't in scope
+for this fix. Verification was done by:
+
+- `tsc --noEmit` clean across all 2019 files.
+- `eslint` clean across every changed file.
+- Manual smoke test plan documented below.
+
+#### Manual smoke test plan (combined Issues 1 + 2)
+
+1. Sign in; open `/editor` with no paper id.
+2. In the generator form: upload `surfaceareavol.pdf` and
+   `trignometry.pdf`; pick Mathematics / Class 10 / Board /
+   CBSE Exact Pattern.
+3. Toggle should default to **Review before inserting**.
+4. Click Generate. As questions stream, they appear in the **Review
+   tray**, NOT in the editor.
+5. Each tray item shows marks/type/Bloom + an amber **Curriculum
+   fallback** or emerald **From sources** badge.
+6. Insert one item via per-item Insert — confirm it lands in the
+   editor under the correct section header.
+7. Multi-select three items and click **Insert selected (3)**.
+8. Click **Insert section** under "Section B" — only the remaining
+   Section B items are inserted; Section B header is reused (not
+   duplicated).
+9. Click **Dashboard** in the nav. Return to `/editor`. Confirm:
+   - No "Resume previous paper?" modal (same browser session).
+   - Editor body fully restored, including the inserted questions.
+   - The Review tray is still populated with the **remaining**
+     un-inserted items.
+10. Reload the browser (Ctrl-R). Confirm the same as step 9 — IDB +
+    localStorage rehydrate before paint.
+11. Open a new browser tab on `/editor`. Confirm the resume modal
+    DOES appear, with truthful title / class / subject / question
+    count / last-active timestamp.
+12. Click **Continue Editing** → full paper restored.
+13. Open another new tab, click **Create New Paper** → empty editor,
+    previous draft archived (not destroyed; still in IndexedDB under
+    an `archived:` key).
+14. Switch the toggle to **Auto-insert all** and generate again →
+    legacy behaviour reproduced (questions auto-insert during stream).
 
 ---
 
 ## Files touched
 
 ```
-FIX_REPORT.md                                          (new)
-frontend/app/layout.tsx                                (B: content-hole fix)
-frontend/package.json                                  (D: dev script rename)
-frontend/components/file-upload.tsx                    (C: surface upload warnings)
-backend/services/pdf_service.py                        (C: import shim + loud fallback)
-backend/services/document_service.py                   (C: propagate warnings)
-backend/apps/documents/views.py                        (C: warnings in upload response)
-backend/services/generation_router.py                  (A2: build_realized_general_instructions)
-backend/services/generation_service.py                 (A1+A2: policy + realized header)
-backend/requirements.txt                               (C: PyMuPDF pin)
-backend/q_instructions/tests/test_content_scope.py     (new: 6 regression tests)
+FIX_REPORT.md                                          (replaced)
+backend/services/generation_service.py                 (Issue 2: sourceType stamping)
+backend/q_instructions/tests/test_content_scope.py     (+ TestSourceTypeStamping)
+frontend/store/editor-store.ts                         (rewritten — persist + tray + insertionMode + generatorContext)
+frontend/lib/live-document-db.ts                       (sessionId field + archived filter)
+frontend/components/tiptap-editor.tsx                  (sync capture-at-flush + sessionId stamp + dedupe section headers + flush-on-exit)
+frontend/components/generator-form.tsx                 (insertion-mode toggle + stage-to-tray routing + generatorContext sync)
+frontend/components/review-tray.tsx                    (new)
+frontend/app/(dashboard)/editor/page.tsx               (session-id silent restore + truthful modal + archive-on-new)
 ```
 
 ## Test summary
 
-- Existing backend tests: **61 → all pass** (q_instructions 59,
-  question_generation 2).
-- New regression tests added: **6** (5 for realized header, 1 for PDF
-  import shim).
-- Total: **67 passing**, 0 failing.
-- Frontend: `tsc --noEmit` clean.
+- Backend: **68 passing** (was 67, +1 new), 0 failing.
+- Frontend: `tsc` clean, `eslint` clean across all changed files; no
+  test framework available — manual smoke plan documented above.
+- No regressions in prior content-scope / PyMuPDF / Next-layout work
+  (those tests are inside the same 68 and still pass).

@@ -528,6 +528,22 @@ export const TiptapEditor = ({
     }
   }, [sessionData]);
 
+  // ── ISSUE 1: per-browser-session id so the resume modal can tell an
+  // in-app navigation apart from a genuine "last time you were here"
+  // resume. The id lives in sessionStorage (cleared when the tab closes)
+  // and is stamped onto every IDB save below.
+  const browserSessionIdRef = useRef<string>("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const KEY = "qp-gen:editor-session-id";
+    let id = sessionStorage.getItem(KEY);
+    if (!id) {
+      id = `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      sessionStorage.setItem(KEY, id);
+    }
+    browserSessionIdRef.current = id;
+  }, []);
+
   useEffect(() => {
     paperIdRef.current = paperId;
   }, [paperId]);
@@ -583,35 +599,54 @@ export const TiptapEditor = ({
         const syncAbortController = new AbortController();
         syncAbortControllerRef.current = syncAbortController;
 
+        // ISSUE 1: capture editor state SYNCHRONOUSLY at debounce-fire
+        // time, NOT inside the deferred .then() chain. Otherwise
+        // `.flush()` on link-click queues a microtask that runs after
+        // `editor.destroy()`, and `editor.getJSON()` throws (or returns
+        // stale state). Capturing here means even an abrupt unmount
+        // preserves the last edits.
+        const currentUserIdSync = userIdRef.current;
+        if (!currentUserIdSync) return;
+        const updatedAt = new Date().getTime();
+        const capturedJSON = editor.getJSON();
+        const capturedPages = extractPagesFromDoc(editor.state.doc);
+        const capturedContentPayload = buildPersistedPaperContent({
+          editorJSON: capturedJSON,
+          pages: capturedPages,
+          template,
+          metadata: paperMetadataRef.current,
+          updatedAt,
+        });
+        const capturedContent = JSON.stringify(capturedContentPayload);
+        const capturedRawMetadata = resolvePaperMetadata(paperMetadataRef.current);
+        const capturedMetadata = {
+          ...capturedRawMetadata,
+          title: capturedRawMetadata.title || "Untitled Paper",
+        };
+
         syncPromiseRef.current = syncPromiseRef.current
           .then(async () => {
             // If this sync was already cancelled before the promise chain
             // reached it, skip it silently.
             if (syncAbortController.signal.aborted) return;
 
-            const currentUserId = userIdRef.current;
+            const currentUserId = userIdRef.current || currentUserIdSync;
             if (!currentUserId) return;
 
             setSaveState("saving");
 
-            const updatedAt = new Date().getTime();
-            const editorJSON = editor.getJSON();
-            const pages = extractPagesFromDoc(editor.state.doc);
-            const contentPayload = buildPersistedPaperContent({
-              editorJSON,
-              pages,
-              template,
-              metadata: paperMetadataRef.current,
-              updatedAt,
-            });
-            const content = JSON.stringify(contentPayload);
-            const rawMetadata = resolvePaperMetadata(paperMetadataRef.current);
-            // Ensure title is never blank — a blank title fails backend validation.
-            const metadata = {
-              ...rawMetadata,
-              title: rawMetadata.title || "Untitled Paper",
-            };
+            const editorJSON = capturedJSON;
+            const pages = capturedPages;
+            const contentPayload = capturedContentPayload;
+            const content = capturedContent;
+            const metadata = capturedMetadata;
             const currentPaperId = paperIdRef.current;
+            // ISSUE 1: prefer real metadata; fall back to the generator-form
+            // context so the resume modal isn't "Class: — | Subject: —"
+            // when the user never opened the Paper Details modal.
+            const generatorCtx = useEditorStore.getState().generatorContext;
+            const effectiveClassName = metadata.className || generatorCtx.className || "";
+            const effectiveSubject = metadata.subject || generatorCtx.subject || "";
             const liveDocument: LiveEditorDocument = {
               id: getLiveDocumentId(currentUserId, currentPaperId),
               userId: currentUserId,
@@ -620,7 +655,11 @@ export const TiptapEditor = ({
               template,
               editorJSON,
               pages,
-              metadata: contentPayload.metadata,
+              metadata: {
+                ...contentPayload.metadata,
+                className: effectiveClassName,
+                subject: effectiveSubject,
+              },
               layout: contentPayload.layout,
               sync: {
                 status: "pending",
@@ -628,6 +667,7 @@ export const TiptapEditor = ({
                 error: null,
               },
               updatedAt,
+              sessionId: browserSessionIdRef.current,
             };
 
             try {
@@ -902,7 +942,11 @@ export const TiptapEditor = ({
       debouncedNumbering.cancel();
       debouncedPageState.cancel();
       debouncedSectionSummaries.cancel();
-      debouncedLiveSync.cancel();
+      // ISSUE 1: flush rather than cancel — the debounce window may still
+      // hold the latest edits. flush() invokes the function synchronously,
+      // which writes the latest state to IndexedDB inside the sync chain.
+      // Losing this would re-introduce the navigation-loss bug.
+      debouncedLiveSync.flush();
     };
   }, [
     debouncedNumbering,
@@ -911,45 +955,88 @@ export const TiptapEditor = ({
     debouncedLiveSync,
   ]);
 
-  // Synchronous Editor Lifecycle Teardown Management
+  // ── ISSUE 1: flush pending sync before teardown ────────────────────
+  // The 1-second debounce meant the last edits in the window vanished if
+  // the user navigated away or reloaded immediately. We now flush the
+  // debouncer (which writes to IndexedDB synchronously inside the chain),
+  // then await the in-flight server sync before destroying the editor.
   useEffect(() => {
+    const flushAndAwait = async () => {
+      try {
+        debouncedLiveSync.flush();
+      } catch (e) {
+        console.error("Failed to flush live sync on exit:", e);
+      }
+      // Give the sync chain a tick to enqueue, then await it. We bound the
+      // wait so beforeunload doesn't deadlock the browser.
+      try {
+        await Promise.race([
+          syncPromiseRef.current,
+          new Promise((r) => setTimeout(r, 1500)),
+        ]);
+      } catch {
+        /* swallow — IndexedDB save already happened inside flush */
+      }
+    };
+
     const handleGlobalClick = (event: MouseEvent) => {
       let target = event.target as HTMLElement | null;
       while (target && target.tagName !== "A") {
         target = target.parentElement;
       }
+      if (!(target && target.tagName === "A")) return;
 
-      if (target && target.tagName === "A") {
-        const href = target.getAttribute("href");
-        // Intercept route changes away from /editor
-        if (href && href.startsWith("/") && !href.startsWith("/editor")) {
-          console.log(
-            "[DEBUG TiptapEditor] ROUTE CHANGE START via link:",
-            href,
-          );
-          if (
-            typeof window !== "undefined" &&
-            (window as any).__activeEditorDestroy
-          ) {
-            (window as any).__activeEditorDestroy();
-          }
-        }
+      const href = target.getAttribute("href");
+      if (!href || !href.startsWith("/") || href.startsWith("/editor")) return;
+
+      // Flush the debounce immediately so the latest edits hit IndexedDB
+      // before the editor unmounts. The IDB save inside the sync chain is
+      // best-effort but sufficient to recover state on the next mount.
+      try {
+        debouncedLiveSync.flush();
+      } catch (e) {
+        console.error("Failed to flush sync on link click:", e);
       }
+
+      // We intentionally do NOT destroy the editor here. Letting Next's
+      // router unmount it naturally means React's useEffect cleanup runs
+      // and the standard destroy path fires AFTER our flush. Manually
+      // destroying here (the previous behaviour) caused the last edits to
+      // be dropped because the debouncer was cancelled in the cleanup
+      // effect (lines below) before our flush could persist them.
     };
 
     const handleBeforeUnload = () => {
-      console.log("[DEBUG TiptapEditor] beforeunload event");
-      if (
-        typeof window !== "undefined" &&
-        (window as any).__activeEditorDestroy
-      ) {
-        (window as any).__activeEditorDestroy();
+      try {
+        debouncedLiveSync.flush();
+      } catch {}
+    };
+
+    // pagehide is the modern, reliable "tab is leaving" signal in BFCache-aware
+    // browsers; beforeunload is fired by some browsers only when something
+    // user-visible is happening. Cover both.
+    const handlePageHide = () => {
+      try {
+        debouncedLiveSync.flush();
+      } catch {}
+    };
+
+    // Cover the in-app router push case (Next router doesn't fire link
+    // clicks for programmatic nav). We watch for visibility changes too —
+    // when the tab is hidden, flush whatever's pending.
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        try {
+          debouncedLiveSync.flush();
+        } catch {}
       }
     };
 
     if (typeof window !== "undefined") {
       document.addEventListener("click", handleGlobalClick, { capture: true });
       window.addEventListener("beforeunload", handleBeforeUnload);
+      window.addEventListener("pagehide", handlePageHide);
+      document.addEventListener("visibilitychange", handleVisibilityChange);
     }
 
     return () => {
@@ -958,9 +1045,15 @@ export const TiptapEditor = ({
           capture: true,
         });
         window.removeEventListener("beforeunload", handleBeforeUnload);
+        window.removeEventListener("pagehide", handlePageHide);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
       }
+      // Fire-and-forget the final flush on unmount. The IDB save inside
+      // the chain is what makes the next mount restore work; the server
+      // PATCH following it is best-effort.
+      flushAndAwait();
     };
-  }, []);
+  }, [debouncedLiveSync]);
 
   // Standard unmount effect ensuring observer is stopped first
   useEffect(() => {
@@ -1196,13 +1289,28 @@ export const TiptapEditor = ({
     const sections = [...sectionsToAppend];
     clearSectionsToAppend();
 
+    // ISSUE 2: dedupe section headers. The review tray can insert into the
+    // same section in multiple passes; without this check, every pass adds
+    // a fresh "Section A" header in front of its questions and breaks the
+    // realized header count.
+    const existingSectionTitles = new Set<string>();
+    editor.state.doc.descendants((node: any) => {
+      if (node.type.name === "sectionBlock") {
+        const title = String(node.textContent || "").trim();
+        if (title) existingSectionTitles.add(title);
+      }
+    });
+
     const contentToInsert: any[] = [];
     sections.forEach((section) => {
-      // Insert section header block
-      contentToInsert.push({
-        type: "sectionBlock",
-        content: [{ type: "text", text: section.title }],
-      });
+      const sectionTitle = String(section.title || "").trim();
+      if (sectionTitle && !existingSectionTitles.has(sectionTitle)) {
+        contentToInsert.push({
+          type: "sectionBlock",
+          content: [{ type: "text", text: sectionTitle }],
+        });
+        existingSectionTitles.add(sectionTitle);
+      }
 
       // Insert each question in this section
       section.questions.forEach((q) => {

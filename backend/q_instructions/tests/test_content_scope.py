@@ -133,6 +133,29 @@ class TestRealizedHeader(unittest.TestCase):
         self.assertEqual(lines, ["No questions could be generated."])
 
 
+class TestSourceTypeStamping(unittest.TestCase):
+    """ISSUE 2 — every emitted question must carry a `sourceType` flag so
+    the frontend review tray can show a "From sources" vs "Curriculum
+    fallback" badge. Without this, teachers can't tell the two apart and
+    can't be selective about ungrounded questions."""
+
+    def test_generation_service_stamps_source_type(self):
+        path = os.path.join(
+            os.path.dirname(__file__), '..', '..', 'services',
+            'generation_service.py',
+        )
+        with open(path) as f:
+            src = f.read()
+        # Top-level field on the question
+        self.assertIn('question["sourceType"] = source_type', src)
+        # Mirrored on metadata so existing metadata-consumers also see it
+        self.assertIn('question["metadata"]["sourceType"] = source_type', src)
+        # Both values appear
+        self.assertIn('"curriculum_fallback" if curriculum_fallback else "rag"', src)
+        # The streamed event payload also carries it for the frontend
+        self.assertIn('"sourceType": source_type', src)
+
+
 class TestPdfServiceImportShim(unittest.TestCase):
     """ISSUE C — pdf_service must define a robust pymupdf→fitz import shim
     and degrade loudly (not silently) when PyMuPDF is unavailable."""

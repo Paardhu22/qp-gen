@@ -1307,13 +1307,23 @@ def stream_generated_questions(
             break
 
         if question:
+            # Stamp provenance so the frontend review tray can show a
+            # "From sources" vs "Curriculum fallback" badge and the teacher
+            # can be selective about ungrounded questions.
+            source_type = "curriculum_fallback" if curriculum_fallback else "rag"
+            question.setdefault("metadata", {})
+            if isinstance(question["metadata"], dict):
+                question["metadata"]["sourceType"] = source_type
+            question["sourceType"] = source_type
+
             events.append(_sse_event({
                 "index": slot.index,
                 "total": len(plan),
                 "section": slot.section_title,
                 "question": question,
+                "sourceType": source_type,
             }, event="question"))
-            
+
         return events, audit_info, question, (failures, budget_result.estimated_tokens, budget_result.truncation_events)
 
     # Phase 2: The Generation Loop (Parallel)

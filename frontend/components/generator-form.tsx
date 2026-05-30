@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -26,6 +26,7 @@ import { useEditorStore } from "@/store/editor-store";
 import { toast } from "sonner";
 import { FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
 import { fetchForm, streamSse, saveQuestions } from "@/lib/api-client";
+import { ReviewTray } from "@/components/review-tray";
 
 const formSchema = z.object({
   qpType: z.enum(["board", "general_instructions"]),
@@ -77,6 +78,25 @@ export const GeneratorForm = () => {
   const [isSavingToBank, setIsSavingToBank] = useState(false);
   const [liveInsertedCount, setLiveInsertedCount] = useState(0);
   const liveInsertedSectionsRef = useRef<Set<string>>(new Set());
+
+  // ── ISSUE 2: insertion mode (review vs auto) ───────────────────────
+  const insertionMode = useEditorStore((s) => s.insertionMode);
+  const setInsertionMode = useEditorStore((s) => s.setInsertionMode);
+  const pushToTray = useEditorStore((s) => s.pushToTray);
+  const setGeneratorContext = useEditorStore((s) => s.setGeneratorContext);
+
+  // Keep generator-form selections mirrored to the store so the resume
+  // modal / IndexedDB record can show truthful class/subject even before
+  // the user opens the Paper Details modal. (ISSUE 1 — empty modal.)
+  const formClassValue = form.watch("academicClass");
+  const formSubjectValue = form.watch("subject");
+  useEffect(() => {
+    setGeneratorContext({
+      className: formClassValue ? `Class ${formClassValue}` : "",
+      subject: formSubjectValue || "",
+      lastActiveAt: Date.now(),
+    });
+  }, [formClassValue, formSubjectValue, setGeneratorContext]);
 
   const handleAddSourceClick = () => {
     fileInputRef.current?.click();
@@ -197,6 +217,31 @@ export const GeneratorForm = () => {
     setLiveInsertedCount((count) => count + 1);
   };
 
+  /** Stage a streamed question for review. Used when `insertionMode==="review"`. */
+  const stageQuestionForReview = (sectionTitle: string, question: any) => {
+    const sourceType =
+      (question?.sourceType as "rag" | "curriculum_fallback" | undefined) ||
+      (question?.metadata?.sourceType as "rag" | "curriculum_fallback" | undefined) ||
+      "unknown";
+
+    pushToTray({
+      sectionTitle,
+      sourceType,
+      question: {
+        content: question.content,
+        type: question.type,
+        options: question.options || [],
+        answer: question.answer,
+        marks: question.marks,
+        image_url: question.image_url || question.metadata?.image_url || "",
+        metadata: question.metadata || {},
+        bloom: question.bloom,
+        or_choice: question.or_choice,
+        vi_alternative: question.vi_alternative,
+      },
+    });
+  };
+
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     if (uploadedDocs.length === 0) {
       toast.error("Upload at least one source file first.");
@@ -242,14 +287,28 @@ export const GeneratorForm = () => {
           } else if (event === "plan") {
             const generalInstructions = data.generalInstructions || [];
             setGeneratedResult({ sections: [], generalInstructions });
-            if (Array.isArray(generalInstructions) && generalInstructions.length > 0) {
+            // Only auto-insert the general-instructions block when the
+            // teacher has opted into auto-insert. In review mode, the
+            // instructions are rebuilt from the realized (inserted) set
+            // by the editor's `updateSectionSummaries`, so dumping the
+            // planned 38-question header in front of a 0-question paper
+            // would mislead.
+            if (
+              insertionMode === "auto" &&
+              Array.isArray(generalInstructions) &&
+              generalInstructions.length > 0
+            ) {
               useEditorStore.getState().appendInstructions(generalInstructions);
             }
           } else if (event === "question") {
             setGeneratedResult((current: any) =>
               appendQuestionToResult(current, data.section, data.question),
             );
-            appendQuestionToEditor(data.section, data.question);
+            if (insertionMode === "auto") {
+              appendQuestionToEditor(data.section, data.question);
+            } else {
+              stageQuestionForReview(data.section, data.question);
+            }
           } else if (event === "update" || event === "message") {
             setGeneratedResult(data);
           } else if (event === "done" && data.result) {
@@ -724,7 +783,41 @@ export const GeneratorForm = () => {
         </form>
       </Form>
 
-      {generatedResult && (
+      {/* ── ISSUE 2: insertion-mode toggle ───────────────────────────── */}
+      <div className="mt-6 mb-2 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40">
+        <div className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+          When generation finishes:
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setInsertionMode("review")}
+            className={`flex-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
+              insertionMode === "review"
+                ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-medium"
+                : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:border-zinc-400"
+            }`}
+          >
+            Review before inserting
+          </button>
+          <button
+            type="button"
+            onClick={() => setInsertionMode("auto")}
+            className={`flex-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
+              insertionMode === "auto"
+                ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-medium"
+                : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:border-zinc-400"
+            }`}
+          >
+            Auto-insert all
+          </button>
+        </div>
+      </div>
+
+      {/* Review tray — pending generated questions awaiting the teacher's call. */}
+      {insertionMode === "review" && <ReviewTray />}
+
+      {generatedResult && insertionMode === "auto" && (
         <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-6 animate-in fade-in duration-500">
           <h3 className="text-lg font-bold text-zinc-900 dark:text-white mb-4 flex items-center gap-2">
             Generated Output

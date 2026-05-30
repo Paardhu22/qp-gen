@@ -27,6 +27,13 @@ export interface LiveEditorDocument {
     error?: string | null;
   };
   updatedAt: number;
+  /**
+   * ID of the browser session that last wrote this document. The editor
+   * page seeds this from sessionStorage on mount; the resume modal
+   * suppresses itself when the latest doc carries the current session's
+   * id (i.e. the user is simply navigating within the same session).
+   */
+  sessionId?: string;
 }
 
 const DB_NAME = "qp_gen_editor_db";
@@ -108,8 +115,14 @@ export async function getLatestLiveDocumentForUser(
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const documents = (request.result || []) as LiveEditorDocument[];
+      // Exclude archived drafts — the "Create New Paper" action moves the
+      // previous draft to an `archived:...` id so it's not destroyed but
+      // also doesn't pop the resume modal back up on the next mount.
       const latest = documents
-        .filter((document) => document.userId === userId)
+        .filter(
+          (document) =>
+            document.userId === userId && !document.id.startsWith("archived:"),
+        )
         .sort((a, b) => b.updatedAt - a.updatedAt)[0];
 
       resolve(latest || null);
