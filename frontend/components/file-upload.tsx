@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { fetchForm } from "@/lib/api-client";
+import { toast } from "sonner";
 
 interface FileUploadProps {
   onUploadComplete: (pdfSourceId: string) => void;
@@ -61,13 +62,18 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
 
       // We'll use a fetch request to a route handler for uploading
       // Since server actions have size limits and complex streaming might be needed
-      const data = await fetchForm<{ pdfSourceId: string }>(
-        "/api/documents/upload",
-        formData,
-      );
+      const data = await fetchForm<{
+        pdfSourceId: string;
+        warnings?: string[];
+      }>("/api/documents/upload", formData);
 
       setProgress(100);
       setSuccess(true);
+      if (data.warnings?.length) {
+        for (const w of data.warnings) {
+          toast.warning(w, { duration: 8000 });
+        }
+      }
       onUploadComplete(data.pdfSourceId);
     } catch (err: any) {
       console.error(err);

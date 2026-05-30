@@ -949,6 +949,7 @@ def stream_generated_questions(
         build_slot_blueprint_instructions,
         build_blueprint_instructions,
         build_general_instructions,
+        build_realized_general_instructions,
         build_question_plan,
         extract_class_number,
         normalize_subject,
@@ -959,6 +960,21 @@ def stream_generated_questions(
     logger.info(f"[STREAM_SERVICE] Entered stream_generated_questions for topic '{topic}'")
 
     payload = payload or {}
+
+    # ISSUE A1: explicit content-scope policy.
+    # `strict` (default): generate the FULL blueprint; slots without sufficient
+    #   PDF coverage fall back to curriculum-only generation. The result is a
+    #   structurally complete paper — what a CBSE board paper requires.
+    # `source_only`: generate only what the corpus can ground. The realized
+    #   paper may be smaller than the blueprint; the printed header/totals
+    #   reflect what was actually produced, and a visible notice is added.
+    scope_policy = str(
+        payload.get("content_scope_policy")
+        or payload.get("contentScopePolicy")
+        or "strict"
+    ).strip().lower()
+    if scope_policy not in {"strict", "source_only"}:
+        scope_policy = "strict"
 
     # ── HARD BRANCH: Route based on qp_type ──────────────────────────
     qp_type = str(
@@ -1036,13 +1052,19 @@ def stream_generated_questions(
     allocated_slots = []
     used_chunk_ids = set()
     _topic_cache = {}
+    blueprint_total = len(plan)
+    curriculum_fallback_indices: List[int] = []
+    source_only_pruned_indices: List[int] = []
 
     for slot in plan:
         slot_mode = str(getattr(slot, "generation_mode", "CONTENT") or "CONTENT").upper()
         # RAG only for CONTENT slots. GRAMMAR/COMPOSITION/PASSAGE are rule-/scenario-based and
         # must never receive educator-uploaded chunks (empty retrieval_query → no retrieval call).
         if slot_mode != "CONTENT" or not slot.retrieval_query:
-            allocated_slots.append({"slot": slot, "context": [], "is_visual_mandatory": False})
+            allocated_slots.append({
+                "slot": slot, "context": [], "is_visual_mandatory": False,
+                "curriculum_fallback": False,
+            })
             continue
 
         cache_key = (slot.retrieval_query, slot.requires_image)
@@ -1059,11 +1081,11 @@ def stream_generated_questions(
         top_50 = _topic_cache[cache_key]
         valid_chunks = [c for c in top_50 if str(c.get("id")) not in used_chunk_ids]
         context = valid_chunks[:4]
-        
+
         for item in context:
             if item.get("id"):
                 used_chunk_ids.add(str(item["id"]))
-                
+
         is_visual_mandatory = False
         if slot.requires_image:
             is_visual_mandatory = True
@@ -1072,11 +1094,26 @@ def stream_generated_questions(
                 if c.get("metadata", {}).get("image_url") or c.get("image_url"):
                     is_visual_mandatory = True
                     break
-                    
+
+        # ISSUE A1: when the uploaded sources can't cover this CONTENT slot,
+        # honour the scope policy explicitly instead of silently truncating.
+        if not context:
+            if scope_policy == "source_only":
+                source_only_pruned_indices.append(slot.index)
+                continue  # skip this slot — header will be derived from realized
+            # strict (default) — fall back to CBSE-curriculum generation for this slot
+            curriculum_fallback_indices.append(slot.index)
+            allocated_slots.append({
+                "slot": slot, "context": [], "is_visual_mandatory": False,
+                "curriculum_fallback": True,
+            })
+            continue
+
         allocated_slots.append({
             "slot": slot,
             "context": context,
-            "is_visual_mandatory": is_visual_mandatory
+            "is_visual_mandatory": is_visual_mandatory,
+            "curriculum_fallback": False,
         })
 
     yield _sse_event(
@@ -1100,11 +1137,14 @@ def stream_generated_questions(
         slot = allocated["slot"]
         context = allocated["context"]
         is_visual_mandatory = allocated["is_visual_mandatory"]
-        
+        curriculum_fallback = bool(allocated.get("curriculum_fallback"))
+
         slot_mode = str(getattr(slot, "generation_mode", "CONTENT") or "CONTENT").upper()
 
-        # CONTENT slots genuinely need textbook chunks; GRAMMAR/COMPOSITION/PASSAGE do not.
-        if slot_mode == "CONTENT" and not context:
+        # CONTENT slots normally need textbook chunks. If `curriculum_fallback`
+        # is set (scope_policy=strict, sources didn't cover this topic), we
+        # proceed with no chunks — the LLM uses CBSE curriculum knowledge.
+        if slot_mode == "CONTENT" and not context and not curriculum_fallback:
             return (
                 [_sse_event({"error": f"No relevant textbook chunks found for {slot.section_title} question {slot.index}.", "index": slot.index}, event="warning")],
                 None, None, None
@@ -1137,13 +1177,32 @@ def stream_generated_questions(
         
         # Directive 5: Truncated prompt
         slot_blueprint = build_slot_blueprint_instructions(slot, difficulty, class_num, subject_raw)
-        
+
+        if curriculum_fallback:
+            system_rules = (
+                "Generate ONE CBSE question for the slot below using your knowledge of "
+                "the CBSE curriculum. No textbook chunks are provided for this slot; "
+                "rely on the standard CBSE syllabus for the given subject and class. "
+                "Obey the exact slot contract and JSON schema. Never add extra question "
+                "objects or split an OR choice into another question."
+            )
+            if constraints:
+                system_rules += f"\nResolved paper count: {constraints.count} question objects."
+        else:
+            system_rules = _system_rules_for_slot(slot, constraints)
+
+        fallback_extra = (
+            "CURRICULUM FALLBACK: no textbook chunks were available for this topic. "
+            "Generate a curriculum-grounded question from the standard CBSE syllabus."
+        ) if curriculum_fallback else None
+        merged_extra = "\n".join(filter(None, [instructions or None, fallback_extra]))
+
         prompt_document = assembler.assemble(
             context=gen_context,
-            system_rules=_system_rules_for_slot(slot, constraints),
+            system_rules=system_rules,
             output_schema=_single_question_schema(is_visual_mandatory, slot),
             blueprint_instructions=slot_blueprint,
-            extra_instructions=instructions if instructions else None,
+            extra_instructions=merged_extra or None,
         )
         
         audit_info = {
@@ -1297,13 +1356,43 @@ def stream_generated_questions(
         yield _sse_event({"error": "Generation failed before any questions could be produced."}, event="error")
         return
 
-    if total_questions < len(plan):
-        limited_note = (
-            "Questions generated from available source material only. "
-            "Additional chapters are needed for complete CBSE coverage."
-        )
-        if limited_note not in result.get("generalInstructions", []):
-            result.setdefault("generalInstructions", []).append(limited_note)
+    # ISSUE A2: rewrite the printable general-instructions from the REALIZED
+    # paper so the header (total questions, per-section counts, marks) cannot
+    # contradict the body. This replaces the planned/blueprint header that was
+    # emitted earlier in the `plan` event.
+    fallback_count = len(curriculum_fallback_indices)
+    realized_general_instructions = build_realized_general_instructions(
+        result,
+        subject_raw,
+        class_num,
+        scope_policy=scope_policy,
+        fallback_count=fallback_count,
+        requested_count=blueprint_total,
+    )
+    result["generalInstructions"] = realized_general_instructions
+
+    if scope_policy == "source_only" and total_questions < blueprint_total:
+        yield _sse_event({
+            "scope": "source_only",
+            "requested": blueprint_total,
+            "realized": total_questions,
+            "message": (
+                f"Only {total_questions} of {blueprint_total} blueprint questions "
+                "could be grounded in the uploaded sources. Upload more chapters or "
+                "switch to full-blueprint (strict) mode for a complete paper."
+            ),
+        }, event="notice")
+    elif fallback_count > 0:
+        yield _sse_event({
+            "scope": "strict",
+            "curriculumFallbackCount": fallback_count,
+            "realized": total_questions,
+            "message": (
+                f"{fallback_count} of {total_questions} questions were generated from the "
+                "CBSE curriculum (uploaded sources did not cover those topics). "
+                "Upload more chapters to ground every slot in your source material."
+            ),
+        }, event="notice")
 
     try:
         GenerationHistory.objects.create(
@@ -1313,6 +1402,11 @@ def stream_generated_questions(
                 "countVariation": count_variation or ("cbse" if count <= 0 else "custom"),
                 "difficulty": difficulty, "pdfSourceIds": pdf_source_ids, "instructions": instructions,
                 "subject": subject_label, "class": class_num,
+                "contentScopePolicy": scope_policy,
+                "blueprintTotal": blueprint_total,
+                "realizedTotal": total_questions,
+                "curriculumFallbackCount": fallback_count,
+                "sourceOnlyPrunedCount": len(source_only_pruned_indices),
             },
             result=result, user=user,
         )

@@ -7,10 +7,36 @@ from pypdf import PdfReader
 logger = logging.getLogger("[PDF_SERVICE]")
 
 
+def _import_pymupdf():
+    """Return the PyMuPDF module under whichever name is available.
+
+    Newer PyMuPDF (>=1.24) exposes `pymupdf`; older releases expose `fitz`.
+    Recent versions ship both; very recent wheels may ship only `pymupdf`.
+    """
+    try:
+        import pymupdf  # type: ignore
+        return pymupdf
+    except ImportError:
+        import fitz  # type: ignore
+        return fitz
+
+
 def extract_text_from_pdf(buffer: bytes) -> Dict[str, object]:
     try:
-        import fitz
+        fitz = _import_pymupdf()
+    except ImportError as exc:
+        logger.error(
+            "PyMuPDF is not installed; falling back to pypdf text-only parser. "
+            "Image extraction and richer text layout will be unavailable. "
+            "Install with: pip install 'PyMuPDF>=1.24,<1.27'. Reason: %s",
+            exc,
+        )
+        return _extract_with_pypdf(
+            buffer,
+            degraded_reason="pymupdf_not_installed",
+        )
 
+    try:
         doc = fitz.open(stream=buffer, filetype="pdf")
         pages: List[Dict[str, object]] = []
         text_chunks: List[str] = []
@@ -57,13 +83,19 @@ def extract_text_from_pdf(buffer: bytes) -> Dict[str, object]:
         doc.close()
         return {
             "text": "\n".join(text_chunks),
-            "metadata": {"parser": "pymupdf", "imageCount": len(images)},
+            "metadata": {"parser": "pymupdf", "imageCount": len(images), "degraded": False},
             "pages": pages,
             "images": images,
         }
     except Exception as exc:
-        logger.warning("PyMuPDF extraction failed; falling back to pypdf text-only parser: %s", exc)
+        logger.warning(
+            "PyMuPDF extraction failed at runtime; falling back to pypdf text-only parser: %s",
+            exc,
+        )
+        return _extract_with_pypdf(buffer, degraded_reason=f"pymupdf_runtime_error: {exc}")
 
+
+def _extract_with_pypdf(buffer: bytes, *, degraded_reason: str) -> Dict[str, object]:
     reader = PdfReader(BytesIO(buffer))
     pages: List[Dict[str, object]] = []
     text_chunks: List[str] = []
@@ -75,7 +107,12 @@ def extract_text_from_pdf(buffer: bytes) -> Dict[str, object]:
 
     return {
         "text": "\n".join(text_chunks),
-        "metadata": {"parser": "pypdf", "imageCount": 0},
+        "metadata": {
+            "parser": "pypdf",
+            "imageCount": 0,
+            "degraded": True,
+            "degradedReason": degraded_reason,
+        },
         "pages": pages,
         "images": [],
     }

@@ -28,4 +28,8 @@ class DocumentUploadView(APIView):
             return Response({"error": f"Internal server error: {exc}"}, status=500)
 
         # Return "pdfSourceId" to match the new architecture.
-        return Response({"pdfSourceId": pdf_source.id})
+        # `warnings` surfaces non-fatal degradations (e.g. PyMuPDF missing →
+        # text-only extraction) so the UI can show them instead of failing
+        # silently.
+        warnings = getattr(pdf_source, "warnings", []) or []
+        return Response({"pdfSourceId": pdf_source.id, "warnings": warnings})
