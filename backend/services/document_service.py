@@ -133,7 +133,11 @@ def _build_image_chunks(
     return chunks
 
 
-def process_pdf_upload(file, user) -> PdfSource:
+def process_pdf_upload(file, user) -> PdfSource:  # noqa: C901
+    """Returns the PdfSource; non-persistent `.warnings` attribute carries
+    user-visible degradation notices (e.g. PyMuPDF unavailable → image
+    extraction off) that the API layer should surface.
+    """
     """
     Upload and process a PDF/DOCX/TXT file into a PdfSource.
 
@@ -151,12 +155,14 @@ def process_pdf_upload(file, user) -> PdfSource:
     extracted_text = ""
     pages = []
     images = []
+    pdf_metadata: Dict[str, object] = {}
 
     if file_type == "application/pdf":
         pdf_data = extract_text_from_pdf(buffer)
         extracted_text = pdf_data.get("text", "")
         pages = pdf_data.get("pages", [])
         images = pdf_data.get("images", [])
+        pdf_metadata = pdf_data.get("metadata") or {}
     elif (
         file_type
         == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -228,4 +234,20 @@ def process_pdf_upload(file, user) -> PdfSource:
             pdf_source.save(update_fields=["status", "error", "updated_at"])
             raise
 
+    warnings: List[str] = []
+    if pdf_metadata.get("degraded"):
+        reason = str(pdf_metadata.get("degradedReason") or "")
+        if "pymupdf_not_installed" in reason:
+            warnings.append(
+                "PyMuPDF is not installed on the server. Falling back to text-only "
+                "extraction — image extraction and figure captioning are disabled, "
+                "which can reduce question-paper coverage. Install 'PyMuPDF>=1.24' "
+                "on the backend to enable full extraction."
+            )
+        else:
+            warnings.append(
+                "PDF extraction degraded to text-only mode (no image extraction). "
+                f"Reason: {reason or 'unknown'}."
+            )
+    pdf_source.warnings = warnings  # type: ignore[attr-defined]
     return pdf_source

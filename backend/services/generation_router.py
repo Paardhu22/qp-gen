@@ -389,6 +389,132 @@ def build_general_instructions(plan: List[QuestionGenerationSlot], subject: str,
     return ["All questions are compulsory.", "Questions are generated from the uploaded source material only."]
 
 
+# ---------------------------------------------------------------------------
+# Realized-paper header derivation (ISSUE A2)
+# ---------------------------------------------------------------------------
+# Hardcoded blueprint headers (e.g. "This question paper contains 38 questions
+# … Section A comprises 20 questions of 1 mark each") lied when the body was
+# truncated to 12. The fix: derive the printed header from the questions
+# actually generated (the "realized paper") so the header and body can never
+# disagree. `build_general_instructions` still produces the planned header for
+# the initial plan event, but the streamer overwrites `result["generalInstructions"]`
+# at done-time using `build_realized_general_instructions`.
+
+_MATHS_SECTION_DETAIL = {
+    "Section A - MCQ":                  "MCQs and Assertion-Reason (1 mark each)",
+    "Section B - Very Short Answer":    "Very Short Answer Questions",
+    "Section C - Short Answer":         "Short Answer Questions",
+    "Section D - Long Answer":          "Long Answer Questions",
+    "Section E - Case-Based Questions": "Case-Based Questions",
+}
+
+
+def _realized_section_breakdown(result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Walk the realized result and return a list of
+    {title, count, marks_each (or None if mixed), total_marks} per section,
+    preserving section order.
+    """
+    sections = result.get("sections") or []
+    breakdown: List[Dict[str, Any]] = []
+    for section in sections:
+        questions = section.get("questions") or []
+        if not questions:
+            continue
+        marks_seen: List[int] = []
+        for q in questions:
+            try:
+                marks_seen.append(int(q.get("marks") or 0))
+            except (TypeError, ValueError):
+                marks_seen.append(0)
+        unique_marks = sorted({m for m in marks_seen if m > 0})
+        marks_each = unique_marks[0] if len(unique_marks) == 1 else None
+        total_marks = sum(marks_seen)
+        breakdown.append({
+            "title": section.get("title") or "Section",
+            "count": len(questions),
+            "marks_each": marks_each,
+            "total_marks": total_marks,
+        })
+    return breakdown
+
+
+def _section_label_line(entry: Dict[str, Any], detail: str = "") -> str:
+    title = entry["title"]
+    count = entry["count"]
+    total_marks = entry["total_marks"]
+    marks_each = entry.get("marks_each")
+    label = f"{title} comprises {count} question{'s' if count != 1 else ''}"
+    if marks_each is not None:
+        label += f" of {marks_each} mark{'s' if marks_each != 1 else ''} each ({count} × {marks_each} = {total_marks} Marks)"
+    else:
+        label += f" carrying a total of {total_marks} Marks"
+    if detail:
+        label += f" — {detail}"
+    return label + "."
+
+
+def build_realized_general_instructions(
+    result: Dict[str, Any],
+    subject: str,
+    class_num: int,
+    *,
+    scope_policy: str = "strict",
+    fallback_count: int = 0,
+    requested_count: Optional[int] = None,
+) -> List[str]:
+    """Derive the general-instructions header from the realized paper so the
+    printed header can never overstate the actual body. Preserves a couple of
+    subject-specific style lines (e.g. "Use of calculator is not permitted").
+    """
+    breakdown = _realized_section_breakdown(result)
+    total_questions = sum(item["count"] for item in breakdown)
+    total_marks = sum(item["total_marks"] for item in breakdown)
+    subject_norm = normalize_subject(subject)
+
+    if total_questions == 0:
+        return ["No questions could be generated."]
+
+    lines: List[str] = []
+    intro = f"This question paper contains {total_questions} question{'s' if total_questions != 1 else ''}"
+    if total_marks:
+        intro += f" carrying a total of {total_marks} marks"
+    intro += ". All questions are compulsory."
+    lines.append(intro)
+
+    # Per-section breakdown with realized counts and marks
+    detail_map: Dict[str, str] = {}
+    if class_num == 10 and subject_norm == "mathematics":
+        detail_map = dict(_MATHS_SECTION_DETAIL)
+
+    if len(breakdown) > 1:
+        sections_word = ", ".join(b["title"].split(" - ")[0] for b in breakdown)
+        lines.append(f"The question paper is divided into the following sections: {sections_word}.")
+        for entry in breakdown:
+            lines.append(_section_label_line(entry, detail_map.get(entry["title"], "")))
+    else:
+        # Single-section paper
+        lines.append(_section_label_line(breakdown[0], detail_map.get(breakdown[0]["title"], "")))
+
+    # Subject-specific style lines that aren't count-derived
+    if class_num == 10 and subject_norm == "mathematics":
+        lines.append("Use of calculator is not permitted.")
+
+    # Honest notices about coverage
+    if scope_policy == "source_only" and requested_count and total_questions < requested_count:
+        lines.append(
+            f"Notice: only {total_questions} of {requested_count} blueprint questions could "
+            "be generated from the uploaded sources. Upload more chapters or switch to "
+            "full-blueprint mode for a complete paper."
+        )
+    elif fallback_count > 0:
+        lines.append(
+            f"Notice: {fallback_count} of {total_questions} questions were generated from the "
+            "CBSE curriculum (the uploaded sources did not cover those topics)."
+        )
+
+    return lines
+
+
 def build_social_science_blueprint_instructions(difficulty: str, count: int, class_num: int) -> str:
     rules = [
         "ACADEMIC BLUEPRINT INSTRUCTIONS (MANDATORY):",
