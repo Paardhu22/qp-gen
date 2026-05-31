@@ -2,7 +2,7 @@ import logging
 import re
 import dataclasses
 from collections import Counter
-from typing import List, Dict, Any, Iterable, Optional, Tuple
+from typing import List, Dict, Any, Iterable, Optional, Set, Tuple
 
 from django.conf import settings
 
@@ -2360,14 +2360,66 @@ def _build_exact_cbse_class10_plan(
 
 
 
+def _is_explicit_section_breakdown(parsed_templates: List[dict]) -> bool:
+    """
+    A parsed template list is treated as an "explicit per-section breakdown"
+    when EVERY entry names its own section (Section A / Part B / Sec C etc.).
+    That signals the teacher deliberately authored a custom structure and
+    wants it honoured even in `board` mode — the blueprint must NOT silently
+    overwrite it.
+
+    Loose instructions like "make it slightly harder" don't trip this; they
+    parse to zero templates and the default blueprint stays in charge.
+    """
+    if not parsed_templates:
+        return False
+    if len(parsed_templates) < 2:
+        return False
+    return all(bool(t.get("section_title")) for t in parsed_templates)
+
+
+def paper_plan_section_order(plan: List[QuestionGenerationSlot]) -> List[str]:
+    """Ordered list of unique section titles as they appear in the plan.
+
+    Section ordering is part of the user's intent (A → B → C). Concurrent
+    LLM completion can produce sections in arbitrary insertion order; the
+    streamer uses this list to re-sort `result["sections"]` before emitting
+    `done`, so what the teacher typed is what they get.
+    """
+    seen: Set[str] = set()
+    order: List[str] = []
+    for slot in plan:
+        title = slot.section_title
+        if title and title not in seen:
+            seen.add(title)
+            order.append(title)
+    return order
+
+
 def _parse_instructions_for_slots(instructions: str):
+    """
+    Parse a teacher's free-text General Instructions into the structured slot
+    list that `build_question_plan` consumes. Output schema per slot:
+        {"section_title": Optional[str], "qtype": QuestionTypeCode,
+         "marks": int, "count": int}
+    Section names and clause order are preserved verbatim so the printed
+    paper matches what the teacher typed (Section A → Section B → Section C).
+
+    A clause is only accepted as a question spec when it carries an EXPLICIT
+    cue:
+      - a question-type keyword (mcq / short / long / case-study / VSA / SA / LA / AR), OR
+      - an explicit `questions?` / `q[s]?` marker.
+    Meta-clauses like "I have uploaded 2 pdfs" or "I want 3 sections" carry
+    neither and are deliberately skipped — previously they were synthesised
+    into bogus slots like "SECTION S" with type inferred from a stray digit.
+    """
     from q_instructions.core.enums import QuestionTypeCode
     import re
     if not instructions:
         return []
-    
+
     text = instructions.lower()
-    
+
     # Define mapping of keywords to (QuestionTypeCode, marks)
     mappings = [
         (r'\bassertion[- ]?reason[s]?\b', (QuestionTypeCode.ASSERTION_REASON, 1)),
@@ -2387,83 +2439,85 @@ def _parse_instructions_for_slots(instructions: str):
         (r'\bcase[- ]?studies\b', (QuestionTypeCode.CASE_STUDY, 4)),
         (r'\bcbq[s]?\b', (QuestionTypeCode.CASE_STUDY, 4)),
     ]
-    
+
     number_words = {
         'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
         'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
     }
-    
+
     results = []
-    
-    # Split on newlines, commas, semicolons, and, with
+
+    # Split on newlines, commas, semicolons, "and", "with"
     clauses = re.split(r'[\r\n;,]|\band\b|\bwith\b', text)
     for clause in clauses:
         clause = clause.strip()
         if not clause:
             continue
-            
-        # Check for section names like "Section A", "Section 1", "Part A", "Part I", "Sec A", etc.
-        sec_match = re.search(r'\b(section|part|sec)\s*[-:]?\s*([a-zA-Z0-9]+)\b', clause, re.IGNORECASE)
+
+        # Section header: "Section A", "Part B", "Sec C", "Section 1", etc.
+        # `\b(section|part|sec)\b` requires a word boundary AFTER the keyword
+        # so plurals like "sections" don't get truncated to ("section", "s").
+        sec_match = re.search(
+            r'\b(section|part|sec)\b\s*[-:]?\s*([a-zA-Z0-9]+)\b',
+            clause,
+            re.IGNORECASE,
+        )
         section_title = None
         clause_for_nums = clause
         if sec_match:
-            sec_type = sec_match.group(1).strip().capitalize() # "Section", "Part", "Sec"
+            sec_type = sec_match.group(1).strip().capitalize()  # "Section" / "Part" / "Sec"
             if sec_type == "Sec":
                 sec_type = "Section"
             sec_val = sec_match.group(2).strip().upper()
             section_title = f"{sec_type} {sec_val}"
-            # Replace the matched section part with empty string to avoid matching the section number/character as a count or mark
             clause_for_nums = clause_for_nums.replace(sec_match.group(0), " ")
-            
-        # Convert any number words to digits first
+
+        # Number words → digits
         for word, val in number_words.items():
             clause_for_nums = re.sub(r'\b' + word + r'\b', str(val), clause_for_nums)
 
         count = None
         marks = None
 
-        # 1. Search for count pattern (e.g. "5 questions", "5 mcqs", "questions: 5", "5 qs")
+        # 1. Count attached to a question-marker: "5 questions", "5 mcqs", "5 qs"
         count_match = re.search(
             r'\b(\d+)\s*(?:mcq|vsa|sa|la|cbq|ar|assertion)?\s*(?:questions?|q[s]?)\b',
             clause_for_nums,
-            re.IGNORECASE
+            re.IGNORECASE,
         )
         if count_match:
             count = int(count_match.group(1))
-            # Temporarily blank out the count match to not interfere with marks
             clause_for_nums = clause_for_nums.replace(count_match.group(0), " ")
         else:
-            # Check reverse pattern: "questions: 5"
             count_match_rev = re.search(
                 r'\b(?:questions?|q[s]?)\s*[:\-]?\s*(\d+)\b',
                 clause_for_nums,
-                re.IGNORECASE
+                re.IGNORECASE,
             )
             if count_match_rev:
                 count = int(count_match_rev.group(1))
                 clause_for_nums = clause_for_nums.replace(count_match_rev.group(0), " ")
 
-        # 2. Search for marks pattern (e.g. "1 mark", "5 marks", "1m", "marks: 5")
+        # 2. Marks: "1 mark", "5 marks", "1m"
         marks_match = re.search(
             r'\b(\d+)\s*(?:marks?|m)\b',
             clause_for_nums,
-            re.IGNORECASE
+            re.IGNORECASE,
         )
         if marks_match:
             marks = int(marks_match.group(1))
             clause_for_nums = clause_for_nums.replace(marks_match.group(0), " ")
         else:
-            # Check pattern "carrying X" or "of X" or "each of X" or "marks: X"
             marks_match_alt = re.search(
                 r'\b(?:carrying|of|each|marks?)\s*[:\-]?\s*(\d+)\b',
                 clause_for_nums,
-                re.IGNORECASE
+                re.IGNORECASE,
             )
             if marks_match_alt:
                 marks = int(marks_match_alt.group(1))
                 clause_for_nums = clause_for_nums.replace(marks_match_alt.group(0), " ")
 
-        # 3. Determine question type using keyword mappings first
+        # 3. Question-type keyword (mcq/short/long/...)
         qtype = None
         for pattern, (qt, mk) in mappings:
             if re.search(pattern, clause, re.IGNORECASE):
@@ -2472,28 +2526,29 @@ def _parse_instructions_for_slots(instructions: str):
                     marks = mk
                 break
 
-        # 4. If count is still missing, search remaining digits
-        remaining_digits = [int(x) for x in re.findall(r'\b\d+\b', clause_for_nums)]
-        
-        if count is None:
-            if remaining_digits:
-                count = remaining_digits[0]
-                remaining_digits = remaining_digits[1:]
+        # ── GUARD: require an explicit question cue ───────────────────────
+        # Either an explicit question-type keyword (qtype is set) OR the word
+        # "question(s)" / "q(s)" appears somewhere in the clause. Without
+        # either, this clause is not a question spec — skip it. Drops
+        # meta-clauses like "i want 3 sections" or "i have uploaded 2 pdfs"
+        # that would otherwise synthesise a bogus slot from random digits.
+        has_question_marker = bool(re.search(r'\b(questions?|q[s]?)\b', clause, re.IGNORECASE))
+        if qtype is None and not has_question_marker:
+            continue
 
-        # 5. If qtype/marks was not matched by keyword
+        # 4. Remaining digits → count if still missing
+        remaining_digits = [int(x) for x in re.findall(r'\b\d+\b', clause_for_nums)]
+        if count is None and remaining_digits:
+            count = remaining_digits[0]
+            remaining_digits = remaining_digits[1:]
+
+        # 5. Marks/qtype defaults
         if qtype is None:
             if marks is None:
-                if remaining_digits:
-                    marks = remaining_digits[0]
-                else:
-                    marks = 1  # Default to 1 mark
-
-            # Determine type from marks
+                marks = remaining_digits[0] if remaining_digits else 1
             if marks == 1:
                 qtype = QuestionTypeCode.MCQ
-            elif marks == 2:
-                qtype = QuestionTypeCode.SHORT_ANSWER
-            elif marks == 3:
+            elif marks in (2, 3):
                 qtype = QuestionTypeCode.SHORT_ANSWER
             elif marks == 4:
                 qtype = QuestionTypeCode.CASE_STUDY
@@ -2507,9 +2562,9 @@ def _parse_instructions_for_slots(instructions: str):
                 "section_title": section_title,
                 "qtype": qtype,
                 "marks": marks,
-                "count": count
+                "count": count,
             })
-                    
+
     return results
 
 
@@ -2544,7 +2599,26 @@ def build_question_plan(
     count_var_norm = str(count_variation).strip().lower().replace("_", " ")
     is_custom_mode = count_var_norm in ("custom", "custom count")
 
-    if class_num == 10 and (not count or count <= 0) and not is_custom_mode:
+    # ── PaperPlan precedence (ISSUE 1) ────────────────────────────────────
+    # Even in `board` mode (count_variation == "cbse"/"exact" with no count),
+    # if the teacher wrote an explicit per-section breakdown in the free-text
+    # General Instructions, that breakdown WINS over the fixed CBSE
+    # blueprint. The blueprint is the default; explicit instructions are
+    # never silently overwritten.
+    parsed_templates_for_override: List[dict] = []
+    if instructions:
+        try:
+            parsed_templates_for_override = _parse_instructions_for_slots(instructions)
+        except Exception as exc:
+            logger.warning("PaperPlan: parse failed for board-mode override: %s", exc)
+
+    board_mode_override = (
+        not is_custom_mode
+        and parsed_templates_for_override
+        and _is_explicit_section_breakdown(parsed_templates_for_override)
+    )
+
+    if class_num == 10 and (not count or count <= 0) and not is_custom_mode and not board_mode_override:
         return _build_exact_cbse_class10_plan(
             topic=topic,
             difficulty=difficulty,
@@ -2557,17 +2631,33 @@ def build_question_plan(
     total_questions = max(1, min(total_questions, 50))
     slots: List[QuestionGenerationSlot] = []
 
-    if is_custom_mode:
+    if is_custom_mode or board_mode_override:
         from q_instructions.core.enums import QuestionTypeCode
-        parsed_templates = []
-        if instructions:
+        parsed_templates = parsed_templates_for_override or []
+        if not parsed_templates and instructions:
             try:
                 parsed_templates = _parse_instructions_for_slots(instructions)
             except Exception as e:
-                logger.warning(f"Failed to parse custom instructions: {e}")
-                
+                logger.warning("Failed to parse custom instructions: %s", e)
+
         if parsed_templates:
-            # We successfully parsed templates from instructions!
+            # Honour the teacher's per-section breakdown verbatim. If an
+            # Exact Count is also set, log when the two disagree but
+            # PREFER the explicit per-section breakdown (more specific
+            # instruction wins). See PaperPlan precedence in AGENTS notes.
+            planned_total = sum(int(t["count"]) for t in parsed_templates)
+            if (
+                is_custom_mode
+                and count
+                and count > 0
+                and planned_total != count
+            ):
+                logger.info(
+                    "PaperPlan: Exact Count (%s) differs from parsed section total (%s); "
+                    "honouring the explicit per-section breakdown.",
+                    count, planned_total,
+                )
+
             for tpl in parsed_templates:
                 qtype = tpl["qtype"]
                 marks = tpl["marks"]
@@ -2575,7 +2665,7 @@ def build_question_plan(
                 section_title = tpl["section_title"]
                 if not section_title:
                     section_title = _section_title_for_question_type(subject_norm, class_num, qtype.name, marks)
-                
+
                 for _ in range(num):
                     slots.append(
                         _make_slot(

@@ -165,6 +165,10 @@ def _parse_answer_payload(raw_text: str) -> Optional[Dict[str, Any]]:
         payload = _sanitize_json_payload(raw_text)
         if not payload:
             return None
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError:
+            return None
 
 
 def _strip_code_fences(text: str) -> str:
@@ -202,10 +206,6 @@ def _fallback_answer_from_text(raw_text: str, or_choice_text: Optional[str]) -> 
         or_answer = "[Answer to be filled by teacher]"
 
     return answer, or_answer
-        try:
-            return json.loads(payload)
-        except json.JSONDecodeError:
-            return None
 
 
 def _extract_questions_from_content(content_json: str) -> List[Dict[str, Any]]:

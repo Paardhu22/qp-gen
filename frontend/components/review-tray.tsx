@@ -1,13 +1,22 @@
 "use client";
 
 /**
- * Review tray (ISSUE 2) — staging area for freshly generated questions.
+ * Review tray (ISSUE 2 / Issue 3 polish) — persistent staging area for
+ * freshly generated questions.
  *
  * Generation streams items into the editor store's `generatedTray`. The
  * teacher decides what reaches the paper: one at a time, multi-select,
- * insert-all, insert-by-section, or dismiss. Every tray item carries a
- * source-type badge ("From sources" vs "Curriculum fallback") so
- * ungrounded questions are easy to skip.
+ * insert-all, insert-by-section, or dismiss.
+ *
+ * Inserting a question does NOT remove it from the tray; it stays with
+ * an "Inserted ✓" marker and an "Undo from paper" affordance, so the
+ * tray remains an audit record of the whole generation batch. Only the
+ * explicit "Dismiss" / "Clear tray" actions actually drop items.
+ *
+ * The grounding badge ("From sources" sparkle) was removed per teacher
+ * feedback — it added visual noise on every card. We still surface the
+ * "Curriculum fallback" pill, because that ungrounded state is the one
+ * teachers genuinely want to spot.
  *
  * The tray itself is part of the editor store, so it survives in-app
  * navigation and reloads alongside the paper (see Issue 1).
@@ -17,7 +26,7 @@ import { useEditorStore, TrayItem } from "@/store/editor-store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { CheckCircle2, X, Sparkles, BookOpen } from "lucide-react";
+import { CheckCircle2, X, BookOpen, Undo2 } from "lucide-react";
 
 function groupBySection(items: TrayItem[]) {
   const map = new Map<string, TrayItem[]>();
@@ -33,13 +42,22 @@ export function ReviewTray() {
   const tray = useEditorStore((s) => s.generatedTray);
   const removeFromTray = useEditorStore((s) => s.removeFromTray);
   const markTrayInserted = useEditorStore((s) => s.markTrayInserted);
+  const markTrayUninserted = useEditorStore((s) => s.markTrayUninserted);
+  const removeSectionFromEditor = useEditorStore(
+    (s) => s.removeSectionFromEditor,
+  );
   const clearTray = useEditorStore((s) => s.clearTray);
   const appendSections = useEditorStore((s) => s.appendSections);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  // ── PaperPlan ordering parity ───────────────────────────────────────
+  // Display sections in the order they first appeared in the tray. That
+  // matches the user-declared order (Section A → B → C). Items inside
+  // each section retain their insertion order. Inserted items remain
+  // visible (greyed) so the tray is a complete record of the batch.
   const pending = useMemo(() => tray.filter((t) => !t.inserted), [tray]);
-  const sections = useMemo(() => groupBySection(pending), [pending]);
+  const grouped = useMemo(() => groupBySection(tray), [tray]);
 
   if (tray.length === 0) return null;
 
@@ -104,6 +122,18 @@ export function ReviewTray() {
     });
   };
 
+  const undoInsert = (item: TrayItem) => {
+    // Pull the question out of the paper, flip the tray marker back to
+    // pending. Useful when a teacher inserts a section and then notices a
+    // bad question — they undo from the tray without hunting in the doc.
+    removeSectionFromEditor({
+      sectionTitle: item.sectionTitle,
+      content: item.question.content,
+    });
+    markTrayUninserted([item.id]);
+    toast.message("Removed from paper. The question is back as pending.");
+  };
+
   const insertedCount = tray.length - pending.length;
 
   return (
@@ -117,8 +147,8 @@ export function ReviewTray() {
             </span>
           </h3>
           <p className="text-[11px] text-zinc-500">
-            Pick which generated questions go into your paper. Nothing here has
-            been inserted yet.
+            Pick which generated questions go into your paper. Inserted items
+            stay here as a record — use Undo to pull one back out.
           </p>
         </div>
       </div>
@@ -156,127 +186,164 @@ export function ReviewTray() {
       </div>
 
       <div className="space-y-5">
-        {sections.map(([title, items]) => (
-          <div key={title} className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
-                {title}{" "}
-                <span className="text-zinc-400 normal-case font-normal">
-                  ({items.length})
-                </span>
-              </h4>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => insertSection(title)}
-                className="h-7 text-xs text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
-              >
-                Insert section
-              </Button>
-            </div>
+        {grouped.map(([title, items]) => {
+          const sectionPendingCount = items.filter((it) => !it.inserted).length;
+          return (
+            <div key={title} className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                  {title}{" "}
+                  <span className="text-zinc-400 normal-case font-normal">
+                    ({sectionPendingCount} pending · {items.length - sectionPendingCount} inserted)
+                  </span>
+                </h4>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => insertSection(title)}
+                  disabled={sectionPendingCount === 0}
+                  className="h-7 text-xs text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+                >
+                  Insert section
+                </Button>
+              </div>
 
-            <div className="space-y-2">
-              {items.map((item) => {
-                const isSelected = selected.has(item.id);
-                const isFallback = item.sourceType === "curriculum_fallback";
-                return (
-                  <div
-                    key={item.id}
-                    className={`p-3 border rounded-lg transition-colors ${
-                      isSelected
-                        ? "border-indigo-500 bg-indigo-50/60 dark:bg-indigo-500/10"
-                        : "border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40"
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        className="mt-1 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-                        checked={isSelected}
-                        onChange={() => toggleSelect(item.id)}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] mb-1.5">
-                          <Badge
-                            variant="outline"
-                            className="font-mono bg-white dark:bg-zinc-950"
+              <div className="space-y-2">
+                {items.map((item) => {
+                  const isSelected = selected.has(item.id);
+                  const isFallback = item.sourceType === "curriculum_fallback";
+                  const isInserted = item.inserted;
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-3 border rounded-lg transition-colors ${
+                        isInserted
+                          ? "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/20 opacity-90"
+                          : isSelected
+                            ? "border-indigo-500 bg-indigo-50/60 dark:bg-indigo-500/10"
+                            : "border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        {isInserted ? (
+                          <span
+                            className="mt-1 inline-flex items-center justify-center h-4 w-4 rounded-sm bg-emerald-600 text-white"
+                            title="Inserted into the paper"
+                            aria-label="Inserted"
                           >
-                            {item.question.marks}m
-                          </Badge>
-                          <Badge
-                            variant="outline"
-                            className="bg-white dark:bg-zinc-950"
-                          >
-                            {item.question.type || "—"}
-                          </Badge>
-                          {item.question.bloom && (
+                            <CheckCircle2 className="h-3 w-3" />
+                          </span>
+                        ) : (
+                          <input
+                            type="checkbox"
+                            className="mt-1 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(item.id)}
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 text-[10px] mb-1.5">
+                            <Badge
+                              variant="outline"
+                              className="font-mono bg-white dark:bg-zinc-950"
+                            >
+                              {item.question.marks}m
+                            </Badge>
                             <Badge
                               variant="outline"
                               className="bg-white dark:bg-zinc-950"
                             >
-                              {item.question.bloom}
+                              {item.question.type || "—"}
                             </Badge>
-                          )}
-                          {isFallback ? (
-                            <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/40 dark:text-amber-300 border-none">
-                              <BookOpen className="h-3 w-3 mr-1" />
-                              Curriculum fallback
-                            </Badge>
-                          ) : item.sourceType === "rag" ? (
-                            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-300 border-none">
-                              <Sparkles className="h-3 w-3 mr-1" />
-                              From sources
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <p className="text-sm text-zinc-800 dark:text-zinc-100 line-clamp-3">
-                          {item.question.content}
-                        </p>
-                        {item.question.options && item.question.options.length > 0 && (
-                          <div className="grid grid-cols-2 gap-1 mt-2">
-                            {item.question.options.map((opt, idx) => (
-                              <div
-                                key={idx}
-                                className="text-[11px] text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 p-1 rounded bg-white/70 dark:bg-zinc-950/40"
+                            {item.question.bloom && (
+                              <Badge
+                                variant="outline"
+                                className="bg-white dark:bg-zinc-950"
                               >
-                                {String.fromCharCode(65 + idx)}. {opt}
-                              </div>
-                            ))}
+                                {item.question.bloom}
+                              </Badge>
+                            )}
+                            {isInserted && (
+                              <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-300 border-none">
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                Inserted ✓
+                              </Badge>
+                            )}
+                            {/* Source-grounded items intentionally carry NO
+                                badge — the green "From sources" sparkle was
+                                removed per teacher feedback. Only the
+                                ungrounded "Curriculum fallback" pill stays
+                                so the teacher can spot it at a glance. */}
+                            {isFallback && (
+                              <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/40 dark:text-amber-300 border-none">
+                                <BookOpen className="h-3 w-3 mr-1" />
+                                Curriculum fallback
+                              </Badge>
+                            )}
                           </div>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1 flex-shrink-0">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => insertSingle(item.id)}
-                          className="h-7 px-2 text-xs"
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                          Insert
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => dismiss(item.id)}
-                          className="h-7 px-2 text-xs text-zinc-500 hover:text-red-600"
-                        >
-                          <X className="h-3.5 w-3.5 mr-1" />
-                          Dismiss
-                        </Button>
+                          <p className="text-sm text-zinc-800 dark:text-zinc-100 line-clamp-3">
+                            {item.question.content}
+                          </p>
+                          {item.question.options && item.question.options.length > 0 && (
+                            <div className="grid grid-cols-2 gap-1 mt-2">
+                              {item.question.options.map((opt, idx) => (
+                                <div
+                                  key={idx}
+                                  className="text-[11px] text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 p-1 rounded bg-white/70 dark:bg-zinc-950/40"
+                                >
+                                  {String.fromCharCode(65 + idx)}. {opt}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-1 flex-shrink-0">
+                          {isInserted ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => undoInsert(item)}
+                              className="h-7 px-2 text-xs text-zinc-500 hover:text-amber-600"
+                            >
+                              <Undo2 className="h-3.5 w-3.5 mr-1" />
+                              Undo
+                            </Button>
+                          ) : (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => insertSingle(item.id)}
+                                className="h-7 px-2 text-xs"
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                                Insert
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => dismiss(item.id)}
+                                className="h-7 px-2 text-xs text-zinc-500 hover:text-red-600"
+                              >
+                                <X className="h-3.5 w-3.5 mr-1" />
+                                Dismiss
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {insertedCount > 0 && pending.length === 0 && (
         <div className="mt-4 text-xs text-zinc-500 italic">
-          All generated questions have been inserted.{" "}
+          All generated questions are in the paper.{" "}
           <button
             className="underline text-indigo-600 hover:text-indigo-700"
             onClick={() => {

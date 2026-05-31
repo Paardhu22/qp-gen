@@ -46,12 +46,26 @@ export type InsertionMode = "review" | "auto";
 
 export type SaveState = "saving" | "saved" | "offline" | "failed";
 
+/**
+ * One-shot request for the TipTap editor to remove a question node from
+ * the live document. We compare on section title + content text since
+ * the tray stores the source-of-truth Question payload, not editor pos.
+ */
+export interface QuestionRemovalRequest {
+  /** Random token so React effect dependency re-fires per request. */
+  token: string;
+  sectionTitle: string;
+  content: string;
+}
+
 interface EditorState {
   // ── Insertion plumbing into the TipTap editor ─────────────────────
   questionsToAppend: Question[];
   sectionsToAppend: SectionToAppend[];
   instructionsToAppend: string[] | null;
   questionsToSave: Question[];
+  /** Pending tray-driven "Undo" removals, consumed by tiptap-editor. */
+  questionRemovals: QuestionRemovalRequest[];
 
   // ── Modal state ───────────────────────────────────────────────────
   savePaperModalOpen: boolean;
@@ -112,6 +126,9 @@ interface EditorState {
   ) => void;
   removeFromTray: (id: string) => void;
   markTrayInserted: (ids: string[]) => void;
+  markTrayUninserted: (ids: string[]) => void;
+  removeSectionFromEditor: (req: Omit<QuestionRemovalRequest, "token">) => void;
+  consumeQuestionRemovals: () => void;
   clearTray: () => void;
 }
 
@@ -130,6 +147,7 @@ export const useEditorStore = create<EditorState>()(
       sectionsToAppend: [],
       instructionsToAppend: null,
       questionsToSave: [],
+      questionRemovals: [],
 
       // ── Modals ──────────────────────────────────────────────────────
       savePaperModalOpen: false,
@@ -211,6 +229,27 @@ export const useEditorStore = create<EditorState>()(
             ids.includes(t.id) ? { ...t, inserted: true } : t,
           ),
         })),
+
+      markTrayUninserted: (ids) =>
+        set((state) => ({
+          generatedTray: state.generatedTray.map((t) =>
+            ids.includes(t.id) ? { ...t, inserted: false } : t,
+          ),
+        })),
+
+      removeSectionFromEditor: (req) =>
+        set((state) => ({
+          questionRemovals: [
+            ...state.questionRemovals,
+            {
+              token: `rm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              sectionTitle: req.sectionTitle,
+              content: req.content,
+            },
+          ],
+        })),
+
+      consumeQuestionRemovals: () => set({ questionRemovals: [] }),
 
       clearTray: () => set({ generatedTray: [] }),
     }),

@@ -7,6 +7,7 @@ const API_BASE_URL =
 
 type FetchJsonOptions = RequestInit & {
   skipAuth?: boolean;
+  /** Override the default 30 s timeout. Pass Infinity to disable. */
   timeoutMs?: number;
 };
 
@@ -40,7 +41,7 @@ export async function fetchJson<T>(
   // can merge it with our own internal timeout signal.
   const {
     skipAuth,
-    timeoutMs = 10000,
+    timeoutMs = 30000,
     signal: callerSignal,
     ...requestInit
   } = options;
@@ -229,11 +230,11 @@ export async function fetchProjectsWithQuestions<T>(
 }
 
 export async function fetchPapers<T>(options: FetchJsonOptions = {}): Promise<T> {
-  return fetchJson<T>("/api/projects/papers/", { method: "GET", ...options });
+  return fetchJson<T>("/api/projects/papers/", { method: "GET", timeoutMs: 60000, ...options });
 }
 
 export async function fetchPaper<T>(paperId: string): Promise<T> {
-  return fetchJson<T>(`/api/projects/papers/${paperId}/`, { method: "GET" });
+  return fetchJson<T>(`/api/projects/papers/${paperId}/`, { method: "GET", timeoutMs: 60000 });
 }
 
 export async function saveQuestions<T>(
