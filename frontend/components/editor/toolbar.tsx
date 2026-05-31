@@ -32,7 +32,7 @@ import {
   Redo,
   PlusCircle,
   Save,
-  Layout,
+
   Calculator,
   FileDown,
   Printer,
@@ -71,9 +71,8 @@ import { Badge } from "../ui/badge";
 import { useEditorStore } from "@/store/editor-store";
 import { exportToPDF } from "@/lib/export-pdf";
 import { exportToDocx } from "@/lib/export-docx";
-import { templates } from "./templates";
 import { toast } from "sonner";
-import { wrapHtmlInPage, extractPagesFromDoc } from "./pagination-utils";
+import { extractPagesFromDoc } from "./pagination-utils";
 
 // ==================================
 // Toolbar Button Component
@@ -446,8 +445,6 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
 }) => {
   const router = useRouter();
   const [totalMarks, setTotalMarks] = useState(0);
-  const template = useEditorStore((state) => state.template);
-  const setTemplate = useEditorStore((state) => state.setTemplate);
 
   const calculateTotalMarks = useCallback(() => {
     let total = 0;
@@ -873,81 +870,6 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           <SeparatorHorizontal className="h-3.5 w-3.5" />
         </ToolbarBtn>
 
-        {/* Paper Header */}
-        <ToolbarBtn
-          onClick={() => {
-            editor
-              .chain()
-              .focus()
-              .insertContentAt(0, {
-                type: "paperHeaderBlock",
-                content: [
-                  {
-                    type: "heading",
-                    attrs: { level: 1 },
-                    content: [{ type: "text", text: "SCHOOL NAME" }],
-                  },
-                  {
-                    type: "heading",
-                    attrs: { level: 2 },
-                    content: [{ type: "text", text: "SAMPLE QUESTION PAPER" }],
-                  },
-                  {
-                    type: "paragraph",
-                    content: [
-                      {
-                        type: "text",
-                        text: "Class X | Subject | Academic Year 2025-26",
-                      },
-                    ],
-                  },
-                  {
-                    type: "table",
-                    content: [
-                      {
-                        type: "tableRow",
-                        content: [
-                          {
-                            type: "tableCell",
-                            content: [
-                              {
-                                type: "paragraph",
-                                content: [
-                                  {
-                                    type: "text",
-                                    text: "Time Allowed: 2 Hours",
-                                  },
-                                ],
-                              },
-                            ],
-                          },
-                          {
-                            type: "tableCell",
-                            content: [
-                              {
-                                type: "paragraph",
-                                content: [
-                                  {
-                                    type: "text",
-                                    text: "Maximum Marks: 50",
-                                  },
-                                ],
-                              },
-                            ],
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              })
-              .run();
-          }}
-          title="Insert Paper Header"
-        >
-          <Layout className="h-3.5 w-3.5" />
-        </ToolbarBtn>
-
         <ToolbarDivider />
 
         {/* Math & Chemistry */}
@@ -1007,28 +929,6 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
 
         {/* Right side tools */}
         <div className="ml-auto flex items-center gap-1.5">
-          {/* Template selector */}
-          <select
-            value={template}
-            onChange={(e) => {
-              const val = e.target.value;
-              if (!val) return;
-              if ((templates as any)[val]) {
-                editor.commands.setContent(
-                  wrapHtmlInPage((templates as any)[val]),
-                );
-              }
-              setTemplate(val);
-            }}
-            className="h-7 bg-background border border-border rounded text-[10px] text-foreground px-1.5 min-w-[110px] focus:outline-none cursor-pointer hover:bg-accent transition-colors"
-          >
-            <option value="cbse">CBSE Style</option>
-            <option value="minimalSchool">Minimal School</option>
-            <option value="university">University Style</option>
-            <option value="worksheet">Worksheet Style</option>
-            <option value="competitive">Competitive Exam</option>
-          </select>
-
           {/* Total Marks */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 bg-background rounded-full border border-border select-none shadow-sm">
             <Calculator className="h-3 w-3 text-primary" />
@@ -1318,6 +1218,71 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           className="h-6 px-2 text-[10px] font-medium text-sky-500 hover:bg-sky-500/10 rounded transition-colors flex items-center gap-1"
         >
           <PlusCircle className="h-3 w-3" /> Grouped Questions
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() =>
+            insertAfterCurrentBlock(
+              "questionBlock",
+              [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: "Enter MCQ stem here..." }],
+                },
+                {
+                  type: "orderedList",
+                  content: [
+                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Option A" }] }] },
+                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Option B" }] }] },
+                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Option C" }] }] },
+                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Option D" }] }] },
+                  ],
+                },
+              ],
+              { marks: 1, questionType: "MCQ" },
+            )
+          }
+          className="h-6 px-2 text-[10px] font-medium text-rose-400 hover:bg-rose-500/10 rounded transition-colors flex items-center gap-1"
+        >
+          <PlusCircle className="h-3 w-3" /> MCQ
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            insertAfterCurrentBlock("paperHeaderBlock", [
+              {
+                type: "heading",
+                attrs: { level: 1 },
+                content: [{ type: "text", text: "SCHOOL / INSTITUTION NAME" }],
+              },
+              {
+                type: "heading",
+                attrs: { level: 2 },
+                content: [{ type: "text", text: "SUBJECT — QUESTION PAPER" }],
+              },
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "Class —  |  Academic Year 20__–26" }],
+              },
+              {
+                type: "table",
+                content: [
+                  {
+                    type: "tableRow",
+                    content: [
+                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph", content: [{ type: "text", text: "Time Allowed: __ Hours" }] }] },
+                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph", content: [{ type: "text", text: "Maximum Marks: __" }] }] },
+                    ],
+                  },
+                ],
+              },
+            ]);
+          }}
+          className="h-6 px-2 text-[10px] font-medium text-teal-400 hover:bg-teal-500/10 rounded transition-colors flex items-center gap-1"
+        >
+          <PlusCircle className="h-3 w-3" /> Header
         </button>
 
         <ToolbarDivider />

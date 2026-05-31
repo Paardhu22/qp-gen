@@ -73,6 +73,15 @@ function updateQuestionNumbers(editor: any) {
   const tr = editor.state.tr;
 
   editor.state.doc.descendants((node: any, pos: number) => {
+    // OR group occupies ONE question slot; don't recurse into its children.
+    if (node.type.name === "questionGroupBlock") {
+      if (node.attrs.number !== currentNumber) {
+        tr.setNodeMarkup(pos, undefined, { ...node.attrs, number: currentNumber });
+      }
+      currentNumber++;
+      return false; // skip children — questionBlock inside OR group are not counted separately
+    }
+
     if (
       node.type.name === "questionBlock" ||
       node.type.name === "groupedQuestionBlock"
@@ -148,6 +157,21 @@ function updateSectionSummaries(editor: any) {
       };
       currentMarks = new Set();
       return;
+    }
+
+    // OR group counts as ONE question slot; don't recurse into its children.
+    if (node.type.name === "questionGroupBlock" && currentSection) {
+      // Use the marks of the first questionBlock child as representative marks.
+      let groupMarks = 0;
+      node.forEach((child: any) => {
+        if (groupMarks === 0 && child.type.name === "questionBlock") {
+          groupMarks = Number(child.attrs?.marks ?? 0) || 0;
+        }
+      });
+      currentSection.questionCount += 1;
+      currentSection.totalMarks += groupMarks;
+      if (groupMarks > 0) currentMarks.add(groupMarks);
+      return false; // skip questionBlock children inside the OR group
     }
 
     if (
@@ -301,72 +325,7 @@ function createEmptyDocument() {
       {
         type: "page",
         attrs: { pageId: createPageId() },
-        content: [
-          // ── Paper header ────────────────────────────────────────────────
-          // Pre-filled with placeholder text so new documents always have a
-          // professional title block at the top.  The user can edit or delete it.
-          {
-            type: "paperHeaderBlock",
-            attrs: { logoUrl: null },
-            content: [
-              {
-                type: "heading",
-                attrs: { level: 1 },
-                content: [{ type: "text", text: "SCHOOL / INSTITUTION NAME" }],
-              },
-              {
-                type: "heading",
-                attrs: { level: 2 },
-                content: [{ type: "text", text: "SUBJECT — QUESTION PAPER" }],
-              },
-              {
-                type: "paragraph",
-                content: [
-                  { type: "text", text: "Class —  |  Academic Year 20__–26" },
-                ],
-              },
-              {
-                type: "table",
-                content: [
-                  {
-                    type: "tableRow",
-                    content: [
-                      {
-                        type: "tableCell",
-                        attrs: {},
-                        content: [
-                          {
-                            type: "paragraph",
-                            content: [
-                              {
-                                type: "text",
-                                text: "Time Allowed: __ Hours",
-                              },
-                            ],
-                          },
-                        ],
-                      },
-                      {
-                        type: "tableCell",
-                        attrs: {},
-                        content: [
-                          {
-                            type: "paragraph",
-                            content: [
-                              { type: "text", text: "Maximum Marks: __" },
-                            ],
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
-          // ── Body starts here ─────────────────────────────────────────────
-          { type: "paragraph" },
-        ],
+        content: [{ type: "paragraph" }],
       },
     ],
   };
@@ -1089,6 +1048,10 @@ export const TiptapEditor = ({
   const clearSectionsToAppend = useEditorStore(
     (state) => state.clearSectionsToAppend,
   );
+  const questionRemovals = useEditorStore((state) => state.questionRemovals);
+  const consumeQuestionRemovals = useEditorStore(
+    (state) => state.consumeQuestionRemovals,
+  );
   const instructionsToAppend = useEditorStore((state) => state.instructionsToAppend);
   const clearInstructionsToAppend = useEditorStore(
     (state) => state.clearInstructionsToAppend,
@@ -1368,6 +1331,63 @@ export const TiptapEditor = ({
       debouncedLiveSync.flush();
     });
   }, [sectionsToAppend, editor, clearSectionsToAppend, debouncedLiveSync]);
+
+  // ── Tray "Undo" → remove a previously inserted question from the doc ──
+  // The review tray records every generated question and lets the teacher
+  // pull one back out after inserting. We match by section title + the
+  // first ~120 chars of content (enough to disambiguate within a section
+  // without being fragile to whitespace tweaks).
+  useEffect(() => {
+    if (questionRemovals.length === 0 || !editor) return;
+    if (editor.isDestroyed) {
+      consumeQuestionRemovals();
+      return;
+    }
+
+    const normalize = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 120);
+    const targets = questionRemovals.map((r) => ({
+      sectionTitle: normalize(r.sectionTitle),
+      content: normalize(r.content),
+    }));
+
+    let currentSectionTitle = "";
+    const removalsToRun: { from: number; to: number }[] = [];
+
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (node.type.name === "sectionBlock") {
+        currentSectionTitle = normalize(String(node.textContent || ""));
+        return;
+      }
+      if (
+        node.type.name !== "questionBlock" &&
+        node.type.name !== "groupedQuestionBlock"
+      ) {
+        return;
+      }
+      const nodeText = normalize(String(node.textContent || ""));
+      const hit = targets.find(
+        (t) =>
+          (t.sectionTitle === "" || t.sectionTitle === currentSectionTitle) &&
+          nodeText.startsWith(t.content.slice(0, 60)),
+      );
+      if (hit) {
+        removalsToRun.push({ from: pos, to: pos + node.nodeSize });
+      }
+    });
+
+    if (removalsToRun.length > 0) {
+      // Delete bottom-up so earlier positions stay valid.
+      removalsToRun
+        .sort((a, b) => b.from - a.from)
+        .forEach(({ from, to }) => {
+          editor.commands.deleteRange({ from, to });
+        });
+      debouncedLiveSync(editor);
+      debouncedLiveSync.flush();
+    }
+
+    consumeQuestionRemovals();
+  }, [questionRemovals, editor, consumeQuestionRemovals, debouncedLiveSync]);
 
   // Find/Replace state
   const [showFindReplace, setShowFindReplace] = useState(false);
@@ -1742,7 +1762,7 @@ export const TiptapEditor = ({
 
         .question-row {
           display: grid;
-          grid-template-columns: 56px 1fr 56px;
+          grid-template-columns: 56px 1fr 72px;
           border: 1px solid #000000;
           break-inside: avoid;
           page-break-inside: avoid;
@@ -1772,16 +1792,25 @@ export const TiptapEditor = ({
         }
 
         .question-marks-input {
-          width: 24px;
+          width: 44px;
+          min-width: 44px;
           border: none;
           text-align: center;
           font-family: inherit;
           font-size: 11pt;
           background: transparent;
-          padding: 0;
+          padding: 0 2px;
           margin: 0;
           outline: none;
           color: #000000;
+          -moz-appearance: textfield;
+          appearance: textfield;
+        }
+
+        .question-marks-input::-webkit-inner-spin-button,
+        .question-marks-input::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
         }
 
         .question-marks-label {
@@ -1791,11 +1820,12 @@ export const TiptapEditor = ({
 
         .question-controls {
           position: absolute;
-          right: -6px;
+          right: -28px;
           top: 4px;
           opacity: 0;
           transition: opacity 0.2s ease;
           display: flex;
+          flex-direction: column;
           gap: 4px;
         }
 
@@ -1970,6 +2000,27 @@ export const TiptapEditor = ({
           background: #ffffff;
           break-inside: avoid;
           page-break-inside: avoid;
+        }
+
+        .question-group-header {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+          padding: 2px 0;
+        }
+
+        .question-group-number {
+          font-weight: 700;
+          font-size: 11pt;
+          flex-shrink: 0;
+        }
+
+        .question-group-label-text {
+          font-weight: 700;
+          font-size: 10pt;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          flex: 1;
         }
 
         .question-group-label {

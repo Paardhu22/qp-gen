@@ -185,6 +185,93 @@ def _vision_image_payload_urls(source_chunks: List[dict]) -> List[str]:
     return urls
 
 
+# ── ISSUE 2: figure-pipeline helpers ────────────────────────────────────
+# A question may legitimately need a diagram (geometry / trig / mensuration /
+# circuit / optics). We accept ONE shape: an inline SVG the LLM emits as
+# `figure: {type: "svg", content: "<svg ...>...</svg>"}`. We never accept a
+# bare external URL the LLM made up — those rendered as broken-image
+# placeholders with alt="Question visual". If neither a real source image
+# nor a valid SVG is provided, the stem must be text-self-contained.
+
+_SVG_TAG = re.compile(r"<svg\b[^>]*>.*?</svg\s*>", re.IGNORECASE | re.DOTALL)
+# External resource refs we refuse inside an inline SVG (no remote loads
+# from the model, no script execution).
+_SVG_FORBIDDEN = re.compile(
+    r'<(?:script|foreignObject)\b|xlink:href\s*=\s*[\'"]https?://',
+    re.IGNORECASE,
+)
+
+
+def _figure_to_data_url(raw_figure: Any) -> str:
+    """Validate an inline-SVG figure and encode it as a data: URL.
+
+    Accepts either:
+      - a dict like {"type": "svg", "content": "<svg ...>...</svg>"}
+      - a raw string starting with "<svg"
+    Returns an empty string for anything we can't safely render.
+    """
+    if not raw_figure:
+        return ""
+
+    if isinstance(raw_figure, dict):
+        if str(raw_figure.get("type") or "svg").lower() != "svg":
+            return ""
+        svg = str(raw_figure.get("content") or raw_figure.get("svg") or "").strip()
+    elif isinstance(raw_figure, str):
+        svg = raw_figure.strip()
+    else:
+        return ""
+
+    if not svg or "<svg" not in svg.lower():
+        return ""
+
+    match = _SVG_TAG.search(svg)
+    if not match:
+        return ""
+    svg_clean = match.group(0)
+    if _SVG_FORBIDDEN.search(svg_clean):
+        return ""
+
+    # Cap at 16 KB to keep the editor payload sane — a hand-laid geometry
+    # diagram is well under 2 KB. Anything larger is almost certainly junk.
+    if len(svg_clean.encode("utf-8")) > 16_384:
+        return ""
+
+    b64 = base64.b64encode(svg_clean.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{b64}"
+
+
+# Phrases that prove the question text DEPENDS on a figure the LLM thinks
+# exists. If none was actually supplied, we must not stream the stem — the
+# teacher would get a "see figure" question with no figure.
+_FIGURE_REFERENCE = re.compile(
+    r"\b(?:observe|see|refer\s+to|study|as\s+shown|shown\s+(?:in|below)|"
+    r"in\s+the)\s+"
+    r"(?:the\s+)?(?:given\s+|adjoining\s+|following\s+|above\s+|below\s+)?"
+    r"(?:figure|diagram|fig\.?|image|picture|circuit|graph|sketch)\b",
+    re.IGNORECASE,
+)
+
+
+def _content_references_missing_figure(content: str) -> bool:
+    if not content:
+        return False
+    return bool(_FIGURE_REFERENCE.search(content))
+
+
+def _strip_figure_references(content: str) -> str:
+    """Last-resort: drop sentences that cite a figure when none exists.
+
+    Used only on the final regeneration attempt so the user never sees a
+    broken-image placeholder. The remaining stem may read awkwardly but
+    will not lie about a non-existent diagram.
+    """
+    sentences = re.split(r"(?<=[.!?])\s+", content)
+    kept = [s for s in sentences if not _FIGURE_REFERENCE.search(s)]
+    cleaned = " ".join(kept).strip()
+    return cleaned or content
+
+
 def _coerce_or_choice(raw_question: dict, allowed_urls: List[str]) -> Optional[dict]:
     raw_choice = (
         raw_question.get("or_choice")
@@ -294,14 +381,61 @@ def _coerce_question(raw_payload: dict, slot, source_chunks: List[dict], is_retr
             "A is true but R is false.",
             "A is false but R is true.",
         ]
+
+    # ── ISSUE 1: type fidelity — the slot's declared type wins ─────────
+    # MCQ/AR slots SHOULD come back with 4 options; SHORT/LONG slots
+    # must NOT smuggle in MCQ-style options. On early attempts, reject
+    # so the caller regenerates; on the last attempt, log and pass
+    # through (the slot's legacy_type is still stamped onto the output
+    # so the rubric stays correct, but we don't drop the question
+    # entirely after the model has failed twice).
+    if slot.legacy_type in ("MCQ", "ASSERTION_REASON") and len(options) < 2 and not is_retry:
+        raise ValueError(
+            f"Type mismatch: slot is {slot.legacy_type} but LLM returned no options. Regenerating."
+        )
+    if slot.legacy_type not in ("MCQ", "ASSERTION_REASON") and options and not is_retry:
+        raise ValueError(
+            f"Type mismatch: slot is {slot.legacy_type} (descriptive) but LLM "
+            "returned MCQ-style options. Regenerating without options."
+        )
+    if slot.legacy_type not in ("MCQ", "ASSERTION_REASON") and options:
+        # Last attempt: drop the stray options so the descriptive question
+        # renders cleanly rather than streaming an MCQ-shaped artifact.
+        options = []
+
     allowed_urls = _allowed_image_urls(source_chunks)
     candidate_image_url = str(raw_question.get("image_url") or raw_question.get("imageUrl") or "").strip()
     image_url = candidate_image_url if candidate_image_url in allowed_urls else ""
-    
+
+    # ── ISSUE 2: real figure pipeline (no fake "Question visual" placeholders) ──
+    # Prefer an inline SVG figure when the LLM emits one — `figure: {type:
+    # "svg", content: "<svg ...>...</svg>"}`. We validate it parses, then
+    # encode it as a data URL so the existing FloatImage TipTap node /
+    # PDF/DOCX exporters render it inline without any hallucinated
+    # external src. If the LLM cited a figure ("observe the diagram",
+    # "see the figure below") but provided neither a real image_url nor
+    # a valid inline SVG, the question is rejected for regeneration with
+    # an explicit instruction to write a text-self-contained stem.
+    raw_figure = raw_question.get("figure") or raw_question.get("svg")
+    figure_data_url = _figure_to_data_url(raw_figure)
+    if figure_data_url and not image_url:
+        image_url = figure_data_url
+
     if (slot.requires_image or is_visual_mandatory) and not image_url and allowed_urls:
         if not is_retry:
             raise ValueError("LLM omitted the mandatory visual image_url.")
         image_url = allowed_urls[0]
+
+    if not image_url and _content_references_missing_figure(content):
+        if not is_retry:
+            raise ValueError(
+                "Question references a figure/diagram but no inline SVG, "
+                "image_url, or source figure was provided. Regenerate as "
+                "a text-self-contained stem (include all geometry data in words)."
+            )
+        # Last attempt: scrub the figure references out of the stem so we
+        # never stream a broken-image placeholder to the editor.
+        content = _strip_figure_references(content)
 
     or_choice = _coerce_or_choice(raw_question, allowed_urls)
     if slot.choice_required and not or_choice:
@@ -367,7 +501,23 @@ def _single_question_schema(is_visual_mandatory: bool, slot) -> str:
         schema += '    "image_url": "String (CRITICAL: MUST include the provided image URL)",\n'
     else:
         schema += '    "image_url": "String or omit entirely if no image is mandated",\n'
-        
+
+    # ISSUE 2: figure field — for geometry/trig/mensuration where a real
+    # diagram is needed, the model MAY emit an inline SVG. Anything else
+    # (external URLs, ASCII art, broken-image placeholders) is rejected.
+    # Otherwise the stem MUST be text-self-contained — no "see figure".
+    schema += (
+        '    "figure": "OPTIONAL — for geometry/trigonometry/mensuration ONLY: '
+        '{type: \\"svg\\", content: \\"<svg viewBox=...>...</svg>\\"}. '
+        'A standalone inline SVG with labelled vertices/sides/angles. '
+        'NO <script>, NO <foreignObject>, NO external xlink:href. '
+        'If you cannot render a faithful figure, OMIT this key and write '
+        'a stem that contains all geometric data in words (\'In right '
+        'triangle ABC, right-angled at B, AB = 24 cm…\'). NEVER reference '
+        '\'the figure\' / \'the diagram\' unless this field is populated."'
+        ",\n"
+    )
+
     if slot.choice_required:
         schema += '    "or_choice": { "content": "String", "options": ["(if MCQ)"], "answer": "String", "image_url": "String" },\n'
     else:
@@ -953,6 +1103,7 @@ def stream_generated_questions(
         build_question_plan,
         extract_class_number,
         normalize_subject,
+        paper_plan_section_order,
         summarize_question_plan,
         should_use_new_engine,
     )
@@ -1365,6 +1516,21 @@ def stream_generated_questions(
     if total_questions == 0:
         yield _sse_event({"error": "Generation failed before any questions could be produced."}, event="error")
         return
+
+    # ── PaperPlan section ordering (ISSUE 1) ─────────────────────────────
+    # Concurrent LLM completion appends sections in whatever order they
+    # finish — that can render the paper as "Section C, Section A, Section
+    # B" even though the teacher typed A, B, C. Re-sort the realized
+    # sections to match the plan's declared order so both the printed
+    # header and the editor layout follow the teacher's intent. Anything
+    # the plan didn't enumerate (rare safety net) keeps its current order
+    # at the tail.
+    plan_order = paper_plan_section_order(plan)
+    if plan_order:
+        order_index = {title: i for i, title in enumerate(plan_order)}
+        result["sections"].sort(
+            key=lambda s: order_index.get(s.get("title", ""), len(order_index))
+        )
 
     # ISSUE A2: rewrite the printable general-instructions from the REALIZED
     # paper so the header (total questions, per-section counts, marks) cannot

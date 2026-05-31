@@ -12,24 +12,6 @@ import { GripVertical, Trash, Plus } from "lucide-react";
 // ==========================================
 
 const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
-  React.useEffect(() => {
-    console.log(
-      "[DEBUG QuestionComponent] MOUNT for question:",
-      node.attrs.number,
-    );
-    return () => {
-      console.log(
-        "[DEBUG QuestionComponent] UNMOUNT for question:",
-        node.attrs.number,
-      );
-    };
-  }, [node.attrs.number]);
-
-  console.log(
-    "[DEBUG QuestionComponent] RERENDER for question:",
-    node.attrs.number,
-  );
-
   return (
     <NodeViewWrapper className="question-block group">
       <div
@@ -315,18 +297,6 @@ const SectionComponent = ({ node, deleteNode }: any) => {
   const summaryText = node.attrs?.summaryText || "";
   const instructions = node.attrs?.instructions || "";
 
-  React.useEffect(() => {
-    console.log("[DEBUG SectionComponent] MOUNT for title:", node.attrs.title);
-    return () => {
-      console.log(
-        "[DEBUG SectionComponent] UNMOUNT for title:",
-        node.attrs.title,
-      );
-    };
-  }, [node.attrs.title]);
-
-  console.log("[DEBUG SectionComponent] RERENDER for title:", node.attrs.title);
-
   return (
     <NodeViewWrapper className="section-block group">
       <div
@@ -421,15 +391,6 @@ export const SectionBlock = Node.create({
 const InstructionComponent = ({ node, deleteNode }: any) => {
   const summaryItems = node.attrs?.summaryItems || [];
 
-  React.useEffect(() => {
-    console.log("[DEBUG InstructionComponent] MOUNT");
-    return () => {
-      console.log("[DEBUG InstructionComponent] UNMOUNT");
-    };
-  }, []);
-
-  console.log("[DEBUG InstructionComponent] RERENDER");
-
   return (
     <NodeViewWrapper className="instruction-block group">
       <div
@@ -523,15 +484,6 @@ export const InstructionBlock = Node.create({
 // ==========================================
 
 const QuestionGroupComponent = ({ node, deleteNode }: any) => {
-  React.useEffect(() => {
-    console.log("[DEBUG QuestionGroupComponent] MOUNT");
-    return () => {
-      console.log("[DEBUG QuestionGroupComponent] UNMOUNT");
-    };
-  }, []);
-
-  console.log("[DEBUG QuestionGroupComponent] RERENDER");
-
   return (
     <NodeViewWrapper className="question-group group">
       <div
@@ -542,8 +494,13 @@ const QuestionGroupComponent = ({ node, deleteNode }: any) => {
       >
         <GripVertical className="w-3.5 h-3.5" />
       </div>
-      <div className="question-group-label" contentEditable={false}>
-        {node.attrs.label || "Answer any ONE"}
+      <div className="question-group-header" contentEditable={false}>
+        {node.attrs.number ? (
+          <span className="question-group-number">{node.attrs.number}.</span>
+        ) : null}
+        <span className="question-group-label-text">
+          {node.attrs.label || "Answer any ONE of the following:"}
+        </span>
       </div>
       <div className="question-group-content editable-container">
         <NodeViewContent />
@@ -572,6 +529,7 @@ export const QuestionGroupBlock = Node.create({
     return {
       groupType: { default: "or" },
       label: { default: "Answer any ONE of the following:" },
+      number: { default: null },
     };
   },
 
