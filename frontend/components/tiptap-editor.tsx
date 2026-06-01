@@ -33,7 +33,7 @@ import {
 } from "./editor/extensions/nodes";
 import { PaperHeaderBlock as PaperHeaderBlockExt } from "./editor/extensions/header-node";
 import { MathBlock, InlineMath } from "./editor/extensions/math-nodes";
-import { DrawingBlock } from "./editor/extensions/drawing-node";
+// DrawingBlock intentionally removed — feature retired in this round.
 import { FloatImage } from "./editor/extensions/float-image";
 import { PaginatedDocument } from "./editor/extensions/document-node";
 import { PageNode } from "./editor/extensions/page-node";
@@ -61,7 +61,7 @@ import {
   type LiveEditorDocument,
 } from "@/lib/live-document-db";
 import { useSession } from "@/lib/auth-client";
-import { savePaperAction, updatePaperAction } from "@/actions/savePaper";
+import { updatePaperAction } from "@/actions/savePaper";
 import { SyncCancelledError } from "@/lib/api-client";
 
 // ==================================
@@ -640,9 +640,11 @@ export const TiptapEditor = ({
                 return;
               }
 
-              // "current" is a sentinel for an unsaved local draft — treat it
-              // as null so we create a real backend paper on first sync.
-              let syncedPaperId =
+              // Autosave ONLY updates existing backend papers (PUT).
+              // Creating a new paper row is the user's explicit action via
+              // "Paper Details" → Save.  Never POST from here — that caused
+              // the empty-paper flood (#3 / CLUSTER 1).
+              const syncedPaperId =
                 currentPaperId && currentPaperId !== "current"
                   ? currentPaperId
                   : null;
@@ -658,32 +660,18 @@ export const TiptapEditor = ({
                   },
                   syncAbortController.signal,
                 );
-              } else {
-                const result = await savePaperAction(
-                  {
-                    class: metadata.className,
-                    subject: metadata.subject,
-                    examName: metadata.title,
-                    content,
-                    questionRefs: [],
+                await saveLiveDocument({
+                  ...liveDocument,
+                  sync: {
+                    status: "synced",
+                    lastSyncedAt: new Date().getTime(),
+                    error: null,
                   },
-                  syncAbortController.signal,
-                );
-                syncedPaperId = result.paperId;
-                paperIdRef.current = syncedPaperId;
-                onPaperCreatedRef.current?.(syncedPaperId);
+                });
               }
-
-              await saveLiveDocument({
-                ...liveDocument,
-                id: getLiveDocumentId(currentUserId, syncedPaperId),
-                paperId: syncedPaperId,
-                sync: {
-                  status: "synced",
-                  lastSyncedAt: new Date().getTime(),
-                  error: null,
-                },
-              });
+              // For unsaved drafts (syncedPaperId = null): IDB save already
+              // happened above.  Show "Saved" to indicate the draft is safe
+              // locally even though no backend row exists yet.
               setSaveState("saved");
             } catch (error: any) {
               // A newer sync cancelled this one — not an error, just move on.
@@ -772,7 +760,6 @@ export const TiptapEditor = ({
         PaperHeaderBlockExt,
         MathBlock,
         InlineMath,
-        DrawingBlock,
         PageBreak,
         // Utilities
         CharacterCount,
@@ -1058,6 +1045,11 @@ export const TiptapEditor = ({
   );
 
   const lastLoadedContentRef = useRef<string | null>(null);
+  // documentLoadedRef / documentLoadedSignal: guard for deferred insertions
+  // (questionsToAppend, sectionsToAppend) that must not run until the IDB
+  // async load has finished setting editor content.
+  const documentLoadedRef = useRef(false);
+  const [documentLoadedSignal, setDocumentLoadedSignal] = useState(0);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -1069,6 +1061,8 @@ export const TiptapEditor = ({
     const loadKey = `${currentUserId}:${paperId ?? "current"}:${serverUpdatedAt ?? "local"}:${initialContent}`;
     if (lastLoadedContentRef.current === loadKey) return;
     lastLoadedContentRef.current = loadKey;
+    // Mark document as NOT loaded while the async IDB fetch is in flight.
+    documentLoadedRef.current = false;
 
     let cancelled = false;
 
@@ -1134,6 +1128,11 @@ export const TiptapEditor = ({
               ? "failed"
               : "saved",
         );
+        // Signal dependent effects (questionsToAppend, sectionsToAppend) that
+        // the document is ready.  Must come AFTER setContent so they insert
+        // into the freshly-loaded document, not an empty one.
+        documentLoadedRef.current = true;
+        setDocumentLoadedSignal((s) => s + 1);
       });
     };
 
@@ -1184,7 +1183,11 @@ export const TiptapEditor = ({
   }, [instructionsToAppend, editor, clearInstructionsToAppend, debouncedLiveSync]);
 
   useEffect(() => {
-    if (questionsToAppend.length === 0 || !editor) return;
+    // Guard: don't consume pending questions until the IDB load has placed the
+    // correct base content in the editor.  Without this, questions are
+    // appended to an empty document and then overwritten when the async IDB
+    // load completes — the merge is lost.
+    if (questionsToAppend.length === 0 || !editor || !documentLoadedRef.current) return;
 
     const questions = [...questionsToAppend];
     clearQuestionsToAppend();
@@ -1243,11 +1246,14 @@ export const TiptapEditor = ({
       debouncedLiveSync(editor);
       debouncedLiveSync.flush();
     });
-  }, [questionsToAppend, editor, clearQuestionsToAppend, debouncedLiveSync]);
+  // documentLoadedSignal is intentional: re-fire when content is loaded so
+  // any pending questions (queued before doc was ready) get inserted.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questionsToAppend, editor, clearQuestionsToAppend, debouncedLiveSync, documentLoadedSignal]);
 
   // Handle section-wise insertion from AI generator
   useEffect(() => {
-    if (sectionsToAppend.length === 0 || !editor) return;
+    if (sectionsToAppend.length === 0 || !editor || !documentLoadedRef.current) return;
 
     const sections = [...sectionsToAppend];
     clearSectionsToAppend();
@@ -1330,7 +1336,8 @@ export const TiptapEditor = ({
       debouncedLiveSync(editor);
       debouncedLiveSync.flush();
     });
-  }, [sectionsToAppend, editor, clearSectionsToAppend, debouncedLiveSync]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionsToAppend, editor, clearSectionsToAppend, debouncedLiveSync, documentLoadedSignal]);
 
   // ── Tray "Undo" → remove a previously inserted question from the doc ──
   // The review tray records every generated question and lets the teacher
@@ -1521,7 +1528,7 @@ export const TiptapEditor = ({
         .paper-header-logo-area {
           width: 88px;
           height: 88px;
-          border: 1px solid #000000;
+          border: none;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -1529,8 +1536,14 @@ export const TiptapEditor = ({
         }
 
         .paper-header-logo-area.is-empty {
-          border: 1px solid #000000;
-          color: #000000;
+          border: 1px dashed #bbb;
+          color: #888;
+        }
+
+        @media print {
+          .paper-header-logo-area.is-empty {
+            border: none;
+          }
         }
 
         .logo-placeholder {
@@ -1631,9 +1644,8 @@ export const TiptapEditor = ({
         }
 
         .section-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: baseline;
+          display: block;
+          text-align: center;
           padding: 2px 0;
           font-weight: 700;
           text-transform: uppercase;
@@ -1642,10 +1654,12 @@ export const TiptapEditor = ({
         }
 
         .section-title {
-          flex: 1;
+          display: inline;
         }
 
         .section-summary {
+          display: inline;
+          margin-left: 8px;
           text-transform: none;
           letter-spacing: 0;
           font-size: 10pt;
@@ -1787,7 +1801,9 @@ export const TiptapEditor = ({
         }
 
         .question-marks {
-          text-align: center;
+          display: flex;
+          align-items: center;
+          justify-content: center;
           white-space: nowrap;
         }
 
@@ -1916,11 +1932,33 @@ export const TiptapEditor = ({
           margin: 2px 0;
         }
 
-        .grouped-question-block .question-body ol li::before {
+        /* default (alpha): (a) (b) (c) */
+        .grouped-question-block .question-body ol li::before,
+        .grouped-question-block[data-label-style="alpha"] .question-body ol li::before {
           counter-increment: subq;
-          content: counter(subq, lower-alpha) ") ";
+          content: "(" counter(subq, lower-alpha) ") ";
           font-weight: 700;
-          min-width: 18px;
+          min-width: 22px;
+          display: inline-flex;
+          justify-content: flex-start;
+        }
+
+        /* numeric: 1. 2. 3. */
+        .grouped-question-block[data-label-style="numeric"] .question-body ol li::before {
+          counter-increment: subq;
+          content: counter(subq, decimal) ". ";
+          font-weight: 700;
+          min-width: 22px;
+          display: inline-flex;
+          justify-content: flex-start;
+        }
+
+        /* roman: (i) (ii) (iii) */
+        .grouped-question-block[data-label-style="roman"] .question-body ol li::before {
+          counter-increment: subq;
+          content: "(" counter(subq, lower-roman) ") ";
+          font-weight: 700;
+          min-width: 28px;
           display: inline-flex;
           justify-content: flex-start;
         }
@@ -1936,6 +1974,24 @@ export const TiptapEditor = ({
         .grouped-question-block .question-body ol li > p,
         .grouped-question-block .question-body ul li > p {
           margin: 0;
+        }
+
+        /* Label style picker */
+        .question-label-style-picker {
+          display: flex;
+          align-items: center;
+        }
+
+        .question-label-style-select {
+          border: 1px solid #000000;
+          background: #ffffff;
+          color: #000000;
+          border-radius: 4px;
+          padding: 1px 2px;
+          font-size: 9pt;
+          height: 20px;
+          cursor: pointer;
+          outline: none;
         }
 
         /* ===== Instruction Block ===== */

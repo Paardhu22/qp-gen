@@ -4,7 +4,7 @@ import {
   NodeViewWrapper,
   NodeViewContent,
 } from "@tiptap/react";
-import React from "react";
+import React, { useState } from "react";
 import { GripVertical, Trash, Plus } from "lucide-react";
 
 // ==========================================
@@ -74,7 +74,7 @@ export const QuestionBlock = Node.create({
   name: "questionBlock",
   group: "block paperBlock",
   content:
-    "(paragraph | bulletList | orderedList | mathBlock | drawingBlock | floatImage)+",
+    "(paragraph | bulletList | orderedList | mathBlock | floatImage)+",
   draggable: true,
   isolating: true,
 
@@ -130,7 +130,17 @@ export const QuestionBlock = Node.create({
 // GroupedQuestionBlock - Question with sub-questions (a, b, ...)
 // ==========================================
 
+type LabelStyle = "alpha" | "numeric" | "roman";
+
+const LABEL_STYLE_OPTIONS: { value: LabelStyle; label: string }[] = [
+  { value: "alpha", label: "(a)(b)(c)" },
+  { value: "numeric", label: "1.2.3." },
+  { value: "roman", label: "(i)(ii)(iii)" },
+];
+
 const GroupedQuestionComponent = ({ node, updateAttributes, deleteNode, editor, getPos }: any) => {
+  const labelStyle: LabelStyle = node.attrs.labelStyle || "alpha";
+
   const handleAddSubQuestion = () => {
     if (!editor || typeof getPos !== "function") return;
 
@@ -168,8 +178,12 @@ const GroupedQuestionComponent = ({ node, updateAttributes, deleteNode, editor, 
     editor.view.dispatch(tr);
     editor.chain().focus().run();
   };
+
   return (
-    <NodeViewWrapper className="question-block grouped-question-block group">
+    <NodeViewWrapper
+      className="question-block grouped-question-block group"
+      data-label-style={labelStyle}
+    >
       <div
         data-drag-handle
         contentEditable={false}
@@ -213,6 +227,27 @@ const GroupedQuestionComponent = ({ node, updateAttributes, deleteNode, editor, 
         </div>
       </div>
       <div className="question-controls" contentEditable={false}>
+        {/* Sub-label style picker */}
+        <div
+          className="question-label-style-picker"
+          title="Sub-question label style"
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <select
+            value={labelStyle}
+            onChange={(e) =>
+              updateAttributes({ labelStyle: e.target.value as LabelStyle })
+            }
+            className="question-label-style-select"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {LABEL_STYLE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
         <button
           onClick={handleAddSubQuestion}
           onMouseDown={(e) => e.preventDefault()}
@@ -238,7 +273,7 @@ export const GroupedQuestionBlock = Node.create({
   name: "groupedQuestionBlock",
   group: "block paperBlock",
   content:
-    "(paragraph | bulletList | orderedList | mathBlock | drawingBlock | floatImage)+",
+    "(paragraph | bulletList | orderedList | mathBlock | floatImage)+",
   draggable: true,
   isolating: true,
 
@@ -250,6 +285,7 @@ export const GroupedQuestionBlock = Node.create({
       questionType: { default: "GROUPED" },
       tags: { default: "" },
       aiGenerated: { default: false },
+      labelStyle: { default: "alpha" },
     };
   },
 
@@ -279,6 +315,7 @@ export const GroupedQuestionBlock = Node.create({
         "data-type": "grouped-question-block",
         "data-marks": HTMLAttributes.marks ?? "",
         "data-number": HTMLAttributes.number ?? "",
+        "data-label-style": HTMLAttributes.labelStyle ?? "alpha",
       }),
       ["div", { class: "question-content" }, 0],
     ];
@@ -431,7 +468,7 @@ export const InstructionBlock = Node.create({
   name: "instructionBlock",
   group: "block paperBlock",
   content:
-    "(paragraph | bulletList | orderedList | mathBlock | drawingBlock | floatImage)+",
+    "(paragraph | bulletList | orderedList | mathBlock | floatImage)+",
   draggable: true,
 
   addAttributes() {

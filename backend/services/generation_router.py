@@ -60,6 +60,7 @@ class QuestionGenerationSlot:
     retrieval_query: str
     choice_required: bool = False
     requires_image: bool = False
+    requires_figure: bool = False  # geometry/mensuration slots that MUST include an inline SVG diagram
     vi_required: bool = False
     instruction_hint: str = ""
     # CONTENT | PASSAGE | GRAMMAR | COMPOSITION (see q_instructions.core.enums.GenerationMode).
@@ -1157,6 +1158,15 @@ def _build_content_instruction(slot: QuestionGenerationSlot) -> str:
     else:
         lines.append("Set `question.image_url` to an empty string unless the slot explicitly uses a retrieved image.")
 
+    if getattr(slot, "requires_figure", False):
+        lines.append(
+            "MANDATORY FIGURE: This question MUST include an inline SVG diagram in the `figure` field. "
+            "Emit `\"figure\": {\"type\": \"svg\", \"content\": \"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'>...</svg>\"}`. "
+            "The SVG must have labelled vertices/sides/angles. "
+            "NO <script>, NO <foreignObject>, NO external xlink:href. "
+            "A response without a valid `figure` field will be rejected."
+        )
+
     return "\n".join(lines)
 
 
@@ -1217,6 +1227,7 @@ def _make_slot(
     instructions: str,
     choice_required: bool = False,
     requires_image: bool = False,
+    requires_figure: bool = False,
     vi_required: bool = False,
     instruction_hint: str = "",
     mode: str = "CONTENT",
@@ -1251,6 +1262,7 @@ def _make_slot(
         retrieval_query=retrieval_query,
         choice_required=choice_required,
         requires_image=requires_image,
+        requires_figure=requires_figure,
         vi_required=vi_required,
         instruction_hint=instruction_hint,
         generation_mode=str(mode).upper(),
@@ -1380,14 +1392,15 @@ def _exact_class10_blueprint_entries_mathematics() -> List[Dict[str, Any]]:
     })
 
     # Section B — Q21–Q25 VSA SHORT_ANSWER 2m = 10m
+    # Tuples: (choice_required, hint, requires_figure)
     vsa_data = [
-        (True,  "Q21 (VSA, internal choice): Find the sum of the last n terms of an AP OR find the middle term of an AP."),
-        (False, "Q22 (VSA): Given sin(A+B) = 1 and cos(A-B) = √3/2, find angle A and angle B where 0 < A,B < 90°."),
-        (False, "Q23 (VSA): Prove that the ratio of corresponding sides of similar triangles equals the ratio of their corresponding medians."),
-        (True,  "Q24 (VSA, internal choice): A horse is tied to a peg by a rope; find the area it can graze (sector area) OR find the area of a major segment of a circle."),
-        (False, "Q25 (VSA): A triangle is circumscribed about a circle; find its sides using tangent properties. VI alternative: find the inradius of a right triangle with legs 6 cm and 8 cm."),
+        (True,  "Q21 (VSA, internal choice): Find the sum of the last n terms of an AP OR find the middle term of an AP.", False),
+        (False, "Q22 (VSA): Given sin(A+B) = 1 and cos(A-B) = √3/2, find angle A and angle B where 0 < A,B < 90°.", False),
+        (False, "Q23 (VSA): Prove that the ratio of corresponding sides of similar triangles equals the ratio of their corresponding medians.", True),
+        (True,  "Q24 (VSA, internal choice): A horse is tied to a peg by a rope; find the area it can graze (sector area) OR find the area of a major segment of a circle.", False),
+        (False, "Q25 (VSA): A triangle is circumscribed about a circle; find its sides using tangent properties. VI alternative: find the inradius of a right triangle with legs 6 cm and 8 cm.", False),
     ]
-    for choice, hint in vsa_data:
+    for choice, hint, req_fig in vsa_data:
         entries.append({
             "section": "Section B - Very Short Answer",
             "stream": "MATHEMATICS",
@@ -1395,6 +1408,7 @@ def _exact_class10_blueprint_entries_mathematics() -> List[Dict[str, Any]]:
             "marks": 2,
             "count": 1,
             "choice_required": choice,
+            "requires_figure": req_fig,
             "hint": hint,
         })
 
@@ -1419,13 +1433,14 @@ def _exact_class10_blueprint_entries_mathematics() -> List[Dict[str, Any]]:
         })
 
     # Section D — Q32–Q35 LA LONG_ANSWER 5m = 20m
+    # Tuples: (choice_required, hint, requires_figure)
     la_data = [
-        (False, "Q32 (LA): Speed-distance-time quadratic word problem (e.g., a train covers a distance; if it travels 10 km/h slower it takes 3 h more — find original speed)."),
-        (False, "Q33 (LA): State and prove the Basic Proportionality Theorem (Thales' theorem). Then apply it to find a side length in a given figure."),
-        (True,  "Q34 (LA, internal choice): Find the total surface area of a solid formed by combining a cone and a cylinder (or cylinder with hemispherical cavity) OR find the volume of an ice-cream cone (cone + hemisphere)."),
-        (True,  "Q35 (LA, internal choice): Find mode and mean from a grouped frequency distribution table, then use the empirical formula to find the median OR construct a 'less than' ogive from the given data and find the median graphically."),
+        (False, "Q32 (LA): Speed-distance-time quadratic word problem (e.g., a train covers a distance; if it travels 10 km/h slower it takes 3 h more — find original speed).", False),
+        (False, "Q33 (LA): State and prove the Basic Proportionality Theorem (Thales' theorem). Then apply it to find a side length in a given figure.", True),
+        (True,  "Q34 (LA, internal choice): Find the total surface area of a solid formed by combining a cone and a cylinder (or cylinder with hemispherical cavity) OR find the volume of an ice-cream cone (cone + hemisphere).", False),
+        (True,  "Q35 (LA, internal choice): Find mode and mean from a grouped frequency distribution table, then use the empirical formula to find the median OR construct a 'less than' ogive from the given data and find the median graphically.", False),
     ]
-    for choice, hint in la_data:
+    for choice, hint, req_fig in la_data:
         entries.append({
             "section": "Section D - Long Answer",
             "stream": "MATHEMATICS",
@@ -1433,6 +1448,7 @@ def _exact_class10_blueprint_entries_mathematics() -> List[Dict[str, Any]]:
             "marks": 5,
             "count": 1,
             "choice_required": choice,
+            "requires_figure": req_fig,
             "hint": hint,
         })
 
@@ -2336,6 +2352,7 @@ def _build_exact_cbse_class10_plan(
                     instructions=instructions,
                     choice_required=bool(entry.get("choice_required")) or local_index < choice_first,
                     requires_image=bool(entry.get("requires_image")) or qtype_name == "DIAGRAM",
+                    requires_figure=bool(entry.get("requires_figure")),
                     vi_required=bool(entry.get("vi_required")),
                     instruction_hint=str(entry.get("hint") or ""),
                     mode=str(entry.get("mode") or "CONTENT").upper(),

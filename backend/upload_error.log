@@ -136,3 +136,290 @@ Traceback (most recent call last):
     )
 openai.OpenAIError: Missing credentials. Please pass an `api_key`, `workload_identity`, `admin_api_key`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.
 
+Error: the connection is closed
+Traceback (most recent call last):
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 294, in _cursor
+    return self._prepare_cursor(self.create_cursor(name))
+                                ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/utils/asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/postgresql/base.py", line 332, in create_cursor
+    cursor = self.connection.cursor()
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/psycopg/connection.py", line 240, in cursor
+    self._check_connection_ok()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/psycopg/_connection_base.py", line 532, in _check_connection_ok
+    raise e.OperationalError("the connection is closed")
+psycopg.OperationalError: the connection is closed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/paardhu/Projects/qp-gen/backend/services/document_service.py", line 207, in process_pdf_upload
+    embeddings = generate_embeddings(
+        [chunk.content for chunk in batch], user=user
+    )
+  File "/home/paardhu/Projects/qp-gen/backend/services/embedding_service.py", line 21, in generate_embeddings
+    _record_usage(user, "embeddings", settings.OPENAI_EMBEDDING_MODEL, response.usage)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/services/openai_service.py", line 23, in _record_usage
+    ApiUsage.objects.create(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        user=user,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        total_tokens=getattr(usage, "total_tokens", 0) or 0,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/query.py", line 679, in create
+    obj.save(force_insert=True, using=self.db)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/base.py", line 822, in save
+    self.save_base(
+    ~~~~~~~~~~~~~~^
+        using=using,
+        ^^^^^^^^^^^^
+    ...<2 lines>...
+        update_fields=update_fields,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/base.py", line 909, in save_base
+    updated = self._save_table(
+        raw,
+    ...<4 lines>...
+        update_fields,
+    )
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/base.py", line 1071, in _save_table
+    results = self._do_insert(
+        cls._base_manager, using, fields, returning_fields, raw
+    )
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/base.py", line 1112, in _do_insert
+    return manager._insert(
+           ~~~~~~~~~~~~~~~^
+        [self],
+        ^^^^^^^
+    ...<3 lines>...
+        raw=raw,
+        ^^^^^^^^
+    )
+    ^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/query.py", line 1847, in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py", line 1821, in execute_sql
+    with self.connection.cursor() as cursor:
+         ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/utils/asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 316, in cursor
+    return self._cursor()
+           ~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 293, in _cursor
+    with self.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 294, in _cursor
+    return self._prepare_cursor(self.create_cursor(name))
+                                ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/utils/asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/postgresql/base.py", line 332, in create_cursor
+    cursor = self.connection.cursor()
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/psycopg/connection.py", line 240, in cursor
+    self._check_connection_ok()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/psycopg/_connection_base.py", line 532, in _check_connection_ok
+    raise e.OperationalError("the connection is closed")
+django.db.utils.OperationalError: the connection is closed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 294, in _cursor
+    return self._prepare_cursor(self.create_cursor(name))
+                                ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/utils/asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/postgresql/base.py", line 332, in create_cursor
+    cursor = self.connection.cursor()
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/psycopg/connection.py", line 240, in cursor
+    self._check_connection_ok()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/psycopg/_connection_base.py", line 532, in _check_connection_ok
+    raise e.OperationalError("the connection is closed")
+psycopg.OperationalError: the connection is closed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/paardhu/Projects/qp-gen/backend/apps/documents/views.py", line 19, in post
+    pdf_source = process_pdf_upload(
+        file=serializer.validated_data["file"],
+        user=request.user,
+    )
+  File "/home/paardhu/Projects/qp-gen/backend/services/document_service.py", line 234, in process_pdf_upload
+    pdf_source.save(update_fields=["status", "error", "updated_at"])
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/base.py", line 822, in save
+    self.save_base(
+    ~~~~~~~~~~~~~~^
+        using=using,
+        ^^^^^^^^^^^^
+    ...<2 lines>...
+        update_fields=update_fields,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/base.py", line 909, in save_base
+    updated = self._save_table(
+        raw,
+    ...<4 lines>...
+        update_fields,
+    )
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/base.py", line 1040, in _save_table
+    updated = self._do_update(
+        base_qs, using, pk_val, values, update_fields, forced_update
+    )
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/base.py", line 1105, in _do_update
+    return filtered._update(values) > 0
+           ~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/query.py", line 1278, in _update
+    return query.get_compiler(self.db).execute_sql(CURSOR)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py", line 1990, in execute_sql
+    cursor = super().execute_sql(result_type)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/models/sql/compiler.py", line 1560, in execute_sql
+    cursor = self.connection.cursor()
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/utils/asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 316, in cursor
+    return self._cursor()
+           ~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 293, in _cursor
+    with self.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 294, in _cursor
+    return self._prepare_cursor(self.create_cursor(name))
+                                ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/utils/asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/postgresql/base.py", line 332, in create_cursor
+    cursor = self.connection.cursor()
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/psycopg/connection.py", line 240, in cursor
+    self._check_connection_ok()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/psycopg/_connection_base.py", line 532, in _check_connection_ok
+    raise e.OperationalError("the connection is closed")
+django.db.utils.OperationalError: the connection is closed
+
+Error: connection failed: connection to server at "35.168.64.81", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "35.168.64.81", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+Multiple connection attempts failed. All failures were:
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '2600:1f18:6000:1e16:6f0e:3483:524f:275b': connection failed: connection to server at "2600:1f18:6000:1e16:6f0e:3483:524f:275b", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "2600:1f18:6000:1e16:6f0e:3483:524f:275b", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '2600:1f18:6000:1e0c:82b3:cc30:735b:5ee6': connection failed: connection to server at "2600:1f18:6000:1e0c:82b3:cc30:735b:5ee6", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "2600:1f18:6000:1e0c:82b3:cc30:735b:5ee6", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '2600:1f18:6000:1e2d:2006:227:9d2f:8fa0': connection failed: connection to server at "2600:1f18:6000:1e2d:2006:227:9d2f:8fa0", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "2600:1f18:6000:1e2d:2006:227:9d2f:8fa0", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '52.4.160.253': connection failed: connection to server at "52.4.160.253", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "52.4.160.253", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '98.85.120.174': connection failed: connection to server at "98.85.120.174", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "98.85.120.174", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '35.168.64.81': connection failed: connection to server at "35.168.64.81", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "35.168.64.81", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+Traceback (most recent call last):
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 275, in ensure_connection
+    self.connect()
+    ~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/utils/asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 256, in connect
+    self.connection = self.get_new_connection(conn_params)
+                      ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/utils/asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/postgresql/base.py", line 277, in get_new_connection
+    connection = self.Database.connect(**conn_params)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/psycopg/connection.py", line 130, in connect
+    raise new_ex.with_traceback(None)
+psycopg.OperationalError: connection failed: connection to server at "35.168.64.81", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "35.168.64.81", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+Multiple connection attempts failed. All failures were:
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '2600:1f18:6000:1e16:6f0e:3483:524f:275b': connection failed: connection to server at "2600:1f18:6000:1e16:6f0e:3483:524f:275b", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "2600:1f18:6000:1e16:6f0e:3483:524f:275b", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '2600:1f18:6000:1e0c:82b3:cc30:735b:5ee6': connection failed: connection to server at "2600:1f18:6000:1e0c:82b3:cc30:735b:5ee6", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "2600:1f18:6000:1e0c:82b3:cc30:735b:5ee6", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '2600:1f18:6000:1e2d:2006:227:9d2f:8fa0': connection failed: connection to server at "2600:1f18:6000:1e2d:2006:227:9d2f:8fa0", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "2600:1f18:6000:1e2d:2006:227:9d2f:8fa0", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '52.4.160.253': connection failed: connection to server at "52.4.160.253", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "52.4.160.253", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '98.85.120.174': connection failed: connection to server at "98.85.120.174", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "98.85.120.174", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '35.168.64.81': connection failed: connection to server at "35.168.64.81", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "35.168.64.81", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/paardhu/Projects/qp-gen/backend/apps/documents/views.py", line 19, in post
+    pdf_source = process_pdf_upload(
+        file=serializer.validated_data["file"],
+        user=request.user,
+    )
+  File "/home/paardhu/Projects/qp-gen/backend/services/document_service.py", line 177, in process_pdf_upload
+    with transaction.atomic():
+         ~~~~~~~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/transaction.py", line 198, in __enter__
+    if not connection.get_autocommit():
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 450, in get_autocommit
+    self.ensure_connection()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/utils/asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 274, in ensure_connection
+    with self.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 275, in ensure_connection
+    self.connect()
+    ~~~~~~~~~~~~^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/utils/asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/base/base.py", line 256, in connect
+    self.connection = self.get_new_connection(conn_params)
+                      ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/utils/asyncio.py", line 26, in inner
+    return func(*args, **kwargs)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/django/db/backends/postgresql/base.py", line 277, in get_new_connection
+    connection = self.Database.connect(**conn_params)
+  File "/home/paardhu/Projects/qp-gen/backend/.venv/lib/python3.14/site-packages/psycopg/connection.py", line 130, in connect
+    raise new_ex.with_traceback(None)
+django.db.utils.OperationalError: connection failed: connection to server at "35.168.64.81", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "35.168.64.81", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+Multiple connection attempts failed. All failures were:
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '2600:1f18:6000:1e16:6f0e:3483:524f:275b': connection failed: connection to server at "2600:1f18:6000:1e16:6f0e:3483:524f:275b", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "2600:1f18:6000:1e16:6f0e:3483:524f:275b", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '2600:1f18:6000:1e0c:82b3:cc30:735b:5ee6': connection failed: connection to server at "2600:1f18:6000:1e0c:82b3:cc30:735b:5ee6", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "2600:1f18:6000:1e0c:82b3:cc30:735b:5ee6", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '2600:1f18:6000:1e2d:2006:227:9d2f:8fa0': connection failed: connection to server at "2600:1f18:6000:1e2d:2006:227:9d2f:8fa0", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "2600:1f18:6000:1e2d:2006:227:9d2f:8fa0", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '52.4.160.253': connection failed: connection to server at "52.4.160.253", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "52.4.160.253", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '98.85.120.174': connection failed: connection to server at "98.85.120.174", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "98.85.120.174", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+- host: 'ep-super-sound-ap3j7nxy-pooler.c-7.us-east-1.aws.neon.tech', port: None, hostaddr: '35.168.64.81': connection failed: connection to server at "35.168.64.81", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.
+connection to server at "35.168.64.81", port 5432 failed: ERROR:  connection is insecure (try using `sslmode=require`)
+

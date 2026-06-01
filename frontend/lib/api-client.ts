@@ -216,8 +216,10 @@ export async function streamSse(
   }
 }
 
-export async function fetchProjects<T>(): Promise<T> {
-  return fetchJson<T>("/api/projects/", { method: "GET" });
+export async function fetchProjects<T>(
+  options: FetchJsonOptions = {},
+): Promise<T> {
+  return fetchJson<T>("/api/projects/", { method: "GET", ...options });
 }
 
 export async function fetchProjectsWithQuestions<T>(

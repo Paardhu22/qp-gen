@@ -54,7 +54,6 @@ import {
   Hash,
   FileText,
   FlaskConical,
-  PenTool,
   FolderOpen,
   Plus,
 } from "lucide-react";
@@ -900,16 +899,6 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           }}
         />
 
-        {/* Drawing Canvas */}
-        <ToolbarBtn
-          onClick={() =>
-            editor.chain().focus().insertContent({ type: "drawingBlock" }).run()
-          }
-          title="Insert Drawing Canvas"
-        >
-          <PenTool className="h-3.5 w-3.5" />
-        </ToolbarBtn>
-
         {/* Clear Formatting */}
         <ToolbarBtn
           onClick={() =>
@@ -1054,11 +1043,17 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() =>
+          onClick={() => {
+            // Auto-label: count existing sections and pick the next letter.
+            let sectionCount = 0;
+            editor.state.doc.descendants((node: any) => {
+              if (node.type.name === "sectionBlock") sectionCount++;
+            });
+            const letter = String.fromCharCode(65 + sectionCount); // A, B, C…
             insertAfterCurrentBlock("sectionBlock", [
-              { type: "text", text: "SECTION A" },
-            ])
-          }
+              { type: "text", text: `SECTION ${letter}` },
+            ]);
+          }}
           className="h-6 px-2 text-[10px] font-medium text-indigo-400 hover:bg-indigo-500/10 rounded transition-colors flex items-center gap-1"
         >
           <PlusCircle className="h-3 w-3" /> Section
