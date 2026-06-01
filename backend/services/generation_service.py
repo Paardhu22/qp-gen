@@ -426,6 +426,18 @@ def _coerce_question(raw_payload: dict, slot, source_chunks: List[dict], is_retr
             raise ValueError("LLM omitted the mandatory visual image_url.")
         image_url = allowed_urls[0]
 
+    # For slots that MUST include an inline SVG figure, reject on first attempt
+    # so the retry prompt explicitly requests the figure again.
+    if getattr(slot, "requires_figure", False) and not image_url:
+        if not is_retry:
+            raise ValueError(
+                "This question REQUIRES an inline SVG figure in the `figure` field. "
+                "Re-generate and include a valid SVG diagram with labelled vertices/sides/angles."
+            )
+        # On retry still no figure: accept the text-only version so we don't
+        # infinite-loop, but strip any dangling "see figure" references.
+        content = _strip_figure_references(content)
+
     if not image_url and _content_references_missing_figure(content):
         if not is_retry:
             raise ValueError(
@@ -502,21 +514,30 @@ def _single_question_schema(is_visual_mandatory: bool, slot) -> str:
     else:
         schema += '    "image_url": "String or omit entirely if no image is mandated",\n'
 
-    # ISSUE 2: figure field — for geometry/trig/mensuration where a real
-    # diagram is needed, the model MAY emit an inline SVG. Anything else
-    # (external URLs, ASCII art, broken-image placeholders) is rejected.
-    # Otherwise the stem MUST be text-self-contained — no "see figure".
-    schema += (
-        '    "figure": "OPTIONAL — for geometry/trigonometry/mensuration ONLY: '
-        '{type: \\"svg\\", content: \\"<svg viewBox=...>...</svg>\\"}. '
-        'A standalone inline SVG with labelled vertices/sides/angles. '
-        'NO <script>, NO <foreignObject>, NO external xlink:href. '
-        'If you cannot render a faithful figure, OMIT this key and write '
-        'a stem that contains all geometric data in words (\'In right '
-        'triangle ABC, right-angled at B, AB = 24 cm…\'). NEVER reference '
-        '\'the figure\' / \'the diagram\' unless this field is populated."'
-        ",\n"
-    )
+    # figure field — inline SVG for geometry diagrams.
+    # When slot.requires_figure=True the field is mandatory; otherwise optional.
+    if getattr(slot, "requires_figure", False):
+        schema += (
+            '    "figure": "REQUIRED — MUST be present: '
+            '{type: \\"svg\\", content: \\"<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 200 200\'>...</svg>\\"}. '
+            'A standalone inline SVG with clearly labelled vertices, sides, and angles. '
+            'Use <text> elements for labels (e.g., A, B, C, 6cm, 90°). '
+            'NO <script>, NO <foreignObject>, NO external xlink:href. '
+            'Omitting this field will cause the response to be REJECTED."'
+            ",\n"
+        )
+    else:
+        schema += (
+            '    "figure": "OPTIONAL — for geometry/trigonometry/mensuration ONLY: '
+            '{type: \\"svg\\", content: \\"<svg viewBox=...>...</svg>\\"}. '
+            'A standalone inline SVG with labelled vertices/sides/angles. '
+            'NO <script>, NO <foreignObject>, NO external xlink:href. '
+            'If you cannot render a faithful figure, OMIT this key and write '
+            'a stem that contains all geometric data in words (\'In right '
+            'triangle ABC, right-angled at B, AB = 24 cm…\'). NEVER reference '
+            '\'the figure\' / \'the diagram\' unless this field is populated."'
+            ",\n"
+        )
 
     if slot.choice_required:
         schema += '    "or_choice": { "content": "String", "options": ["(if MCQ)"], "answer": "String", "image_url": "String" },\n'

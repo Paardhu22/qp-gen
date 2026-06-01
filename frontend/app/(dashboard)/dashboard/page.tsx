@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { FileText, Plus, FolderOpen, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { fetchPapers, fetchProjectsWithQuestions } from "@/lib/api-client";
+import { fetchPapers, fetchProjects } from "@/lib/api-client";
 
 
 type Paper = {
@@ -30,14 +30,14 @@ export default function DashboardPage() {
       try {
         const [papers, projects] = await Promise.all([
           fetchPapers<Paper[]>({ timeoutMs: 30000 }),
-          fetchProjectsWithQuestions<any[]>({ timeoutMs: 30000 }),
+          fetchProjects<any[]>({ timeoutMs: 30000 }),
         ]);
-        
+
         if (active) {
           setStats({
             totalPapers: papers?.length || 0,
             activeProjects: projects?.length || 0,
-            generations: (projects?.length || 0) + (papers?.length || 0), // synthetic metric
+            generations: (projects?.length || 0) + (papers?.length || 0),
           });
           setRecentPapers((papers || []).slice(0, 3));
         }
