@@ -512,6 +512,97 @@ class AnswerScriptServiceTests(unittest.TestCase):
         self.assertEqual(questions[0]["marks"], 2)
         self.assertEqual(len(questions[1]["options"]), 2)
 
+    def test_request_completion_does_not_send_unsupported_temperature(self):
+        """Regression: the per-Q LLM call must not pass `temperature=0`.
+
+        gpt-5 family models reject any non-default temperature with
+        BadRequestError ('unsupported_value'). When that exception was
+        swallowed by the per-Q try/except, every question came back as
+        "[Answer generation failed]" and the marks badge showed 0.
+
+        This test captures the kwargs the service would pass to OpenAI
+        without actually hitting the network. If a future change reverts
+        `temperature=0` (or any value other than 1), the assertion fails.
+        """
+        from unittest.mock import MagicMock, patch
+        from services import answer_script_service as svc
+
+        captured = {}
+
+        def fake_create(**kwargs):
+            captured.update(kwargs)
+            response = MagicMock()
+            response.choices = [MagicMock()]
+            response.choices[0].message.content = '{"answer": "ok", "or_answer": null}'
+            response.usage = MagicMock(
+                prompt_tokens=1, completion_tokens=1, total_tokens=2
+            )
+            return response
+
+        fake_client = MagicMock()
+        fake_client.chat.completions.create.side_effect = fake_create
+
+        with patch.object(svc, "_record_usage"):
+            svc._generate_single_answer_llm_only(
+                client=fake_client,
+                question_number=1,
+                question={
+                    "content": "What is X?",
+                    "marks": 3,
+                    "type": "SHORT_ANSWER",
+                    "options": [],
+                    "or_choice": None,
+                },
+                source_chunks=[],
+                user=None,
+            )
+
+        self.assertNotIn(
+            "temperature", captured,
+            msg="answer_script_service must not pass `temperature` to OpenAI "
+                "(gpt-5 only accepts default=1; sending any value causes a "
+                "BadRequestError that blanket-fails every question).",
+        )
+
+    def test_build_answer_script_emits_question_blocks(self):
+        """Regression: marks badge counts `questionBlock` nodes; the answer
+        script must emit them so the badge isn't perma-zero."""
+        from services.answer_script_service import _build_answer_script_content
+
+        class _StubProject:
+            name = "Class 10 — Science"
+
+        class _StubPaper:
+            project = _StubProject()
+
+        answers = [
+            {
+                "question_number": 1, "marks": 2,
+                "answer": "Photosynthesis is …",
+                "question_type": "SHORT_ANSWER",
+                "or_choice_text": None, "or_answer": None,
+            },
+            {
+                "question_number": 2, "marks": 5,
+                "answer": "Newton's laws state …",
+                "question_type": "LONG_ANSWER",
+                "or_choice_text": "Explain inertia",
+                "or_answer": "Inertia is …",
+            },
+        ]
+
+        blocks = _build_answer_script_content(_StubPaper(), answers)
+        # Top-level wrapper is a page node containing the doc body.
+        self.assertEqual(blocks[0]["type"], "page")
+        body = blocks[0]["content"]
+        q_blocks = [b for b in body if b.get("type") == "questionBlock"]
+        self.assertEqual(len(q_blocks), 2)
+        self.assertEqual(q_blocks[0]["attrs"]["marks"], 2)
+        self.assertEqual(q_blocks[0]["attrs"]["number"], 1)
+        self.assertEqual(q_blocks[1]["attrs"]["marks"], 5)
+        # OR-answer expands into extra paragraphs inside the same questionBlock
+        self.assertGreaterEqual(len(q_blocks[1]["content"]), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

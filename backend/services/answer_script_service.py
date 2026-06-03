@@ -337,6 +337,10 @@ def _generate_single_answer_llm_only(
             content = user_prompt
             if extra_instruction:
                 content = f"{content}\n\n{extra_instruction}"
+            # NOTE: do not pass `temperature` — gpt-5 family models only
+            # accept the default (1) and reject any other value with
+            # `BadRequestError: 'temperature' does not support 0 with this
+            # model`. Omit the parameter so the default is used.
             return client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[
@@ -345,7 +349,6 @@ def _generate_single_answer_llm_only(
                 ],
                 response_format={"type": "json_object"},
                 max_completion_tokens=1000,
-                temperature=0,
             )
 
         completion = _request_completion()
@@ -378,8 +381,13 @@ def _generate_single_answer_llm_only(
                 or_answer_text = "[Answer to be filled by teacher]"
 
     except Exception as exc:
-        logger.warning(
-            "LLM answer generation failed for Q%d: %s", question_number, exc
+        # Per-Q isolation: a single failure must NOT take down the whole
+        # script. Log with exc_info so a regression is never silent again
+        # (the previous code logged only str(exc), which masked the
+        # real OpenAI BadRequestError that affected every question).
+        logger.error(
+            "LLM answer generation failed for Q%d: %s",
+            question_number, exc, exc_info=True,
         )
         answer_text = "[Answer generation failed]"
         or_answer_text = "[Answer generation failed]" if or_choice_text else None
@@ -440,52 +448,50 @@ def _build_answer_script_content(
         "content": [],
     })
 
-    # Answer blocks
+    # Answer blocks — emit each answer as a `questionBlock` so the
+    # editor renders the same number + marks chrome it does for source
+    # papers, and the Marks total badge counts these answers (the badge
+    # in `editor/toolbar.tsx` only walks `questionBlock`/`groupedQuestionBlock`
+    # nodes — paragraph-shaped answers would render as Marks badge = 0).
     for ans in answers:
         q_num = ans["question_number"]
-        marks = ans["marks"]
+        marks = int(ans.get("marks") or 0)
         answer_text = ans["answer"] or "[Answer to be filled by teacher]"
         or_choice = ans.get("or_choice_text")
         or_answer = ans.get("or_answer")
 
-        # Format marks display
-        marks_display = f"{marks} M"
-
-        # Build answer paragraph content
-        answer_lines = [f"{q_num}.  {answer_text}"]
-
-        if or_choice and or_answer:
-            answer_lines.append("")
-            answer_lines.append("OR")
-            answer_lines.append("")
-            answer_lines.append(f"    {or_answer}")
-
-        # Add marks indicator at the end
-        full_text = "\n".join(answer_lines)
-
-        # Create the answer block as a paragraph with marks
-        text_content: List[Dict[str, Any]] = [
-            {"type": "text", "text": full_text},
+        answer_paragraphs: List[Dict[str, Any]] = [
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": answer_text}],
+            }
         ]
 
-        # Add marks as a separate bold text
-        text_content.append(
-            {
-                "type": "text",
-                "marks": [{"type": "bold"}],
-                "text": f"    [{marks_display}]",
-            }
-        )
+        if or_choice and or_answer:
+            answer_paragraphs.append({
+                "type": "paragraph",
+                "content": [
+                    {
+                        "type": "text",
+                        "marks": [{"type": "bold"}],
+                        "text": "OR",
+                    }
+                ],
+            })
+            answer_paragraphs.append({
+                "type": "paragraph",
+                "content": [{"type": "text", "text": or_answer}],
+            })
 
         doc_content.append({
-            "type": "paragraph",
-            "content": text_content,
-        })
-
-        # Add spacing between questions
-        doc_content.append({
-            "type": "paragraph",
-            "content": [],
+            "type": "questionBlock",
+            "attrs": {
+                "marks": marks,
+                "number": q_num,
+                "questionType": ans.get("question_type", "SHORT_ANSWER"),
+                "aiGenerated": True,
+            },
+            "content": answer_paragraphs,
         })
 
     # Wrap the entire marking scheme in a new page node
