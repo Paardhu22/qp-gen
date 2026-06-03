@@ -2,6 +2,7 @@
 
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { OrderedList } from "@tiptap/extension-list";
 import Typography from "@tiptap/extension-typography";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
@@ -29,7 +30,6 @@ import {
   InstructionBlock,
   QuestionGroupBlock,
   GroupedQuestionBlock,
-  PageBreak,
 } from "./editor/extensions/nodes";
 import { PaperHeaderBlock as PaperHeaderBlockExt } from "./editor/extensions/header-node";
 import { MathBlock, InlineMath } from "./editor/extensions/math-nodes";
@@ -161,17 +161,22 @@ function updateSectionSummaries(editor: any) {
 
     // OR group counts as ONE question slot; don't recurse into its children.
     if (node.type.name === "questionGroupBlock" && currentSection) {
-      // Use the marks of the first questionBlock child as representative marks.
+      // Use the marks of the first question child (plain or grouped) as
+      // representative — both branches carry equal marks by definition.
       let groupMarks = 0;
       node.forEach((child: any) => {
-        if (groupMarks === 0 && child.type.name === "questionBlock") {
+        if (
+          groupMarks === 0 &&
+          (child.type.name === "questionBlock" ||
+            child.type.name === "groupedQuestionBlock")
+        ) {
           groupMarks = Number(child.attrs?.marks ?? 0) || 0;
         }
       });
       currentSection.questionCount += 1;
       currentSection.totalMarks += groupMarks;
       if (groupMarks > 0) currentMarks.add(groupMarks);
-      return false; // skip questionBlock children inside the OR group
+      return false; // skip all children — OR group is ONE question slot
     }
 
     if (
@@ -260,11 +265,40 @@ function updateSectionSummaries(editor: any) {
 import { Cloud, CloudOff, CloudLightning, RefreshCw } from "lucide-react";
 
 const StatusBar = memo(({ editor }: { editor: any }) => {
-  if (!editor) return null;
-
-  const chars = editor.storage.characterCount?.characters() || 0;
-  const words = editor.storage.characterCount?.words() || 0;
   const saveState = useEditorStore((state) => state.saveState);
+  // PERF: character/word counts are O(doc-nodes). The old path re-read
+  // them on every saveState flip (i.e. every keystroke) because saveState
+  // toggled "saving" → "saved" each time. Cache locally and refresh on a
+  // 500 ms debounced editor `update` instead.
+  const [counts, setCounts] = useState<{ chars: number; words: number }>({
+    chars: 0,
+    words: 0,
+  });
+  useEffect(() => {
+    if (!editor) return;
+    const read = () => {
+      try {
+        const cc = editor.storage?.characterCount;
+        if (!cc) return;
+        setCounts({
+          chars: cc.characters?.() || 0,
+          words: cc.words?.() || 0,
+        });
+      } catch {
+        /* characterCount not ready yet on first render */
+      }
+    };
+    const debounced = debounce(read, 500);
+    read();
+    editor.on("update", debounced);
+    return () => {
+      editor.off("update", debounced);
+      debounced.cancel();
+    };
+  }, [editor]);
+
+  if (!editor) return null;
+  const { chars, words } = counts;
 
   const getSaveStateLabel = () => {
     switch (saveState) {
@@ -709,7 +743,15 @@ export const TiptapEditor = ({
           gapcursor: false,
           hardBreak: false,
           underline: false,
+          // Disable the built-in OrderedList so we can add our own version
+          // without the auto-transform input rule (typing "1." at a line start
+          // must NOT convert to an ordered list — it breaks English paragraph
+          // questions that legitimately begin "1. Explain...").
+          orderedList: false,
         }),
+        // OrderedList without the "1. " → list auto-transform input rule.
+        // List toolbar buttons and keyboard shortcut (Mod-Shift-7) still work.
+        OrderedList.extend({ addInputRules() { return []; } }),
         Typography,
         Underline,
         Superscript,
@@ -760,7 +802,6 @@ export const TiptapEditor = ({
         PaperHeaderBlockExt,
         MathBlock,
         InlineMath,
-        PageBreak,
         // Utilities
         CharacterCount,
         Focus.configure({
@@ -784,22 +825,36 @@ export const TiptapEditor = ({
         },
       },
       onCreate: ({ editor }) => {
-        console.log("[DEBUG TiptapEditor] Editor CREATED");
         if (typeof window !== "undefined") {
           (window as any).__activeEditor = editor;
+          // PERF: expose a synchronous content-builder so the page's Save
+          // handler can read the live editor at click time. This replaces
+          // the per-keystroke `setEditorContent(JSON.stringify(...))` hot
+          // path that re-rendered every Zustand subscriber on each
+          // keystroke and re-serialized any base64 figures in the doc.
+          (window as any).__activeEditorBuildContent = (
+            metadata?: PaperMetadata | null,
+          ) => {
+            if (!editor || editor.isDestroyed) return "";
+            const updatedAt = Date.now();
+            const editorJSON = editor.getJSON();
+            const pages = extractPagesFromDoc(editor.state.doc);
+            const payload = buildPersistedPaperContent({
+              editorJSON,
+              pages,
+              template: useEditorStore.getState().template,
+              metadata: metadata ?? paperMetadataRef.current,
+              updatedAt,
+            });
+            return JSON.stringify(payload);
+          };
           (window as any).__activeEditorDestroy = () => {
-            console.log(
-              "[DEBUG TiptapEditor] EDITOR DESTROY START (manual/nav)",
-            );
             try {
               if (editor && !editor.isDestroyed) {
                 if (editor.view) {
                   (editor.view as any).domObserver?.stop?.();
                 }
                 editor.destroy();
-                console.log(
-                  "[DEBUG TiptapEditor] EDITOR DESTROY COMPLETE (manual/nav)",
-                );
               }
             } catch (e) {
               console.error("Error during activeEditorDestroy:", e);
@@ -808,26 +863,24 @@ export const TiptapEditor = ({
         }
       },
       onDestroy: () => {
-        console.log("[DEBUG TiptapEditor] Editor DESTROYED");
         if (typeof window !== "undefined") {
           (window as any).__activeEditor = null;
+          (window as any).__activeEditorBuildContent = null;
           (window as any).__activeEditorDestroy = null;
         }
       },
       onUpdate: ({ editor }) => {
-        const updatedAt = new Date().getTime();
-        const editorJSON = editor.getJSON();
-        const pages = extractPagesFromDoc(editor.state.doc);
-        const contentPayload = buildPersistedPaperContent({
-          editorJSON,
-          pages,
-          template,
-          metadata: paperMetadataRef.current,
-          updatedAt,
-        });
-
-        setEditorContent(JSON.stringify(contentPayload));
-        setSaveState("saving");
+        // PERF: do NOT serialize the doc here. The old path did
+        // `editor.getJSON()` + `extractPagesFromDoc` + `JSON.stringify` on
+        // every keystroke, which is O(doc-size) and re-rendered every
+        // store subscriber (including the entire EditorPage). For a paper
+        // with inlined base64 SVG figures that meant ~50-200ms of work
+        // per keystroke. Persisting and serializing now happens inside
+        // `debouncedLiveSync` (1s) and on the Save click via
+        // `__activeEditorBuildContent`.
+        if (useEditorStore.getState().saveState !== "saving") {
+          setSaveState("saving");
+        }
         debouncedNumbering(editor);
         debouncedPageState(editor);
         debouncedSectionSummaries(editor);
@@ -2047,12 +2100,14 @@ export const TiptapEditor = ({
         }
 
         /* ===== Question Group (OR) ===== */
+        /*
+         * Group wrapper for OR / choice questions. No borders added here;
+         * each individual question inside has its own .question-row border.
+         */
         .question-group {
           position: relative;
-          margin: 8px 0;
-          padding: 6px 0;
-          border-top: 1px solid #000000;
-          border-bottom: 1px solid #000000;
+          margin: 4px 0;
+          padding: 0;
           background: #ffffff;
           break-inside: avoid;
           page-break-inside: avoid;
@@ -2062,7 +2117,7 @@ export const TiptapEditor = ({
           display: flex;
           align-items: baseline;
           gap: 8px;
-          padding: 2px 0;
+          padding: 1px 0;
         }
 
         .question-group-number {
@@ -2088,7 +2143,7 @@ export const TiptapEditor = ({
         }
 
         .question-group-content {
-          margin-top: 6px;
+          margin-top: 2px;
         }
 
         .question-group-controls {

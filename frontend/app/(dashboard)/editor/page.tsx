@@ -55,8 +55,11 @@ export default function EditorPage() {
   );
 
   const questionsToSave = useEditorStore((state) => state.questionsToSave);
-  const editorContent = useEditorStore((state) => state.editorContent);
-  const setEditorContent = useEditorStore((state) => state.setEditorContent);
+  // NOTE: `editorContent` is intentionally NOT subscribed here any more —
+  // the TipTap editor used to push it into the store on every keystroke,
+  // which re-rendered the whole EditorPage tree on each one. Save reads
+  // the live editor via `window.__activeEditorBuildContent` instead, so
+  // we only re-render when something we actually display changes.
 
   // Paper Form state
   const [paperClass, setPaperClass] = useState("");
@@ -429,10 +432,26 @@ export default function EditorPage() {
       const trimmedSubject = paperSubject.trim();
       const trimmedExamName = paperExamName.trim();
       const updatedAt = new Date().getTime();
-      let contentToSave = editorContent;
 
+      // PERF: build the persisted content payload from the LIVE editor at
+      // click time instead of from a per-keystroke store mirror. See the
+      // matching `__activeEditorBuildContent` in tiptap-editor.tsx for the
+      // motivation (full-doc serialize on every keystroke).
+      const builder = (window as any).__activeEditorBuildContent as
+        | ((meta?: any) => string)
+        | undefined;
+      let contentToSave = "";
+      if (typeof builder === "function") {
+        contentToSave = builder({
+          examName: trimmedExamName,
+          className: trimmedClass,
+          subject: trimmedSubject,
+        });
+      }
+      // Inject final metadata + updatedAt (the builder uses prop metadata,
+      // which may lag the form values the user just typed into this modal).
       try {
-        const parsed = JSON.parse(editorContent);
+        const parsed = contentToSave ? JSON.parse(contentToSave) : null;
         if (parsed && typeof parsed === "object") {
           parsed.metadata = {
             ...(parsed.metadata || {}),
@@ -443,10 +462,9 @@ export default function EditorPage() {
           };
           parsed.updatedAt = updatedAt;
           contentToSave = JSON.stringify(parsed);
-          setEditorContent(contentToSave);
         }
       } catch {
-        // Older papers may contain raw HTML/JSON. They remain loadable.
+        // Older shape — fall through with raw stringified content.
       }
 
       const payload = {

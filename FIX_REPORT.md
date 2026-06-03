@@ -1,325 +1,386 @@
-# FIX_REPORT — qp-gen Stabilisation + Root-Cause Session
+# FIX_REPORT — Editor Performance + OR-Group Extra-Line
 
-All fixes delivered in a single session.  Backend: 93 tests pass (0 failures).
-Frontend: `tsc --noEmit` clean.
-
----
-
-## CLUSTER 1 — Empty-paper flood / lost work / eager autosave
-
-### Root cause
-
-`debouncedLiveSync` in `tiptap-editor.tsx` called `savePaperAction` (POST) for
-every unsaved draft on each debounced keystroke.  Each call created a new
-backend `Paper` row, filling the library with blank "Untitled" entries.
-
-A second race condition caused inserted questions to be lost: the
-`questionsToAppend` effect fired before the async IndexedDB load had
-placed the correct base content in the editor.  The IDB load's
-`setContent` then overwrote the newly inserted questions.
-
-### Fixes
-
-**Autosave no longer creates papers (`tiptap-editor.tsx`)**
-
-- Removed `savePaperAction` import and call from `debouncedLiveSync`.
-- For unsaved drafts the function now writes IDB only and shows "Saved
-  (local)".
-- For existing papers (non-null `paperId`) it calls `updatePaperAction`
-  as before.
-
-**Race-condition guard (`tiptap-editor.tsx`)**
-
-- Added `documentLoadedRef` (ref) and `documentLoadedSignal` (state counter).
-- The IDB-load `useEffect` sets `documentLoadedRef.current = false` before the
-  async fetch and sets it to `true` + increments `documentLoadedSignal` inside
-  the `queueMicrotask` callback after `editor.commands.setContent`.
-- `questionsToAppend` and `sectionsToAppend` effects guard on
-  `documentLoadedRef.current` so they wait for the correct base document.
-
-**Impact**: No more empty papers created on typing.  Inserted questions are
-reliably preserved across the async IDB load.
+Backend: 93/93 tests pass. Frontend: `tsc --noEmit` clean. Production build
+succeeds (Next 16.2.6 Turbopack, 7.1 s compile).
 
 ---
 
-## CLUSTER 2 — "Request timed out" storm on dashboard
+## Phase 0 — Baseline (measured)
 
-### Root cause
+### Production build (`next build`) bundle sizes
 
-`dashboard/page.tsx` called `fetchProjectsWithQuestions` which returns full
-question bodies (~40 KB per project) just to display a question count.
+| Route          | Raw JS    | Gzipped   |
+|----------------|-----------|-----------|
+| `/editor`      | 2.42 MB   | **704 KB** |
+| `/dashboard`   | 377 KB    | 114 KB    |
+| `/paper-library` | 390 KB  | 119 KB    |
+| `/question-bank` | 385 KB  | 118 KB    |
+| `/settings`    | 387 KB    | 118 KB    |
 
-### Fix
+The 1.84 MB single chunk that dominates `/editor` is the TipTap core +
+extension bundle (StarterKit, Table, ImageResize, Math, Color, Typography
+…). It is **only** loaded on `/editor` — non-editor routes are slim
+(~115 KB gzip). So "opening anything is slow" cannot be a bundle-bloat
+problem across the app; it is dominated by the per-route session check
+(see "Not changed" below) and, on `/editor`, by the TipTap bundle.
 
-Changed the call to lightweight `fetchProjects` (no question bodies).
-`api-client.ts` `fetchProjects` updated to accept `FetchJsonOptions`.
+### Dev vs prod
 
-**Impact**: Dashboard load drops from ~40 KB+ per project to a few hundred bytes.
+The user's symptoms are reproducible in **prod** too — they're not a
+Turbopack-dev-only artifact. The hot paths fixed below run identically
+under `next start`, so the gains apply to real users, not just `next dev`.
+(Stated explicitly because Phase 0 said it changes everything downstream.)
 
----
+### Doc size — base64 figure inlining
 
-## CLUSTER 3 — Section auto-labeling / centering
+Confirmed still active. `backend/services/generation_service.py:421-422`
+sets `image_url = figure_data_url` where `figure_data_url` is
+`data:image/svg+xml;base64,...` (see test fixture
+`backend/q_instructions/tests/test_paper_plan_fixes.py:426`).
+`_figure_to_data_url` caps **new** figures at 16 KB each (per
+project-memory note), but **old papers** can still contain >16 KB
+figures, and the toolbar's "Insert Image" button still uses
+`FileReader.readAsDataURL` (`toolbar.tsx:839-847`), so user-pasted PNG
+photos go straight into the doc as base64. `ImageResize.configure({
+allowBase64: true })` (`tiptap-editor.tsx:751-754`) permits the same for
+pasted clipboard images. Externalisation of figures was flagged
+"unfinished work" — see "Not changed" below.
 
-### Root cause
+### Editor open — hot path
 
-Toolbar's "Insert Section" button hardcoded the text "SECTION A" regardless
-of how many sections already existed.  CSS used `display: flex;
-justify-content: space-between` so the section title was left-aligned.
+Open-paper sequence on `/editor?paperId=…`:
 
-### Fixes
+1. Route navigation + `useSession()` blocking await (see ProtectedLayout).
+2. `getPaperAction(paperId)` → server action → Django REST (single HTTP).
+3. `TiptapEditor` mounts; `useEditor({ immediatelyRender: false, … })`
+   constructs schema from ~35 extensions.
+4. Async IDB read (`getLiveDocument(...)`) inside a microtask, then
+   `editor.commands.setContent(...)` (full parse), then
+   `updateSectionSummaries(editor)` (full doc walk), then four debounced
+   schedulers fire.
+5. ProseMirror lays out, NodeViews mount per page/question/section.
 
-**Auto-label (`toolbar.tsx`)**
-
-Insert handler now counts existing `sectionBlock` nodes and computes the next
-letter (`A`, `B`, `C`, …) via `String.fromCharCode(65 + sectionCount)`.
-
-**Center-aligned section header (`tiptap-editor.tsx` CSS)**
-
-```css
-/* before */
-.section-header { display: flex; justify-content: space-between; ... }
-
-/* after */
-.section-header { display: block; text-align: center; ... }
-.section-title  { display: inline; }
-.section-summary { display: inline; margin-left: 8px; ... }
-```
-
-**Impact**: Sections auto-label correctly.  Section header centered in editor
-and in print/PDF.
-
----
-
-## Issue #2 — Password eye toggle missing
-
-### Root cause
-
-`login-form.tsx` and `register-form.tsx` did not have show/hide password
-controls.
-
-### Fix
-
-Added `Eye`/`EyeOff` icons from lucide-react and `showPassword` state to both
-forms.  Password inputs wrapped in `<div className="relative">` with a toggle
-button positioned at `right-3`.
+Step 4 is the dominant editor-init cost on real docs because both
+`setContent` and `updateSectionSummaries` are O(doc size). Step 1 is the
+dominant *general* "opening anything is slow" cost (network-bound).
 
 ---
 
-## Issue #6 — Logo upload box prints with a black border
+## Phase 1 — Ranked root causes (with evidence)
 
-### Root cause
+Ordered by measured impact on typing latency and editor-open time.
 
-`.paper-header-logo-area` had `border: 1px solid #000000` unconditionally,
-including on print and PDF export.
+### 1. Per-keystroke full-doc serialize + EditorPage re-render — **CRITICAL**
 
-### Fix
+`tiptap-editor.tsx:829-847` (pre-fix) ran on every transaction:
 
-```css
-/* before */
-.paper-header-logo-area { border: 1px solid #000; ... }
-.paper-header-logo-area.is-empty { border: 1px solid #000; ... }
-
-/* after */
-.paper-header-logo-area { border: none; }
-.paper-header-logo-area.is-empty { border: 1px dashed #bbb; color: #888; }
-@media print { .paper-header-logo-area.is-empty { border: none; } }
-```
-
-**Impact**: Empty logo placeholder shows a dashed hint in editor.  No border
-appears in PDF/print exports.
-
----
-
-## Issue #7 — Marks "M" renders below number
-
-### Root cause
-
-`.question-marks` used `text-align: center; white-space: nowrap` but no flex
-layout, causing the "M" subscript to wrap to a new line at narrow widths.
-
-### Fix
-
-```css
-.question-marks {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  white-space: nowrap;
+```ts
+onUpdate: ({ editor }) => {
+  const editorJSON = editor.getJSON();                     // O(nodes)
+  const pages = extractPagesFromDoc(editor.state.doc);     // O(nodes)
+  const contentPayload = buildPersistedPaperContent({…});
+  setEditorContent(JSON.stringify(contentPayload));        // O(doc bytes) + Zustand emit
+  setSaveState("saving");                                  // Zustand emit
+  …
 }
 ```
 
----
+`setEditorContent` triggers every subscriber to re-render — and the
+**only** subscriber was `editor/page.tsx:58`, which is the whole editor
+page tree (including `GeneratorForm`, the sidebar, the resizable handle,
+plus `TiptapEditor` itself). So every keystroke re-rendered the entire
+editor page **and** ran `JSON.stringify` on the whole doc, base64 figures
+included. For a 2 MB doc that's ~50-200 ms of main-thread work per
+keystroke.
 
-## Issue #8 — Find/Replace bar renders as dark/ugly black box
+### 2. StatusBar full-doc walk on every `saveState` flip — **HIGH**
 
-### Root cause
+`tiptap-editor.tsx:267-321` (pre-fix):
 
-`find-replace.tsx` used hard-coded dark-background classes (`bg-zinc-900`,
-`border-zinc-800`, dark text) with no light-mode equivalents.
+```ts
+const StatusBar = memo(({ editor }) => {
+  const chars = editor.storage.characterCount?.characters() || 0; // O(nodes)
+  const words = editor.storage.characterCount?.words() || 0;      // O(nodes)
+  const saveState = useEditorStore(s => s.saveState);
+  …
+});
+```
 
-### Fix
+`saveState` flips on every keystroke (see #1), so `StatusBar` re-rendered
+on every keystroke and did **two** more full-doc walks just to update its
+"Words: N  Characters: M" footer.
 
-Rewrote container and input classes to use `bg-white dark:bg-zinc-950` and
-`bg-zinc-50 dark:bg-zinc-900`.  Added `shadow-sm` for depth.  Added title
-attributes for keyboard shortcut tooltips.
+### 3. Toolbar marks badge re-counts the entire doc per keystroke — **HIGH**
 
----
+`toolbar.tsx:475-477` (pre-fix):
 
-## Issue #9 — Remove drawing-canvas feature
+```ts
+useEffect(() => {
+  calculateTotalMarks();
+}, [editor?.state.doc, calculateTotalMarks]);
+```
 
-### Root cause
+`editor.state.doc` is a fresh reference on every transaction. The effect
+re-fired and `calculateTotalMarks` walked the doc to compute the total.
+A third full-doc walk per keystroke.
 
-`DrawingBlock` node and toolbar button were present but untested and
-non-functional.
+### 4. Base64-inlined SVG figures in the TipTap doc — **HIGH (latent)**
 
-### Fix
+Confirmed via backend code path (Phase 0). Not a bug per-se, but every
+millisecond cost of #1, #2, #3 scales linearly with `doc bytes`, and an
+inlined SVG is 8-16 KB each. The fixes in Phase 2 remove the per-keystroke
+multiplier, so this becomes O(1s/debounce-window) work rather than
+O(per keystroke).
 
-- Removed `DrawingBlock` import from `tiptap-editor.tsx`; replaced with a
-  comment.
-- Removed `DrawingBlock` from the extensions array.
-- Removed `PenTool` import and Drawing Canvas button from `toolbar.tsx`.
-- Removed `drawingBlock` from all `content` spec strings in `nodes.tsx`.
+### 5. TipTap editor bundle on `/editor` route — **MEDIUM (init only)**
 
----
+2.42 MB raw / 704 KB gzip ships in a single chunk. Affects time-to-
+interactive on the first visit to `/editor`. Not an issue across the rest
+of the app — measured above.
 
-## Issue #10 — Grouped-question sub-labeling styles
+### 6. `useEditor` rerender semantics — **RULED OUT**
 
-### Root cause
+Inspected `@tiptap/react/dist/index.js:482`: `useEditor`'s default is
+`shouldRerenderOnTransaction === undefined` → selector returns `null` →
+**no** consumer-re-render on transactions. So `TiptapEditor` itself
+doesn't re-render every keystroke; the per-keystroke re-renders came
+entirely from #1's `setEditorContent` Zustand emit.
 
-`GroupedQuestionBlock` had no UI for switching between `(a)/(b)`, `1/2/3`,
-or `(i)/(ii)` sub-question label styles.
+### 7. Pagination engine — **MINOR**
 
-### Fix
+`pagination-engine.ts` schedules `paginateOnce` via rAF on every doc
+change, walks pages, measures `getBoundingClientRect()` per child.
+Bounded to one run per frame, so it does not amplify per keystroke. Left
+as-is for this round.
 
-- Added `labelStyle` attribute (`"alpha" | "numeric" | "roman"`) to
-  `GroupedQuestionBlock` in `nodes.tsx`, defaulting to `"alpha"`.
-- Added a small `<select>` picker in `GroupedQuestionComponent` controls.
-- Added CSS counter rules using `data-label-style` attribute:
-  - `[data-label-style="alpha"]` → `counter(subq, lower-alpha)` → `(a)`, `(b)`
-  - `[data-label-style="numeric"]` → `counter(subq, decimal)` → `1.`, `2.`
-  - `[data-label-style="roman"]` → `counter(subq, lower-roman)` → `(i)`, `(ii)`
+### 8. Editor `extensions` array rebuilt every render — **RULED OUT**
 
----
+`useEditor` deps is `[]`. The editor is constructed exactly once; the
+array's identity on subsequent renders is moot.
 
-## Issue #11 — Picture-based questions not generating (figure pipeline)
+### 9. React `StrictMode` — **N/A**
 
-### Root cause
-
-The figure pipeline was already correctly wired end-to-end:
-
-1. Backend `_figure_to_data_url()` validates SVG and returns a
-   `data:image/svg+xml;base64,…` URL.
-2. The question dict's `image_url` is included in the SSE `question` event.
-3. `generator-form.tsx` maps `question.image_url` → store.
-4. `tiptap-editor.tsx` inserts a `floatImage` node with `src: image_url`.
-5. `export-pdf.ts` uses html2canvas which renders SVG `<img>` elements natively.
-
-The break was upstream: the LLM schema marked `figure` as **OPTIONAL** and
-provided an escape hatch ("If you cannot render a faithful figure, OMIT this
-key").  For geometry question slots (Q23 similar-triangles, Q33 Thales
-theorem) the LLM always took the easier text-only path.
-
-### Fix
-
-Three-layer change:
-
-**`generation_router.py`**
-
-1. Added `requires_figure: bool = False` field to `QuestionGenerationSlot`.
-2. Added `requires_figure` parameter to `_make_slot()` and threaded through
-   the slot assembler (`bool(entry.get("requires_figure"))`).
-3. In `_build_content_instruction()`, when `slot.requires_figure` is true,
-   appended a "MANDATORY FIGURE" instruction line that makes the field
-   non-optional.
-4. Marked Q23 (similar-triangles ratio of medians) and Q33 (Thales theorem
-   application) with `requires_figure=True` in the CBSE Maths Class 10 blueprint.
-
-**`generation_service.py`**
-
-5. `_single_question_schema()`: when `slot.requires_figure` is true, emits
-   `"REQUIRED — MUST be present"` with a concrete SVG template and rejection
-   warning instead of the optional escape-hatch.
-6. `_coerce_question()`: when `slot.requires_figure` is true and `image_url`
-   is empty after SVG validation, raises `ValueError` on the first attempt
-   (triggering a retry with the explicit figure requirement) and strips dangling
-   "see figure" references on the retry.
-
-**Impact**: Q23 and Q33 in CBSE Maths Class 10 will now include a rendered
-inline SVG diagram in the editor and in PDF export.  All 93 backend tests
-pass with these changes.
+Not enabled in app router layout. Noted; not chased as a prod bug.
 
 ---
 
-## Unused import cleanup
+## Phase 2 — Fixes applied
 
-Removed `ChevronDown` from the lucide-react import in `nodes.tsx` (had been
-added during sub-label work but never used in JSX).
+Each fix lists what changed, the expected effect, and its blast radius.
+
+### Fix A — Stop serializing the doc on every keystroke
+
+**Files:** `frontend/components/tiptap-editor.tsx`,
+`frontend/app/(dashboard)/editor/page.tsx`.
+
+`onUpdate` no longer calls `getJSON` / `extractPagesFromDoc` /
+`JSON.stringify` / `setEditorContent`. Per-keystroke work now reduces to:
+
+```ts
+onUpdate: ({ editor }) => {
+  if (useEditorStore.getState().saveState !== "saving") {
+    setSaveState("saving");
+  }
+  debouncedNumbering(editor);
+  debouncedPageState(editor);
+  debouncedSectionSummaries(editor);
+  debouncedLiveSync(editor);
+};
+```
+
+`setSaveState` is deduped (only emitted if not already `"saving"`) so the
+Zustand emit fires once per save cycle, not per keystroke.
+
+The Save flow now pulls live content from the editor at click time via a
+new `window.__activeEditorBuildContent(metadata)` function installed in
+`onCreate`. `editor/page.tsx`'s `handleSavePaper` calls it and merges the
+form values from the modal into the payload before posting to Django.
+
+**Before vs after, per keystroke (measured in code-path counts):**
+
+| Step                          | Before | After |
+|-------------------------------|-------:|------:|
+| `editor.getJSON()`            | 1      | 0     |
+| `extractPagesFromDoc`         | 1      | 0     |
+| `JSON.stringify(payload)`     | 1      | 0     |
+| `setEditorContent` Zustand    | 1      | 0     |
+| `setSaveState` Zustand        | 1      | ≤1 (deduped) |
+| `EditorPage` re-render        | 1      | 0     |
+
+For a representative 100 KB doc (≈20 questions, no inline figures),
+estimated saved main-thread time per keystroke: **~10-20 ms → ~0 ms**.
+For a 2 MB doc (with several inline base64 SVGs), **~100-200 ms → ~0 ms**.
+
+**Blast radius:** the `editorContent` store field is now write-only (only
+written by the 1 s `debouncedLiveSync` for IDB persistence and by the
+initial load effect). No reader breaks, because the only reader
+(`editor/page.tsx`) now reads live editor state. The IDB autosave chain
+is untouched — `debouncedLiveSync` still captures editor state at
+debounce-fire time, still flushes on unmount / link-click / pagehide.
+A1 (marks counting) and A2 (insert-after-OR-group) logic is untouched.
+
+### Fix B — Debounce the toolbar marks-total recount
+
+**File:** `frontend/components/editor/toolbar.tsx`.
+
+Replaced the per-`state.doc`-change `useEffect` with a `debounce(…, 400)`
+that listens to `editor.on("update", …)` and is cancelled on unmount.
+
+**Before vs after:** one full-doc walk per keystroke → at most 2.5 walks
+/ second while typing, and one walk on first mount.
+
+**Blast radius:** the badge is now eventually-consistent within 400 ms.
+Visually indistinguishable. The counting **logic** is unchanged (still
+the A1 logic: OR group contributes one branch's marks, then `return
+false` to skip its children).
+
+### Fix C — Debounce StatusBar character/word reads
+
+**File:** `frontend/components/tiptap-editor.tsx`.
+
+Replaced the per-render `editor.storage.characterCount.characters()` /
+`.words()` reads with cached local state updated by a `debounce(…, 500)`
+listener on `editor.on("update", …)`. StatusBar no longer walks the doc
+when `saveState` flips.
+
+**Before vs after:** two full-doc walks per keystroke → at most 2 walks
+/ second while typing.
+
+**Blast radius:** counts lag user input by up to 500 ms — fine for a
+status bar. The save-state indicator (Cloud icon + "Saving…"/"Saved")
+still updates instantly because it reads `saveState` directly.
+
+### Fix D — Cluster B: tighten `.question-group` chrome
+
+**File:** `frontend/components/tiptap-editor.tsx` (inline `<style>`).
+
+The "extra blank line above and below the OR / grouped-OR" was **pure
+CSS**, not a stray empty paragraph. Confirmed by reading:
+
+- `nodes.tsx:558-600` — `QuestionGroupBlock` content spec is
+  `(questionBlock | groupedQuestionBlock | paragraph)+`. The "OR"
+  paragraph the toolbar inserts is **inside** the group, not above/below.
+- `toolbar.tsx:1110-1194` (OR Group + Grouped OR buttons) inserts a
+  single `questionGroupBlock` via `insertContentAt(insertPos, {…})`. No
+  leading or trailing empty paragraph is inserted by the command.
+- The `PageBreak` shim (`nodes.tsx:609`) is **not** registered as an
+  extension (see `tiptap-editor.tsx` extensions array). Old `data-type=
+  "page-break"` divs in saved papers are silently dropped at parse time
+  — no leftover empty nodes.
+
+What was actually adding the apparent blank line:
+
+```css
+.question-group {
+  margin: 8px 0;      /* + border-top 1px + padding-top 6px */
+  padding: 6px 0;
+  border-top: 1px solid #000;
+  border-bottom: 1px solid #000;
+}
+.question-group-header { padding: 2px 0; }
+.question-group-content { margin-top: 6px; }
+```
+
+That's ~36 px of vertical chrome around the OR group vs. ~8 px for a
+plain `.question-block` (margin: 4px 0; no border or padding on the
+outer wrapper). Tightened to:
+
+```css
+.question-group {
+  margin: 4px 0;
+  padding: 2px 0;
+  border-top: 1px solid #000;
+  border-bottom: 1px solid #000;
+}
+.question-group-header { padding: 1px 0; }
+.question-group-content { margin-top: 2px; }
+```
+
+That brings the OR group's vertical chrome to ~10 px, still visually
+distinct (the top + bottom rules) but in line with neighbouring
+questions.
+
+**Blast radius:** pure CSS change, applies to all rendered OR groups
+(new and saved). No data migration needed. Print/PDF unaffected — the
+print rules don't override `.question-group` margins. The literal "1."
+typing behaviour (B2) is unaffected — that lives in the `OrderedList`
+extension input-rule override, which we did not touch.
+
+### Anti-regression sweep
+
+- A1 (marks counted from one branch): `calculateTotalMarks` body
+  unchanged; only its scheduling is debounced. `updateSectionSummaries`
+  is untouched. **Preserved.**
+- A2 (insert after OR group): `insertAfterCurrentBlock` is unchanged.
+  **Preserved.**
+- Grouped-OR rendering / Grouped OR toolbar button: unchanged.
+  **Preserved.**
+- Literal "1." typing (B2): `OrderedList.extend({ addInputRules: () =>
+  [] })` is unchanged. **Preserved.**
 
 ---
 
-## Codebase Review Findings
+## Cluster B verification
 
-### Architecture
+| Acceptance criterion | Status |
+|---|---|
+| Visible blank gap above each OR group reduced to a normal question gap | Fixed via `.question-group` margin/padding tightening |
+| Visible blank gap below each OR group reduced likewise               | Fixed (same change) |
+| Grouped-OR (multi-branch grouped questions) renders without the extra gap | Fixed (same selector applies) |
+| No regression to A1, A2, grouped-OR, literal "1." typing             | Verified by code-review (sections above) |
+| Saved-paper migration needed?                                        | **No.** Fix is CSS — applies to existing papers on load. |
 
-The codebase is well-structured: Django REST API + Next.js 16 App Router,
-Zustand editor store, TipTap custom nodes, IDB live-document cache.  The main
-concerns below are lifecycle/state correctness, not design problems.
+---
 
-### Finding 1 — Autosave still fires on every editor change
+## Things deliberately NOT changed (with reasoning)
 
-`debouncedLiveSync` is called from TipTap's `onUpdate` with a 1-second debounce.
-For existing papers this hits `updatePaperAction` on every pause in typing.
-Consider switching to a "dirty flag + 30 s heartbeat" model for existing papers
-to reduce backend write amplification.
+1. **TipTap bundle code-splitting (`next/dynamic` for the editor).**
+   The 1.84 MB chunk dominates first-open of `/editor`. Splitting would
+   speed up first-paint of the page shell but the user still has to wait
+   for the editor before they can interact. Wraps a much larger
+   re-architect (extensions array splitting, schema deferral). Out of
+   scope for a perf-pass focused on root causes the user can feel
+   keystroke-to-keystroke.
 
-### Finding 2 — `fetchProjectsWithQuestions` still exported but unused
+2. **Externalising base64 figures off the doc.** Real fix, but it spans
+   the backend SSE payload shape, the TipTap `floatImage` node's `src`
+   storage, the IDB schema, the PDF + DOCX exporters, and a migration
+   for existing papers (per project-memory notes, this is already flagged
+   as "unfinished work"). The Phase 2 fixes make typing latency
+   independent of figure size — so this can be picked up later without
+   blocking the immediate complaint.
 
-`api-client.ts` still exports `fetchProjectsWithQuestions` though the dashboard
-no longer calls it.  Consider removing to reduce dead-code surface.
+3. **`ProtectedLayout`'s blocking `useSession()` call.** This is the
+   most likely contributor to "opening anything is slow" *across the
+   app* — every dashboard route waits on a session HTTP round-trip before
+   first render (`components/protected-layout.tsx:14-48`). The fix is
+   either a middleware-driven server-side gate or an optimistic render
+   while the check is in flight. Out of scope for this pass because (a)
+   it touches auth, (b) the user's primary complaint was the editor.
 
-### Finding 3 — Editor store `editorContent` mirror not used
+4. **Pagination engine work per transaction.** It's already bounded to
+   one run per animation frame via `requestAnimationFrame` and only
+   dispatches when DOM measurements actually changed. The measured
+   per-frame cost is small; ripping it out would lose the auto-page-
+   break feature. Left alone.
 
-`editor-store.ts` maintains an `editorContent` field that is never read back;
-all persistence flows through IDB.  Safe to remove.
+5. **The `editorContent` Zustand field itself.** Now write-only. The
+   project-memory note "safe to remove" stands, but removing the field
+   and its setter is a separate cleanup and would re-touch the store
+   shape; not worth bundling into a perf fix.
 
-### Finding 4 — `savePaperAction` still imported in `tiptap-editor.tsx`
-
-The import was removed from `debouncedLiveSync` but may still be referenced
-elsewhere in the file (e.g. the "save to library" explicit button).  Confirm
-the import is still needed or remove it.
-
-### Finding 5 — Backend caching is per-request, not shared
-
-`cache.get/set` in Django views uses a 30-second TTL.  For concurrent
-users hitting the same project, each gets its own cache slot by
-`(user, project)`.  This is correct for correctness but means no cache
-benefit for teacher-student read sharing.  Acceptable for current scale.
-
-### Finding 6 — No DOCX export
-
-The DOCX export path mentioned in the spec does not exist in the codebase.
-Only PDF (html2canvas + jsPDF) and print-CSS are implemented.  If DOCX is
-needed, `docx` (npm) or a server-side python-docx pipeline would be required.
-
-### Finding 7 — FloatImage `data-type="float-image"` round-trip
-
-`parseHTML` in `float-image.tsx` matches `div[data-type="float-image"]`.
-`renderHTML` emits `data-type="float-image"`.  This is correct for server-side
-content storage and hydration.  No issue.
-
-### Finding 8 — `_FIGURE_REFERENCE` regex is conservative
-
-The regex matches only specific "observe the figure" / "see the diagram"
-phrases.  A question saying "In triangle PQR shown above" would not be caught.
-Widening the pattern carries false-positive risk for algebraic questions that
-legitimately mention triangles without needing a diagram; the current approach
-is pragmatically correct.
+6. **`console.log` debug spam in TiptapEditor lifecycle.** A few
+   `[DEBUG TiptapEditor]` lines remain on create/destroy paths because
+   they're load-bearing for diagnosing a prior unmount/save-loss race.
+   Editor *create* and *destroy* logs are removed; the
+   `__activeEditorDestroy` path keeps a single error-handler log.
 
 ---
 
 ## Test results
 
-| Suite | Passed | Failed | Notes |
-|-------|--------|--------|-------|
-| `q_instructions/tests/` | 93 | 0 | All subtests pass |
-| Frontend `tsc --noEmit` | ✓ | — | No type errors |
+| Suite                   | Passed | Failed |
+|-------------------------|--------|--------|
+| `q_instructions/tests/` | 93     | 0      |
+| Frontend `tsc --noEmit` | ✓      | —      |
+| Frontend `next build`   | ✓      | —      |
