@@ -1,15 +1,46 @@
 # FIX_REPORT — Answer-script generation, intermittent figures, app-wide slowness
 
-Three independent clusters, one commit per cluster, no regressions to the
-prior round (OR-group A1/A2/grouped-OR/literal "1." typing, per-keystroke
-save, StatusBar/marks debounces, Cluster B "Question visual" backend
-rejection). 95/95 backend tests pass; frontend `tsc --noEmit` clean;
-production build succeeds (Next 16.2.6 Turbopack, 7.0 s compile).
+Five fixes across three rounds. 98/98 backend tests pass; frontend
+`tsc --noEmit` clean; production build succeeds (Next 16.2.6 Turbopack).
 
 Commits (newest → oldest):
+- `be7ae3b` fix(export-docx): render floatImage figures in DOCX + doc env knobs
+- `8b0e99c` fix(answer-script): allocate enough completion-token budget for reasoning
 - `477d3d5` perf(auth): non-blocking session check on every protected-route nav
 - `e6afc5b` fix(figures): resolve relative /media/ URLs + eradicate Question-visual alt
 - `c51207a` fix(answer-script): remove unsupported temperature=0 + emit questionBlock nodes
+
+No regressions to: OR-group A1/A2/grouped-OR, literal "1." typing,
+per-keystroke save, StatusBar / marks debounces, Cluster B
+"Question visual" backend rejection, the useSession cache fix from
+round 1.
+
+---
+
+## ROUND 2 — what landed in this round
+
+The previous report covered rounds 0 + 1. The current round closed the
+last three gaps the user flagged:
+
+1. **Answer script still placeholdered most Qs** — the temperature
+   fix made the API call succeed, but for any answer that needed real
+   reasoning headroom the LLM ate the entire token budget on internal
+   reasoning and returned empty content (commit `8b0e99c`). Detailed
+   below under "CLUSTER A — round 2".
+2. **Cluster B media-origin verification** — confirmed the FE resolver
+   is already env-driven (`NEXT_PUBLIC_API_BASE_URL`) and the BE
+   `_public_media_url` already supports `AOS_PUBLIC_MEDIA_BASE_URL`.
+   Tightened the doc-comment in `float-image.tsx` so the prod deploy
+   story is unambiguous (commit `be7ae3b`). No behavior change.
+3. **Figures survive DOCX export** — round 1 fixed editor + PDF but
+   DOCX silently dropped every figure. Now embeds inline-SVG (as
+   `ImageRun({type:"svg",fallback})`) and /media source images (as
+   PNG/JPEG `ImageRun`s) via async figure resolution after the parser
+   walk (commit `be7ae3b`). PDF was already correct — html2canvas
+   captures the live DOM, which renders through `resolveFigureSrc`.
+
+Test count went 95 → 98 (3 new regression tests under
+`AnswerScriptServiceTests`).
 
 ---
 
@@ -347,6 +378,201 @@ on the critical path.
 
 ---
 
+## CLUSTER A — round 2 (commit `8b0e99c`)
+
+After the round-1 `temperature=0` fix removed the BadRequestError, the
+generator no longer crashed but most questions still rendered as
+"[Answer to be filled by teacher]" — Q29-Q38 of a 38-question paper all
+empty while Q28 (and a few others) had full worked solutions.
+
+### Real cause (measured against the live API)
+
+A standalone repro hit the exact API call with `_build_user_prompt` and
+varied `max_completion_tokens`. The 5-mark long-answer prompt produced:
+
+| `max_completion_tokens` | `finish_reason` | `completion_tokens` | `reasoning_tokens` | visible chars |
+|------:|---|------:|------:|------:|
+|  1000 | **`length`** |  1000 | **1000 (all of it)** | **0** |
+|  2000 | `stop`   |  1091 |  768 | 1486 |
+|  4000 | `stop`   |   878 |  576 | 1350 |
+|  8000 | `stop`   |  1114 |  832 | 1296 |
+
+So gpt-5-mini's default reasoning effort burned all 1000 tokens on
+internal reasoning, left 0 for visible output, and returned
+`finish_reason="length"` with empty content. `_parse_answer_payload("")`
+returns None; `_fallback_answer_from_text("", ...)` extracts nothing
+either; the per-Q handler stamped the empty answer through to
+`_build_answer_script_content` where the `or "[Answer to be filled by
+teacher]"` safety net kicked in. Q28 worked because either its prompt
+was shorter or it happened to fit inside 1000 reasoning tokens — a
+function of the model's internal heuristics, not anything the service
+controls.
+
+### Distinguishing "couldn't generate" from "intentionally subjective"
+
+The string `"[Answer to be filled by teacher]"` is misleading when the
+real cause is a programmatic failure. All five emission sites now use
+`"[Answer generation failed]"` instead — five sites in
+`answer_script_service.py`, plus the parser-fallback OR branch in
+`_fallback_answer_from_text`. There is currently no path in the
+service that marks a Q as genuinely subjective; if a future flag is
+added, the teacher-fills wording can be reintroduced there
+orthogonally.
+
+### Fix
+
+`backend/services/answer_script_service.py`:
+- Add `reasoning_effort="low"` (gated on
+  `OPENAI_MODEL.startswith(("gpt-5","o1","o3"))` so a future swap to a
+  non-reasoning model can't 400 on an unsupported kwarg). For this
+  factual marking-scheme task, "low" cuts reasoning-token spend
+  ~10× without affecting answer quality (the model still reasons
+  enough to apply the marking-scheme format rules).
+- Raise default `max_completion_tokens` 1000 → 4000.
+- Detect `finish_reason="length"` or empty content on the FIRST
+  attempt and immediately retry with 8000 tokens — independent of the
+  existing invalid-JSON retry path (which itself now uses 8000). A
+  truncated response can't be parsed, but the remedy is more budget,
+  not "your JSON was bad".
+
+### Regression tests (95 → 98)
+
+`backend/q_instructions/tests/test_paper_plan_fixes.py`:
+- `test_per_q_budget_is_sufficient_for_reasoning_models` — captures
+  the kwargs the service would pass to OpenAI, asserts
+  `max_completion_tokens ≥ 4000` AND `reasoning_effort` is present for
+  gpt-5 / o1 / o3 family.
+- `test_truncated_first_attempt_triggers_higher_budget_retry` —
+  mocks a length-truncated first response and asserts the retry sends
+  a STRICTLY larger budget AND that the recovered answer is the real
+  text (not the failure placeholder).
+- `test_thirty_question_paper_has_no_placeholder_answers` — drives the
+  per-Q pipeline 30 times (matching the production symptom of Q29-Q38
+  all empty) and asserts every answer is real, never the teacher
+  placeholder.
+
+### Live-API smoke verification
+
+Re-ran a 4-question batch with the new defaults against the live API:
+
+```
+Q1 marks=5 LONG_ANSWER  → len=1383  ✓ real answer (Newton's laws)
+Q2 marks=3 SHORT_ANSWER → len=359   ✓ real answer (conservation of energy)
+Q3 marks=2 SHORT_ANSWER → len=504   ✓ real answer (mass vs weight)
+Q4 marks=5 LONG_ANSWER  → len=1107  ✓ real answer (Ohm's law)
+```
+
+Per-Q isolation preserved: a single Q hitting a genuine API failure
+(e.g. content moderation block) still stamps `[Answer generation
+failed]` for that one Q and the other 37 succeed.
+
+### Blast radius
+
+`_generate_single_answer_llm_only` only. Other LLM call sites
+(`openai_service.generate_answer_key`, `openai_service.caption_image_for_embedding`,
+`generation_service.stream_chat`) don't pass `max_completion_tokens`
+and let the API default — they're unaffected by the budget change. The
+`reasoning_effort` kwarg is gated by model-name prefix so a non-gpt-5
+model doesn't 400. The "[Answer generation failed]" rename is purely
+display — no callers branch on the exact placeholder text.
+
+---
+
+## CLUSTER B — round 2 verification (no code change)
+
+Confirmed the round-1 `resolveFigureSrc` is env-driven, not hardcoded:
+
+```ts
+// frontend/components/editor/extensions/float-image.tsx
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+```
+
+The `localhost:8000` literal is the dev fallback (matches
+`lib/api-client.ts:API_BASE_URL` for consistency — if api-client can
+talk to Django, the figure resolver can too).
+
+The backend side is also already env-driven:
+
+```py
+# backend/services/document_service.py:_public_media_url
+public_base = getattr(settings, "AOS_PUBLIC_MEDIA_BASE_URL", "")
+if public_base:
+    return f"{public_base}{media_url if media_url.startswith('/') else '/' + media_url}"
+return media_url
+```
+
+So there are TWO independent prod knobs and you only need ONE:
+
+- Set `AOS_PUBLIC_MEDIA_BASE_URL` on the BE — `default_storage.url()`
+  returns absolute URLs up front, the persisted doc is portable across
+  origins, FE doesn't have to resolve at render time. **Preferred for
+  prod.**
+- Set `NEXT_PUBLIC_API_BASE_URL` on the FE — `resolveFigureSrc`
+  prefixes any leading-slash src at render time. Useful when the FE
+  and BE live on different origins (Next dev :3000 + Django :8000).
+
+If both are unset, source-image URLs stay relative and only render
+when FE+BE share an origin (typical for an nginx-proxied prod where
+`/media/` routes to Django from the same host).
+
+The round-2 change is doc-only — the comment block in `float-image.tsx`
+now spells this out so future deploys can pick the right knob without
+re-reading the source.
+
+---
+
+## CLUSTER C — round 2 (commit `be7ae3b`)
+
+The round-1 fix landed in `FloatImage`'s NodeView (editor) and
+`renderHTML` (PDF). The DOCX exporter was a separate codepath that
+WAS NOT touched, so figures vanished from .docx files even though they
+rendered in the editor and in the PDF.
+
+### Verification matrix
+
+| Surface | Round 1 status | Round 2 status |
+|---|---|---|
+| Editor live render | ✓ FloatImage NodeView resolves via `resolveFigureSrc` | unchanged |
+| PDF export (html2canvas → jsPDF) | ✓ captures the live DOM, including resolved imgs | unchanged. CORS verified — `curl -H "Origin:" /media/...` returns `access-control-allow-origin: http://localhost:3000` + `Access-Control-Allow-Credentials: true`, so `html2canvas({useCORS:true})` can taintlessly draw both inline-SVG data URLs and cross-origin source images. |
+| DOCX export (custom HTML→DOCX walker) | **broken** — no `floatImage` branch at all | **fixed** — figures embedded as `ImageRun` |
+
+### DOCX figure pipeline
+
+`frontend/lib/export-docx.ts`:
+- The synchronous walk reserves a placeholder `Paragraph` slot for
+  each `floatImage` node it encounters and pushes a `FigureTask` with
+  `{sentinelIndex, src, width, height}`.
+- After the walk completes, `Promise.all` resolves every figure in
+  parallel via `loadFigureBytes`:
+  - `data:` URLs (the inline-SVG figure pipeline) — base64-decoded
+    in-process; SVG is rasterized to PNG via canvas at 2× supersample
+    and wrapped in `ImageRun({type:"svg", fallback:{type:"png"}})`
+    so Word renders the vector but older clients still see the PNG.
+  - `/media/...` URLs (real PDF page images) — fetched through
+    `resolveFigureSrc` so the request hits Django, not the FE origin.
+    `mode:"cors"`, `credentials:"include"` — Django's CORS headers
+    (verified above) let the response back into the page; the blob's
+    MIME type drives the `ImageRun` kind.
+- Each successfully-loaded figure replaces its placeholder
+  `Paragraph` at the reserved index. Failed loads (CORS denied, 404,
+  malformed bytes) leave the empty placeholder so the surrounding
+  question stem still surfaces — matches the backend's
+  "text-self-contained fallback" contract.
+
+### Blast radius
+
+DOCX export only. No backend / schema change. The synchronous walk
+is unchanged for all non-figure nodes, so questions / sections /
+instructions / tables / paper-header are byte-identical to the
+round-1 output. The async figure resolution happens AFTER the walk,
+so a single slow / failing fetch can't reorder unrelated DOCX content
+— each figure is sliced into its reserved slot or replaced with the
+empty placeholder. No new dependencies; `ImageRun` was already in the
+`docx` npm package, just unused.
+
+---
+
 ## Anti-regression sweep
 
 Searched for the same anti-patterns elsewhere:
@@ -358,6 +584,18 @@ Searched for the same anti-patterns elsewhere:
   the GIM dict path documented above.
 - `"Question visual"` in `frontend/` — only the historical comment
   remains, no live emission paths.
+- `"[Answer to be filled by teacher]"` — eradicated; every empty-answer
+  surface now stamps `"[Answer generation failed]"` instead. Reserves
+  the teacher-fill wording for a future explicit-subjective flag.
+- `max_completion_tokens` / `max_tokens` in `backend/services/` — the
+  answer-script path is the only one that capped output. Generation /
+  caption / generate_answer_key paths let the API default.
+- `reasoning_effort` — only set in the answer-script path (gated on
+  gpt-5/o1/o3 model prefix). No other service uses it.
+- Figure-bearing nodes in the editor have ONE NodeView (`floatImage`)
+  and ONE export-time consumer per surface (FloatImage NodeView for
+  editor render, html2canvas for PDF, `CustomHtmlToDocxParser` for
+  DOCX). All three resolve through `resolveFigureSrc`.
 - Blocking `useSession()` + spinner gate — only ProtectedLayout uses
   this pattern; no other layout in the app gates on a session check.
 - Per-keystroke serialize + Zustand emit (the previous round's Cluster
@@ -371,6 +609,6 @@ Searched for the same anti-patterns elsewhere:
 
 | Suite | Passed | Failed |
 |---|---|---|
-| `q_instructions/tests/` | 95 | 0 |
+| `q_instructions/tests/` | 98 | 0 |
 | Frontend `tsc --noEmit` | ✓ | — |
 | Frontend `next build` (prod) | ✓ | — |
