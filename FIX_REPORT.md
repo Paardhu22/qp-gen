@@ -1,9 +1,10 @@
-# FIX_REPORT — Answer-script generation, intermittent figures, app-wide slowness
+# FIX_REPORT — Answer-script generation, intermittent figures, app-wide slowness, UI cleanup
 
-Five fixes across three rounds. 98/98 backend tests pass; frontend
+Six fixes across four rounds. 98/98 backend tests pass; frontend
 `tsc --noEmit` clean; production build succeeds (Next 16.2.6 Turbopack).
 
 Commits (newest → oldest):
+- `9a1c447` fix(ui): full subject labels in dropdown + remove ICSE option
 - `be7ae3b` fix(export-docx): render floatImage figures in DOCX + doc env knobs
 - `8b0e99c` fix(answer-script): allocate enough completion-token budget for reasoning
 - `477d3d5` perf(auth): non-blocking session check on every protected-route nav
@@ -570,6 +571,96 @@ so a single slow / failing fetch can't reorder unrelated DOCX content
 — each figure is sliced into its reserved slot or replaced with the
 empty placeholder. No new dependencies; `ImageRun` was already in the
 `docx` npm package, just unused.
+
+---
+
+## ROUND 3 — UI cleanup + ICSE removal (commit `9a1c447`)
+
+Two small UI fixes shipped ahead of the q_instructions audit:
+
+### Subject dropdown truncation
+
+`generator-form.tsx` placed Board / Class / Subject in a 3-column grid
+(`grid-cols-3 gap-4`). In a typical resizable sidebar (~480 px wide),
+each column got ~150 px — not enough for the longest subject label
+("English Language & Literature (Code 184)" ≈ 290 px at the current
+font).
+
+Two compounding issues:
+
+1. The open dropdown popup defaulted to `w-(--anchor-width)` (Base UI's
+   CSS variable for the trigger width), so the list was clamped to the
+   same ~150 px and truncated every item to "Mathematics Standard (",
+   "English Language & Liter", etc. Fixed by changing the Select
+   component's default popup class from `w-(--anchor-width)` to
+   `min-w-(--anchor-width) w-max max-w-[min(36rem,calc(100vw-1rem))]`
+   — at least as wide as the trigger, grows to the longest item, capped
+   at 36rem / viewport width.
+2. The trigger itself still truncated the selected value because the
+   column was too narrow. Restructured the layout: Board + Class share
+   one row (now `grid-cols-2 gap-4`), Subject is on its own row at full
+   sidebar width.
+
+### ICSE removal
+
+The Board dropdown previously offered `CBSE` and `ICSE`. The product is
+CBSE-only — the routing gate in
+`services/generation_router.py::should_use_new_engine` already requires
+`board == "CBSE"`, and no live code branches on `Board.ICSE`. Removed
+all dead ICSE config:
+
+| File | Change |
+|---|---|
+| `frontend/components/generator-form.tsx` | drop `<SelectItem value="ICSE">` |
+| `frontend/app/(dashboard)/dashboard/page.tsx` | drop the "(CBSE, ICSE, custom templates)" caption |
+| `backend/q_instructions/core/enums.py` | remove `EducationBoard.ICSE` enum entry |
+| `backend/apps/question_generation/domain/enums.py` | same (duplicate enum file) |
+| `backend/q_instructions/core/constants.py` | remove `ICSE_TOTAL_MARKS`, `ICSE_EXAM_DURATION_MINUTES`, `ICSE_ALLOW_FRACTIONAL_MARKS` (verified unimported) |
+| `backend/apps/question_generation/domain/constants.py` | same (duplicate constants file) |
+
+Left intentionally:
+
+- The `"ICSE"` STRING in `test_hybrid_routing.test_should_use_new_engine_ineligible`
+  — it's a generic "non-CBSE input" test fixture asserting the router
+  rejects any value that isn't "CBSE". Removing the UI option doesn't
+  weaken that assertion.
+- `q_instructions/legacy/*` files that reference ICSE — explicitly
+  marked legacy, no live consumer. Cleanup belongs to a future
+  legacy-removal pass.
+
+Blast radius: routing only. `should_use_new_engine` already required
+`board == "CBSE"` for any active engine routing, so even if a stale
+paper or external caller smuggles in `"ICSE"`, it falls through to the
+same "not configured" error path it always did. 98/98 backend tests
+pass; `tsc --noEmit` clean.
+
+---
+
+## ROUND 3.5 — q_instructions Phase 1 audit
+
+Deliverable: `Q_INSTRUCTIONS_AUDIT.md` (read-only, no code modified in
+this phase). It traces the LIVE streaming generation path, flags every
+dead and duplicated blueprint module, maps the validation / routing /
+schema architecture, lists hard-coded constants that should be config,
+and provides a per-subject blueprint inventory pinned by the existing
+test suite.
+
+Key finding (confirms the brief's hypothesis): for the default Board
+Mode / Class 10 / exact-CBSE path, **every** subject's blueprint comes
+from inline functions in `services/generation_router.py`
+(`_exact_class10_blueprint_entries_{mathematics,english,hindi,telugu}`
+plus inline literals for science / social science). The
+`q_instructions/subjects/*/blueprint.py` registries and
+`q_instructions/subjects/{mathematics,english,hindi,telugu}/orchestrator.py`
+files are dead for streaming — they have no non-self imports anywhere
+in the live codebase. Only `subjects/{science,social_science}/orchestrator.py`
+are used, and only on the secondary "custom count" branch.
+
+Phase 2 (CBSE SQP fact-check) is gated on the user reviewing this
+audit and providing the official `cbseacademic.nic.in` SQP +
+marking-scheme PDFs per subject. The audit lists the exact PDFs
+needed and flags Telugu (089) as the subject most likely to need a
+fallback authoritative source.
 
 ---
 
