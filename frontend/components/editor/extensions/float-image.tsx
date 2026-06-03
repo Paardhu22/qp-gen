@@ -12,6 +12,32 @@ interface FloatImageProps {
   selected: boolean;
 }
 
+// Backend emits source-image URLs as relative paths (`/media/pdf_images/...`)
+// because Django's default_storage.url() returns the MEDIA_URL prefix only.
+// That works when FE + BE share an origin, but in dev the Next server at
+// :3000 cannot resolve /media/... served by Django at :8000 — the <img> 404s
+// and shows the alt text as a broken-image placeholder. Resolve to the
+// Django origin so the same doc renders correctly in dev, prod, and the
+// PDF export (html2canvas captures the live DOM).
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+export function resolveFigureSrc(src: string | null | undefined): string {
+  if (!src) return "";
+  if (
+    src.startsWith("data:") ||
+    src.startsWith("http://") ||
+    src.startsWith("https://") ||
+    src.startsWith("blob:")
+  ) {
+    return src;
+  }
+  if (src.startsWith("/")) {
+    return `${API_BASE_URL}${src}`;
+  }
+  return src;
+}
+
 const FloatImageComponent = ({
   node,
   updateAttributes,
@@ -104,7 +130,7 @@ const FloatImageComponent = ({
 
           {/* Image */}
           <img
-            src={src}
+            src={resolveFigureSrc(src)}
             alt={alt || ""}
             draggable={false}
             className="float-image-img"
@@ -193,7 +219,7 @@ export const FloatImage = Node.create({
       [
         "img",
         {
-          src,
+          src: resolveFigureSrc(src),
           alt: alt || "",
           style: `width:${width}px;max-width:100%;height:auto;display:block;`,
         },

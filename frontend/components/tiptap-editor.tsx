@@ -483,6 +483,41 @@ function buildQuestionContentNodes(content: string) {
   }));
 }
 
+// Insertion guard for generated figures. We accept ONLY a `data:` URL (the
+// validated inline-SVG figure pipeline emits these) or an absolute http(s)://
+// URL. Relative paths are also accepted because the FloatImage NodeView
+// resolves them against the Django origin at render time. Any other shape
+// (blank, "null"/"undefined" literals, hallucinated URLs the backend already
+// rejected) produces an empty src that renders as a broken-image icon — in
+// that case we skip the floatImage entirely and let the question stem speak
+// for itself, matching the backend's "text-self-contained on retry" contract.
+function buildFigureNode(imageUrl: string | undefined | null) {
+  const src = String(imageUrl || "").trim();
+  if (!src) return null;
+  const lower = src.toLowerCase();
+  if (lower === "null" || lower === "undefined") return null;
+  const isUsable =
+    src.startsWith("data:") ||
+    src.startsWith("http://") ||
+    src.startsWith("https://") ||
+    src.startsWith("/");
+  if (!isUsable) return null;
+  return {
+    type: "floatImage",
+    attrs: {
+      src,
+      // Alt is intentionally empty: the previous "Question visual"
+      // literal was the broken-image-icon caption users saw when an
+      // intermittently-failing src didn't load. The figure is decorative
+      // alongside a text-self-contained stem, so no alt is the safe
+      // default. (Screen readers read the stem itself.)
+      alt: "",
+      width: 320,
+      align: "center",
+    },
+  };
+}
+
 // ==================================
 // Main Editor Component
 // ==================================
@@ -1249,16 +1284,9 @@ export const TiptapEditor = ({
     questions.forEach((q) => {
       const questionContent: any[] = buildQuestionContentNodes(q.content);
 
-      if (q.image_url) {
-        questionContent.push({
-          type: "floatImage",
-          attrs: {
-            src: q.image_url,
-            alt: "Question visual",
-            width: 320,
-            align: "center",
-          },
-        });
+      const figureNode = buildFigureNode(q.image_url);
+      if (figureNode) {
+        questionContent.push(figureNode);
       }
 
       if (q.type !== "TF" && q.options && q.options.length > 0) {
@@ -1338,16 +1366,9 @@ export const TiptapEditor = ({
       section.questions.forEach((q) => {
         const questionContent: any[] = buildQuestionContentNodes(q.content);
 
-        if (q.image_url) {
-          questionContent.push({
-            type: "floatImage",
-            attrs: {
-              src: q.image_url,
-              alt: "Question visual",
-              width: 320,
-              align: "center",
-            },
-          });
+        const figureNode = buildFigureNode(q.image_url);
+        if (figureNode) {
+          questionContent.push(figureNode);
         }
 
         if (q.type !== "TF" && q.options && q.options.length > 0) {
