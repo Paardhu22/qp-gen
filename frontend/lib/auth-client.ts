@@ -207,12 +207,27 @@ async function loadSession(): Promise<SessionData | null> {
 }
 
 export function useSession() {
-  const [data, setData] = useState<SessionData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // PERF: initialize from the module-level cache synchronously. After the
+  // very first session fetch in the app's lifetime, every subsequent
+  // protected-route navigation gets `data` populated and `isLoading=false`
+  // on the FIRST render — no spinner flash, no extra render cycle. Before
+  // this, useState started with `data=null, isLoading=true` even on cache
+  // hit, so ProtectedLayout rendered the spinner once and then re-rendered
+  // children, which added a perceptible flicker to every navigation and
+  // gated the protected layout on a render cycle.
+  const [data, setData] = useState<SessionData | null>(
+    sessionLoaded ? cachedSession : null,
+  );
+  const [isLoading, setIsLoading] = useState(!sessionLoaded);
   const [error, setError] = useState<Error | null>(null);
 
   const fetchSession = useCallback(async () => {
-    setIsLoading(true);
+    // If the cache is already hot, skip the loading-state flip — the
+    // initial values above are correct and any flip would trigger a
+    // pointless re-render of every ProtectedLayout subtree.
+    if (!sessionLoaded) {
+      setIsLoading(true);
+    }
     setError(null);
     try {
       const session = await loadSession();
@@ -233,6 +248,12 @@ export function useSession() {
   }, [fetchSession]);
 
   useEffect(() => {
+    // Skip the redundant fetch on cache hit — initial state is already
+    // populated from `cachedSession`, and another fetchSession() round
+    // would only add a wasted HTTP profile call per navigation. The
+    // explicit `forceRefresh` path remains for callers that need fresh
+    // data (e.g. after token consumption).
+    if (sessionLoaded) return;
     fetchSession();
   }, [fetchSession]);
 
