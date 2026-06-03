@@ -6,8 +6,8 @@ from enum import Enum, auto
 
 
 class EducationBoard(Enum):
+    # Product ships CBSE only; other entries are reserved placeholders.
     CBSE = "Central Board of Secondary Education"
-    ICSE = "Indian Certificate of Secondary Education"
     IB = "International Baccalaureate"
     CAMBRIDGE = "Cambridge Assessment International Education"
     STATE_BOARD = "State Secondary Education Board"

@@ -578,8 +578,11 @@ export const GeneratorForm = () => {
             )}
           />
 
-          <div className="grid grid-cols-3 gap-4">
-            {/* Board sub-dropdown — only in Board Mode */}
+          {/* Board (Board Mode only) + Class share a row; Subject is on
+              its own row so the long subject labels (e.g. "English Language
+              & Literature (Code 184)") fit in the trigger without being
+              truncated by a 1/3-column-wide grid cell. */}
+          <div className="grid grid-cols-2 gap-4">
             {currentQpType === "board" && (
               <FormField
                 control={form.control}
@@ -591,9 +594,8 @@ export const GeneratorForm = () => {
                       <FormControl>
                         <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
                       </FormControl>
-                      <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
+                      <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
                         <SelectItem value="CBSE">CBSE</SelectItem>
-                        <SelectItem value="ICSE">ICSE</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -611,7 +613,7 @@ export const GeneratorForm = () => {
                     <FormControl>
                       <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
                     </FormControl>
-                    <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
+                    <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
                       <SelectItem value="1">Class 1</SelectItem>
                       <SelectItem value="2">Class 2</SelectItem>
                       <SelectItem value="3">Class 3</SelectItem>
@@ -628,30 +630,30 @@ export const GeneratorForm = () => {
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="subject"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-zinc-700 dark:text-zinc-300">Subject</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl>
-                      <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
-                    </FormControl>
-                    <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
-                      <SelectItem value="Science">Science</SelectItem>
-                      <SelectItem value="Social Science">Social Science</SelectItem>
-                      <SelectItem value="Mathematics">Mathematics Standard (Code 041)</SelectItem>
-                      <SelectItem value="English">English Language &amp; Literature (Code 184)</SelectItem>
-                      <SelectItem value="Hindi">Hindi Course B (Code 085)</SelectItem>
-                      <SelectItem value="Telugu">Telugu Telangana (Code 089)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
           </div>
+          <FormField
+            control={form.control}
+            name="subject"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-zinc-700 dark:text-zinc-300">Subject</FormLabel>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                    <SelectItem value="Science">Science</SelectItem>
+                    <SelectItem value="Social Science">Social Science</SelectItem>
+                    <SelectItem value="Mathematics">Mathematics Standard (Code 041)</SelectItem>
+                    <SelectItem value="English">English Language &amp; Literature (Code 184)</SelectItem>
+                    <SelectItem value="Hindi">Hindi Course B (Code 085)</SelectItem>
+                    <SelectItem value="Telugu">Telugu Telangana (Code 089)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
 
 

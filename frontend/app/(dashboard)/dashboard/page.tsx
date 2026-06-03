@@ -74,7 +74,7 @@ export default function DashboardPage() {
             <div className="mt-6 space-y-2">
               <h4 className="text-xl font-bold text-foreground">Create New Exam Paper</h4>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Initialize a blank paper from standard formats (CBSE, ICSE, custom templates), detach autosaves, and start fresh.
+                Initialize a blank paper from standard formats (CBSE board patterns, custom templates), detach autosaves, and start fresh.
               </p>
             </div>
           </Link>

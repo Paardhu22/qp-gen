@@ -13,9 +13,14 @@ from enum import Enum, auto
 # ---------------------------------------------------------------------------
 
 class EducationBoard(Enum):
-    """Supported national and international education boards."""
+    """Supported national and international education boards.
+
+    The product currently ships CBSE only. The other enum entries are
+    kept as placeholders so future boards can be added without churning
+    the enum values used elsewhere — but the UI exposes only CBSE and
+    no live code branches on a non-CBSE value.
+    """
     CBSE = "Central Board of Secondary Education"
-    ICSE = "Indian Certificate of Secondary Education"
     IB = "International Baccalaureate"
     CAMBRIDGE = "Cambridge Assessment International Education"
     STATE_BOARD = "State Secondary Education Board"

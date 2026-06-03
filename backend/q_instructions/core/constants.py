@@ -1,7 +1,7 @@
 """
 AOS Core — Board-Level Numeric Constants
 ==========================================
-Immutable numeric constraints derived from official CBSE, ICSE, and IB policies.
+Immutable numeric constraints derived from official CBSE policy.
 Zero dependencies.
 """
 
@@ -16,14 +16,6 @@ CBSE_COMPETENCY_MINIMUM_RATIO = 0.50
 CBSE_MCQ_MINIMUM_RATIO = 0.20
 CBSE_LONG_ANSWER_MAX_RATIO = 0.20
 CBSE_INTERNAL_CHOICE_MIN_PAIRS = 3
-
-# ---------------------------------------------------------------------------
-# ICSE Board Constraints
-# ---------------------------------------------------------------------------
-
-ICSE_TOTAL_MARKS = 80
-ICSE_EXAM_DURATION_MINUTES = 120
-ICSE_ALLOW_FRACTIONAL_MARKS = True
 
 # ---------------------------------------------------------------------------
 # IB Board Constraints
