@@ -603,6 +603,185 @@ class AnswerScriptServiceTests(unittest.TestCase):
         # OR-answer expands into extra paragraphs inside the same questionBlock
         self.assertGreaterEqual(len(q_blocks[1]["content"]), 3)
 
+    def test_per_q_budget_is_sufficient_for_reasoning_models(self):
+        """Regression: gpt-5 family models eat `max_completion_tokens` with
+        internal reasoning. Round-2 cause of "[Answer to be filled by
+        teacher]" was a 1000-token budget being entirely consumed by
+        reasoning, producing empty content (finish_reason=length).
+
+        Assert the service requests at least 4000 tokens on the first
+        attempt and passes `reasoning_effort` to throttle reasoning-token
+        spend.
+        """
+        from unittest.mock import MagicMock, patch
+        from services import answer_script_service as svc
+
+        captured: list[dict] = []
+
+        def fake_create(**kwargs):
+            captured.append(kwargs)
+            response = MagicMock()
+            response.choices = [MagicMock()]
+            response.choices[0].message.content = (
+                '{"answer": "1. Real answer text.", "or_answer": null}'
+            )
+            response.choices[0].finish_reason = "stop"
+            response.usage = MagicMock(
+                prompt_tokens=10, completion_tokens=20, total_tokens=30
+            )
+            return response
+
+        fake_client = MagicMock()
+        fake_client.chat.completions.create.side_effect = fake_create
+
+        with patch.object(svc, "_record_usage"):
+            svc._generate_single_answer_llm_only(
+                client=fake_client,
+                question_number=1,
+                question={
+                    "content": "Long-answer Q.",
+                    "marks": 5,
+                    "type": "LONG_ANSWER",
+                    "options": [],
+                    "or_choice": None,
+                },
+                source_chunks=[],
+                user=None,
+            )
+
+        self.assertGreaterEqual(
+            captured[0].get("max_completion_tokens", 0), 4000,
+            msg="Per-Q first attempt must allocate ≥4000 completion tokens "
+                "so gpt-5 reasoning + visible JSON both fit. The previous "
+                "1000-token budget caused 5-mark answers to come back empty.",
+        )
+        # reasoning_effort must be passed to gpt-5 family
+        from django.conf import settings as dj_settings
+        if (dj_settings.OPENAI_MODEL or "").startswith(("gpt-5", "o1", "o3")):
+            self.assertIn(
+                "reasoning_effort", captured[0],
+                msg="gpt-5 family answer-script call must throttle reasoning "
+                    "with reasoning_effort='low' (or similar).",
+            )
+
+    def test_truncated_first_attempt_triggers_higher_budget_retry(self):
+        """Regression: if the first call comes back with finish_reason='length'
+        or empty content, the service must retry with a larger budget — not
+        emit "[Answer to be filled by teacher]".
+        """
+        from unittest.mock import MagicMock, patch
+        from services import answer_script_service as svc
+
+        calls: list[dict] = []
+
+        def fake_create(**kwargs):
+            calls.append(kwargs)
+            response = MagicMock()
+            response.choices = [MagicMock()]
+            if len(calls) == 1:
+                # First attempt — model exhausts the reasoning budget,
+                # returns nothing visible. This is the production bug.
+                response.choices[0].message.content = ""
+                response.choices[0].finish_reason = "length"
+            else:
+                # Second attempt with a larger budget — real answer.
+                response.choices[0].message.content = (
+                    '{"answer": "1. Real recovered answer.", "or_answer": null}'
+                )
+                response.choices[0].finish_reason = "stop"
+            response.usage = MagicMock(
+                prompt_tokens=10, completion_tokens=20, total_tokens=30
+            )
+            return response
+
+        fake_client = MagicMock()
+        fake_client.chat.completions.create.side_effect = fake_create
+
+        with patch.object(svc, "_record_usage"):
+            _, result = svc._generate_single_answer_llm_only(
+                client=fake_client,
+                question_number=29,
+                question={
+                    "content": "Long-answer Q.",
+                    "marks": 5,
+                    "type": "LONG_ANSWER",
+                    "options": [],
+                    "or_choice": None,
+                },
+                source_chunks=[],
+                user=None,
+            )
+
+        self.assertGreaterEqual(len(calls), 2, "must retry on length-truncation")
+        self.assertGreater(
+            calls[1]["max_completion_tokens"], calls[0]["max_completion_tokens"],
+            msg="Retry must use a STRICTLY larger budget — same budget would "
+                "hit the same length limit and silently fail again.",
+        )
+        self.assertEqual(result["answer"], "1. Real recovered answer.")
+        self.assertNotIn("teacher", result["answer"].lower())
+        self.assertNotIn("failed", result["answer"].lower())
+
+    def test_thirty_question_paper_has_no_placeholder_answers(self):
+        """Regression: a 30-question paper (matching the production
+        symptom: Q29-Q38 all teacher-placeholder while Q28 worked) must
+        round-trip with REAL answers for every question once the LLM
+        returns content.
+
+        The test mocks the OpenAI client to always return a non-trivial
+        answer, then drives the full per-Q parallel pipeline and asserts
+        none of the 30 resulting answer payloads carry the
+        "[Answer to be filled by teacher]" placeholder.
+        """
+        from unittest.mock import MagicMock, patch
+        from services import answer_script_service as svc
+
+        def fake_create(**kwargs):
+            response = MagicMock()
+            response.choices = [MagicMock()]
+            response.choices[0].message.content = (
+                '{"answer": "Real numbered answer.", "or_answer": null}'
+            )
+            response.choices[0].finish_reason = "stop"
+            response.usage = MagicMock(
+                prompt_tokens=5, completion_tokens=5, total_tokens=10
+            )
+            return response
+
+        fake_client = MagicMock()
+        fake_client.chat.completions.create.side_effect = fake_create
+
+        answers = []
+        with patch.object(svc, "_record_usage"):
+            for i in range(1, 31):
+                _, ans = svc._generate_single_answer_llm_only(
+                    client=fake_client,
+                    question_number=i,
+                    question={
+                        "content": f"Question {i} stem.",
+                        "marks": 5 if i % 2 == 0 else 2,
+                        "type": "LONG_ANSWER" if i % 2 == 0 else "SHORT_ANSWER",
+                        "options": [],
+                        "or_choice": None,
+                    },
+                    source_chunks=[],
+                    user=None,
+                )
+                answers.append(ans)
+
+        self.assertEqual(len(answers), 30)
+        for ans in answers:
+            self.assertNotIn(
+                "teacher", (ans["answer"] or "").lower(),
+                msg=f"Q{ans['question_number']} fell back to the teacher "
+                    "placeholder — the answer-script generator must emit "
+                    "either a real answer or an explicit "
+                    "[Answer generation failed] tag.",
+            )
+            self.assertTrue(
+                ans["answer"], f"Q{ans['question_number']} answer is empty",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

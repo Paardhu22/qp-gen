@@ -203,7 +203,7 @@ def _fallback_answer_from_text(raw_text: str, or_choice_text: Optional[str]) -> 
         return answer, None
 
     if or_answer is None:
-        or_answer = "[Answer to be filled by teacher]"
+        or_answer = "[Answer generation failed]"
 
     return answer, or_answer
 
@@ -331,29 +331,73 @@ def _generate_single_answer_llm_only(
         options=question.get("options"),
     )
 
-    # Call LLM
-    try:
-        def _request_completion(extra_instruction: Optional[str] = None):
-            content = user_prompt
-            if extra_instruction:
-                content = f"{content}\n\n{extra_instruction}"
-            # NOTE: do not pass `temperature` — gpt-5 family models only
-            # accept the default (1) and reject any other value with
-            # `BadRequestError: 'temperature' does not support 0 with this
-            # model`. Omit the parameter so the default is used.
-            return client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": content},
-                ],
-                response_format={"type": "json_object"},
-                max_completion_tokens=1000,
-            )
+    # Call LLM. `max_completion_tokens` for gpt-5 family includes the
+    # INTERNAL reasoning tokens, not just the visible JSON — and the
+    # default reasoning_effort burns through hundreds of those tokens
+    # before emitting a character. With the old budget of 1000 a
+    # five-mark long-answer Q routinely consumed all 1000 on reasoning
+    # alone, `finish_reason="length"`, empty `content`, and the answer
+    # fell back to the teacher placeholder. We now:
+    #   - request `reasoning_effort="low"` so the model spends ~50-100
+    #     reasoning tokens instead of ~500-1000 (this is a factual
+    #     marking-scheme task, not problem-solving — low is plenty);
+    #   - allocate 4000 tokens by default (8000 on length-retry), which
+    #     comfortably covers a 5-mark answer + low reasoning;
+    #   - detect `finish_reason == "length"` or empty/whitespace content
+    #     and retry once with the larger budget BEFORE falling back to
+    #     the parse-fix retry. The two retry kinds are independent — a
+    #     truncated response can't be parsed, but raising the budget is
+    #     the actual remedy, not telling the model "your JSON was bad".
+    def _request_completion(
+        extra_instruction: Optional[str] = None,
+        token_budget: int = 4000,
+    ):
+        content = user_prompt
+        if extra_instruction:
+            content = f"{content}\n\n{extra_instruction}"
+        kwargs: Dict[str, Any] = dict(
+            model=settings.OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": content},
+            ],
+            response_format={"type": "json_object"},
+            max_completion_tokens=token_budget,
+        )
+        # `reasoning_effort` is only accepted by gpt-5 / o-series
+        # reasoning models. Passing it to a non-reasoning model
+        # (gpt-4o, gpt-4-turbo) returns BadRequestError, which is why
+        # we gate on the model-name prefix. The settings default is
+        # "gpt-5-mini", which always benefits.
+        model = settings.OPENAI_MODEL or ""
+        if model.startswith("gpt-5") or model.startswith("o1") or model.startswith("o3"):
+            kwargs["reasoning_effort"] = "low"
+        return client.chat.completions.create(**kwargs)
 
+    def _completion_was_truncated(completion) -> bool:
+        try:
+            finish_reason = completion.choices[0].finish_reason
+            content = (completion.choices[0].message.content or "").strip()
+        except (AttributeError, IndexError):
+            return True
+        return finish_reason == "length" or not content
+
+    try:
         completion = _request_completion()
         raw_text = (completion.choices[0].message.content or "").strip()
         _record_usage(user, "answer_script", settings.OPENAI_MODEL, completion.usage)
+
+        if _completion_was_truncated(completion):
+            logger.warning(
+                "Q%d hit the reasoning/output budget (finish_reason=%s, "
+                "content_len=%d). Retrying with a doubled max_completion_tokens.",
+                question_number,
+                completion.choices[0].finish_reason,
+                len(raw_text),
+            )
+            completion = _request_completion(token_budget=8000)
+            raw_text = (completion.choices[0].message.content or "").strip()
+            _record_usage(user, "answer_script", settings.OPENAI_MODEL, completion.usage)
 
         parsed = _parse_answer_payload(raw_text)
         if parsed is None:
@@ -363,6 +407,7 @@ def _generate_single_answer_llm_only(
             )
             retry = _request_completion(
                 "Your previous response was invalid JSON. Return ONLY a valid JSON object with keys: answer, or_answer.",
+                token_budget=8000,
             )
             retry_text = (retry.choices[0].message.content or "").strip()
             _record_usage(user, "answer_script", settings.OPENAI_MODEL, retry.usage)
@@ -374,11 +419,20 @@ def _generate_single_answer_llm_only(
                 fallback_text,
                 or_choice_text,
             )
+            # If even the regex fallback couldn't pull an answer out of
+            # the raw text (the model truncated to empty TWICE), surface
+            # an explicit error instead of the teacher placeholder so the
+            # teacher can tell "couldn't generate" from "intentionally
+            # subjective" at a glance.
+            if not answer_text or not answer_text.strip():
+                answer_text = "[Answer generation failed]"
+            if or_choice_text and (not or_answer_text or not or_answer_text.strip()):
+                or_answer_text = "[Answer generation failed]"
         else:
-            answer_text = parsed.get("answer") or "[Answer to be filled by teacher]"
+            answer_text = parsed.get("answer") or "[Answer generation failed]"
             or_answer_text = parsed.get("or_answer")
             if or_choice_text and not or_answer_text:
-                or_answer_text = "[Answer to be filled by teacher]"
+                or_answer_text = "[Answer generation failed]"
 
     except Exception as exc:
         # Per-Q isolation: a single failure must NOT take down the whole
@@ -456,7 +510,7 @@ def _build_answer_script_content(
     for ans in answers:
         q_num = ans["question_number"]
         marks = int(ans.get("marks") or 0)
-        answer_text = ans["answer"] or "[Answer to be filled by teacher]"
+        answer_text = ans["answer"] or "[Answer generation failed]"
         or_choice = ans.get("or_choice_text")
         or_answer = ans.get("or_answer")
 
