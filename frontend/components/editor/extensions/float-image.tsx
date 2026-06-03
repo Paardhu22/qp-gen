@@ -13,12 +13,27 @@ interface FloatImageProps {
 }
 
 // Backend emits source-image URLs as relative paths (`/media/pdf_images/...`)
-// because Django's default_storage.url() returns the MEDIA_URL prefix only.
-// That works when FE + BE share an origin, but in dev the Next server at
-// :3000 cannot resolve /media/... served by Django at :8000 — the <img> 404s
-// and shows the alt text as a broken-image placeholder. Resolve to the
-// Django origin so the same doc renders correctly in dev, prod, and the
-// PDF export (html2canvas captures the live DOM).
+// by default because Django's default_storage.url() returns the MEDIA_URL
+// prefix only. Two env knobs make those URLs absolute, and you need EITHER
+// (not both):
+//
+//   • Backend: set `AOS_PUBLIC_MEDIA_BASE_URL` (config/settings.py:110) so
+//     `services/document_service.py:_public_media_url` returns an absolute
+//     URL up front. This is the preferred prod knob — the doc and the SSE
+//     payload stay portable across origins.
+//   • Frontend: set `NEXT_PUBLIC_API_BASE_URL`. `resolveFigureSrc` (this
+//     file) prefixes it to any leading-slash src at render time. Useful
+//     when the FE and BE live on different origins (Next dev :3000 + Django
+//     :8000) and you don't want to bake the BE origin into the persisted
+//     doc.
+//
+// If BOTH are unset, source-image URLs stay relative and only render when
+// the FE and BE share an origin (typical for an nginx-proxied prod
+// deployment where /media/ is routed to Django from the same host). The
+// `localhost:8000` fallback here is a dev affordance ONLY — production
+// must set one of the two env vars above. We reuse the same fallback as
+// `lib/api-client.ts:API_BASE_URL` to keep the FE/API and FE/media origins
+// in sync; if api-client can talk to Django, this resolver can too.
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 

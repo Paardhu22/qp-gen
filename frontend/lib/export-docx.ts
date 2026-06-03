@@ -1,5 +1,6 @@
 import {
   Document,
+  ImageRun,
   Packer,
   Paragraph,
   TextRun,
@@ -12,6 +13,7 @@ import {
   BorderStyle,
 } from "docx";
 import { saveAs } from "file-saver";
+import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
 
 type DocxSource = string | HTMLElement;
 
@@ -19,12 +21,13 @@ export async function exportToDocx(
   source: DocxSource,
   filename: string = "exam-paper.docx",
 ) {
-  // A very basic HTML to DOCX converter logic
-  // In a full implementation, we'd use a parser to convert HTML tags to docx elements
-  // For the purpose of this engine, we'll extract the text and structure
+  // HTML→DOCX converter that handles paper structure (headers, sections,
+  // questions, OR groups) and figures (`floatImage`). Figures are loaded
+  // asynchronously — SVG data URLs are rasterized to PNG via canvas;
+  // /media/... source images are fetched from the resolved Django origin.
 
   const parser = new CustomHtmlToDocxParser(source);
-  const children = parser.parse();
+  const children = await parser.parse();
 
   const doc = new Document({
     sections: [
@@ -39,12 +42,192 @@ export async function exportToDocx(
   saveAs(buffer, filename);
 }
 
+// ---------------------------------------------------------------------------
+// Figure helpers — DOCX needs raw image bytes (PNG/JPEG); the editor's
+// floatImage src can be a `data:image/svg+xml;base64,...` URL (the inline-SVG
+// figure pipeline) or a `/media/...` path (a real PDF page image). For SVG we
+// rasterize via canvas; for raster we fetch through resolveFigureSrc so the
+// fetch hits Django, not the FE origin, which would 404.
+// ---------------------------------------------------------------------------
+
+type FigureKind = "png" | "jpg" | "gif" | "bmp" | "svg";
+
+interface FigureBytes {
+  kind: FigureKind;
+  data: Uint8Array;
+  /** For SVG, the rasterized PNG fallback (Word fallbacks for older versions). */
+  fallback?: Uint8Array;
+}
+
+function detectKindFromMime(mime: string): FigureKind | null {
+  const m = (mime || "").toLowerCase();
+  if (m === "image/png") return "png";
+  if (m === "image/jpeg" || m === "image/jpg") return "jpg";
+  if (m === "image/gif") return "gif";
+  if (m === "image/bmp") return "bmp";
+  if (m === "image/svg+xml") return "svg";
+  return null;
+}
+
+function detectKindFromExtension(url: string): FigureKind | null {
+  const u = url.toLowerCase().split("?")[0];
+  if (u.endsWith(".png")) return "png";
+  if (u.endsWith(".jpg") || u.endsWith(".jpeg")) return "jpg";
+  if (u.endsWith(".gif")) return "gif";
+  if (u.endsWith(".bmp")) return "bmp";
+  if (u.endsWith(".svg")) return "svg";
+  return null;
+}
+
+async function rasterizeSvgToPng(
+  svgUrl: string,
+  width: number,
+  height: number,
+): Promise<Uint8Array> {
+  return await new Promise<Uint8Array>((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = async () => {
+      try {
+        const canvas = document.createElement("canvas");
+        // 2× supersample so the rasterized SVG looks sharp in Word.
+        canvas.width = Math.max(1, width * 2);
+        canvas.height = Math.max(1, height * 2);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("canvas 2d unavailable");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const blob: Blob | null = await new Promise((r) =>
+          canvas.toBlob((b) => r(b), "image/png"),
+        );
+        if (!blob) throw new Error("canvas toBlob returned null");
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        resolve(buf);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => reject(new Error("svg image failed to load"));
+    img.src = svgUrl;
+  });
+}
+
+async function loadFigureBytes(
+  rawSrc: string,
+  width: number,
+  height: number,
+): Promise<FigureBytes | null> {
+  const src = resolveFigureSrc(rawSrc);
+  if (!src) return null;
+
+  // data: URLs — decode bytes directly so we don't need a fetch.
+  if (src.startsWith("data:")) {
+    const match = src.match(/^data:([^;]+);base64,(.*)$/);
+    if (!match) return null;
+    const [, mime, b64] = match;
+    const kind = detectKindFromMime(mime);
+    if (!kind) return null;
+    const raw = atob(b64);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    if (kind === "svg") {
+      try {
+        const fallback = await rasterizeSvgToPng(src, width, height);
+        return { kind, data: bytes, fallback };
+      } catch {
+        return null;
+      }
+    }
+    return { kind, data: bytes };
+  }
+
+  // Network fetch (raster source images via Django). Falls back silently
+  // if CORS / 404 / network — we drop the figure rather than blow up the
+  // whole export.
+  try {
+    const response = await fetch(src, { mode: "cors", credentials: "include" });
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    let kind = detectKindFromMime(blob.type);
+    if (!kind) kind = detectKindFromExtension(src);
+    if (!kind) return null;
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    if (kind === "svg") {
+      // Rasterize the fetched SVG too (older Word renders the fallback).
+      const objectUrl = URL.createObjectURL(blob);
+      try {
+        const fallback = await rasterizeSvgToPng(objectUrl, width, height);
+        return { kind, data: bytes, fallback };
+      } catch {
+        return null;
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
+    return { kind, data: bytes };
+  } catch {
+    return null;
+  }
+}
+
+function buildImageParagraph(
+  fig: FigureBytes,
+  width: number,
+  height: number,
+): Paragraph {
+  if (fig.kind === "svg" && fig.fallback) {
+    return new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new ImageRun({
+          type: "svg",
+          data: fig.data,
+          transformation: { width, height },
+          fallback: {
+            type: "png",
+            data: fig.fallback,
+          },
+        }),
+      ],
+    });
+  }
+  // For SVG without a fallback we drop the figure (we couldn't rasterize).
+  // For raster, embed directly.
+  const rasterKind = fig.kind === "svg" ? null : fig.kind;
+  if (!rasterKind) {
+    return new Paragraph({ children: [] });
+  }
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    children: [
+      new ImageRun({
+        type: rasterKind,
+        data: fig.data,
+        transformation: { width, height },
+      }),
+    ],
+  });
+}
+
 class CustomHtmlToDocxParser {
   constructor(private source: DocxSource) {}
 
-  parse(): (Paragraph | Table)[] {
+  async parse(): Promise<(Paragraph | Table)[]> {
     const docxElements: (Paragraph | Table)[] = [];
-    
+
+    // Async figure loads need to happen IN ORDER so the resulting docx
+    // preserves the source DOM order. We push a tagged sentinel into the
+    // element array during the synchronous walk, then resolve all sentinels
+    // and splice the resulting Paragraphs in their original positions.
+    type FigureTask = {
+      sentinelIndex: number;
+      src: string;
+      width: number;
+      height: number;
+    };
+    const figureTasks: FigureTask[] = [];
+
     // Create a temporary DOM element to parse HTML
     if (typeof document === "undefined") return [];
     const container =
@@ -192,6 +375,27 @@ class CustomHtmlToDocxParser {
       return buildQuestionTable(numberText, marksText, body);
     };
 
+    const enqueueFigure = (el: HTMLElement) => {
+      const rawSrc =
+        el.getAttribute("data-src") ||
+        el.querySelector("img")?.getAttribute("src") ||
+        "";
+      if (!rawSrc) return;
+      const width = Math.max(
+        80,
+        Math.min(520, parseInt(el.getAttribute("data-width") || "320", 10) || 320),
+      );
+      // Maintain a sensible aspect — without intrinsic height info we
+      // assume 4:3 for source PDF images and let SVG rasterization pick.
+      const height = Math.round(width * 0.75);
+      // Reserve a slot in the output array; we'll splice the resolved
+      // Paragraph in by index after all figures are loaded.
+      const placeholderParagraph = new Paragraph({ children: [] });
+      docxElements.push(placeholderParagraph);
+      const sentinelIndex = docxElements.length - 1;
+      figureTasks.push({ sentinelIndex, src: rawSrc, width, height });
+    };
+
     const walk = (node: ChildNode) => {
       if (node.nodeType !== Node.ELEMENT_NODE) return;
       const el = node as HTMLElement;
@@ -199,6 +403,13 @@ class CustomHtmlToDocxParser {
 
       const dataType = el.getAttribute("data-type");
       const hasClass = (name: string) => el.classList.contains(name);
+
+      // Figure (inline-SVG or /media/ source image). Must be handled BEFORE
+      // the generic DIV branch so we capture the floatImage NodeView wrapper.
+      if (dataType === "float-image" || hasClass("float-image-wrapper")) {
+        enqueueFigure(el);
+        return;
+      }
 
       if (dataType === "page") {
         const content = el.querySelector(".doc-page-content");
@@ -307,6 +518,31 @@ class CustomHtmlToDocxParser {
     };
 
     Array.from(container.childNodes).forEach(walk);
+
+    // Resolve all figures in parallel and replace the placeholder
+    // Paragraphs at their reserved indices. Failed loads keep the empty
+    // placeholder (an empty paragraph) so the surrounding question text
+    // still surfaces — matches the "text-self-contained fallback"
+    // contract from the backend figure pipeline.
+    const figureResults = await Promise.all(
+      figureTasks.map(async (task) => {
+        const fig = await loadFigureBytes(task.src, task.width, task.height);
+        return { task, fig };
+      }),
+    );
+    for (const { task, fig } of figureResults) {
+      if (!fig) continue;
+      try {
+        docxElements[task.sentinelIndex] = buildImageParagraph(
+          fig,
+          task.width,
+          task.height,
+        );
+      } catch {
+        // ImageRun construction can throw on malformed bytes; leave the
+        // empty placeholder rather than aborting the whole export.
+      }
+    }
 
     return docxElements;
   }
