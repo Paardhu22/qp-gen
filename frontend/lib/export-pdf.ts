@@ -107,7 +107,6 @@ const HIDE_IN_PDF = [
   ".logo-remove-btn",
   ".drawing-delete",
   ".float-image-hide-in-pdf", // alignment toolbar + resize handle
-  '[data-type="page-break"]',
 ];
 
 // ---------------------------------------------------------------------------

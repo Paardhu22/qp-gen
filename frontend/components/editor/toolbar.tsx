@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import debounce from "lodash.debounce";
 import { type Editor } from "@tiptap/react";
 import { cn } from "@/lib/utils";
 import {
@@ -39,7 +40,6 @@ import {
   Indent,
   Outdent,
   Sigma,
-  SeparatorHorizontal,
   Image as ImageIcon,
   Eraser,
   Type,
@@ -448,6 +448,21 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
   const calculateTotalMarks = useCallback(() => {
     let total = 0;
     editor.state.doc.descendants((node: any) => {
+      // OR group = ONE question answered once; count only the first branch's marks.
+      if (node.type.name === "questionGroupBlock") {
+        let groupMarks = 0;
+        node.forEach((child: any) => {
+          if (
+            groupMarks === 0 &&
+            (child.type.name === "questionBlock" ||
+              child.type.name === "groupedQuestionBlock")
+          ) {
+            groupMarks = Number(child.attrs?.marks ?? 0) || 0;
+          }
+        });
+        total += groupMarks;
+        return false; // do NOT recurse into the children
+      }
       if (
         node.type.name === "questionBlock" ||
         node.type.name === "groupedQuestionBlock"
@@ -458,9 +473,24 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
     setTotalMarks(total);
   }, [editor]);
 
+  // PERF: subscribe to editor `update` events with a 400 ms debounce
+  // instead of re-running on every render (the old `useEffect` deps
+  // included `editor?.state.doc`, which is a fresh reference on every
+  // transaction — i.e. a full doc walk per keystroke). The badge only
+  // needs to be eventually-consistent.
+  const debouncedRecount = useMemo(
+    () => debounce(() => calculateTotalMarks(), 400),
+    [calculateTotalMarks],
+  );
   useEffect(() => {
+    if (!editor) return;
     calculateTotalMarks();
-  }, [editor?.state.doc, calculateTotalMarks]);
+    editor.on("update", debouncedRecount);
+    return () => {
+      editor.off("update", debouncedRecount);
+      debouncedRecount.cancel();
+    };
+  }, [editor, calculateTotalMarks, debouncedRecount]);
 
   // Get current text attributes
   const currentFontFamily = editor.getAttributes("textStyle")?.fontFamily || "";
@@ -522,25 +552,17 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
     const { $from } = selection;
 
     let insertPos = selection.to;
-    let pageDepth: number | null = null;
 
-    for (let depth = $from.depth; depth > 0; depth--) {
-      if ($from.node(depth).type.name === "page") {
-        pageDepth = depth;
-        break;
-      }
-    }
-
-    if (pageDepth !== null && $from.depth >= pageDepth + 1) {
-      insertPos = $from.after(pageDepth + 1);
-    }
-
-    // Find the current top-level paper block if we're inside one
+    // Walk ancestors from innermost → outermost; each time we cross a
+    // paperBlock boundary we update insertPos so the FINAL value is always
+    // the position AFTER the outermost paperBlock ancestor.  This prevents
+    // nested nodes (e.g. a questionBlock inside a questionGroupBlock) from
+    // accidentally capturing the new insert inside them.
     for (let depth = $from.depth; depth > 0; depth--) {
       const node = $from.node(depth);
       if (node.type.spec.group?.includes("paperBlock")) {
         insertPos = $from.after(depth);
-        break;
+        // keep walking — we want the outermost boundary, not the innermost
       }
     }
 
@@ -859,16 +881,6 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           <Minus className="h-3.5 w-3.5" />
         </ToolbarBtn>
 
-        {/* Insert Page Break */}
-        <ToolbarBtn
-          onClick={() =>
-            editor.chain().focus().insertContent({ type: "pageBreak" }).run()
-          }
-          title="Insert Page Break (Ctrl+Enter)"
-        >
-          <SeparatorHorizontal className="h-3.5 w-3.5" />
-        </ToolbarBtn>
-
         <ToolbarDivider />
 
         {/* Math & Chemistry */}
@@ -1159,6 +1171,42 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           className="h-6 px-2 text-[10px] font-medium text-purple-400 hover:bg-purple-500/10 rounded transition-colors flex items-center gap-1"
         >
           <PlusCircle className="h-3 w-3" /> OR Group
+        </button>
+        {/* Grouped OR — OR group whose branches are multi-part questions */}
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            const groupedBranch = (label: string) => ({
+              type: "groupedQuestionBlock",
+              attrs: { marks: 5 },
+              content: [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: `${label} question statement...` }],
+                },
+                {
+                  type: "orderedList",
+                  content: [
+                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Sub-question (i)..." }] }] },
+                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Sub-question (ii)..." }] }] },
+                  ],
+                },
+              ],
+            });
+            insertAfterCurrentBlock(
+              "questionGroupBlock",
+              [
+                groupedBranch("Option (a)"),
+                { type: "paragraph", content: [{ type: "text", marks: [{ type: "bold" }], text: "OR" }] },
+                groupedBranch("Option (b)"),
+              ],
+              { label: "Answer any ONE of the following:" },
+            );
+          }}
+          className="h-6 px-2 text-[10px] font-medium text-violet-400 hover:bg-violet-500/10 rounded transition-colors flex items-center gap-1"
+        >
+          <PlusCircle className="h-3 w-3" /> Grouped OR
         </button>
         <button
           type="button"

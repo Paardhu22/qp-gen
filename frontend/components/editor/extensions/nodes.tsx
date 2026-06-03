@@ -558,7 +558,8 @@ const QuestionGroupComponent = ({ node, deleteNode }: any) => {
 export const QuestionGroupBlock = Node.create({
   name: "questionGroupBlock",
   group: "block paperBlock",
-  content: "(questionBlock | paragraph)+",
+  // OR branches can be plain questions, grouped questions, or separator paragraphs
+  content: "(questionBlock | groupedQuestionBlock | paragraph)+",
   draggable: true,
   isolating: true,
 
@@ -599,11 +600,15 @@ export const QuestionGroupBlock = Node.create({
 });
 
 // ==========================================
-// PageBreak node
+// PageBreak — parseHTML compatibility shim only.
+// The page-break feature was retired.  This stub silently drops any
+// data-type="page-break" nodes found in saved papers so they load
+// without crashing.  It is NOT added to the editor extensions;
+// it is exported only so external code that imports it doesn't break.
 // ==========================================
 export const PageBreak = Node.create({
   name: "pageBreak",
-  group: "block paperBlock",
+  group: "block",
   atom: true,
 
   parseHTML() {
@@ -611,38 +616,6 @@ export const PageBreak = Node.create({
   },
 
   renderHTML() {
-    return [
-      "div",
-      {
-        "data-type": "page-break",
-        class:
-          "page-break my-8 border-t-2 border-dashed border-zinc-300 relative",
-        contenteditable: "false",
-      },
-      [
-        "span",
-        {
-          class:
-            "absolute left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-3 text-[10px] uppercase tracking-widest text-zinc-400",
-        },
-        "Page Break",
-      ],
-    ];
-  },
-
-  addCommands() {
-    return {
-      setPageBreak:
-        () =>
-        ({ commands }: any) => {
-          return commands.insertContent({ type: "pageBreak" });
-        },
-    } as any;
-  },
-
-  addKeyboardShortcuts() {
-    return {
-      "Mod-Enter": () => (this.editor.commands as any).setPageBreak(),
-    };
+    return ["div", { "data-type": "page-break", style: "display:none" }];
   },
 });

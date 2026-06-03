@@ -207,8 +207,6 @@ class CustomHtmlToDocxParser {
         return;
       }
 
-      if (dataType === "page-break") return;
-
       if (el.tagName === "H1") {
         docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }));
         return;
