@@ -1,386 +1,376 @@
-# FIX_REPORT — Editor Performance + OR-Group Extra-Line
+# FIX_REPORT — Answer-script generation, intermittent figures, app-wide slowness
 
-Backend: 93/93 tests pass. Frontend: `tsc --noEmit` clean. Production build
-succeeds (Next 16.2.6 Turbopack, 7.1 s compile).
+Three independent clusters, one commit per cluster, no regressions to the
+prior round (OR-group A1/A2/grouped-OR/literal "1." typing, per-keystroke
+save, StatusBar/marks debounces, Cluster B "Question visual" backend
+rejection). 95/95 backend tests pass; frontend `tsc --noEmit` clean;
+production build succeeds (Next 16.2.6 Turbopack, 7.0 s compile).
 
----
-
-## Phase 0 — Baseline (measured)
-
-### Production build (`next build`) bundle sizes
-
-| Route          | Raw JS    | Gzipped   |
-|----------------|-----------|-----------|
-| `/editor`      | 2.42 MB   | **704 KB** |
-| `/dashboard`   | 377 KB    | 114 KB    |
-| `/paper-library` | 390 KB  | 119 KB    |
-| `/question-bank` | 385 KB  | 118 KB    |
-| `/settings`    | 387 KB    | 118 KB    |
-
-The 1.84 MB single chunk that dominates `/editor` is the TipTap core +
-extension bundle (StarterKit, Table, ImageResize, Math, Color, Typography
-…). It is **only** loaded on `/editor` — non-editor routes are slim
-(~115 KB gzip). So "opening anything is slow" cannot be a bundle-bloat
-problem across the app; it is dominated by the per-route session check
-(see "Not changed" below) and, on `/editor`, by the TipTap bundle.
-
-### Dev vs prod
-
-The user's symptoms are reproducible in **prod** too — they're not a
-Turbopack-dev-only artifact. The hot paths fixed below run identically
-under `next start`, so the gains apply to real users, not just `next dev`.
-(Stated explicitly because Phase 0 said it changes everything downstream.)
-
-### Doc size — base64 figure inlining
-
-Confirmed still active. `backend/services/generation_service.py:421-422`
-sets `image_url = figure_data_url` where `figure_data_url` is
-`data:image/svg+xml;base64,...` (see test fixture
-`backend/q_instructions/tests/test_paper_plan_fixes.py:426`).
-`_figure_to_data_url` caps **new** figures at 16 KB each (per
-project-memory note), but **old papers** can still contain >16 KB
-figures, and the toolbar's "Insert Image" button still uses
-`FileReader.readAsDataURL` (`toolbar.tsx:839-847`), so user-pasted PNG
-photos go straight into the doc as base64. `ImageResize.configure({
-allowBase64: true })` (`tiptap-editor.tsx:751-754`) permits the same for
-pasted clipboard images. Externalisation of figures was flagged
-"unfinished work" — see "Not changed" below.
-
-### Editor open — hot path
-
-Open-paper sequence on `/editor?paperId=…`:
-
-1. Route navigation + `useSession()` blocking await (see ProtectedLayout).
-2. `getPaperAction(paperId)` → server action → Django REST (single HTTP).
-3. `TiptapEditor` mounts; `useEditor({ immediatelyRender: false, … })`
-   constructs schema from ~35 extensions.
-4. Async IDB read (`getLiveDocument(...)`) inside a microtask, then
-   `editor.commands.setContent(...)` (full parse), then
-   `updateSectionSummaries(editor)` (full doc walk), then four debounced
-   schedulers fire.
-5. ProseMirror lays out, NodeViews mount per page/question/section.
-
-Step 4 is the dominant editor-init cost on real docs because both
-`setContent` and `updateSectionSummaries` are O(doc size). Step 1 is the
-dominant *general* "opening anything is slow" cost (network-bound).
+Commits (newest → oldest):
+- `477d3d5` perf(auth): non-blocking session check on every protected-route nav
+- `e6afc5b` fix(figures): resolve relative /media/ URLs + eradicate Question-visual alt
+- `c51207a` fix(answer-script): remove unsupported temperature=0 + emit questionBlock nodes
 
 ---
 
-## Phase 1 — Ranked root causes (with evidence)
+## CLUSTER A — answer-script generation
 
-Ordered by measured impact on typing latency and editor-open time.
+### Real traceback (the swallowed exception)
 
-### 1. Per-keystroke full-doc serialize + EditorPage re-render — **CRITICAL**
+Reproduced the failing call against the live OpenAI endpoint with the exact
+kwargs `answer_script_service._generate_single_answer_llm_only` was sending:
 
-`tiptap-editor.tsx:829-847` (pre-fix) ran on every transaction:
-
-```ts
-onUpdate: ({ editor }) => {
-  const editorJSON = editor.getJSON();                     // O(nodes)
-  const pages = extractPagesFromDoc(editor.state.doc);     // O(nodes)
-  const contentPayload = buildPersistedPaperContent({…});
-  setEditorContent(JSON.stringify(contentPayload));        // O(doc bytes) + Zustand emit
-  setSaveState("saving");                                  // Zustand emit
-  …
-}
+```
+BadRequestError: Error code: 400 - {'error': {'message':
+  "Unsupported value: 'temperature' does not support 0 with this model.
+   Only the default (1) value is supported.",
+  'type': 'invalid_request_error',
+  'param': 'temperature',
+  'code': 'unsupported_value'}}
 ```
 
-`setEditorContent` triggers every subscriber to re-render — and the
-**only** subscriber was `editor/page.tsx:58`, which is the whole editor
-page tree (including `GeneratorForm`, the sidebar, the resizable handle,
-plus `TiptapEditor` itself). So every keystroke re-rendered the entire
-editor page **and** ran `JSON.stringify` on the whole doc, base64 figures
-included. For a 2 MB doc that's ~50-200 ms of main-thread work per
-keystroke.
+`OPENAI_MODEL` defaults to `gpt-5-mini` (`backend/config/settings.py:153`),
+and the gpt-5 family rejects every non-default `temperature` value. The
+LLM call at `backend/services/answer_script_service.py:348` passed
+`temperature=0`, so every question hit this 400 inside the per-Q
+try/except. The handler logged at warning level without `exc_info`, so
+the real cause was invisible in the logs — the only artifact was the
+"[Answer generation failed]" fallback the handler stamps onto the
+question. Marks badge showed 0 because the doc was a list of plain
+paragraphs and the badge's walker (`editor/toolbar.tsx:448-473`) only
+counts `questionBlock`/`groupedQuestionBlock` nodes.
 
-### 2. StatusBar full-doc walk on every `saveState` flip — **HIGH**
+### Regression vs new failure
 
-`tiptap-editor.tsx:267-321` (pre-fix):
+NEW failure, not a regression of the earlier "answer-script 500 /
+IndentationError" round. The file imports cleanly (regression test
+`test_module_imports_cleanly` still passes). The failure was introduced
+at the file's birth (commit `9b2287b`, when `answer_script_service.py`
+was first added) — the `temperature=0` was wrong from day one but only
+became visible after the project's default model rolled forward to a
+gpt-5 family model.
 
-```ts
-const StatusBar = memo(({ editor }) => {
-  const chars = editor.storage.characterCount?.characters() || 0; // O(nodes)
-  const words = editor.storage.characterCount?.words() || 0;      // O(nodes)
-  const saveState = useEditorStore(s => s.saveState);
-  …
-});
+### Fix (commit `c51207a`)
+
+`backend/services/answer_script_service.py:336-349`:
+- Drop the `temperature=0` kwarg entirely so the API uses the default (1).
+  Compatible with both gpt-5 family and older models.
+- Upgrade the per-Q failure log from `logger.warning(..., exc)` to
+  `logger.error(..., exc, exc_info=True)` so a future regression is
+  never silent again.
+
+`backend/services/answer_script_service.py:_build_answer_script_content`:
+- Restructure the answer doc to emit `questionBlock` nodes per answer
+  instead of plain paragraphs with embedded `[N M]` text. The editor's
+  marks badge now counts the answer-script's question blocks, so the
+  badge is no longer perma-zero.
+
+`backend/q_instructions/tests/test_paper_plan_fixes.py`:
+- `test_request_completion_does_not_send_unsupported_temperature` —
+  monkey-patches the OpenAI client, runs `_generate_single_answer_llm_only`,
+  and asserts the captured kwargs do NOT contain `temperature`. A future
+  edit that puts back `temperature=0` (or any non-default) trips this.
+- `test_build_answer_script_emits_question_blocks` — asserts the answer
+  doc emits `questionBlock` nodes with the right `marks`/`number` attrs
+  and that OR-answers expand into extra paragraphs inside the same block.
+
+### Verification
+
+End-to-end smoke against the live API (via a one-off repro script,
+deleted after use):
+
+```
+Q1:
+  marks=3
+  answer=1. Photosynthesis is the process by which green plants, algae and
+some bacteria use light energy to synthesize glucose from carbon dioxide
+and water.
+2. It occurs in chloroplasts containing chlorophyll …
+✓ Answer generation works
 ```
 
-`saveState` flips on every keystroke (see #1), so `StatusBar` re-rendered
-on every keystroke and did **two** more full-doc walks just to update its
-"Words: N  Characters: M" footer.
+Per-Q isolation: untouched. The `try/except` still wraps each question's
+LLM call, so a single hard failure (model returns gibberish, network
+hangs past the SDK timeout, etc.) still becomes a per-Q
+"[Answer generation failed]" without blanket-failing the script.
 
-### 3. Toolbar marks badge re-counts the entire doc per keystroke — **HIGH**
+### Blast radius
 
-`toolbar.tsx:475-477` (pre-fix):
-
-```ts
-useEffect(() => {
-  calculateTotalMarks();
-}, [editor?.state.doc, calculateTotalMarks]);
-```
-
-`editor.state.doc` is a fresh reference on every transaction. The effect
-re-fired and `calculateTotalMarks` walked the doc to compute the total.
-A third full-doc walk per keystroke.
-
-### 4. Base64-inlined SVG figures in the TipTap doc — **HIGH (latent)**
-
-Confirmed via backend code path (Phase 0). Not a bug per-se, but every
-millisecond cost of #1, #2, #3 scales linearly with `doc bytes`, and an
-inlined SVG is 8-16 KB each. The fixes in Phase 2 remove the per-keystroke
-multiplier, so this becomes O(1s/debounce-window) work rather than
-O(per keystroke).
-
-### 5. TipTap editor bundle on `/editor` route — **MEDIUM (init only)**
-
-2.42 MB raw / 704 KB gzip ships in a single chunk. Affects time-to-
-interactive on the first visit to `/editor`. Not an issue across the rest
-of the app — measured above.
-
-### 6. `useEditor` rerender semantics — **RULED OUT**
-
-Inspected `@tiptap/react/dist/index.js:482`: `useEditor`'s default is
-`shouldRerenderOnTransaction === undefined` → selector returns `null` →
-**no** consumer-re-render on transactions. So `TiptapEditor` itself
-doesn't re-render every keystroke; the per-keystroke re-renders came
-entirely from #1's `setEditorContent` Zustand emit.
-
-### 7. Pagination engine — **MINOR**
-
-`pagination-engine.ts` schedules `paginateOnce` via rAF on every doc
-change, walks pages, measures `getBoundingClientRect()` per child.
-Bounded to one run per frame, so it does not amplify per keystroke. Left
-as-is for this round.
-
-### 8. Editor `extensions` array rebuilt every render — **RULED OUT**
-
-`useEditor` deps is `[]`. The editor is constructed exactly once; the
-array's identity on subsequent renders is moot.
-
-### 9. React `StrictMode` — **N/A**
-
-Not enabled in app router layout. Noted; not chased as a prod bug.
+`_generate_single_answer_llm_only` only. Other LLM call sites:
+- `services/openai_service.generate_answer_key` — never sent
+  `temperature` (no change needed).
+- `services/openai_service.caption_image_for_embedding` — same.
+- `services/generation_service.py:968` — passes a `temperature: 0.7`
+  inside a dict to `provider.stream_chat(llm_request)`, but the
+  `OpenAIProvider.stream_chat` adapter at
+  `apps/question_generation/infrastructure/providers/openai_provider.py:24`
+  reads only `request.model/messages/response_format` and silently drops
+  the dict's temperature. So that path is unaffected (temperature
+  defaults to 1; gpt-5 accepts that). I left this dict-vs-LLMRequest
+  shape mismatch alone for this PR — it's outside the answer-script
+  scope and the GIM stream actually exercises a different normalised
+  path. Flagged for a follow-up.
 
 ---
 
-## Phase 2 — Fixes applied
+## CLUSTER B — intermittent figures + "Question visual" placeholder
 
-Each fix lists what changed, the expected effect, and its blast radius.
+### Why some figures succeeded and others didn't
 
-### Fix A — Stop serializing the doc on every keystroke
+The backend figure pipeline has TWO image-emitting paths:
 
-**Files:** `frontend/components/tiptap-editor.tsx`,
-`frontend/app/(dashboard)/editor/page.tsx`.
+1. **Inline-SVG figures** (`_figure_to_data_url`): validates the model's
+   `figure: {type:"svg", content:"<svg…>"}`, enforces max 16 KB, rejects
+   `<script>` / `<foreignObject>` / external `xlink:href`, and encodes
+   the result as `data:image/svg+xml;base64,…`. These data URLs render
+   anywhere, no network fetch needed.
 
-`onUpdate` no longer calls `getJSON` / `extractPagesFromDoc` /
-`JSON.stringify` / `setEditorContent`. Per-keystroke work now reduces to:
+2. **Source-image URLs** (`_allowed_image_urls`): for slots that have
+   `requires_image=True` and the model cited an `image_url` that
+   actually matches one of the chunks' image URLs (or, on retry, the
+   fallback `image_url = allowed_urls[0]`). These come from
+   `default_storage.url()` for an extracted PDF image, e.g.
+   `/media/pdf_images/<pdf_id>/page-3-image-2.png`. They're **relative**
+   paths — `AOS_PUBLIC_MEDIA_BASE_URL` is unset in dev, so
+   `_public_media_url(stored_path)` returns `/media/...` directly
+   (`services/document_service.py:27-32`).
 
-```ts
-onUpdate: ({ editor }) => {
-  if (useEditorStore.getState().saveState !== "saving") {
-    setSaveState("saving");
-  }
-  debouncedNumbering(editor);
-  debouncedPageState(editor);
-  debouncedSectionSummaries(editor);
-  debouncedLiveSync(editor);
-};
-```
+The intermittence is per-question: a question whose figure path was (1)
+got a working data URL; a question whose figure path was (2) got a
+relative `/media/...` URL.
 
-`setSaveState` is deduped (only emitted if not already `"saving"`) so the
-Zustand emit fires once per save cycle, not per keystroke.
+In **dev** (Next at :3000, Django at :8000), the browser resolves
+`/media/...` against :3000, gets a 404, and shows the `<img>` alt text in
+the broken-image icon — which is exactly where the literal
+`alt: "Question visual"` (the brief's "surviving path") was hard-coded
+in `frontend/components/tiptap-editor.tsx:1257` and `:1346`. In
+**prod** the same path is silent IFF there is an nginx (or equivalent)
+proxy routing `/media/` to Django; without it, the same 404 reaches
+the browser.
 
-The Save flow now pulls live content from the editor at click time via a
-new `window.__activeEditorBuildContent(metadata)` function installed in
-`onCreate`. `editor/page.tsx`'s `handleSavePaper` calls it and merges the
-form values from the modal into the payload before posting to Django.
+The literal `alt="Question visual"` was last added in commit `b4e4023`
+("centralize question generation planning") and never replaced — the
+prior Cluster B work fixed the backend half (stop emitting hallucinated
+URLs) but the frontend insertion sites still hard-coded the placeholder
+alt and never resolved relative paths.
 
-**Before vs after, per keystroke (measured in code-path counts):**
+### Fix (commit `e6afc5b`)
 
-| Step                          | Before | After |
-|-------------------------------|-------:|------:|
-| `editor.getJSON()`            | 1      | 0     |
-| `extractPagesFromDoc`         | 1      | 0     |
-| `JSON.stringify(payload)`     | 1      | 0     |
-| `setEditorContent` Zustand    | 1      | 0     |
-| `setSaveState` Zustand        | 1      | ≤1 (deduped) |
-| `EditorPage` re-render        | 1      | 0     |
+`frontend/components/editor/extensions/float-image.tsx`:
+- New `resolveFigureSrc(src)` helper. Returns `src` as-is for
+  `data:`, `http://`, `https://`, and `blob:` URLs; for any other
+  leading-slash path, prefixes `NEXT_PUBLIC_API_BASE_URL` (Django
+  origin, default `http://localhost:8000`). Used in both the React
+  NodeView render and the static `renderHTML` so the live editor, the
+  PDF export (html2canvas captures the DOM), and any copy-paste-out
+  path agree. Old saved papers with `/media/...` srcs now render
+  correctly without a data migration.
 
-For a representative 100 KB doc (≈20 questions, no inline figures),
-estimated saved main-thread time per keystroke: **~10-20 ms → ~0 ms**.
-For a 2 MB doc (with several inline base64 SVGs), **~100-200 ms → ~0 ms**.
+`frontend/components/tiptap-editor.tsx`:
+- Extract `buildFigureNode(imageUrl)` helper. Returns `null` for empty,
+  "null"/"undefined" string literals, or any URL that isn't `data:`,
+  `http(s)://`, or a leading-slash path. Otherwise returns a `floatImage`
+  node with `alt: ""` (the previous literal `"Question visual"` was the
+  exact text shown in the broken-image icon every time a relative path
+  failed to load — eradicated).
+- Both insertion sites (`questionsToAppend` and `sectionsToAppend`)
+  route through this helper, so generation, review-tray insert, and
+  any future call site share the same insertion guard + alt policy.
 
-**Blast radius:** the `editorContent` store field is now write-only (only
-written by the 1 s `debouncedLiveSync` for IDB persistence and by the
-initial load effect). No reader breaks, because the only reader
-(`editor/page.tsx`) now reads live editor state. The IDB autosave chain
-is untouched — `debouncedLiveSync` still captures editor state at
-debounce-fire time, still flushes on unmount / link-click / pagehide.
-A1 (marks counting) and A2 (insert-after-OR-group) logic is untouched.
-
-### Fix B — Debounce the toolbar marks-total recount
-
-**File:** `frontend/components/editor/toolbar.tsx`.
-
-Replaced the per-`state.doc`-change `useEffect` with a `debounce(…, 400)`
-that listens to `editor.on("update", …)` and is cancelled on unmount.
-
-**Before vs after:** one full-doc walk per keystroke → at most 2.5 walks
-/ second while typing, and one walk on first mount.
-
-**Blast radius:** the badge is now eventually-consistent within 400 ms.
-Visually indistinguishable. The counting **logic** is unchanged (still
-the A1 logic: OR group contributes one branch's marks, then `return
-false` to skip its children).
-
-### Fix C — Debounce StatusBar character/word reads
-
-**File:** `frontend/components/tiptap-editor.tsx`.
-
-Replaced the per-render `editor.storage.characterCount.characters()` /
-`.words()` reads with cached local state updated by a `debounce(…, 500)`
-listener on `editor.on("update", …)`. StatusBar no longer walks the doc
-when `saveState` flips.
-
-**Before vs after:** two full-doc walks per keystroke → at most 2 walks
-/ second while typing.
-
-**Blast radius:** counts lag user input by up to 500 ms — fine for a
-status bar. The save-state indicator (Cloud icon + "Saving…"/"Saved")
-still updates instantly because it reads `saveState` directly.
-
-### Fix D — Cluster B: tighten `.question-group` chrome
-
-**File:** `frontend/components/tiptap-editor.tsx` (inline `<style>`).
-
-The "extra blank line above and below the OR / grouped-OR" was **pure
-CSS**, not a stray empty paragraph. Confirmed by reading:
-
-- `nodes.tsx:558-600` — `QuestionGroupBlock` content spec is
-  `(questionBlock | groupedQuestionBlock | paragraph)+`. The "OR"
-  paragraph the toolbar inserts is **inside** the group, not above/below.
-- `toolbar.tsx:1110-1194` (OR Group + Grouped OR buttons) inserts a
-  single `questionGroupBlock` via `insertContentAt(insertPos, {…})`. No
-  leading or trailing empty paragraph is inserted by the command.
-- The `PageBreak` shim (`nodes.tsx:609`) is **not** registered as an
-  extension (see `tiptap-editor.tsx` extensions array). Old `data-type=
-  "page-break"` divs in saved papers are silently dropped at parse time
-  — no leftover empty nodes.
-
-What was actually adding the apparent blank line:
-
-```css
-.question-group {
-  margin: 8px 0;      /* + border-top 1px + padding-top 6px */
-  padding: 6px 0;
-  border-top: 1px solid #000;
-  border-bottom: 1px solid #000;
-}
-.question-group-header { padding: 2px 0; }
-.question-group-content { margin-top: 6px; }
-```
-
-That's ~36 px of vertical chrome around the OR group vs. ~8 px for a
-plain `.question-block` (margin: 4px 0; no border or padding on the
-outer wrapper). Tightened to:
-
-```css
-.question-group {
-  margin: 4px 0;
-  padding: 2px 0;
-  border-top: 1px solid #000;
-  border-bottom: 1px solid #000;
-}
-.question-group-header { padding: 1px 0; }
-.question-group-content { margin-top: 2px; }
-```
-
-That brings the OR group's vertical chrome to ~10 px, still visually
-distinct (the top + bottom rules) but in line with neighbouring
-questions.
-
-**Blast radius:** pure CSS change, applies to all rendered OR groups
-(new and saved). No data migration needed. Print/PDF unaffected — the
-print rules don't override `.question-group` margins. The literal "1."
-typing behaviour (B2) is unaffected — that lives in the `OrderedList`
-extension input-rule override, which we did not touch.
-
-### Anti-regression sweep
-
-- A1 (marks counted from one branch): `calculateTotalMarks` body
-  unchanged; only its scheduling is debounced. `updateSectionSummaries`
-  is untouched. **Preserved.**
-- A2 (insert after OR group): `insertAfterCurrentBlock` is unchanged.
-  **Preserved.**
-- Grouped-OR rendering / Grouped OR toolbar button: unchanged.
-  **Preserved.**
-- Literal "1." typing (B2): `OrderedList.extend({ addInputRules: () =>
-  [] })` is unchanged. **Preserved.**
-
----
-
-## Cluster B verification
+### Cluster B verification matrix
 
 | Acceptance criterion | Status |
 |---|---|
-| Visible blank gap above each OR group reduced to a normal question gap | Fixed via `.question-group` margin/padding tightening |
-| Visible blank gap below each OR group reduced likewise               | Fixed (same change) |
-| Grouped-OR (multi-branch grouped questions) renders without the extra gap | Fixed (same selector applies) |
-| No regression to A1, A2, grouped-OR, literal "1." typing             | Verified by code-review (sections above) |
-| Saved-paper migration needed?                                        | **No.** Fix is CSS — applies to existing papers on load. |
+| Inline-SVG figures still render | ✓ (no backend change; FloatImage NodeView returns `data:` src unchanged) |
+| Source-image URLs render in dev | ✓ (`resolveFigureSrc` prefixes Django origin) |
+| Source-image URLs render in prod | ✓ (absolute URLs and `data:` URLs are pass-through; no change to existing prod proxy setups) |
+| `<img alt="Question visual">` eradicated | ✓ (both insertion sites now route through `buildFigureNode`; only the historical comment string remains in source) |
+| Text-self-contained fallback when figure can't be generated | ✓ (backend `_strip_figure_references` retry path is unchanged; FE `buildFigureNode` returns null instead of inserting a dead img) |
+| Editor render | ✓ (FloatImage NodeView resolves src at render time, so old saved papers benefit too) |
+| PDF export | ✓ (html2canvas captures the live DOM; with resolved URLs the img loads and is captured) |
+| DOCX export | n/a (DOCX export does not handle images — pre-existing limitation noted in project memory) |
+
+### Blast radius
+
+Figure rendering only. No backend schema change, no data migration. The
+`buildFigureNode` guard is strictly *more conservative* than the previous
+unconditional insertion: it only DROPS imgs it would otherwise have
+inserted as broken. Cluster B regression tests still pass
+(`FigurePipelineTests` — `test_valid_inline_svg_becomes_data_url`,
+`test_svg_with_script_is_rejected`, `test_oversized_svg_is_rejected`,
+`test_coerce_question_rejects_figure_reference_without_figure`,
+`test_coerce_question_accepts_figure_reference_with_inline_svg`).
 
 ---
 
-## Things deliberately NOT changed (with reasoning)
+## CLUSTER C — app-wide slowness
 
-1. **TipTap bundle code-splitting (`next/dynamic` for the editor).**
-   The 1.84 MB chunk dominates first-open of `/editor`. Splitting would
-   speed up first-paint of the page shell but the user still has to wait
-   for the editor before they can interact. Wraps a much larger
-   re-architect (extensions array splitting, schema deferral). Out of
-   scope for a perf-pass focused on root causes the user can feel
-   keystroke-to-keystroke.
+### Measurements (production build)
 
-2. **Externalising base64 figures off the doc.** Real fix, but it spans
-   the backend SSE payload shape, the TipTap `floatImage` node's `src`
-   storage, the IDB schema, the PDF + DOCX exporters, and a migration
-   for existing papers (per project-memory notes, this is already flagged
-   as "unfinished work"). The Phase 2 fixes make typing latency
-   independent of figure size — so this can be picked up later without
-   blocking the immediate complaint.
+```
+$ rm -rf .next && next build
+✓ Compiled successfully in 7.0s
+```
 
-3. **`ProtectedLayout`'s blocking `useSession()` call.** This is the
-   most likely contributor to "opening anything is slow" *across the
-   app* — every dashboard route waits on a session HTTP round-trip before
-   first render (`components/protected-layout.tsx:14-48`). The fix is
-   either a middleware-driven server-side gate or an optimistic render
-   while the check is in flight. Out of scope for this pass because (a)
-   it touches auth, (b) the user's primary complaint was the editor.
+Bundle sizes (sum of all chunks emitted for each route's
+`page_client-reference-manifest.js`):
 
-4. **Pagination engine work per transaction.** It's already bounded to
-   one run per animation frame via `requestAnimationFrame` and only
-   dispatches when DOM measurements actually changed. The measured
-   per-frame cost is small; ripping it out would lose the auto-page-
-   break feature. Left alone.
+| Route | Raw | Gzipped | TipTap chunk loaded? |
+|-------|------:|---------:|---------------------|
+| `/editor` | 2.42 MB | **704 KB** | yes (1.84 MB / 542 KB chunk) |
+| `/dashboard` | 377 KB | 114 KB | no |
+| `/paper-library` | ~390 KB | ~119 KB | no |
+| `/question-bank` | ~385 KB | ~118 KB | no |
+| `/settings` | ~387 KB | ~118 KB | no |
 
-5. **The `editorContent` Zustand field itself.** Now write-only. The
-   project-memory note "safe to remove" stands, but removing the field
-   and its setter is a separate cleanup and would re-touch the store
-   shape; not worth bundling into a perf fix.
+The 1.84 MB TipTap chunk is editor-route-only — Next 16's per-route
+code-split already keeps it off the dashboard / library / question-bank
+/ settings pages. So "next/dynamic split so non-editor routes don't pay
+for TipTap" is a no-op here — they already don't pay. The bundle
+**isn't** the cause of "opening anything is slow."
 
-6. **`console.log` debug spam in TiptapEditor lifecycle.** A few
-   `[DEBUG TiptapEditor]` lines remain on create/destroy paths because
-   they're load-bearing for diagnosing a prior unmount/save-loss race.
-   Editor *create* and *destroy* logs are removed; the
-   `__activeEditorDestroy` path keeps a single error-handler log.
+### Root cause (the brief's TOP suspect was right)
+
+`(dashboard)/layout.tsx` wraps every protected route in `<ProtectedLayout>`,
+which gates `children` on `useSession()`:
+
+```ts
+// frontend/lib/auth-client.ts — pre-fix
+const [data, setData] = useState<SessionData | null>(null);
+const [isLoading, setIsLoading] = useState(true);
+…
+useEffect(() => { fetchSession(); }, [fetchSession]);
+```
+
+Even though `loadSession()` returns synchronously when the module-level
+cache (`sessionLoaded`, `cachedSession`) is hot, `useState` initialized
+`data=null, isLoading=true`, the effect fired, `fetchSession` was
+invoked, and an extra render flipped `isLoading=false` after the cache
+hit. So every protected-route navigation paid:
+
+- 1 wasted render with `data=null, isLoading=true` → ProtectedLayout
+  rendered the centred spinner (Loader2 only, no shell)
+- 1 microtask later, the cached session resolved → re-render with
+  children
+
+On a **cold load** (first nav since browser opened, or hard refresh),
+the cost was much worse: `loadSession()` made a real HTTP round-trip
+to `/api/auth/profile`, blocking the whole layout subtree on the
+network (typically 80-500 ms; up to the 8 s `SESSION_TIMEOUT_MS`).
+
+This is the brief's "every protected route gates on a session HTTP
+round-trip" pattern, confirmed.
+
+### Fix (commit `477d3d5`)
+
+**(1) `useSession` initializes from the module cache synchronously.**
+
+```ts
+// frontend/lib/auth-client.ts — post-fix
+const [data, setData] = useState<SessionData | null>(
+  sessionLoaded ? cachedSession : null,
+);
+const [isLoading, setIsLoading] = useState(!sessionLoaded);
+…
+useEffect(() => {
+  if (sessionLoaded) return;  // cache hit → skip the HTTP call entirely
+  fetchSession();
+}, [fetchSession]);
+```
+
+After the first session load anywhere in the app's lifetime, every
+subsequent navigation renders children on the FIRST render — no
+spinner flash, no extra render cycle, no second HTTP call.
+
+**(2) `ProtectedLayout` renders shell optimistically when a refresh
+token is present.**
+
+```ts
+const [hasRefreshToken, setHasRefreshToken] = useState(false);
+useEffect(() => { setHasRefreshToken(Boolean(getRefreshToken())); }, []);
+…
+if (data?.user) return <>{children}</>;                // cache hit
+if (isLoading && !timedOut && hasRefreshToken) return <>{children}</>;
+if (isLoading && !timedOut) return <Spinner />;
+return <Spinner />;  // session check failed and no token → redirect via effect
+```
+
+A refresh token in localStorage means "this device has logged in
+before." We render the dashboard chrome immediately and let `useSession`
+verify in the background. If verification fails (the 8 s timeout fires,
+or `data?.user` is still falsy when `isLoading` flips), the existing
+redirect-to-/login effect fires.
+
+### Before/after (per-phase ms)
+
+Measured render-path counts, not stopwatch ms — but the dominant
+network-bound cost on cold load is `/api/auth/profile` (80-500 ms RTT
+in dev; SDK timeout 8 s), and the dominant compute cost on warm nav is
+React's render of a spinner-only subtree followed by the children
+subtree.
+
+| Phase | Before | After |
+|---|---|---|
+| Cold load (no cache, no token) | 1 spinner render → HTTP profile call → 1 children render | unchanged (this is the legit unauthenticated path) |
+| Cold load (no cache, refresh token in localStorage) | 1 spinner render → blocking HTTP profile → 1 children render | 1 hydration spinner frame → effect fires → 1 children render; HTTP runs in background |
+| Warm nav (cache hot) | 1 spinner render → 1 children render (extra render cycle, perceptible flicker) | 1 children render (no spinner, no flicker) |
+| Hard refresh (cache cold, token present) | blocking HTTP profile → 1 children render | 1 hydration spinner frame → 1 children render; HTTP runs in background |
+
+For the dominant case (warm internal nav), the saved cost is one full
+ProtectedLayout subtree render and the perceptible spinner flicker.
+For cold load with a token, the saved cost is the entire HTTP round-trip
+on the critical path.
+
+### Items NOT changed in Cluster C (with reasoning)
+
+1. **next/dynamic split of TipTap on /editor.** Brief listed this as
+   a candidate. Bundle measurement above shows it would not help
+   "opening anything is slow" — TipTap is already editor-route-only.
+   On /editor itself, splitting just rearranges the loading order:
+   the user is on /editor specifically to use the editor, so the chunk
+   has to load before they can do anything meaningful. Net latency win
+   ≈ zero. Skipped.
+
+2. **Figure externalization (base64 SVGs inline → external storage).**
+   Project-memory note flags this as "unfinished work." The prior perf
+   pass already de-coupled per-keystroke cost from figure-blob size
+   (Fix A in the previous FIX_REPORT: stopped serializing the doc on
+   every keystroke). So this only affects IDB read/write cost on
+   figure-heavy paper load, not typing latency or per-nav perceived
+   slowness. Bigger architectural change (backend SSE shape, TipTap
+   floatImage `src` storage, IDB schema, PDF + DOCX exporters,
+   migration for existing papers) — not in scope for this PR.
+
+3. **GIM dict-vs-LLMRequest shape mismatch in
+   `generation_service.py:964-972`.** Noted under Cluster A blast
+   radius. Real bug, but out of scope here.
 
 ---
+
+## Anti-regression sweep
+
+Searched for the same anti-patterns elsewhere:
+
+- `temperature\s*=` / `temperature\s*:` in `backend/` — only call site
+  was `answer_script_service.py:348` (fixed) and the test file
+  (intentional, asserts the absence). `test_llm.py` is a manual repro
+  script; not part of automated tests. `generation_service.py:968` is
+  the GIM dict path documented above.
+- `"Question visual"` in `frontend/` — only the historical comment
+  remains, no live emission paths.
+- Blocking `useSession()` + spinner gate — only ProtectedLayout uses
+  this pattern; no other layout in the app gates on a session check.
+- Per-keystroke serialize + Zustand emit (the previous round's Cluster
+  C subject) — untouched, still debounced via `debouncedLiveSync`
+  every 1 s.
+- StatusBar full-doc walk on `saveState` flip — untouched, still 500 ms
+  debounce.
+- Toolbar marks total recount — untouched, still 400 ms debounce.
 
 ## Test results
 
-| Suite                   | Passed | Failed |
-|-------------------------|--------|--------|
-| `q_instructions/tests/` | 93     | 0      |
-| Frontend `tsc --noEmit` | ✓      | —      |
-| Frontend `next build`   | ✓      | —      |
+| Suite | Passed | Failed |
+|---|---|---|
+| `q_instructions/tests/` | 95 | 0 |
+| Frontend `tsc --noEmit` | ✓ | — |
+| Frontend `next build` (prod) | ✓ | — |
