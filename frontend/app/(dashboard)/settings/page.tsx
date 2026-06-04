@@ -23,7 +23,9 @@ import {
   Check,
   ArrowRight,
   X,
+  Paintbrush,
 } from "lucide-react";
+import { ThemeToggle } from "@/components/ui/curtain-theme-toggle";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -456,6 +458,36 @@ export default function SettingsPage() {
             Token consumption depends on the length of input documents and
             complexity of questions generated.
           </p>
+        </CardContent>
+      </Card>
+
+      {/* Row 3 — Appearance (full width) */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg text-foreground flex items-center gap-2">
+                <Paintbrush className="h-5 w-5 text-indigo-500" />
+                Appearance
+              </CardTitle>
+              <CardDescription className="text-muted-foreground mt-1">
+                Customize the look and feel of the application.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between p-4 bg-muted/20 border border-border rounded-xl">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Theme Preference</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Switch between light and dark modes.
+              </p>
+            </div>
+            <div className="flex items-center justify-center">
+              <ThemeToggle variant="icon" />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
