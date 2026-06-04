@@ -430,12 +430,12 @@ export const GeneratorForm = () => {
   const hasAnyDocs = uploadedDocs.length > 0 || uploadingDocs.length > 0;
 
   return (
-    <div className="h-full flex flex-col p-4 bg-white dark:bg-zinc-950 text-zinc-600 dark:text-zinc-300 overflow-y-auto custom-scrollbar">
+    <div className="h-full flex flex-col p-4 bg-background text-muted-foreground overflow-y-auto custom-scrollbar">
       <div className="mb-6">
-        <h2 className="text-lg font-bold text-zinc-900 dark:text-white mb-1">
+        <h2 className="text-lg font-bold text-foreground mb-1">
           Question Generator
         </h2>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted-foreground">
           Questions are generated STRICTLY from your source material.
         </p>
       </div>
@@ -453,7 +453,7 @@ export const GeneratorForm = () => {
       {/* Source Files */}
       <div className="mb-6 space-y-3">
         <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          <label className="text-sm font-medium text-foreground">
             Source Files
           </label>
           <Button
@@ -471,15 +471,15 @@ export const GeneratorForm = () => {
         <div className="space-y-2">
           {/* Empty state */}
           {!hasAnyDocs && (
-            <div className="text-center py-6 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50 dark:bg-zinc-900/30">
-              <p className="text-xs text-zinc-500">No files uploaded yet.</p>
+            <div className="text-center py-6 border border-dashed border-border rounded-lg bg-muted/30">
+              <p className="text-xs text-muted-foreground">No files uploaded yet.</p>
             </div>
           )}
 
           {/* Uploading / error rows */}
           {uploadingDocs.map((doc) => (
             <div key={doc.tempId}>
-              <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center justify-between p-2 rounded-lg bg-muted/50 border border-border">
                 <div className="flex items-center gap-2 min-w-0">
                   {doc.status === "uploading" ? (
                     <Loader2 className="h-4 w-4 text-indigo-500 animate-spin flex-shrink-0" />
@@ -487,7 +487,7 @@ export const GeneratorForm = () => {
                     <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
                   )}
                   <div className="min-w-0">
-                    <span className="text-xs text-zinc-700 dark:text-zinc-200 truncate block">
+                    <span className="text-xs text-foreground truncate block">
                       {doc.name}
                     </span>
                     {doc.status === "uploading" && (
@@ -512,7 +512,7 @@ export const GeneratorForm = () => {
                 )}
               </div>
               {doc.status === "uploading" && (
-                <div className="mt-1 h-0.5 w-full rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+                <div className="mt-1 h-0.5 w-full rounded-full bg-muted-foreground/30 overflow-hidden">
                   <div
                     className="h-full bg-indigo-500 rounded-full animate-[loading-bar_1.4s_ease-in-out_infinite]"
                     style={{ width: "60%" }}
@@ -526,11 +526,11 @@ export const GeneratorForm = () => {
           {uploadedDocs.map((doc) => (
             <div
               key={doc.id}
-              className="flex items-center justify-between p-2 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 group"
+              className="flex items-center justify-between p-2 rounded-lg bg-muted/50 border border-border group"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <FileCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
-                <span className="text-xs text-zinc-700 dark:text-zinc-200 truncate">
+                <span className="text-xs text-foreground truncate">
                   {doc.name}
                 </span>
               </div>
@@ -556,19 +556,19 @@ export const GeneratorForm = () => {
             name="qpType"
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-zinc-700 dark:text-zinc-300 font-semibold">QP Type</FormLabel>
+                <FormLabel className="text-foreground font-semibold">QP Type</FormLabel>
                 <Select value={field.value} onValueChange={field.onChange}>
                   <FormControl>
-                    <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                    <SelectTrigger className="w-full bg-background border-border text-foreground">
                       <SelectValue placeholder="Select QP Type" />
                     </SelectTrigger>
                   </FormControl>
-                  <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
+                  <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground min-w-[var(--radix-select-trigger-width)]">
                     <SelectItem value="board">Board Mode</SelectItem>
                     <SelectItem value="general_instructions">General Instructions Mode</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-0.5">
+                <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-0.5">
                   {field.value === "board"
                     ? "Uses CBSE/board-specific structure, sections, and Bloom's taxonomy."
                     : "The AI follows your written instructions exactly — no board patterns."}
@@ -589,12 +589,12 @@ export const GeneratorForm = () => {
                 name="board"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-zinc-700 dark:text-zinc-300">Board</FormLabel>
+                    <FormLabel className="text-foreground">Board</FormLabel>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
-                        <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
+                        <SelectTrigger className="w-full bg-background border-border text-foreground"><SelectValue placeholder="Select" /></SelectTrigger>
                       </FormControl>
-                      <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                      <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground">
                         <SelectItem value="CBSE">CBSE</SelectItem>
                       </SelectContent>
                     </Select>
@@ -608,12 +608,12 @@ export const GeneratorForm = () => {
               name="academicClass"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-zinc-700 dark:text-zinc-300">Class</FormLabel>
+                  <FormLabel className="text-foreground">Class</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
-                      <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectTrigger className="w-full bg-background border-border text-foreground"><SelectValue placeholder="Select" /></SelectTrigger>
                     </FormControl>
-                    <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                    <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground">
                       <SelectItem value="1">Class 1</SelectItem>
                       <SelectItem value="2">Class 2</SelectItem>
                       <SelectItem value="3">Class 3</SelectItem>
@@ -636,12 +636,12 @@ export const GeneratorForm = () => {
             name="subject"
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-zinc-700 dark:text-zinc-300">Subject</FormLabel>
+                <FormLabel className="text-foreground">Subject</FormLabel>
                 <Select value={field.value} onValueChange={field.onChange}>
                   <FormControl>
-                    <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectTrigger className="w-full bg-background border-border text-foreground"><SelectValue placeholder="Select" /></SelectTrigger>
                   </FormControl>
-                  <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                  <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground">
                     <SelectItem value="Science">Science</SelectItem>
                     <SelectItem value="Social Science">Social Science</SelectItem>
                     <SelectItem value="Mathematics">Mathematics Standard (Code 041)</SelectItem>
@@ -662,16 +662,16 @@ export const GeneratorForm = () => {
             name="difficulty"
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="text-zinc-700 dark:text-zinc-300">
+                <FormLabel className="text-foreground">
                   Difficulty
                 </FormLabel>
                 <Select value={field.value} onValueChange={field.onChange}>
                   <FormControl>
-                    <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                    <SelectTrigger className="w-full bg-background border-border text-foreground">
                       <SelectValue placeholder="Select" />
                     </SelectTrigger>
                   </FormControl>
-                  <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
+                  <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground min-w-[var(--radix-select-trigger-width)]">
                     <SelectItem value="easy">Easy</SelectItem>
                     <SelectItem value="medium">Medium</SelectItem>
                     <SelectItem value="hard">Hard</SelectItem>
@@ -689,16 +689,16 @@ export const GeneratorForm = () => {
               name="countType"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-zinc-700 dark:text-zinc-300">
+                  <FormLabel className="text-foreground">
                     Count Variation
                   </FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
-                      <SelectTrigger className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100">
+                      <SelectTrigger className="w-full bg-background border-border text-foreground">
                         <SelectValue placeholder="Select" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent alignItemWithTrigger={false} className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 min-w-[var(--radix-select-trigger-width)]">
+                    <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground min-w-[var(--radix-select-trigger-width)]">
                       <SelectItem value="cbse">CBSE Exact Pattern</SelectItem>
                       <SelectItem value="custom">Custom Count</SelectItem>
                     </SelectContent>
@@ -716,7 +716,7 @@ export const GeneratorForm = () => {
               name="numberOfQuestions"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-zinc-700 dark:text-zinc-300">
+                  <FormLabel className="text-foreground">
                     {currentQpType === "general_instructions" ? "Exact Count (optional)" : "Exact Count"}
                   </FormLabel>
                   <FormControl>
@@ -724,12 +724,12 @@ export const GeneratorForm = () => {
                       type="number"
                       min="1"
                       max="50"
-                      className="bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100"
+                      className="bg-background border-border text-foreground"
                       {...field}
                     />
                   </FormControl>
                   {currentQpType === "general_instructions" && (
-                    <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                    <p className="text-[10px] text-zinc-400 dark:text-muted-foreground">
                       Leave empty if your instructions specify the count.
                     </p>
                   )}
@@ -741,7 +741,7 @@ export const GeneratorForm = () => {
 
           {/* General Instructions / Your Instructions */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            <label className="text-sm font-medium text-foreground">
               {currentQpType === "general_instructions" ? (
                 <>
                   Your Instructions <span className="text-red-500">*</span>
@@ -756,7 +756,7 @@ export const GeneratorForm = () => {
                   ? "Describe exactly what you want.\nExample: 5 MCQs, 3 short answers of 2 marks each, 2 long answers."
                   : "e.g. Section A: 4 short answer questions (2 marks each)\nSection B: 4 long answer questions (5 marks each)"
               }
-              className={`bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-indigo-500 ${
+              className={`bg-background border-border text-foreground placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-indigo-500 ${
                 currentQpType === "general_instructions"
                   ? "min-h-[120px] border-indigo-300 dark:border-indigo-700 ring-1 ring-indigo-200 dark:ring-indigo-800/50"
                   : "min-h-[90px]"
@@ -764,14 +764,14 @@ export const GeneratorForm = () => {
               value={generalInstructions}
               onChange={(e) => setGeneralInstructions(e.target.value)}
             />
-            <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+            <p className="text-[11px] text-zinc-400 dark:text-muted-foreground">
               {currentQpType === "general_instructions"
                 ? "The AI will follow these instructions exactly. Be specific about question types, counts, and marks."
                 : "Describe section structure and question types. The AI will follow these instructions."}
             </p>
           </div>
 
-          <div className="pt-4 sticky bottom-0 bg-white dark:bg-zinc-950 pb-4">
+          <div className="pt-4 sticky bottom-0 bg-background pb-4">
             <Button
               type="submit"
               disabled={isGenerating || uploadedDocs.length === 0}
@@ -786,8 +786,8 @@ export const GeneratorForm = () => {
       </Form>
 
       {/* ── ISSUE 2: insertion-mode toggle ───────────────────────────── */}
-      <div className="mt-6 mb-2 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40">
-        <div className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+      <div className="mt-6 mb-2 p-3 rounded-lg border border-border bg-muted/40">
+        <div className="text-xs font-medium text-foreground mb-2">
           When generation finishes:
         </div>
         <div className="flex gap-2">
@@ -797,7 +797,7 @@ export const GeneratorForm = () => {
             className={`flex-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
               insertionMode === "review"
                 ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-medium"
-                : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:border-zinc-400"
+                : "border-border text-muted-foreground hover:border-zinc-400"
             }`}
           >
             Review before inserting
@@ -808,7 +808,7 @@ export const GeneratorForm = () => {
             className={`flex-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
               insertionMode === "auto"
                 ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-medium"
-                : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:border-zinc-400"
+                : "border-border text-muted-foreground hover:border-zinc-400"
             }`}
           >
             Auto-insert all
@@ -820,8 +820,8 @@ export const GeneratorForm = () => {
       {insertionMode === "review" && <ReviewTray />}
 
       {generatedResult && insertionMode === "auto" && (
-        <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-6 animate-in fade-in duration-500">
-          <h3 className="text-lg font-bold text-zinc-900 dark:text-white mb-4 flex items-center gap-2">
+        <div className="mt-6 border-t border-border pt-6 animate-in fade-in duration-500">
+          <h3 className="text-lg font-bold text-foreground mb-4 flex items-center gap-2">
             Generated Output
           </h3>
 
@@ -835,7 +835,7 @@ export const GeneratorForm = () => {
                   {section.questions?.map((q: any, qIdx: number) => (
                     <div
                       key={qIdx}
-                      className="p-3 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-2"
+                      className="p-3 bg-muted/50 border border-border rounded-xl space-y-2"
                     >
                       <div className="flex justify-between items-start gap-2">
                         <p className="font-medium text-sm text-zinc-800 dark:text-zinc-100">
@@ -850,14 +850,14 @@ export const GeneratorForm = () => {
                           {q.options.map((opt: string, oIdx: number) => (
                             <div
                               key={oIdx}
-                              className="text-[11px] text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 p-1.5 rounded bg-white dark:bg-zinc-950/50"
+                              className="text-[11px] text-muted-foreground dark:text-zinc-400 border border-border p-1.5 rounded bg-background/50"
                             >
                               {String.fromCharCode(65 + oIdx)}. {opt}
                             </div>
                           ))}
                         </div>
                       )}
-                      <div className="mt-2 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                      <div className="mt-2 pt-2 border-t border-border">
                         <p className="text-[10px] text-green-600 dark:text-green-500 font-medium truncate">
                           Ans: {q.answer}
                         </p>
@@ -906,7 +906,7 @@ export const GeneratorForm = () => {
                 </Button>
                 <Button
                   variant="ghost"
-                  className="w-full text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300"
+                  className="w-full text-zinc-400 dark:text-muted-foreground hover:text-zinc-600 dark:hover:text-zinc-300"
                   onClick={() => setGeneratedResult(null)}
                 >
                   Clear Results
