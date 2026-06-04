@@ -333,14 +333,14 @@ const StatusBar = memo(({ editor }: { editor: any }) => {
   };
 
   return (
-    <div className="flex items-center justify-between px-4 py-1.5 bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800 text-[10px] text-zinc-500 select-none flex-shrink-0">
+    <div className="flex items-center justify-between px-4 py-1.5 bg-muted/20 border-t border-border text-[10px] text-muted-foreground select-none flex-shrink-0">
       <div className="flex items-center gap-4">
         <span>Words: {words}</span>
         <span>Characters: {chars}</span>
       </div>
       <div className="flex items-center gap-4 font-mono">
         {getSaveStateLabel()}
-        <span className="text-zinc-200 dark:text-zinc-850">|</span>
+        <span className="text-border">|</span>
         <span>A4 | Portrait</span>
         <span>100%</span>
       </div>
@@ -1476,7 +1476,7 @@ export const TiptapEditor = ({
   if (!isClient) return null;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-white overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-transparent overflow-hidden">
       {editor && (
         <EditorToolbar
           editor={editor}
@@ -1489,7 +1489,7 @@ export const TiptapEditor = ({
           onClose={() => setShowFindReplace(false)}
         />
       )}
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-white print:p-0">
+      <div className="flex-1 overflow-y-auto custom-scrollbar bg-transparent print:p-0">
         <EditorContent editor={editor} className="h-full pb-32" />
       </div>
       {editor && <StatusBar editor={editor} />}
@@ -1504,8 +1504,8 @@ export const TiptapEditor = ({
           align-items: center;
           gap: 24px;
           padding: 28px 0 96px;
-          background: #ffffff;
-          color: #000000;
+          background: transparent;
+          color: var(--color-foreground);
           font-family: "Times New Roman", Times, serif;
           font-size: 12pt;
           line-height: 1.35;
@@ -1515,10 +1515,11 @@ export const TiptapEditor = ({
           width: 794px;
           min-height: 1123px;
           height: 1123px;
-          background: #ffffff;
-          border: 1px solid #000000;
+          background: var(--color-card);
+          border: 1px solid var(--color-border);
           overflow: hidden;
           box-sizing: border-box;
+          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
         }
 
         .document-editor .doc-page-inner {
@@ -1556,8 +1557,8 @@ export const TiptapEditor = ({
         }
 
         .ProseMirror {
-          color: #000000 !important;
-          caret-color: #000000 !important;
+          color: var(--color-foreground) !important;
+          caret-color: var(--color-foreground) !important;
           padding: 0 !important;
           min-height: 0;
           background: transparent !important;

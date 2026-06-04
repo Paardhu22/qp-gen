@@ -220,10 +220,10 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-1.5 px-3 py-2 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 animate-in slide-in-from-top-2 duration-200 shadow-sm">
+    <div className="flex flex-col gap-1.5 px-3 py-2 bg-background border-b border-border animate-in slide-in-from-top-2 duration-200 shadow-sm">
       {/* Find row */}
       <div className="flex items-center gap-2">
-        <Search className="h-3.5 w-3.5 text-zinc-400 flex-shrink-0" />
+        <Search className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
         <input
           ref={searchRef}
           type="text"
@@ -231,16 +231,16 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
           onChange={(e) => setSearchTerm(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Find in document…"
-          className="flex-1 h-7 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded px-2 text-[11px] text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-indigo-400/60"
+          className="flex-1 h-7 bg-muted/50 border border-border rounded px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-indigo-400/60"
         />
-        <span className="text-[10px] text-zinc-500 min-w-[44px] text-center font-mono tabular-nums">
+        <span className="text-[10px] text-muted-foreground min-w-[44px] text-center font-mono tabular-nums">
           {matchCount > 0 ? `${currentMatch} / ${matchCount}` : "0 / 0"}
         </span>
         <button
           onClick={findPrev}
           disabled={matchCount === 0}
           title="Previous match (Shift+Enter)"
-          className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 transition-colors"
         >
           <ChevronUp className="h-3.5 w-3.5" />
         </button>
@@ -248,14 +248,14 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
           onClick={findNext}
           disabled={matchCount === 0}
           title="Next match (Enter)"
-          className="h-6 w-6 flex items-center justify-center rounded text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 transition-colors"
         >
           <ChevronDown className="h-3.5 w-3.5" />
         </button>
         <button
           onClick={() => setShowReplace(!showReplace)}
           className={cn(
-            "h-6 w-6 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors",
+            "h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors",
             showReplace && "text-indigo-600 bg-indigo-50 dark:text-indigo-400 dark:bg-indigo-900/30"
           )}
           title="Toggle Replace"
@@ -268,7 +268,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
             onClose();
           }}
           title="Close (Esc)"
-          className="h-6 w-6 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -277,26 +277,26 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
       {/* Replace row */}
       {showReplace && (
         <div className="flex items-center gap-2 animate-in fade-in duration-200">
-          <Replace className="h-3.5 w-3.5 text-zinc-400 flex-shrink-0" />
+          <Replace className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
           <input
             type="text"
             value={replaceTerm}
             onChange={(e) => setReplaceTerm(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Replace with…"
-            className="flex-1 h-7 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded px-2 text-[11px] text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-indigo-400/60"
+            className="flex-1 h-7 bg-muted/50 border border-border rounded px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-indigo-400/60"
           />
           <button
             onClick={replaceOne}
             disabled={matchCount === 0}
-            className="h-6 px-2.5 text-[10px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded disabled:opacity-30 transition-colors"
+            className="h-6 px-2.5 text-[10px] font-medium text-zinc-600 dark:text-muted-foreground hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded disabled:opacity-30 transition-colors"
           >
             Replace
           </button>
           <button
             onClick={replaceAll}
             disabled={matchCount === 0}
-            className="h-6 px-2.5 text-[10px] font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded disabled:opacity-30 transition-colors"
+            className="h-6 px-2.5 text-[10px] font-medium text-zinc-600 dark:text-muted-foreground hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded disabled:opacity-30 transition-colors"
           >
             All
           </button>

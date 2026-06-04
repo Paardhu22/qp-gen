@@ -65,11 +65,10 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
               />
               <button
                 type="button"
+                className="opacity-0 group-hover:opacity-100 hover:bg-accent rounded p-0.5"
                 onClick={removeLogo}
-                className="logo-remove-btn print:hidden"
-                title="Remove logo"
               >
-                <X className="w-3 h-3 text-zinc-500" />
+                <X className="w-3 h-3 text-muted-foreground" />
               </button>
             </div>
           ) : (

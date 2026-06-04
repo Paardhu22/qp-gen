@@ -190,7 +190,7 @@ const ColorPicker: React.FC<{
                   setOpen(false);
                 }}
                 className={cn(
-                  "h-6 w-6 rounded border border-zinc-700 hover:scale-110 transition-transform",
+                  "h-6 w-6 rounded border border-border hover:scale-110 transition-transform",
                   currentColor === color && "ring-2 ring-indigo-500",
                 )}
                 style={{ backgroundColor: color }}
@@ -364,7 +364,7 @@ const MathPicker: React.FC<{
               </div>
             ))}
           </div>
-          <div className="mt-2 pt-2 border-t border-zinc-800">
+          <div className="mt-2 pt-2 border-t border-border">
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
@@ -574,7 +574,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
   };
 
   return (
-    <div className="flex flex-col border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex-shrink-0">
+    <div className="flex flex-col border-b border-border bg-background flex-shrink-0">
       {/* Primary Toolbar */}
       <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 overflow-visible">
         {/* Undo / Redo */}
@@ -867,7 +867,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           />
           <div
             title="Insert Image"
-            className="h-7 w-7 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-all"
+            className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all cursor-pointer"
           >
             <ImageIcon className="h-3.5 w-3.5" />
           </div>

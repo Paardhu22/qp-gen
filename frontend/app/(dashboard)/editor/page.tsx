@@ -595,10 +595,10 @@ export default function EditorPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-4.5rem)] w-full overflow-hidden bg-white dark:bg-zinc-950">
+    <div className="flex h-[calc(100vh-4.5rem)] w-full overflow-hidden bg-background">
       {/* Left Panel: Generator Form */}
       <div
-        className="flex-shrink-0 bg-white dark:bg-zinc-950 flex flex-col h-full overflow-hidden"
+        className="flex-shrink-0 bg-background flex flex-col h-full overflow-hidden"
         style={{ width: sidebarWidth }}
       >
         <GeneratorForm />
@@ -607,30 +607,30 @@ export default function EditorPage() {
       {/* Drag handle */}
       <div
         onMouseDown={onDragStart}
-        className="flex-shrink-0 w-px h-full cursor-col-resize group relative z-20 bg-zinc-200 dark:bg-zinc-800 hover:bg-indigo-500 transition-colors"
+        className="flex-shrink-0 w-px h-full cursor-col-resize group relative z-20 bg-border hover:bg-primary transition-colors"
         title="Drag to resize"
       >
         <div className="absolute inset-y-0 -left-2 -right-2 z-0" />
-        <div className="z-10 w-1.5 h-12 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 group-hover:border-indigo-500 group-hover:bg-indigo-600 transition-all flex flex-col items-center justify-center gap-1 shadow-sm pointer-events-none">
-          <div className="w-0.5 h-0.5 rounded-full bg-zinc-300 dark:bg-zinc-700 group-hover:bg-indigo-200" />
-          <div className="w-0.5 h-0.5 rounded-full bg-zinc-300 dark:bg-zinc-700 group-hover:bg-indigo-200" />
-          <div className="w-0.5 h-0.5 rounded-full bg-zinc-300 dark:bg-zinc-700 group-hover:bg-indigo-200" />
+        <div className="z-10 w-1.5 h-12 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background border border-border group-hover:border-primary group-hover:bg-primary transition-all flex flex-col items-center justify-center gap-1 shadow-sm pointer-events-none">
+          <div className="w-0.5 h-0.5 rounded-full bg-muted-foreground group-hover:bg-primary-foreground" />
+          <div className="w-0.5 h-0.5 rounded-full bg-muted-foreground group-hover:bg-primary-foreground" />
+          <div className="w-0.5 h-0.5 rounded-full bg-muted-foreground group-hover:bg-primary-foreground" />
         </div>
       </div>
 
       {/* Right Panel: Tiptap Editor */}
-      <div className="flex-1 min-w-0 bg-zinc-100 dark:bg-zinc-900 h-full flex flex-col overflow-hidden">
-        <div className="h-10 min-h-10 px-4 flex items-center border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-[10px] uppercase tracking-wider font-medium text-zinc-500 flex-shrink-0">
+      <div className="flex-1 min-w-0 bg-muted/30 h-full flex flex-col overflow-hidden">
+        <div className="h-10 min-h-10 px-4 flex items-center border-b border-border bg-muted/50 text-[10px] uppercase tracking-wider font-medium text-muted-foreground flex-shrink-0">
           {paperLoading ? (
             <span className="inline-flex items-center gap-2">
-              <span className="h-3 w-24 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse" />
+              <span className="h-3 w-24 bg-muted rounded animate-pulse" />
             </span>
           ) : paperError ? (
-            <span className="text-red-400">{paperError}</span>
+            <span className="text-destructive">{paperError}</span>
           ) : loadedPaperTitle ? (
             <>
-              <span className="text-zinc-400 mr-2">Editing:</span>
-              <span className="text-zinc-800 dark:text-zinc-200">
+              <span className="text-muted-foreground mr-2">Editing:</span>
+              <span className="text-foreground">
                 {loadedPaperTitle}
               </span>
             </>
