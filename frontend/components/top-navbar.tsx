@@ -1,7 +1,6 @@
 "use client";
 
 import { useSession, signOut } from "@/lib/auth-client";
-import { ThemeToggle } from "./ui/curtain-theme-toggle";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -91,7 +90,6 @@ export const TopNavbar = () => {
 
         {/* Right side */}
         <div className="flex items-center gap-x-3">
-          <ThemeToggle variant="icon" />
           <DropdownMenu>
             <DropdownMenuTrigger className="flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer">
               <span className="text-sm font-medium text-foreground hidden md:block">
