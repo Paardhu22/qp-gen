@@ -4,15 +4,19 @@
 This report documents the UI changes made to correct dark mode inconsistencies and hardcoded colors in the editor and generator form. The changes strictly utilized existing semantic CSS variables instead of introducing new hardcoded hex values, ensuring that light mode remains pixel-identical to its original state.
 
 ## 1. Paper Area Choice and Rationale
-- **Choice Selected:** True dark paper (`var(--color-card)`, mapped to `oklch(0.205 0 0)` in dark mode).
-- **Rationale:** A full dark paper aligns natively with the modern dark mode experience found in standard editors (like Notion or VS Code) and provides zero eye-strain when interacting against the deep surrounding backgrounds (`var(--color-background)` / `var(--color-muted)`). An off-white approach in dark mode creates harsh contrast steps, defeating the goal of a cohesive dark interface.
-- **Changed CSS:**
-  - `globals.css`: 
-    - `#tiptap-paper-container` caret color was changed from `#000000` to `var(--color-foreground)` to remain visible in dark mode.
+- **Choice Selected:** Explicit white paper (`#ffffff`) with black text (`#000000`) for BOTH light and dark mode.
+- **Rationale:** The previous attempt at a true dark mode paper was incorrect; the paper represents a physical document and must always remain white, even in dark mode. Theme variables must NOT bleed into the document surface. The surrounding editor chrome (navbar, sidebar, toolbar, grey margins) uses the dark mode tokens appropriately.
+- **Changed CSS / Scoped Selectors:**
+  - `globals.css`:
+    - `#tiptap-paper-container` caret color was explicitly reverted to `#000000 !important`.
   - `tiptap-editor.tsx` (`<style>` block):
-    - `.document-editor` background changed from `#ffffff` to `transparent`, text from `#000000` to `var(--color-foreground)`.
-    - `.doc-page` background changed from `#ffffff` to `var(--color-card)`, border changed from `#000000` to `var(--color-border)`.
-    - `.ProseMirror` (internal text) color and caret-color changed from `#000000` to `var(--color-foreground)`.
+    - `.document-editor` color set explicitly to `#000000`.
+    - `.document-editor .doc-page` background set explicitly to `#ffffff` and border to `#000000`.
+    - `.ProseMirror` (internal text) color and caret-color forced to `#000000 !important`.
+    - Inner elements like `.section-table-header`, `.question-row`, and `.paper-header-block` explicitly use `background: #ffffff` and `border: 1px solid #000000`.
+- **Print Media Query (`@media print`):**
+  - Confirmed and hardened the `@media print` rule. The `.document-editor`, `.doc-page`, and `.ProseMirror` are explicitly forced to `background: #ffffff !important` and `color: #000000 !important`. All descendants under `.document-editor` and `.ProseMirror` are forced to `color: #000000 !important`. This ensures printing from dark mode never produces black paper or invisible text.
+- **Light Mode Check:** Confirmed that light mode is completely unaffected and remains pixel-identical to its original white paper state.
 
 ## 2. Editor Layout & Container Variables
 - **Target:** `app/(dashboard)/editor/page.tsx`
