@@ -607,15 +607,11 @@ export default function EditorPage() {
       {/* Drag handle */}
       <div
         onMouseDown={onDragStart}
-        className="flex-shrink-0 w-px h-full cursor-col-resize group relative z-20 bg-border hover:bg-primary transition-colors"
+        className="flex-shrink-0 w-px h-full cursor-col-resize group relative z-20 bg-border hover:bg-primary/50 transition-colors"
         title="Drag to resize"
       >
         <div className="absolute inset-y-0 -left-2 -right-2 z-0" />
-        <div className="z-10 w-1.5 h-12 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background border border-border group-hover:border-primary group-hover:bg-primary transition-all flex flex-col items-center justify-center gap-1 shadow-sm pointer-events-none">
-          <div className="w-0.5 h-0.5 rounded-full bg-muted-foreground group-hover:bg-primary-foreground" />
-          <div className="w-0.5 h-0.5 rounded-full bg-muted-foreground group-hover:bg-primary-foreground" />
-          <div className="w-0.5 h-0.5 rounded-full bg-muted-foreground group-hover:bg-primary-foreground" />
-        </div>
+        <div className="z-10 w-1.5 h-8 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border/50 opacity-0 group-hover:opacity-100 group-hover:bg-primary/50 transition-all pointer-events-none" />
       </div>
 
       {/* Right Panel: Tiptap Editor */}
