@@ -1505,7 +1505,7 @@ export const TiptapEditor = ({
           gap: 24px;
           padding: 28px 0 96px;
           background: transparent;
-          color: var(--color-foreground);
+          color: #000000;
           font-family: "Times New Roman", Times, serif;
           font-size: 12pt;
           line-height: 1.35;
@@ -1515,8 +1515,8 @@ export const TiptapEditor = ({
           width: 794px;
           min-height: 1123px;
           height: 1123px;
-          background: var(--color-card);
-          border: 1px solid var(--color-border);
+          background: #ffffff;
+          border: 1px solid #000000;
           overflow: hidden;
           box-sizing: border-box;
           box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
@@ -1557,8 +1557,8 @@ export const TiptapEditor = ({
         }
 
         .ProseMirror {
-          color: var(--color-foreground) !important;
-          caret-color: var(--color-foreground) !important;
+          color: #000000 !important;
+          caret-color: #000000 !important;
           padding: 0 !important;
           min-height: 0;
           background: transparent !important;
@@ -2550,7 +2550,12 @@ export const TiptapEditor = ({
           .document-editor {
             gap: 0;
             padding: 0;
-            background: #ffffff;
+            background: #ffffff !important;
+            color: #000000 !important;
+          }
+
+          .document-editor *, .ProseMirror * {
+            color: #000000 !important;
           }
 
           .doc-page {
@@ -2563,6 +2568,7 @@ export const TiptapEditor = ({
             overflow: visible !important;
             page-break-after: always;
             break-after: page;
+            background: #ffffff !important;
           }
 
           .doc-page-content {
