@@ -145,12 +145,12 @@ export function LoginForm({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                <a
-                  href="#"
-                  className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-muted-foreground underline-offset-4 hover:underline hover:text-foreground"
                 >
                   Forgot your password?
-                </a>
+                </Link>
               </div>
               <div className="relative">
                 <Input

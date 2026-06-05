@@ -45,3 +45,12 @@ class LoginSerializer(serializers.Serializer):
 
 class RefreshSerializer(serializers.Serializer):
     refreshToken = serializers.CharField()
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField(validators=[validate_gmail])
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    newPassword = serializers.CharField(min_length=8)
