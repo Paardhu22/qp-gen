@@ -148,7 +148,12 @@ def process_pdf_upload(file, user) -> PdfSource:  # noqa: C901
     linked to the Question Bank or any Paper. Questions become persistent only
     when the user explicitly saves them.
     """
-    file_type = file.content_type or "text/plain"
+    # PDF is the dominant upload path; DocumentUploadSerializer accepts other
+    # file types but downstream extraction routes on the MIME type, so default
+    # to application/pdf when the client (or the test framework) omits the
+    # Content-Type header. This default also satisfies the NOT NULL constraint
+    # on the legacy `content_type` column (see migration 0004).
+    file_type = file.content_type or "application/pdf"
     file_name = file.name
     buffer = file.read()
 
@@ -178,6 +183,7 @@ def process_pdf_upload(file, user) -> PdfSource:  # noqa: C901
         pdf_source = PdfSource.objects.create(
             name=file_name,
             size=len(buffer),
+            content_type=file_type,
             status="processing",
             user=user,
         )
