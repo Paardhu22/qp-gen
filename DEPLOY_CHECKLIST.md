@@ -21,6 +21,21 @@ must be ticked or the deploy aborts.
 | `PDF_IMAGE_MIN_BYTES` | optional | Drops noise icons from PDF image extraction | `8192` |
 | `PDF_IMAGE_MIN_DIMENSION` | optional | Same | `96` |
 | `PDF_IMAGE_MAX_CAPTIONS` | optional | Caps OpenAI vision spend per upload | `40` |
+| `OPENAI_VISION_MODEL` | optional | Vision captioning model for ingestion. Default `gpt-4o`. Tune to `gpt-4.1-mini` for slightly cheaper, or `gpt-5-mini` if you specifically want reasoning-grade captions (warning: ~10× slower) | `gpt-4o` |
+| `PDF_IMAGE_CAPTION_CONCURRENCY` | optional | Parallel vision calls during ingestion (default `8`) | `8` |
+| `MAX_CHUNK_REUSES` | optional | How many slots a single retrieved chunk may ground before being considered exhausted (default `3`). Lower it if generated questions feel too similar; raise it on small source corpora | `3` |
+| **Email — Cluster A.1 (round 8)** | | | |
+| `EMAIL_BACKEND` | **prod-only** | Django email backend. **Must be overridden in prod** or password-reset and welcome emails silently print to stdout and the user never receives them. Typical: `django.core.mail.backends.smtp.EmailBackend` (SMTP), or any anymail/SES backend you prefer | `django.core.mail.backends.smtp.EmailBackend` |
+| `EMAIL_HOST` | prod-only | SMTP relay host | `smtp.sendgrid.net` |
+| `EMAIL_PORT` | optional | SMTP port (default `587`) | `587` |
+| `EMAIL_HOST_USER` | prod-only | SMTP username (for SendGrid this is the literal `apikey`) | `apikey` |
+| `EMAIL_HOST_PASSWORD` | prod-only | SMTP password / API key | `SG.xxxx…` |
+| `EMAIL_USE_TLS` | optional | `true` (default) for port 587 STARTTLS | `true` |
+| `EMAIL_USE_SSL` | optional | `true` for port 465 implicit TLS — mutually exclusive with `EMAIL_USE_TLS` | `false` |
+| `EMAIL_TIMEOUT` | optional | Seconds to wait for SMTP (default `20`) | `20` |
+| `DEFAULT_FROM_EMAIL` | yes | From address on every outbound email — must match a verified sender on your email provider | `"qp-gen <no-reply@yourdomain.com>"` |
+| `PASSWORD_RESET_TIMEOUT_SECONDS` | optional | TTL of password-reset tokens (default `3600` = 1 h) | `3600` |
+| `PASSWORD_RESET_URL_PATH` | optional | Path on the FE that consumes the reset token (default `/reset-password`) | `/reset-password` |
 
 ### Frontend (Next.js)
 
@@ -40,6 +55,35 @@ documented fallback in `float-image.tsx`/`api-client.ts` are allowed
 # Should return only the documented fallbacks + .env.example
 grep -RIn "localhost:8000" backend/ frontend/ --include="*.ts" --include="*.tsx" --include="*.py"
 ```
+
+---
+
+## 1.1 Email backend acceptance test
+
+After setting the SMTP env vars, run a single end-to-end check from the
+backend shell before promoting:
+
+```bash
+cd backend && source .venv/bin/activate
+python manage.py shell -c "
+from django.core.mail import send_mail
+from django.conf import settings
+ok = send_mail(
+    'qp-gen deploy smoke',
+    'If you can read this, the SMTP relay is wired correctly.',
+    settings.DEFAULT_FROM_EMAIL,
+    ['<your-personal-address>'],
+    fail_silently=False,
+)
+print('send_mail returned', ok)
+"
+```
+
+Expected: `send_mail returned 1` AND the email lands in the inbox.
+If `EMAIL_BACKEND` is left at the default console writer in prod the
+command will print the email body to stdout and return 1, but no
+real delivery happens — this is the most common reason teachers report
+"the reset link never arrived."
 
 ---
 
