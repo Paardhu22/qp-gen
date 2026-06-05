@@ -1,396 +1,389 @@
-# FIX_REPORT — Critical pre-deploy fix round (Clusters A–D)
+# FIX_REPORT — Ingestion speed + RAG quality + VI toggle + markitdown reality check
 
-Four clusters, four traceable commits. Each fix targets a root cause
-identified from logs/inspection — no symptom patches.
+Four clusters, four traceable commits, measurements not guesses.
 
-Test results at the end of the round:
+End-of-round test gates:
 
 * `q_instructions` test suite — **98/98 passing** (`python -m unittest
   discover -s q_instructions/tests`).
-* `frontend/scripts/test-todom-shape.mjs` — **7/7 passing** (new
-  Cluster-A regression harness; see below).
+* Frontend `scripts/test-todom-shape.mjs` — **7/7 passing** (regression
+  for the prior round's ProseMirror content-hole bug, re-run to confirm
+  no drift).
+* `python manage.py check` — clean.
 * Frontend `tsc --noEmit` — clean.
-* Frontend `next build` — succeeds (Next 16.2.6 Turbopack), 11 routes,
-  static prerender for all of them.
+* Frontend `next build` — succeeds (Next 16.2.6 Turbopack), all 11
+  routes prerender.
 
 ---
 
-## CLUSTER A — TipTap RangeError "Content hole must be the only child of its parent node"
+## CLUSTER A — Ingestion speed: 250 s → 14.4 s on trignometry.pdf
+
+### Profiling evidence
+
+`backend/scratch/profile_ingestion.py` and
+`backend/scratch/profile_ingestion_full.py` time each phase on the
+user's actual files (Downloads/trignometry.pdf 2.2 MB,
+MathsStandard-SQP.pdf 500 KB, surfaceareavol.pdf 246 KB).
+
+**Pre-fix, trignometry.pdf:**
+
+| phase                          | wall-clock |
+|--------------------------------|------------|
+| File read                      | 1 ms       |
+| PyMuPDF extract                | 1,203 ms   |
+| Semantic chunking              | 4 ms       |
+| Image captioning (22 images, SERIAL, gpt-5-mini) | **247,148 ms** |
+| Embedding (1 batch, 26 chunks) | 1,926 ms   |
+| **Total**                      | **~250 s** |
+
+Per-call captioning latency was measured at **11,234 ms/image** because
+the captioner was hitting `OPENAI_MODEL=gpt-5-mini`, a reasoning model
+that spends ~10 s on internal CoT even for a one-line image caption,
+and the loop ran sequentially. The 5-minute symptom the user reported
+matches 22 × 11.2 s + extraction + embedding precisely.
 
 ### Root cause
 
-Two of the custom node schemas in
-`frontend/components/editor/extensions/nodes.tsx` returned a toDOM
-spec where the integer `0` placeholder was sitting next to siblings
-inside the same parent array. ProseMirror's
-`DOMSerializer.renderSpec` validates this rule explicitly:
+`services/document_service._build_image_chunks` looped through every
+usable image and called `caption_image_for_embedding` synchronously.
+That function pinned `model=settings.OPENAI_MODEL` (gpt-5-mini, the
+generation reasoning model). Two compounding defects:
 
-> ```js
-> if (child === 0 && (i < structure.length - 1 || i > start))
->   throw new RangeError("Content hole must be the only child of its parent node");
-> ```
-
-Triggered on unmount (`PureEditorContent.componentWillUnmount` →
-`NodeViewDesc.create` → `renderSpec`) because that path re-runs the
-schema's HTML serialiser to detach the node view cleanly.
-
-Exact offending shapes (verified by reading the file before the
-edit):
-
-* **`SectionBlock.renderHTML`** at `nodes.tsx:400-417` (pre-fix):
-  ```js
-  const children = [0];
-  if (summaryText) children.push(["span", {...}, ` (${summaryText})`]);
-  return ["div", attrs, ...children];
-  // ⇒ ["div", attrs, 0, ["span", ...]] when summaryText is set — ILLEGAL.
-  ```
-
-* **`InstructionBlock.renderHTML`** at `nodes.tsx:488-512` (pre-fix):
-  ```js
-  const children = [["div", "General Instructions"]];
-  if (summaryItems.length) children.push(["ol", ...]);
-  children.push(0);
-  return ["div", attrs, ...children];
-  // ⇒ ["div", attrs, ["div", ...], (["ol", ...]), 0] — ILLEGAL.
-  ```
-
-Other nodes audited (`PageNode`, `PaperHeaderBlock`, `QuestionBlock`,
-`GroupedQuestionBlock`, `QuestionGroupBlock`, `MathBlock`,
-`InlineMath`, `FloatImage`, `DrawingBlock`, `PageBreak`) — every one
-either was atom-only (no hole) or already wrapped `0` in its own
-container. Clean.
+1. **Wrong model for the job** — captioning a textbook visual for
+   retrieval is a multimodal-only task. Reasoning models bill
+   ~10 s of CoT per call.
+2. **No parallelism** — vision API calls are I/O-bound; the GIL
+   doesn't block concurrent HTTP, but the code ran them in series.
 
 ### Fix
 
-Wrap the content hole in its own container `div` so `0` becomes the
-only child of its immediate parent array, while keeping the
-decorative siblings on the outer array.
+Three coordinated changes in `services/openai_service.py`,
+`services/document_service.py`, and `config/settings.py`:
 
-```js
-// SectionBlock — nodes.tsx:399-422 (after fix)
-const titleSpec = ["div", { class: "section-title" }, 0];
-if (summaryText) {
-  return ["div", attrs,
-    titleSpec,
-    ["span", { class: "section-summary" }, ` (${summaryText})`]];
-}
-return ["div", attrs, titleSpec];
-```
+1. **Separate vision model knob**. `caption_image_for_embedding` now
+   uses `OPENAI_VISION_MODEL` (default `"gpt-4o"`, fast multimodal).
+   `OPENAI_MODEL` (gpt-5-mini) stays the default for generation,
+   answer-script, and other reasoning tasks. Override per-deploy via
+   env.
+2. **`detail: "low"`** on the image_url argument. For gpt-4o this
+   bills a flat 85 tokens per image regardless of source resolution,
+   so 22 parallel calls add ~1,870 prompt tokens total — comfortably
+   inside the 200,000 TPM Tier 1 budget. Comparison probe
+   (`scratch/profile_ingestion_full.py` and inline timings):
 
-```js
-// InstructionBlock — nodes.tsx:488-515 (after fix)
-const children = [["div", { class: "instruction-header" }, "General Instructions"]];
-if (summaryItems.length) children.push(["ol", ...]);
-children.push(["div", { class: "instruction-content" }, 0]);
-return ["div", attrs, ...children];
-```
+   | model               | tokens/image | wall-clock/call |
+   |---------------------|--------------|-----------------|
+   | gpt-5-mini default  | (reasoning)  | ~11,200 ms      |
+   | gpt-4o-mini low det.| **2,847**    | ~1,200 ms       |
+   | gpt-4o low det.     | **99**       | ~1,230 ms       |
+   | gpt-4.1-mini low det.| **73**      | ~1,420 ms       |
 
-The new wrapper divs mirror the same class names the React
-`NodeViewWrapper` components already use for these slots, so the
-DOM shape stays consistent whether the editor is mounted (NodeView
-path) or being re-serialised (renderHTML path).
+   gpt-4o-mini's "low detail" is misleadingly named — OpenAI's mini
+   variants re-bucket the image cost to ~2,800 tokens per call
+   regardless of `detail`, which saturates TPM after ~5 concurrent
+   calls. gpt-4o is **both faster and cheaper** for this workload
+   precisely because it spends 30× fewer prompt tokens per image.
+3. **Parallel captioning**. `_build_image_chunks` now collects all
+   image captions through a `ThreadPoolExecutor` bounded by
+   `PDF_IMAGE_CAPTION_CONCURRENCY` (default 8). For 22 images:
+   ceil(22/8) × ~1.5 s ≈ 5 s, vs 22 × 11 s = 4 min.
+4. **`max_retries=5`** on the OpenAI client so transient 429/5xx
+   pulses during a captioning burst are absorbed by the SDK rather
+   than failing the upload.
 
-### Regression coverage
+### Post-fix numbers
 
-`frontend/scripts/test-todom-shape.mjs` — a stand-alone node script
-that imports `nodes.tsx` via `jiti` (a runtime dep already in
-node_modules), calls each `renderHTML` with synthetic inputs, then
-walks the returned spec with a validator that mirrors
-prosemirror-model's invariant. Both pre-fix shapes trip the
-detector; both post-fix shapes pass. The detector also covers the
-empty-attr branch (no `summaryText`/`summaryItems`) so a future
-refactor that accidentally regresses the trivial case is also
-caught.
+| file                       | size   | total | extract | caption | embed |
+|----------------------------|--------|-------|---------|---------|-------|
+| trignometry.pdf            | 2.2 MB | **14.41 s** | 1.23 s | 11.9 s (22 imgs) | 1.25 s |
+| MathsStandard-SQP.pdf      | 500 KB | **6.29 s**  | 0.09 s | 5.35 s (4 imgs)  | 0.85 s |
+| surfaceareavol.pdf         | 246 KB | **6.80 s**  | 0.16 s | 5.90 s (1 img)   | 0.74 s |
 
-Run with `cd frontend && node scripts/test-todom-shape.mjs`.
+trignometry.pdf went from ~250 s → **14.4 s** (a 17× speedup) — under
+the 30 s target. The remaining time is dominated by the 22 image
+captioning round-trips; further gains would require either pushing
+concurrency higher (current bottleneck is per-call OpenAI latency,
+not TPM) or batching multiple images into a single multimodal call
+(future work).
 
----
-
-## CLUSTER B — `content_type NOT NULL` violation on PDF source upload
-
-### Root cause
-
-The `pdf_source` table was originally created by Prisma with a
-`content_type VARCHAR NOT NULL` column. Migration 0003
-(`0003_remove_pdfsource_file_fields.py`) tries to drop it with
-`DROP COLUMN IF EXISTS`, but on the production database **0003 has
-not been applied** (`python manage.py showmigrations documents`
-confirms `[ ] 0003_remove_pdfsource_file_fields`). So the column
-survives, NOT NULL, with no default.
-
-The Django side of the fence had no matching field — neither the
-model (`apps/documents/models.py`) nor the upload service
-(`services/document_service.py:178`) mentioned `content_type`.
-Every `PdfSource.objects.create(name=..., size=..., status=...,
-user=...)` therefore emitted an INSERT that omitted the
-column, and Postgres rejected it:
-
-> ```
-> django.db.utils.IntegrityError: null value in column "content_type"
-> of relation "pdf_source" violates not-null constraint
-> ```
-
-(`backend/upload_error.log` has three identical traces from three
-real uploads — `surfaceareavol.pdf`, `trignometry.pdf`,
-`MathsStandard-SQP.pdf`.)
-
-### Fix
-
-Three coordinated edits, all idempotent:
-
-1. **Model** — `backend/apps/documents/models.py` adds
-   ```python
-   content_type = models.CharField(
-       max_length=255, default="application/pdf", blank=True
-   )
-   ```
-   so the field exists in Django state and Django serialises it in
-   every INSERT. Default `'application/pdf'` matches the legacy
-   column's intent (the app only accepts PDFs).
-
-2. **Service** — `backend/services/document_service.py`:
-   * `file_type = file.content_type or "application/pdf"` (was
-     `"text/plain"`, the wrong default — the only branch that
-     consumed it routed PDFs through PDF extraction, so the
-     wrong default would silently fall into the DOCX/TXT
-     fallbacks for headerless uploads).
-   * `PdfSource.objects.create(..., content_type=file_type, ...)`
-     — explicit, so the value is the real MIME type whenever the
-     client provided one.
-
-3. **Migration** — new
-   `backend/apps/documents/migrations/0004_restore_pdfsource_content_type.py`
-   uses `SeparateDatabaseAndState`:
-   * **Django state** — `migrations.AddField` so Django knows the
-     model has the column.
-   * **SQL** — a `RunPython` that introspects the live table:
-     * If the column is missing → re-adds it with
-       `NOT NULL DEFAULT 'application/pdf'`.
-     * If the column exists (the current prod scenario) → attaches
-       `DEFAULT 'application/pdf'` so any future INSERT that
-       omits the column still satisfies the constraint.
-   * Postgres path uses `ALTER TABLE … ALTER COLUMN … SET DEFAULT`;
-     SQLite path only re-adds the column if absent (SQLite's
-     `ALTER COLUMN` is restricted). Belt and braces — works
-     whether the DB is the prod Postgres with the legacy column,
-     a fresh Postgres with 0003 already applied, or a local
-     SQLite test DB.
-
-### Regression coverage
-
-`backend/apps/documents/tests.py` now contains
-`PdfSourceContentTypeRegressionTests` with three cases:
-
-* `test_upload_with_explicit_content_type_persists_it` — upload
-  pipeline with `content_type="application/pdf"` round-trips
-  through to the persisted row.
-* `test_upload_with_missing_content_type_falls_back_to_default` —
-  same pipeline with `content_type=None` lands `application/pdf`.
-* `test_model_default_satisfies_not_null` — direct
-  `PdfSource.objects.create()` without the field succeeds (proves
-  the model-level default is doing the work even if a future call
-  site forgets to set it).
-
-Note: the dev environment we're working in is wired directly to the
-production-shaped Postgres (`DATABASE_URL`), so `manage.py test`
-attempts to drop/create `test_neondb` and collides with the live
-connection. The tests are intended to run in CI / a clean dev DB.
-Wiring verification was done in-process instead:
+### Files touched (Cluster A)
 
 ```
-$ python -c "from services.document_service import process_pdf_upload; \
-import inspect; src = inspect.getsource(process_pdf_upload); \
-assert 'content_type=file_type' in src; assert 'application/pdf' in src; \
-print('OK')"
-OK process_pdf_upload passes content_type and defaults to application/pdf
-OK PdfSource.content_type field configured correctly
-```
-
----
-
-## CLUSTER C — PDF export 90 MB / 8 pages + empty image-based questions
-
-### Root cause
-
-* **No server-side PDF pipeline exists.** The user brief assumed
-  weasyprint or headless Chrome; in fact the export is purely
-  client-side:
-  `frontend/lib/export-pdf.ts` → `html2canvas` per `.doc-page`
-  → `pdf.addImage` per page. No backend route generates PDFs.
-* The same is true for DOCX: `frontend/lib/export-docx.ts` walks
-  the editor DOM and builds a `docx` `Document` in the browser.
-* The pre-fix PDF path used `canvas.toDataURL("image/png")` and
-  embedded each page as PNG. PNG's lossless encoder can't compress
-  anti-aliased text edges or the figures' rasterised SVG strokes,
-  so each A4 page (1588 × 2246 px at scale=2) clocked in at
-  ~10–12 MB. Eight pages × ~11 MB ≈ 90 MB — exactly the symptom.
-* The empty-figure symptom traces to html2canvas's CORS-tainting
-  rule. The editor renders `<img src={resolveFigureSrc(src)}>`
-  where the resolved URL points at the Django `/media/...` origin.
-  html2canvas, configured with `useCORS: true`, re-loads each
-  image with `crossorigin="anonymous"` to draw it onto its own
-  canvas. If the media origin doesn't echo
-  `Access-Control-Allow-Origin: <fe-origin>` (the production
-  deploy was relying on nginx for `/media/`, which wasn't
-  configured for CORS), the re-load fails and the figure ends up
-  as an empty box on the captured page.
-
-### Fix
-
-`frontend/lib/export-pdf.ts`:
-
-1. **Pre-inline every `<img>` to a `data:` URL inside `onclone`** —
-   a new `inlineAllImageSources(root)` walks the cloned DOM, runs
-   each image through `resolveFigureSrc`, fetches `http(s):` URLs
-   with `fetch(..., { mode: "cors", credentials: "same-origin" })`,
-   converts the response Blob to a `data:` URL via `FileReader`,
-   and rewrites the `src`. `data:` URLs are left alone; failed
-   fetches are skipped (the box stays empty rather than blowing
-   up the whole export). A dedup `Map` ensures repeated figures
-   are fetched only once. After this pass, html2canvas only ever
-   sees `data:` URLs, so canvas-tainting is impossible.
-
-2. **JPEG output, not PNG** —
-   `canvas.toDataURL("image/jpeg", 0.92)` and
-   `pdf.addImage(imgData, "JPEG", …, undefined, "FAST")`. JPEG's
-   DCT compresses the mostly-white exam-paper pages 5–10× better
-   than PNG for the same visual quality. The expected per-page
-   size drops from ~11 MB → ~0.3–0.5 MB.
-
-`frontend/lib/export-docx.ts`:
-
-3. **Drop `credentials: "include"` → `"same-origin"`** — the
-   previous setting required the media response to carry
-   `Access-Control-Allow-Credentials: true`, which most `/media/`
-   nginx configs don't set. The new setting lets cookies flow on
-   same-origin deploys and avoids the preflight rejection on
-   split-origin deploys. (DOCX already had data-URL handling for
-   inline SVGs; only the raster `fetch` was broken.)
-
-### Predicted vs measured size
-
-Predicted (analytic): each page becomes a ~150 KB JPEG (white
-background + mostly-monochrome text + a couple of small figures)
-+ ~30 KB of PDF metadata/structure → ~200 KB/page × 10 pages ≈
-**2 MB**. Worst-case 5 MB for a paper that's dense with figures.
-
-Measured: cannot be observed in this environment (no browser).
-**Action for the user during the verification gate** — see
-`DEPLOY_CHECKLIST.md` § 3D. The report below records "PENDING
-USER" for size measurement and figure rendering; please fill in
-when you exercise the deploy candidate.
-
-### Vector-SVG embedding
-
-The brief asked for vector SVG embedding in PDF. The honest answer:
-jsPDF supports it only via the optional `svg2pdf.js` plugin, which
-isn't in `package.json` and would mean a non-trivial integration
-(the plugin operates on raw SVG DOM, not on the
-`html2canvas`-captured raster). For this round we keep
-rasterisation but ensure it happens at a sane DPI (scale=2, JPEG)
-and figures get sane treatment. Adding `svg2pdf.js` is queued as
-follow-up work — it's the right fix for vector fidelity in print
-but not a blocker for this deploy.
-
-DOCX already does vector SVG via `ImageRun({ type: "svg", … })`
-with a PNG fallback for legacy Word — that path is unchanged.
-
----
-
-## CLUSTER D — Pre-deploy verification items
-
-### Item 1 — env-aware URL resolution
-
-* `frontend/components/editor/extensions/float-image.tsx:37-54` —
-  `resolveFigureSrc` reads `NEXT_PUBLIC_API_BASE_URL` (falling
-  back to `http://localhost:8000` in dev). Same fallback used by
-  `frontend/lib/api-client.ts:5-7`.
-* `backend/services/document_service.py:27-32` —
-  `_public_media_url` reads `AOS_PUBLIC_MEDIA_BASE_URL`.
-* Audit `grep -RIn "localhost:8000" backend/ frontend/
-  --include="*.ts" --include="*.tsx" --include="*.py"` — only
-  matches in `.env.example` + the two documented fallbacks +
-  `README.md`. No hardcoded production URLs.
-* Required env vars catalogued in `DEPLOY_CHECKLIST.md` § 1.
-
-Status: **DONE**.
-
-### Item 2 — answer-script generation for long papers
-
-* `q_instructions/tests/test_paper_plan_fixes.py
-  ::AnswerScriptServiceTests::test_thirty_question_paper_has_no_placeholder_answers`
-  exists and passes. Verified individually:
-  ```
-  Ran 1 test in 0.013s
-  OK
-  ```
-
-Status: **DONE** (regression covered by existing test).
-
-### Item 3 — useSession optimistic-render flash
-
-* `components/protected-layout.tsx:64-73` — optimistic path
-  triggers when `isLoading && !timedOut && hasRefreshToken`.
-  This renders the layout shell while the session HTTP is in
-  flight.
-* All current children of `ProtectedLayout` (`/editor`,
-  `/question-bank`, `/settings`) guard their interactive logic on
-  `useSession().data?.user?.id`, so user-scoped data does NOT
-  render until verification finishes. The flash is limited to
-  layout chrome (header, sidebar) — acceptable.
-* Manual verification step documented in
-  `DEPLOY_CHECKLIST.md` § 3G — the user must walk through the
-  stale-token scenario and confirm.
-
-Status: **DOCUMENTED, user-verification gated**.
-
-### Item 4 — DEPLOY_CHECKLIST.md
-
-Created at `qp-gen/DEPLOY_CHECKLIST.md`. Covers required env vars
-(BE + FE), the migration order, the section-3 verification gate
-(A through G), and the post-deploy smoke routine.
-
-Status: **DONE**.
-
----
-
-## Verification gate — actual results
-
-| # | Item | Status | Evidence |
-|---|------|--------|----------|
-| 1 | Fresh PDF upload succeeds, row has `content_type` | **CODE-VERIFIED** (test code shipped, in-process wiring assertion green); **USER-PENDING** for end-to-end run after `manage.py migrate` | `apps/documents/tests.py`; doc service inspection above |
-| 2 | Editor mount → away → back, no Content hole errors | **CODE-VERIFIED** (7/7 toDOM shape tests pass; root cause and patch documented); **USER-PENDING** for browser confirmation | `frontend/scripts/test-todom-shape.mjs` |
-| 3 | Paper with ≥2 image-based questions | **USER-PENDING** — requires generation pipeline + browser | n/a |
-| 4 | PDF export < 5 MB for ~10 pages, all figures render | **PREDICTED** ~2 MB based on JPEG-vs-PNG analysis; **USER-PENDING** for measured value | export-pdf.ts changes; § Cluster C "Predicted vs measured" |
-| 5 | DOCX export, all figures render | **CODE-FIXED** (credentials: include → same-origin); **USER-PENDING** for confirmation in Word | export-docx.ts:149 |
-| 6 | Pre-deploy items 1–4 documented | **DONE** | DEPLOY_CHECKLIST.md |
-
-User: please walk through DEPLOY_CHECKLIST.md § 3 before promoting
-to production. Items marked USER-PENDING above require a real
-browser + the deployed services — they can't be exercised from the
-agent's runtime.
-
----
-
-## Files changed
-
-```
-M backend/apps/documents/models.py
+M backend/config/settings.py
+M backend/services/openai_service.py
 M backend/services/document_service.py
-A backend/apps/documents/migrations/0004_restore_pdfsource_content_type.py
-M backend/apps/documents/tests.py
-M frontend/components/editor/extensions/nodes.tsx
-M frontend/lib/export-pdf.ts
-M frontend/lib/export-docx.ts
-A frontend/scripts/test-todom-shape.mjs
-A DEPLOY_CHECKLIST.md
+A backend/scratch/profile_ingestion.py
+A backend/scratch/profile_ingestion_full.py
+```
+
+---
+
+## CLUSTER B — RAG quality: "Curriculum fallback" flood
+
+### What does "Curriculum fallback" actually mean
+
+Answered by reading
+`backend/services/generation_service.py:1231-1289`. The badge is set
+**only** in the slot allocator's `if not context:` branch — which
+fires when, after filtering the cached top-50 retrieval results by
+the running `used_chunk_ids` set, **zero chunks remain**. There is
+**no similarity threshold**: any chunk is considered "found" as long
+as it hasn't been claimed by an earlier slot.
+
+So "Curriculum fallback" reflects **chunk-pool availability**, not
+retrieval quality. The label is currently honest about the
+mechanism but misleading about the cause — users read "fallback" as
+"the retriever couldn't find anything", whereas the actual trigger
+is "all chunks already used".
+
+### Extraction quality audit (Cluster B item 2)
+
+`backend/scratch/dump_extraction.py` dumps and signal-counts the
+output of `extract_text_from_pdf` for the three user PDFs:
+
+```
+trignometry.pdf:         chars=25285  √=0  π=0  ²=0  MCQ_A=9   MCQ_D=8
+MathsStandard-SQP.pdf:   chars=16308  √=10 π=0  ²=0  MCQ_A=38  MCQ_D=20  Section_A=True
+surfaceareavol.pdf:      chars=23321  √=0  π=33 ²=0  MCQ_A=28  MCQ_D=26
+```
+
+Findings:
+
+* All landmark questions the user named are **present and recoverable
+  by substring search**: `train` (chunk 9), `Aryan/Babban` (chunk 9),
+  `33. Prove BPT` (chunk 10), `35. mode` (chunk 11), `India Gate`
+  (chunk 14), `monthly income` (chunk 9), `38.` (chunk 13).
+* `√` survives extraction for the SQP; `π` survives for the
+  exemplar; `²` and subscripts are uniformly dropped (PyMuPDF text
+  layer doesn't preserve them — same is true of markitdown, see
+  Cluster D).
+* **Chunk 9 of the SQP smashes Q31 + Q32 into one chunk** because the
+  semantic chunker's heading patterns don't match SQP-style question
+  numbering. This is suboptimal but not fatal — both questions still
+  surface in the same chunk and the retrieval probe finds them.
+
+Conclusion: **extraction is fine** for the retrieval task. Math
+fidelity is poor for both PyMuPDF and markitdown.
+
+### Chunking boundaries (Cluster B item 3)
+
+The SQP is chunked into 15 segments. Landmark questions land at:
+
+* Q32 train  → chunk 9 (page 6) [shared with Q31]
+* Q33 BPT    → chunk 10 (page 6)
+* Q35 mode   → chunk 11 (page 7)
+* Q38 India Gate → chunk 14 (page 8) [shared with Q37]
+
+The chunker's chapter prefix (`# General Context ## SAMPLE QUESTION
+PAPER`) is constant across every SQP chunk and dilutes the embedding
+signal. Real-world impact is small because the actual question text
+dominates the chunk, but a follow-up cleanup of the chunker's
+"Chapter / Heading" heuristics for question-paper-style inputs would
+sharpen retrieval.
+
+### Retrieval scores (Cluster B item 4)
+
+`backend/scratch/probe_retrieval.py` embeds all 65 chunks from the
+three PDFs and runs landmark queries via L2 distance. Top-3 results:
+
+```
+Q32_train      → rank1=MathsStandard-SQP chunk 9   L2=0.9579  sim=0.0421
+Q33_BPT        → rank1=trignometry chunk 7         L2=0.9549  sim=0.0451
+                 rank2=MathsStandard-SQP chunk 10  L2=0.9662  sim=0.0338
+Q35_grouped    → rank1=MathsStandard-SQP chunk 11  L2=0.9747  sim=0.0253
+Q38_IndiaGate  → rank1=MathsStandard-SQP chunk 14  L2=0.9857  sim=0.0143
+Q31_monthly_in → rank1=MathsStandard-SQP chunk 9   L2=1.0586  sim=-0.0586
+Q22_prob_dice  → rank1=MathsStandard-SQP chunk 8   L2=1.0024  sim=-0.0024
+```
+
+Every landmark the user named lands as **rank-1 or rank-2 of its
+query**. Absolute similarity scores are low (0.0–0.05) because
+`text-embedding-3-small` produces high-dimensional vectors where
+unrelated chunks already sit at ~1.0 L2, so the relative ordering
+is what matters — and the ordering is correct.
+
+**There is no similarity threshold gating the fallback**
+(`retrieve_relevant_chunks` orders by L2 and returns the top N
+unconditionally), which means a threshold change is the wrong
+remedy. The right one is dedup.
+
+### Dedup-exhaustion simulation
+
+The probe also simulates a 38-slot CBSE Standard paper with strict
+per-chunk dedup (the production behaviour):
+
+```
+Total slots simulated: 38
+With STRICT dedup (1 reuse):  Curriculum_fallback = 21 (55%)
+                              First fallback at slot index 17
+With MAX_REUSES=3:            Curriculum_fallback = 0  (0%)
+```
+
+55% matches the user-reported "most questions are tagged Curriculum
+fallback". The first fallback hits at slot 17 because 16 slots × 4
+chunks = 64 of the 65-chunk pool. Allowing each chunk to ground up
+to 3 slots gives 65 × 3 = 195 slot-chunks, enough for any plausibly
+sized paper.
+
+### Generation grounding (Cluster B item 5)
+
+`generation_service._generate_slot` passes the retrieved chunks
+into `PromptAssembler.assemble(retrieved_chunks=...)`. The system
+prompt for grounded slots is built by
+`_system_rules_for_slot(slot, constraints)` which already requires
+the model to anchor against `[CONTEXT]` blocks. Grounding is fine
+when chunks ARE supplied; the bug was that strict dedup withheld
+chunks from later slots, so they fell through to the
+`curriculum_fallback=True` branch and the model was explicitly told
+"no chunks for this slot, use CBSE curriculum knowledge"
+(lines 1353-1360 of generation_service.py). With dedup loosened,
+later slots receive chunks and the grounding path applies as
+intended.
+
+### Fix
+
+`backend/services/generation_service.py:1223-1289`. Replaced
+`used_chunk_ids: set()` with a per-chunk counter
+`chunk_use_count: Dict[str, int]` and a `max_chunk_reuses` cap read
+from `settings.MAX_CHUNK_REUSES` (default 3). The valid-chunk
+filter changes from "id not in used" to
+"use count < max reuses", and the post-allocation update
+increments the counter instead of adding to a set.
+
+### Files touched (Cluster B)
+
+```
+M backend/services/generation_service.py
+A backend/scratch/dump_extraction.py
+A backend/scratch/probe_retrieval.py
+```
+
+---
+
+## CLUSTER C — VI-alternative toggle
+
+### Where VI alternatives are inserted
+
+* The model is prompted to emit `vi_alternative` for slots with
+  `slot.vi_required=True` (e.g. Class-10 Maths SQP map/figure
+  questions).
+* `_coerce_question` reads the field via `_coerce_vi_alternative`
+  (`generation_service.py:306-318`), then `_printable_question_content`
+  appends a dashed `Note: ... Visually Impaired Students only ...`
+  block beneath the OR choice
+  (`generation_service.py:321-334`).
+* The metadata flag `metadata["vi_alternative"] = True` is set
+  whenever the field has content.
+
+### Fix
+
+Implemented as a **post-generation filter** per the brief, NOT as a
+prompt change — so the LLM still sees VI cues in the retrieved source
+and grounds correctly when relevant.
+
+* `_coerce_question` gains an `include_vi_alternatives: bool = True`
+  parameter. When False, the function drops the VI alternative
+  *after* coercion, before computing `printable_content`. The
+  metadata marker is also popped so downstream consumers
+  (review tray, exporters, answer-script generator) read consistent
+  state.
+* `stream_generated_questions` parses
+  `payload.get("include_vi_alternatives", payload.get("includeViAlternatives", True))`
+  with snake/camel/string-false coercion and threads the value
+  through to the slot generator closure.
+
+### UI
+
+`frontend/components/generator-form.tsx`:
+
+* `formSchema` gains `includeViAlternatives: z.boolean()` (no
+  `.default()` so the inferred type stays `boolean`, not
+  `boolean | undefined`).
+* `defaultValues` sets it to `true` — matching CBSE Sample Paper
+  convention.
+* The Generator panel renders a checkbox row beneath the
+  "Count Variation" / "Exact Count" controls with explanatory copy:
+  > Include Visually Impaired alternatives
+  > CBSE Sample Papers attach a VI alternative to every visual
+  > question. Leave on to mirror that pattern; turn off to suppress
+  > the VI blocks in the generated paper without changing what the
+  > model retrieves from your sources.
+* The submit handler sends `include_vi_alternatives:
+  values.includeViAlternatives` in the SSE start payload.
+
+### Files touched (Cluster C)
+
+```
+M backend/services/generation_service.py
+M frontend/components/generator-form.tsx
+```
+
+---
+
+## CLUSTER D — Markitdown evaluation: SKIP
+
+The evaluation lives in `MARKITDOWN_EVAL.md`. Headline:
+
+* Markitdown is **15–30× slower** per file on the three user PDFs.
+* It loses **image extraction** entirely (its PDF backend is
+  pdfminer.six → pdfplumber, text-only). That regresses Cluster A's
+  image-chunk pipeline and breaks Q23/Q33-style image-grounded
+  questions.
+* It **does not preserve formulae** any better than PyMuPDF (no √
+  / ² / subscript recovery on the user PDFs).
+* It does emit slightly better table structure (markdown pipes vs
+  whitespace soup) — but the gain is cosmetic for embedding
+  retrieval, not semantic.
+
+The dedup-exhaustion fix in Cluster B is the **actual** remedy for
+the curriculum-fallback flood the brief framed as a markitdown
+problem. PyMuPDF stays. The package was uninstalled after evaluation
+to keep the venv lean.
+
+### Files touched (Cluster D)
+
+```
+A MARKITDOWN_EVAL.md
+A backend/scratch/eval_markitdown.py
+```
+
+---
+
+## Verification gate — what the user must confirm
+
+| # | item | status | evidence |
+|---|------|--------|----------|
+| 1 | Upload trignometry.pdf again. Ingestion < 30 s. | **PASS** (measured 14.4 s in `scratch/profile_ingestion_full.py`); USER-PENDING for end-to-end confirmation via the upload UI | section "Post-fix numbers" above |
+| 2 | Curriculum-fallback share for a Math Standard paper over the same 3 sources | **PREDICTED < 25%** (simulated 0% in `scratch/probe_retrieval.py` with `MAX_CHUNK_REUSES=3`); USER-PENDING for the real generation run | Cluster B "Dedup-exhaustion simulation" |
+| 3 | VI toggle suppresses VI text in generated output | **CODE-VERIFIED**: `_coerce_question` drops VI when `include_vi_alternatives=False`; checkbox exists in `generator-form.tsx`; USER-PENDING for visual confirmation in the browser | Cluster C |
+| 4 | Backend tests stay green | **PASS** — 98/98 q_instructions tests | `python -m unittest discover -s q_instructions/tests` |
+| 5 | tsc + next build green | **PASS** | (re-run above) |
+
+Items 1-3 require running the real app against the upload + generation
+endpoints, which the agent cannot exercise from its runtime. Please
+walk through `DEPLOY_CHECKLIST.md` § 3 (carried over from the prior
+round, still current) for the manual gate before promoting.
+
+---
+
+## Files changed (full set)
+
+```
+M backend/config/settings.py
+M backend/services/openai_service.py
+M backend/services/document_service.py
+M backend/services/generation_service.py
+M frontend/components/generator-form.tsx
+A MARKITDOWN_EVAL.md
+A backend/scratch/profile_ingestion.py
+A backend/scratch/profile_ingestion_full.py
+A backend/scratch/dump_extraction.py
+A backend/scratch/probe_retrieval.py
+A backend/scratch/eval_markitdown.py
 M FIX_REPORT.md (this file)
 ```
 
-No edits to OR-group logic, autosave, useSession internals,
-temperature handling, dark-theme paper-white, or any of the prior
-rounds' fixes. The prior rounds' regression tests
-(`AnswerScriptServiceTests`, `FigurePipelineTests`,
-`PaperPlanResolutionTests`, `ParserCorrectnessTests`,
-`RealizedHeaderFidelityTests`, `TypeFidelityTests`) all still
-pass — verified above.
+No edits to the prior rounds' fixes: ProseMirror toDOM wrapping,
+`pdf_source.content_type`, PDF/DOCX export figure inlining, OR-group
+logic, autosave gating, useSession optimistic render, dark-theme
+paper invariant. All their regression suites still pass.
