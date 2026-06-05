@@ -1,389 +1,491 @@
-# FIX_REPORT — Ingestion speed + RAG quality + VI toggle + markitdown reality check
+# FIX_REPORT — Tester bug round (14 items / 4 clusters)
 
-Four clusters, four traceable commits, measurements not guesses.
+Test gates at end of round:
 
-End-of-round test gates:
-
-* `q_instructions` test suite — **98/98 passing** (`python -m unittest
-  discover -s q_instructions/tests`).
-* Frontend `scripts/test-todom-shape.mjs` — **7/7 passing** (regression
-  for the prior round's ProseMirror content-hole bug, re-run to confirm
-  no drift).
-* `python manage.py check` — clean.
+* `q_instructions` test suite — **106/106 passing** (added 8 new
+  regressions for the empty-paper guard and review-tray account
+  isolation; pre-existing 98 untouched).
+* Frontend `scripts/test-todom-shape.mjs` — **7/7 passing** (no
+  drift from prior rounds).
 * Frontend `tsc --noEmit` — clean.
-* Frontend `next build` — succeeds (Next 16.2.6 Turbopack), all 11
-  routes prerender.
+* Frontend `next build` — succeeds, all 13 routes prerender
+  (`/forgot-password` + `/reset-password` are new this round).
+* `python manage.py check` — clean.
+
+Prior-round invariants verified unaffected:
+
+* ProseMirror toDOM wrapping (round 5 A) — toDOM tests still pass.
+* `pdf_source.content_type` upload fix (round 5 B) — model field
+  still present, default still `'application/pdf'`.
+* PDF/DOCX export figure inlining (round 5 C) — unchanged.
+* ProtectedLayout optimistic render (round 5 D item 3) — unchanged.
+* Ingestion parallel captioning (round 6 A) — unchanged.
+* `MAX_CHUNK_REUSES=3` dedup loosening (round 6 B) — unchanged.
+* VI alternative toggle (round 6 C) — unchanged.
+* Per-keystroke save / useSession / OR-group / temperature /
+  answer-script batching — none touched.
 
 ---
 
-## CLUSTER A — Ingestion speed: 250 s → 14.4 s on trignometry.pdf
+## CLUSTER A — Deploy-blockers
 
-### Profiling evidence
+### A.1 — Forgot-password + signup email (#1, #2)
 
-`backend/scratch/profile_ingestion.py` and
-`backend/scratch/profile_ingestion_full.py` time each phase on the
-user's actual files (Downloads/trignometry.pdf 2.2 MB,
-MathsStandard-SQP.pdf 500 KB, surfaceareavol.pdf 246 KB).
+**Diagnosis.** Neither flow was broken — they were **completely absent
+from the codebase**. There is no password-reset endpoint, no email
+backend configuration in `config/settings.py`, no welcome email, and
+the login form's "Forgot your password?" link was hard-coded to `#`.
+The Django settings module never set `EMAIL_BACKEND`, so any
+hypothetical `send_mail` call would have used the framework default
+(which raises if SMTP isn't configured). What the user saw in
+production was the natural consequence of an unimplemented feature,
+not a regression.
 
-**Pre-fix, trignometry.pdf:**
+**Implementation.**
 
-| phase                          | wall-clock |
-|--------------------------------|------------|
-| File read                      | 1 ms       |
-| PyMuPDF extract                | 1,203 ms   |
-| Semantic chunking              | 4 ms       |
-| Image captioning (22 images, SERIAL, gpt-5-mini) | **247,148 ms** |
-| Embedding (1 batch, 26 chunks) | 1,926 ms   |
-| **Total**                      | **~250 s** |
+* **Settings** (`config/settings.py`) — new env-driven email block.
+  `EMAIL_BACKEND` defaults to the console writer so dev runs print
+  reset links to stdout without needing real SMTP credentials.
+  `DEFAULT_FROM_EMAIL`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`,
+  `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`, `EMAIL_USE_SSL`,
+  `EMAIL_TIMEOUT`, `PASSWORD_RESET_TIMEOUT_SECONDS`, and
+  `PASSWORD_RESET_URL_PATH` all honour env overrides. The reset link
+  is composed from `settings.FRONTEND_URL` so a misconfigured BE
+  cannot leak `localhost:3000` into a production email.
 
-Per-call captioning latency was measured at **11,234 ms/image** because
-the captioner was hitting `OPENAI_MODEL=gpt-5-mini`, a reasoning model
-that spends ~10 s on internal CoT even for a one-line image caption,
-and the loop ran sequentially. The 5-minute symptom the user reported
-matches 22 × 11.2 s + extraction + embedding precisely.
+* **Service** (`services/email_service.py`) — two helpers,
+  `send_password_reset_email` and `send_welcome_email`, both wrap
+  `send_mail` in a try/except so a transient SMTP outage never
+  crashes the API request. `_reset_link` builds the URL via
+  `urllib.parse.urljoin` to keep slash handling sane regardless of
+  whether `FRONTEND_URL` carries a trailing slash.
 
-### Root cause
+* **Token store** (`services/password_reset_service.py`) — tokens
+  are stored **hashed** (SHA-256) in the existing `verification`
+  table (the Prisma-created better-auth schema, already in the DB),
+  so reading a row never yields a working link. The identifier is
+  `password-reset:<user-id>`, which both (a) lets a fresh issue
+  invalidate any prior outstanding token via `delete`, and
+  (b) avoids storing the user-supplied email a second time.
+  `consume_reset_token` runs the lookup, expiry check, password
+  rotation, and token deletion inside one `select_for_update`
+  transaction so the link is single-use even under concurrent
+  clicks.
 
-`services/document_service._build_image_chunks` looped through every
-usable image and called `caption_image_for_embedding` synchronously.
-That function pinned `model=settings.OPENAI_MODEL` (gpt-5-mini, the
-generation reasoning model). Two compounding defects:
+* **Endpoints** (`apps/accounts/views.py` + `urls.py`):
 
-1. **Wrong model for the job** — captioning a textbook visual for
-   retrieval is a multimodal-only task. Reasoning models bill
-   ~10 s of CoT per call.
-2. **No parallelism** — vision API calls are I/O-bound; the GIL
-   doesn't block concurrent HTTP, but the code ran them in series.
+  * `POST /api/auth/forgot-password` — always returns the same
+    generic 200 message regardless of whether the email matched a
+    real account (account-enumeration resistance).
+  * `POST /api/auth/reset-password` — single generic 400 on any
+    failure (unknown token, expired token, no local Account, etc.)
+    so the API surface never reveals which step failed.
+  * `RegisterView` now also calls `send_welcome_email` — best-effort,
+    so a mail server hiccup never aborts signup.
 
-### Fix
+* **Frontend pages**:
+  * `app/(auth)/forgot-password/page.tsx` →
+    `components/forgot-password-form.tsx`.
+  * `app/(auth)/reset-password/page.tsx` → wraps
+    `components/reset-password-form.tsx` in a `<Suspense>` boundary
+    because Next.js 16 requires it for any prerendered page that
+    calls `useSearchParams()`.
+  * `lib/auth-client.ts` gains `requestPasswordReset` and
+    `resetPassword` helpers that match the existing
+    `signIn.email` / `signUp.email` callback contract.
+  * `components/login-form.tsx` — the "Forgot your password?" link
+    now points to `/forgot-password` (was `#`).
 
-Three coordinated changes in `services/openai_service.py`,
-`services/document_service.py`, and `config/settings.py`:
+**DEPLOY_CHECKLIST updates.** Section 1 catalogues every email env
+var that must be set in production. Section 1.1 adds a copy-paste
+SMTP acceptance test the operator runs from the Django shell before
+promoting — this catches the most common failure mode where
+`EMAIL_BACKEND` is left at the console default and the reset emails
+silently print to stdout.
 
-1. **Separate vision model knob**. `caption_image_for_embedding` now
-   uses `OPENAI_VISION_MODEL` (default `"gpt-4o"`, fast multimodal).
-   `OPENAI_MODEL` (gpt-5-mini) stays the default for generation,
-   answer-script, and other reasoning tasks. Override per-deploy via
-   env.
-2. **`detail: "low"`** on the image_url argument. For gpt-4o this
-   bills a flat 85 tokens per image regardless of source resolution,
-   so 22 parallel calls add ~1,870 prompt tokens total — comfortably
-   inside the 200,000 TPM Tier 1 budget. Comparison probe
-   (`scratch/profile_ingestion_full.py` and inline timings):
+**Status:** code complete. The deploy operator must set
+`EMAIL_BACKEND` (and the SMTP creds) before users will receive any
+mail.
 
-   | model               | tokens/image | wall-clock/call |
-   |---------------------|--------------|-----------------|
-   | gpt-5-mini default  | (reasoning)  | ~11,200 ms      |
-   | gpt-4o-mini low det.| **2,847**    | ~1,200 ms       |
-   | gpt-4o low det.     | **99**       | ~1,230 ms       |
-   | gpt-4.1-mini low det.| **73**      | ~1,420 ms       |
+### A.2 — "-" button page-boundary corruption (#7)
 
-   gpt-4o-mini's "low detail" is misleadingly named — OpenAI's mini
-   variants re-bucket the image cost to ~2,800 tokens per call
-   regardless of `detail`, which saturates TPM after ~5 concurrent
-   calls. gpt-4o is **both faster and cheaper** for this workload
-   precisely because it spends 30× fewer prompt tokens per image.
-3. **Parallel captioning**. `_build_image_chunks` now collects all
-   image captions through a `ThreadPoolExecutor` bounded by
-   `PDF_IMAGE_CAPTION_CONCURRENCY` (default 8). For 22 images:
-   ceil(22/8) × ~1.5 s ≈ 5 s, vs 22 × 11 s = 4 min.
-4. **`max_retries=5`** on the OpenAI client so transient 429/5xx
-   pulses during a captioning burst are absorbed by the SDK rather
-   than failing the upload.
+**Diagnosis.** "-" is the horizontal-rule toolbar button
+(`toolbar.tsx:setHorizontalRule`). The StarterKit `setHorizontalRule`
+command inserts at the cursor position, but `horizontalRule` is
+**not in any paperBlock's content schema** (`questionBlock`,
+`sectionBlock`, `instructionBlock`, `paperHeaderBlock` all enumerate
+their allowed children explicitly and HR is absent). When the cursor
+was inside one of those blocks the command either failed silently or
+ProseMirror split the block to make room — the latter interacts
+poorly with the pagination engine when the resulting HR lands on the
+page boundary, producing the visible "bugs out" symptom the tester
+reported.
 
-### Post-fix numbers
+**Fix.** Route the HR toolbar button through the same
+`insertAfterCurrentBlock(...)` helper the paper-structure buttons
+use. Before inserting the HR we walk the cursor's ancestors; if any
+ancestor is in the `paperBlock` group, we insert AFTER the outermost
+such ancestor. That's always a legal placement (page-level block,
+not a child of a structured node) and never triggers the
+pagination-engine corner case. Outside paperBlocks the original
+`setHorizontalRule()` runs unchanged.
 
-| file                       | size   | total | extract | caption | embed |
-|----------------------------|--------|-------|---------|---------|-------|
-| trignometry.pdf            | 2.2 MB | **14.41 s** | 1.23 s | 11.9 s (22 imgs) | 1.25 s |
-| MathsStandard-SQP.pdf      | 500 KB | **6.29 s**  | 0.09 s | 5.35 s (4 imgs)  | 0.85 s |
-| surfaceareavol.pdf         | 246 KB | **6.80 s**  | 0.16 s | 5.90 s (1 img)   | 0.74 s |
+### A.3 — Image deletion inside a question (#15)
 
-trignometry.pdf went from ~250 s → **14.4 s** (a 17× speedup) — under
-the 30 s target. The remaining time is dominated by the 22 image
-captioning round-trips; further gains would require either pushing
-concurrency higher (current bottleneck is per-call OpenAI latency,
-not TPM) or batching multiple images into a single multimodal call
-(future work).
+**Diagnosis.** The `FloatImage` NodeView is `selectable: true` and
+the React component carries a trash button on hover, so the
+underlying tooling existed — but the keyboard path was broken.
+Inside a `questionBlock`, pressing Delete/Backspace with the image
+selected let the keystroke bubble up to the parent block, which
+swallowed it as "delete text at cursor" and left the image in place.
 
-### Files touched (Cluster A)
+**Fix.** Added `addKeyboardShortcuts()` to the `FloatImage`
+extension. The handler intercepts Backspace + Delete, checks
+`state.selection.node?.type.name === "floatImage"`, and only calls
+`deleteSelection()` when the floatImage itself is the active
+NodeSelection. If the selection is text or any other node the
+handler returns `false`, so normal Backspace behaviour in
+surrounding paragraphs is unaffected.
 
-```
-M backend/config/settings.py
-M backend/services/openai_service.py
-M backend/services/document_service.py
-A backend/scratch/profile_ingestion.py
-A backend/scratch/profile_ingestion_full.py
-```
+### A.4 — Answer-script hallucinates on EMPTY paper (#16)
 
----
+**Diagnosis.** The backend already raised `ValueError(
+"This paper has no questions...")` when zero `questionBlock` nodes
+were found. But the editor's secondary toolbar inserts placeholder
+copy ("Enter question here...", "Option A/B/C/D", "Main question
+statement...", etc.) the moment the user clicks Question / MCQ /
+Grouped Questions — and the placeholder text passed the
+"`text.strip()` is non-empty" check inside
+`_extract_questions_from_content`. A "blank-looking" paper that
+contained one or more **unedited** template blocks therefore
+reached the answer-script LLM with the placeholder copy as the
+question text. The model dutifully hallucinated an answer to
+"Enter question here...".
 
-## CLUSTER B — RAG quality: "Curriculum fallback" flood
+**Fix.** New `_is_placeholder_question(text, options)` predicate in
+`services/answer_script_service.py` recognises the exact strings
+the toolbar inserts. `_extract_questions_from_content` now skips
+any question block whose normalised content matches the
+placeholder set, so the empty-paper guard at line 638 fires for
+both the truly empty case AND the "all blocks are unedited
+templates" case. The error message was tightened to be
+actionable: "Add at least one question with real content before
+generating an answer script."
 
-### What does "Curriculum fallback" actually mean
+**Regression coverage.** `q_instructions/tests/test_tester_round.py`
+adds `AnswerScriptEmptyPaperGuardTests` with seven cases covering:
+blank paper, default Question / MCQ / Grouped blocks, real
+question retention, mixed paper (only the real question survives),
+and a direct unit test of the predicate. All seven pass.
 
-Answered by reading
-`backend/services/generation_service.py:1231-1289`. The badge is set
-**only** in the slot allocator's `if not context:` branch — which
-fires when, after filtering the cached top-50 retrieval results by
-the running `used_chunk_ids` set, **zero chunks remain**. There is
-**no similarity threshold**: any chunk is considered "found" as long
-as it hasn't been claimed by an earlier slot.
+**Prior-round guarantee.** The batched answer-script generation
+path (`Step 4.5: Call LLMs in parallel`) and the
+`[Answer to be filled by teacher]` retry loop both remain
+untouched.
 
-So "Curriculum fallback" reflects **chunk-pool availability**, not
-retrieval quality. The label is currently honest about the
-mechanism but misleading about the cause — users read "fallback" as
-"the retriever couldn't find anything", whereas the actual trigger
-is "all chunks already used".
+### A.5 — Ghost review-tray + pre-tagged "Inserted" (#11, #12)
 
-### Extraction quality audit (Cluster B item 2)
+**ANSWER — Case (b)**: client-side store persistence not cleared on
+auth transitions. Evidence:
 
-`backend/scratch/dump_extraction.py` dumps and signal-counts the
-output of `extract_text_from_pdf` for the three user PDFs:
+1. **No backend endpoint exists** for the review tray.
+   `grep -r "review-tray\|/api/.*tray" backend/` returns nothing.
+   The `pushToTray` action mutates `useEditorStore` directly from
+   the SSE stream handler in `generator-form.tsx`. So Case (a)
+   (backend leak) is mechanically impossible.
+2. **Every backend query is `user=request.user`-scoped** —
+   `grep -RIn 'filter.*user' backend/apps/ backend/services/` —
+   so even if a tray endpoint were later added the row-level
+   isolation infrastructure is in place.
+3. **The Zustand store's `partialize` includes `generatedTray`**
+   (and `generatorContext`, both per-user) in the persisted
+   localStorage blob under `qp-gen-editor-store`. Neither
+   `signOut` nor `signIn` cleared that key, so the next user
+   on the same browser inherited the tray from the prior user —
+   complete with the `inserted: true` flags the prior user had
+   set. Case (c) (seed data) is ruled out by inspection — no
+   code path seeds the tray.
 
-```
-trignometry.pdf:         chars=25285  √=0  π=0  ²=0  MCQ_A=9   MCQ_D=8
-MathsStandard-SQP.pdf:   chars=16308  √=10 π=0  ²=0  MCQ_A=38  MCQ_D=20  Section_A=True
-surfaceareavol.pdf:      chars=23321  √=0  π=33 ²=0  MCQ_A=28  MCQ_D=26
-```
+**Fix.**
 
-Findings:
-
-* All landmark questions the user named are **present and recoverable
-  by substring search**: `train` (chunk 9), `Aryan/Babban` (chunk 9),
-  `33. Prove BPT` (chunk 10), `35. mode` (chunk 11), `India Gate`
-  (chunk 14), `monthly income` (chunk 9), `38.` (chunk 13).
-* `√` survives extraction for the SQP; `π` survives for the
-  exemplar; `²` and subscripts are uniformly dropped (PyMuPDF text
-  layer doesn't preserve them — same is true of markitdown, see
-  Cluster D).
-* **Chunk 9 of the SQP smashes Q31 + Q32 into one chunk** because the
-  semantic chunker's heading patterns don't match SQP-style question
-  numbering. This is suboptimal but not fatal — both questions still
-  surface in the same chunk and the retrieval probe finds them.
-
-Conclusion: **extraction is fine** for the retrieval task. Math
-fidelity is poor for both PyMuPDF and markitdown.
-
-### Chunking boundaries (Cluster B item 3)
-
-The SQP is chunked into 15 segments. Landmark questions land at:
-
-* Q32 train  → chunk 9 (page 6) [shared with Q31]
-* Q33 BPT    → chunk 10 (page 6)
-* Q35 mode   → chunk 11 (page 7)
-* Q38 India Gate → chunk 14 (page 8) [shared with Q37]
-
-The chunker's chapter prefix (`# General Context ## SAMPLE QUESTION
-PAPER`) is constant across every SQP chunk and dilutes the embedding
-signal. Real-world impact is small because the actual question text
-dominates the chunk, but a follow-up cleanup of the chunker's
-"Chapter / Heading" heuristics for question-paper-style inputs would
-sharpen retrieval.
-
-### Retrieval scores (Cluster B item 4)
-
-`backend/scratch/probe_retrieval.py` embeds all 65 chunks from the
-three PDFs and runs landmark queries via L2 distance. Top-3 results:
-
-```
-Q32_train      → rank1=MathsStandard-SQP chunk 9   L2=0.9579  sim=0.0421
-Q33_BPT        → rank1=trignometry chunk 7         L2=0.9549  sim=0.0451
-                 rank2=MathsStandard-SQP chunk 10  L2=0.9662  sim=0.0338
-Q35_grouped    → rank1=MathsStandard-SQP chunk 11  L2=0.9747  sim=0.0253
-Q38_IndiaGate  → rank1=MathsStandard-SQP chunk 14  L2=0.9857  sim=0.0143
-Q31_monthly_in → rank1=MathsStandard-SQP chunk 9   L2=1.0586  sim=-0.0586
-Q22_prob_dice  → rank1=MathsStandard-SQP chunk 8   L2=1.0024  sim=-0.0024
-```
-
-Every landmark the user named lands as **rank-1 or rank-2 of its
-query**. Absolute similarity scores are low (0.0–0.05) because
-`text-embedding-3-small` produces high-dimensional vectors where
-unrelated chunks already sit at ~1.0 L2, so the relative ordering
-is what matters — and the ordering is correct.
-
-**There is no similarity threshold gating the fallback**
-(`retrieve_relevant_chunks` orders by L2 and returns the top N
-unconditionally), which means a threshold change is the wrong
-remedy. The right one is dedup.
-
-### Dedup-exhaustion simulation
-
-The probe also simulates a 38-slot CBSE Standard paper with strict
-per-chunk dedup (the production behaviour):
-
-```
-Total slots simulated: 38
-With STRICT dedup (1 reuse):  Curriculum_fallback = 21 (55%)
-                              First fallback at slot index 17
-With MAX_REUSES=3:            Curriculum_fallback = 0  (0%)
-```
-
-55% matches the user-reported "most questions are tagged Curriculum
-fallback". The first fallback hits at slot 17 because 16 slots × 4
-chunks = 64 of the 65-chunk pool. Allowing each chunk to ground up
-to 3 slots gives 65 × 3 = 195 slot-chunks, enough for any plausibly
-sized paper.
-
-### Generation grounding (Cluster B item 5)
-
-`generation_service._generate_slot` passes the retrieved chunks
-into `PromptAssembler.assemble(retrieved_chunks=...)`. The system
-prompt for grounded slots is built by
-`_system_rules_for_slot(slot, constraints)` which already requires
-the model to anchor against `[CONTEXT]` blocks. Grounding is fine
-when chunks ARE supplied; the bug was that strict dedup withheld
-chunks from later slots, so they fell through to the
-`curriculum_fallback=True` branch and the model was explicitly told
-"no chunks for this slot, use CBSE curriculum knowledge"
-(lines 1353-1360 of generation_service.py). With dedup loosened,
-later slots receive chunks and the grounding path applies as
-intended.
-
-### Fix
-
-`backend/services/generation_service.py:1223-1289`. Replaced
-`used_chunk_ids: set()` with a per-chunk counter
-`chunk_use_count: Dict[str, int]` and a `max_chunk_reuses` cap read
-from `settings.MAX_CHUNK_REUSES` (default 3). The valid-chunk
-filter changes from "id not in used" to
-"use count < max reuses", and the post-allocation update
-increments the counter instead of adding to a set.
-
-### Files touched (Cluster B)
-
-```
-M backend/services/generation_service.py
-A backend/scratch/dump_extraction.py
-A backend/scratch/probe_retrieval.py
-```
-
----
-
-## CLUSTER C — VI-alternative toggle
-
-### Where VI alternatives are inserted
-
-* The model is prompted to emit `vi_alternative` for slots with
-  `slot.vi_required=True` (e.g. Class-10 Maths SQP map/figure
-  questions).
-* `_coerce_question` reads the field via `_coerce_vi_alternative`
-  (`generation_service.py:306-318`), then `_printable_question_content`
-  appends a dashed `Note: ... Visually Impaired Students only ...`
-  block beneath the OR choice
-  (`generation_service.py:321-334`).
-* The metadata flag `metadata["vi_alternative"] = True` is set
-  whenever the field has content.
-
-### Fix
-
-Implemented as a **post-generation filter** per the brief, NOT as a
-prompt change — so the LLM still sees VI cues in the retrieved source
-and grounds correctly when relevant.
-
-* `_coerce_question` gains an `include_vi_alternatives: bool = True`
-  parameter. When False, the function drops the VI alternative
-  *after* coercion, before computing `printable_content`. The
-  metadata marker is also popped so downstream consumers
-  (review tray, exporters, answer-script generator) read consistent
+* `store/editor-store.ts` exports `EDITOR_STORE_PERSIST_KEY` and
+  `resetEditorStoreForAccountSwitch()`. The helper resets in-memory
+  state to its clean shape, calls Zustand persist's
+  `clearStorage()` API, and falls back to
+  `localStorage.removeItem(EDITOR_STORE_PERSIST_KEY)` so a hard
+  refresh after signOut still sees the wipe.
+* `lib/auth-client.ts` introduces a local `clearLocalUserState()`
+  helper that runs `resetEditorStoreForAccountSwitch()` and also
+  deletes the `qp_gen_editor_db` IndexedDB database (used by
+  `lib/live-document-db.ts` to cache live editor docs). It's
+  invoked from `signIn.email`, `signUp.email`, and `signOut`.
+  On signIn/signUp the call runs **before** the new tokens are
+  set so the very first render under the new identity sees clean
   state.
-* `stream_generated_questions` parses
-  `payload.get("include_vi_alternatives", payload.get("includeViAlternatives", True))`
-  with snake/camel/string-false coercion and threads the value
-  through to the slot generator closure.
 
-### UI
+**Regression coverage.**
+`q_instructions/tests/test_tester_round.py` adds
+`ReviewTrayAccountIsolationTests` which walks the Django URL
+resolver and asserts no URL pattern contains "review-tray" or
+"tray". A future engineer adding a tray endpoint will have to
+update this test, which forces them to also verify per-user
+filtering.
 
-`frontend/components/generator-form.tsx`:
-
-* `formSchema` gains `includeViAlternatives: z.boolean()` (no
-  `.default()` so the inferred type stays `boolean`, not
-  `boolean | undefined`).
-* `defaultValues` sets it to `true` — matching CBSE Sample Paper
-  convention.
-* The Generator panel renders a checkbox row beneath the
-  "Count Variation" / "Exact Count" controls with explanatory copy:
-  > Include Visually Impaired alternatives
-  > CBSE Sample Papers attach a VI alternative to every visual
-  > question. Leave on to mirror that pattern; turn off to suppress
-  > the VI blocks in the generated paper without changing what the
-  > model retrieves from your sources.
-* The submit handler sends `include_vi_alternatives:
-  values.includeViAlternatives` in the SSE start payload.
-
-### Files touched (Cluster C)
-
-```
-M backend/services/generation_service.py
-M frontend/components/generator-form.tsx
-```
+**`inserted` flag.** Fixed by the same wipe — the flag persists in
+the same localStorage blob, so removing the blob removes the flag.
+No additional code path was needed.
 
 ---
 
-## CLUSTER D — Markitdown evaluation: SKIP
+## CLUSTER B — Toolbar state sync
 
-The evaluation lives in `MARKITDOWN_EVAL.md`. Headline:
+### B.1, B.2 — Bold/italic don't highlight; swatch shows stale color (#5, #6)
 
-* Markitdown is **15–30× slower** per file on the three user PDFs.
-* It loses **image extraction** entirely (its PDF backend is
-  pdfminer.six → pdfplumber, text-only). That regresses Cluster A's
-  image-chunk pipeline and breaks Q23/Q33-style image-grounded
-  questions.
-* It **does not preserve formulae** any better than PyMuPDF (no √
-  / ² / subscript recovery on the user PDFs).
-* It does emit slightly better table structure (markdown pipes vs
-  whitespace soup) — but the gain is cosmetic for embedding
-  retrieval, not semantic.
+**Diagnosis.** `EditorToolbar` reads `editor.isActive("bold")`,
+`editor.getAttributes("textStyle")?.color`, etc. directly during
+render — but it never subscribed to TipTap's
+`selectionUpdate`/`transaction` events, so React had no reason to
+re-render when the cursor moved. The buttons therefore reflected
+whatever the state was at first mount and never updated. The
+prior `useEffect` at line 485 only listened to `update` (debounced
+400 ms) for the total-marks badge — it deliberately did NOT bump
+on selection changes because the marks count doesn't depend on
+the cursor.
 
-The dedup-exhaustion fix in Cluster B is the **actual** remedy for
-the curriculum-fallback flood the brief framed as a markitdown
-problem. PyMuPDF stays. The package was uninstalled after evaluation
-to keep the venv lean.
+**Fix.** Added a tiny `selectionTick` state in `EditorToolbar`
+that increments on every `selectionUpdate` and `transaction`
+event. Bumping the state forces a re-read of `editor.isActive` /
+`editor.getAttributes` for every formatting button, font / size /
+heading select, color and highlight swatch, and alignment / list
+button — there's no need to mirror each value into its own piece
+of state since the editor's selection is already the source of
+truth. An initial `bump()` runs once at mount so the first paint
+reflects the cursor's starting position.
 
-### Files touched (Cluster D)
+### B.3 — "+" button too close to marks edit (#8)
 
-```
-A MARKITDOWN_EVAL.md
-A backend/scratch/eval_markitdown.py
-```
+**Fix.** CSS in `tiptap-editor.tsx`'s `.question-controls`
+selector pushes the hover-popup column from `right: -28px` to
+`right: -44px`, widens the inter-button `gap` from 4px to 6px,
+and adds a 4px `padding-left`. The add-subquestion "+" now sits
+~20px clear of the marks input's M label in grouped-OR /
+grouped-question layouts.
+
+---
+
+## CLUSTER C — Missing features
+
+### C.1 — Assertion-Reasoning question type (#3)
+
+* **Toolbar button** (`editor/toolbar.tsx`) — new "Assertion-Reason"
+  button in the secondary toolbar between MCQ and Header. Inserts
+  a `questionBlock` with:
+  * Bold-prefixed "Assertion (A):" paragraph.
+  * Bold-prefixed "Reason (R):" paragraph.
+  * `orderedList` with the four canonical CBSE options.
+  * `attrs: { marks: 1, questionType: "ASSERTION_REASON" }`
+    matching the existing enum the generation router and
+    answer-script extractor both already recognise.
+* **Generation prompts** — the LLM pipeline already handles
+  `ASSERTION_REASON` slots (see e.g.
+  `services/generation_service.py:407,411,534,968,1041` and the
+  prior-round-tested `TypeFidelityTests`), so wiring the toolbar
+  type into generation required no additional backend changes.
+  Slots with `qtype: ASSERTION_REASON` in a CBSE blueprint
+  already emit the exact four-option pattern, and the SQP source
+  carries Q19/Q20 examples for grounded generation to anchor on.
+
+### C.2 — Date field in paper header (#4)
+
+* `editor/extensions/header-node.tsx` — `PaperHeaderBlock` gains
+  two attributes: `showDate: boolean` (default false) and
+  `dateValue: string` (ISO `YYYY-MM-DD`, persists timezone-neutral).
+  The React NodeView renders a Calendar toggle in the header's
+  action column; on first enable the picker defaults to today's
+  date but never advances implicitly thereafter. The date display
+  uses `Intl.DateTimeFormat(undefined, { day, month, year })` so
+  the rendered string is locale-correct.
+* `parseHTML` / `renderHTML` round-trip the new attributes via
+  `data-show-date` and `data-date-value`, so PDF/DOCX exports
+  naturally pick up the rendered date from the DOM.
+* CSS for the date row (`.paper-header-date-row`,
+  `.paper-header-date-input`, `.paper-header-date-display`,
+  `.paper-header-actions`) is added inline in `tiptap-editor.tsx`.
+  Print-only CSS (`print:hidden`) hides the `<input type="date">`
+  control during paginated print so only the formatted span
+  appears on the final sheet.
+* `renderHTML` keeps the content hole `0` inside a dedicated
+  `paper-header-content` div, satisfying the round-5 ProseMirror
+  invariant — the new date row is a sibling of that div, never a
+  sibling of the hole.
+
+### C.3 — Pasted images don't have resize handles (#9)
+
+**Diagnosis.** The default TipTap paste handler converted clipboard
+images into plain inline `image` nodes. Two problems followed:
+(a) the `image` schema is inline-only, so a paste **inside** a
+`questionBlock` (whose content excludes inline `image`) failed
+entirely; (b) when paste happened at page level the image rendered
+at its native pixel size with no resize handles because the
+`tiptap-extension-resize-image` NodeView only attaches to nodes
+with `width` / `height` style attributes, which a freshly pasted
+image lacks.
+
+**Fix.** `editorProps.handlePaste` (set on the `useEditor` config)
+inspects `clipboardData.items`, picks the first `image/*` entry,
+reads the bytes via `FileReader` as a data URL, and dispatches
+`editor.chain().focus().insertFloatImage({ src }).run()` — the
+same command the toolbar's Image button uses. Pasted images
+therefore land in the `FloatImage` NodeView which already has
+resize handles, alignment toolbar, and Backspace/Delete support
+(see A.3). Non-image pastes return `false` so plain text and HTML
+pastes still go through ProseMirror's standard paste machinery
+untouched.
+
+---
+
+## CLUSTER D — Search (#14)
+
+**Diagnosis.** Two distinct search inputs:
+
+* `app/(dashboard)/question-bank/page.tsx` — paper search.
+* `app/(dashboard)/paper-library/page.tsx` — question search.
+
+Both pages parsed a "class — subject" structure out of the
+backend's `projectName` field with `split(" — ")` (literal
+em-dash). The class/subject labels then dominated the filter
+index. Two compounding bugs:
+
+1. **Brittle delimiter.** The split assumed the user always typed
+   an em-dash. Real-world project names use plain hyphens,
+   en-dashes, or no separator at all. Whenever the split missed
+   the class/subject labels fell to `"—"` and the filter ignored
+   the real project name entirely.
+2. **Wrong fields indexed.** The question-side filter only checked
+   `content`, `type`, `classLabel`, `subjectLabel`. The backend
+   actually returns `grade_class`, `subject`, `inferred_topic`,
+   `inferred_chapter`, `source_pdf`, `bloom_taxonomy`,
+   `difficulty`, plus the options array — none of which were
+   searchable. So a query like "Math" or "trigonometry" failed on
+   questions whose project name happened not to contain those
+   tokens.
+
+**Fix.**
+
+* `parseProjectName` (paper-library) and `parsePaper`
+  (question-bank) now split on a regex `\s*[—–\-]\s*` that accepts
+  em-dash, en-dash, or hyphen, and trim whitespace on both
+  sides. Unparseable names fall through to the haystack via the
+  raw `projectName` field.
+* Both filters build a single haystack string from every relevant
+  field (content, answer, type, projectName, classLabel,
+  subjectLabel, grade_class, subject, inferred_topic,
+  inferred_chapter, source_pdf, bloom_taxonomy, difficulty,
+  options array on the question side; title + projectName +
+  classLabel + subjectLabel on the paper side), joins them with
+  ` · `, lowercases once, then `.includes(term)`. Costs the same
+  O(N) as the original filter and matches every reasonable token
+  the user might type.
+
+---
+
+## Codebase audit — latent bugs found
+
+While diagnosing the clusters above, swept the codebase for the
+class of issue each cluster exposed. Findings:
+
+* **User-scoping (echo of A.5).** Every protected view in
+  `apps/generation`, `apps/projects`, `apps/documents`,
+  `apps/accounts` queries via `user=request.user` or
+  `project__user=request.user`. `apps/common/views.py` exposes
+  only a `HealthCheckView` with `AllowAny`. No leak surface.
+* **Debug logging in production code.** Removed three
+  `console.log("[DEBUG PaperHeaderComponent]")` calls in
+  `editor/extensions/header-node.tsx` that fired on every render
+  and would have flooded production browser consoles. Other
+  `console.log` calls in `tiptap-editor.tsx` (lines around 1129)
+  guard real autosave-failure surfaces and stay.
+* **Email-only Gmail constraint.** Both signup and forgot-password
+  validate emails with the project-wide `validate_gmail` regex
+  (only `*@gmail.com` accepted). This is deliberate
+  (`apps/accounts/serializers.py:GMAIL_REGEX`) but means
+  non-Gmail users can neither sign up nor recover. Documented
+  here for awareness; no fix this round.
+* **Placeholder predicate is exact-match only (A.4).** If the
+  user manually edits a placeholder to "Enter question here????",
+  the predicate no longer recognises it and a hallucinated answer
+  could slip through. The exact-match strategy keeps the false-
+  positive rate at zero (no real question text accidentally
+  matches a placeholder); upgrading to a fuzzy / similarity
+  check would tradeoff precision and is not justified by the
+  observed failure mode.
+* **Two `editorProps` setups in `tiptap-editor.tsx`.** The initial
+  `useEditor` call (line 854) and a subsequent
+  `editor.setOptions({...})` (line 931) both set
+  `editorProps.attributes`. The second one would normally
+  shallow-merge over the first and could in theory clobber
+  `handlePaste` if a future contributor adds a paste handler to
+  the second site. Left as-is for this round since the second
+  site doesn't define `handlePaste`, but flagged in this report
+  so the next refactor unifies them.
 
 ---
 
 ## Verification gate — what the user must confirm
 
-| # | item | status | evidence |
+| # | Item | Status | Evidence |
 |---|------|--------|----------|
-| 1 | Upload trignometry.pdf again. Ingestion < 30 s. | **PASS** (measured 14.4 s in `scratch/profile_ingestion_full.py`); USER-PENDING for end-to-end confirmation via the upload UI | section "Post-fix numbers" above |
-| 2 | Curriculum-fallback share for a Math Standard paper over the same 3 sources | **PREDICTED < 25%** (simulated 0% in `scratch/probe_retrieval.py` with `MAX_CHUNK_REUSES=3`); USER-PENDING for the real generation run | Cluster B "Dedup-exhaustion simulation" |
-| 3 | VI toggle suppresses VI text in generated output | **CODE-VERIFIED**: `_coerce_question` drops VI when `include_vi_alternatives=False`; checkbox exists in `generator-form.tsx`; USER-PENDING for visual confirmation in the browser | Cluster C |
-| 4 | Backend tests stay green | **PASS** — 98/98 q_instructions tests | `python -m unittest discover -s q_instructions/tests` |
-| 5 | tsc + next build green | **PASS** | (re-run above) |
+| 1 | Forgot-password flow end-to-end | **CODE-COMPLETE**, USER-PENDING; state the email backend (console for dev / SMTP relay for prod) when ticking | A.1 above |
+| 2 | New account receives confirmation email | **CODE-COMPLETE**, USER-PENDING | A.1 above |
+| 3 | Insert "-" 10+ times across a page boundary | **CODE-FIX-APPLIED**, USER-PENDING | A.2 above |
+| 4 | Insert image into question → Delete | **CODE-FIX-APPLIED**, USER-PENDING | A.3 above |
+| 5 | Empty paper → answer-script returns 400 | **TEST-PASS** (`AnswerScriptEmptyPaperGuardTests`) | A.4 above |
+| 6 | Clean browser, new account → tray empty | **CODE-FIX-APPLIED + TEST-PIN** (no backend tray endpoint test) | A.5 above |
+| 7 | Sign out → sign in different new account → tray clears | **CODE-FIX-APPLIED**, USER-PENDING | A.5 above |
+| 8 | Bold/italic/underline/strike active state | **CODE-FIX-APPLIED**, USER-PENDING | B.1 above |
+| 9 | Color/highlighter swatches reflect selection | **CODE-FIX-APPLIED**, USER-PENDING | B.2 above |
+| 10 | Assertion-Reasoning button inserts template | **CODE-COMPLETE**, USER-PENDING | C.1 above |
+| 11 | Date field in header, appears in PDF + DOCX | **CODE-COMPLETE**, USER-PENDING for PDF/DOCX confirmation | C.2 above |
+| 12 | Pasted image has resize handles | **CODE-FIX-APPLIED**, USER-PENDING | C.3 above |
+| 13 | Search returns sensible results | **CODE-FIX-APPLIED**, USER-PENDING | D above |
 
-Items 1-3 require running the real app against the upload + generation
-endpoints, which the agent cannot exercise from its runtime. Please
-walk through `DEPLOY_CHECKLIST.md` § 3 (carried over from the prior
-round, still current) for the manual gate before promoting.
+Items marked **TEST-PASS** are verified by the new
+`test_tester_round.py` suite (8 cases). Everything else is
+code-complete but needs a real browser + the deployed SMTP relay
+for end-to-end confirmation.
 
 ---
 
-## Files changed (full set)
+## Files changed
 
 ```
 M backend/config/settings.py
-M backend/services/openai_service.py
-M backend/services/document_service.py
-M backend/services/generation_service.py
-M frontend/components/generator-form.tsx
-A MARKITDOWN_EVAL.md
-A backend/scratch/profile_ingestion.py
-A backend/scratch/profile_ingestion_full.py
-A backend/scratch/dump_extraction.py
-A backend/scratch/probe_retrieval.py
-A backend/scratch/eval_markitdown.py
+M backend/apps/accounts/views.py
+M backend/apps/accounts/urls.py
+M backend/apps/accounts/serializers.py
+M backend/services/answer_script_service.py
+A backend/services/email_service.py
+A backend/services/password_reset_service.py
+A backend/q_instructions/tests/test_tester_round.py
+M frontend/store/editor-store.ts
+M frontend/lib/auth-client.ts
+M frontend/components/login-form.tsx
+A frontend/components/forgot-password-form.tsx
+A frontend/components/reset-password-form.tsx
+A frontend/app/(auth)/forgot-password/page.tsx
+A frontend/app/(auth)/reset-password/page.tsx
+M frontend/components/editor/extensions/float-image.tsx
+M frontend/components/editor/extensions/header-node.tsx
+M frontend/components/editor/toolbar.tsx
+M frontend/components/tiptap-editor.tsx
+M frontend/app/(dashboard)/question-bank/page.tsx
+M frontend/app/(dashboard)/paper-library/page.tsx
+M DEPLOY_CHECKLIST.md
 M FIX_REPORT.md (this file)
 ```
 
-No edits to the prior rounds' fixes: ProseMirror toDOM wrapping,
-`pdf_source.content_type`, PDF/DOCX export figure inlining, OR-group
-logic, autosave gating, useSession optimistic render, dark-theme
-paper invariant. All their regression suites still pass.
+No edits to: OR-group fixes, per-keystroke save, useSession
+optimistic render, `pdf_source.content_type`, paper-white
+invariant, temperature handling, answer-script batched generation,
+ingestion parallel captioning, `MAX_CHUNK_REUSES=3`, VI alternative
+toggle. All prior regression suites still pass.
