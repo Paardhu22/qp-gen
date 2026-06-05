@@ -38,6 +38,13 @@ const formSchema = z.object({
   countType: z.enum(["custom", "cbse"]),
   numberOfQuestions: z.string().optional(),
   marks: z.string().min(1),
+  // Cluster C: CBSE Sample Papers include "Visually Impaired alternative"
+  // text under any visual question. The user can opt OUT of carrying those
+  // alternatives into the generated paper without changing the model's
+  // grounding — the backend implements it as a post-generation filter.
+  // No .default() here so the inferred type stays `boolean` (not
+  // `boolean | undefined`) — the default value is set in `defaultValues`.
+  includeViAlternatives: z.boolean(),
 });
 
 interface UploadingDoc {
@@ -60,6 +67,7 @@ export const GeneratorForm = () => {
       countType: "cbse",
       numberOfQuestions: "5",
       marks: "1",
+      includeViAlternatives: true,
     },
   });
 
@@ -280,6 +288,7 @@ export const GeneratorForm = () => {
           subject: values.subject,
           class: values.academicClass,
           qp_type: values.qpType,
+          include_vi_alternatives: values.includeViAlternatives,
         },
         (event, data) => {
           if (event === "error") {
@@ -738,6 +747,42 @@ export const GeneratorForm = () => {
               )}
             />
           )}
+
+          {/* Cluster C: VI alternative toggle. CBSE Sample Papers append a
+              Visually Impaired alternative under any visual question; the
+              model faithfully reflects the source. The teacher can opt out
+              without changing prompting (post-generation filter). */}
+          <FormField
+            control={form.control}
+            name="includeViAlternatives"
+            render={({ field }) => (
+              <FormItem className="flex items-start gap-3 rounded-md border border-border bg-background px-3 py-2.5">
+                <FormControl>
+                  <input
+                    id="includeViAlternatives"
+                    type="checkbox"
+                    checked={field.value}
+                    onChange={(e) => field.onChange(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 cursor-pointer rounded border-border accent-indigo-600"
+                  />
+                </FormControl>
+                <div className="flex-1 space-y-1">
+                  <label
+                    htmlFor="includeViAlternatives"
+                    className="cursor-pointer text-sm font-medium text-foreground"
+                  >
+                    Include Visually Impaired alternatives
+                  </label>
+                  <p className="text-[11px] text-zinc-500 dark:text-muted-foreground">
+                    CBSE Sample Papers attach a VI alternative to every visual
+                    question. Leave on to mirror that pattern; turn off to
+                    suppress the VI blocks in the generated paper without
+                    changing what the model retrieves from your sources.
+                  </p>
+                </div>
+              </FormItem>
+            )}
+          />
 
           {/* General Instructions / Your Instructions */}
           <div className="space-y-2">
