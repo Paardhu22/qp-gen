@@ -146,7 +146,14 @@ async function loadFigureBytes(
   // if CORS / 404 / network — we drop the figure rather than blow up the
   // whole export.
   try {
-    const response = await fetch(src, { mode: "cors", credentials: "include" });
+    // `credentials: "include"` would force the server to echo a specific
+    // Access-Control-Allow-Origin AND set Access-Control-Allow-Credentials:
+    // true. Media files don't need cookies, and many production deployments
+    // serve /media/ via nginx without a credentials-allow header — that
+    // mismatch silently drops every figure. "same-origin" lets cookies flow
+    // when FE+BE share an origin (the common nginx-proxy deploy) and avoids
+    // the preflight rejection on split-origin deploys.
+    const response = await fetch(src, { mode: "cors", credentials: "same-origin" });
     if (!response.ok) return null;
     const blob = await response.blob();
     let kind = detectKindFromMime(blob.type);
