@@ -398,21 +398,25 @@ export const SectionBlock = Node.create({
   },
 
   renderHTML({ node, HTMLAttributes }) {
+    // ProseMirror requires the content hole (`0`) to be the only child of its
+    // immediate parent array. Wrap `0` in its own `.section-title` div so we
+    // can still emit sibling decorations like the section summary span.
     const summaryText = node.attrs?.summaryText;
-    const children: any[] = [0];
+    const titleSpec: any[] = ["div", { class: "section-title" }, 0];
 
     if (summaryText) {
-      children.push([
-        "span",
-        { class: "section-summary" },
-        ` (${summaryText})`,
-      ]);
+      return [
+        "div",
+        mergeAttributes(HTMLAttributes, { "data-type": "section-block" }),
+        titleSpec,
+        ["span", { class: "section-summary" }, ` (${summaryText})`],
+      ];
     }
 
     return [
       "div",
       mergeAttributes(HTMLAttributes, { "data-type": "section-block" }),
-      ...children,
+      titleSpec,
     ];
   },
 
@@ -486,6 +490,9 @@ export const InstructionBlock = Node.create({
   },
 
   renderHTML({ node, HTMLAttributes }) {
+    // ProseMirror requires the content hole (`0`) to be the only child of its
+    // immediate parent array. Wrap `0` in its own `.instruction-content` div so
+    // we can still emit the header + summary list as siblings of the content.
     const summaryItems = Array.isArray(node.attrs.summaryItems)
       ? node.attrs.summaryItems
       : [];
@@ -502,7 +509,7 @@ export const InstructionBlock = Node.create({
       ]);
     }
 
-    children.push(0);
+    children.push(["div", { class: "instruction-content" }, 0]);
 
     return [
       "div",
