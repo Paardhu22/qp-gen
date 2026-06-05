@@ -1,5 +1,6 @@
 import base64
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from typing import Dict, List
 
@@ -72,6 +73,28 @@ def _is_usable_image(image: Dict[str, object]) -> bool:
     return True
 
 
+def _caption_one_image(
+    image: Dict[str, object], page_text: str, file_name: str, user
+) -> str:
+    """Caption a single image; tolerate API failures by falling back to a
+    page-context summary so a partial vision outage never breaks ingestion."""
+    page_number = int(image.get("pageNumber") or 0)
+    try:
+        return caption_image_for_embedding(
+            _image_data_url(image),
+            page_context=page_text,
+            user=user,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Image captioning failed for %s page %s: %s",
+            file_name,
+            page_number,
+            exc,
+        )
+        return f"Textbook visual from page {page_number}. Nearby text: {page_text[:500]}"
+
+
 def _build_image_chunks(
     *,
     pdf_source: PdfSource,
@@ -82,24 +105,41 @@ def _build_image_chunks(
     user,
 ) -> List[SemanticChunk]:
     page_text = {page.get("pageNumber"): str(page.get("content") or "") for page in pages}
-    chunks: List[SemanticChunk] = []
     caption_limit = getattr(settings, "PDF_IMAGE_MAX_CAPTIONS", 40)
     usable_images = [image for image in images if _is_usable_image(image)][:caption_limit]
+    if not usable_images:
+        return []
 
+    # Vision-API calls dominate ingestion latency. Profile against
+    # trignometry.pdf showed ~11 s per call × 22 images ≈ 4 min serial.
+    # Running the captioning loop on a ThreadPoolExecutor (I/O-bound,
+    # GIL-friendly) cuts wall-clock to ceil(N / concurrency) × per-call ms.
+    # See settings.PDF_IMAGE_CAPTION_CONCURRENCY for the knob.
+    concurrency = max(
+        1, int(getattr(settings, "PDF_IMAGE_CAPTION_CONCURRENCY", 8))
+    )
+    captions: List[str] = [""] * len(usable_images)
+
+    def caption_at(index: int) -> None:
+        image = usable_images[index]
+        nearby_text = page_text.get(int(image.get("pageNumber") or 0), "")
+        captions[index] = _caption_one_image(image, nearby_text, file_name, user)
+
+    if concurrency == 1 or len(usable_images) == 1:
+        for index in range(len(usable_images)):
+            caption_at(index)
+    else:
+        with ThreadPoolExecutor(
+            max_workers=min(concurrency, len(usable_images))
+        ) as executor:
+            list(executor.map(caption_at, range(len(usable_images))))
+
+    chunks: List[SemanticChunk] = []
     for offset, image in enumerate(usable_images):
         page_number = int(image.get("pageNumber") or 0)
         image_url, image_storage_path = _store_extracted_image(pdf_source, image)
         nearby_text = page_text.get(page_number, "")
-
-        try:
-            caption = caption_image_for_embedding(
-                _image_data_url(image),
-                page_context=nearby_text,
-                user=user,
-            )
-        except Exception as exc:
-            logger.warning("Image captioning failed for %s page %s: %s", file_name, page_number, exc)
-            caption = f"Textbook visual from page {page_number}. Nearby text: {nearby_text[:500]}"
+        caption = captions[offset]
 
         content = (
             "# Visual Source\n"
