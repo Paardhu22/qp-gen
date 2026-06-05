@@ -24,6 +24,15 @@ class PdfSource(TimeStampedModel):
     # url is kept for schema compatibility with the Prisma-created table;
     # backend uploads don't use a remote URL so it defaults to an empty string.
     url = models.CharField(max_length=2048, default="", blank=True)
+    # `content_type` was created by an earlier Prisma migration with a NOT NULL
+    # constraint; even after Django migration 0003 attempted to drop it, some
+    # databases still carry the column (see migration 0004). Keeping it in the
+    # model with a sane default means every INSERT supplies the value
+    # regardless of whether the column was dropped, and the field is harmless
+    # if the schema mismatch is resolved.
+    content_type = models.CharField(
+        max_length=255, default="application/pdf", blank=True
+    )
     status = models.CharField(max_length=50, default="uploading")
     error = models.TextField(null=True, blank=True)
     user = models.ForeignKey(
