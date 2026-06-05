@@ -4,8 +4,18 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 import jwt
 
-from apps.accounts.serializers import ChangePasswordSerializer, LoginSerializer, RefreshSerializer, RegisterSerializer, UserSerializer
+from apps.accounts.models import User
+from apps.accounts.serializers import (
+    ChangePasswordSerializer,
+    ForgotPasswordSerializer,
+    LoginSerializer,
+    RefreshSerializer,
+    RegisterSerializer,
+    ResetPasswordSerializer,
+    UserSerializer,
+)
 from services.auth_service import authenticate_user, register_user
+from services.email_service import send_password_reset_email, send_welcome_email
 from services.jwt_service import (
     create_token_pair,
     decode_access_token,
@@ -13,6 +23,7 @@ from services.jwt_service import (
     record_access_session,
     revoke_access_token,
 )
+from services.password_reset_service import consume_reset_token, issue_reset_token
 
 
 class RegisterView(APIView):
@@ -24,6 +35,10 @@ class RegisterView(APIView):
         user = register_user(**serializer.validated_data)
         token_pair = create_token_pair(user)
         record_access_session(user, token_pair.access_jti, token_pair.access_expires_at, request)
+        # Welcome email is best-effort — a transient mail failure must NEVER
+        # abort the signup HTTP response. send_welcome_email already swallows
+        # exceptions and logs them; we ignore the return value here.
+        send_welcome_email(to_email=user.email, user_name=user.name)
         return Response(
             {
                 "user": UserSerializer(user).data,
@@ -34,6 +49,71 @@ class RegisterView(APIView):
             },
             status=201,
         )
+
+
+class ForgotPasswordView(APIView):
+    """Issue and email a reset-password token.
+
+    Always returns 200 with the same generic message regardless of whether
+    the email matches a real account — this prevents account-enumeration
+    via the reset endpoint. The actual delivery (or non-delivery) is
+    visible only to the legitimate account owner.
+    """
+
+    permission_classes = [AllowAny]
+
+    GENERIC_OK = {
+        "success": True,
+        "message": (
+            "If an account with that email exists, a password reset link "
+            "has been sent."
+        ),
+    }
+
+    def post(self, request):
+        serializer = ForgotPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+
+        user = User.objects.filter(email=email).first()
+        if user is None:
+            return Response(self.GENERIC_OK)
+
+        token = issue_reset_token(user)
+        send_password_reset_email(
+            to_email=user.email, token=token, user_name=user.name
+        )
+        return Response(self.GENERIC_OK)
+
+
+class ResetPasswordView(APIView):
+    """Consume a reset-password token and set the new password.
+
+    Returns 400 with a single generic error on any failure so the API
+    surface gives no hint about why a particular token was rejected
+    (unknown, expired, already used, no matching local account).
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ResetPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ok = consume_reset_token(
+            token=serializer.validated_data["token"],
+            new_password=serializer.validated_data["newPassword"],
+        )
+        if not ok:
+            return Response(
+                {
+                    "error": (
+                        "This password reset link is invalid or has expired. "
+                        "Please request a new one."
+                    )
+                },
+                status=400,
+            )
+        return Response({"success": True})
 
 
 class LoginView(APIView):

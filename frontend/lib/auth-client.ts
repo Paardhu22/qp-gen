@@ -4,6 +4,32 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, fetchJson } from "@/lib/api-client";
 import { clearTokens, getRefreshToken, setTokens } from "@/lib/token-storage";
+import { resetEditorStoreForAccountSwitch } from "@/store/editor-store";
+
+// Local helper: wipe every per-account caches that aren't already cleared
+// inside `clearTokens()` / `resetSessionCache()`. The Zustand editor store
+// persists the review tray + generator context in localStorage; the IndexedDB
+// `qp_gen_editor_db` keeps live editor drafts. Both must be reset before a
+// different account signs in on the same browser. Called on signIn, signOut,
+// and signUp to cover the three account-switch entry points.
+async function clearLocalUserState(): Promise<void> {
+  try {
+    resetEditorStoreForAccountSwitch();
+  } catch {
+    // Defensive — never let a clear failure block the auth flow.
+  }
+  if (typeof window === "undefined" || typeof indexedDB === "undefined") return;
+  try {
+    await new Promise<void>((resolve) => {
+      const req = window.indexedDB.deleteDatabase("qp_gen_editor_db");
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    });
+  } catch {
+    // Same — best effort.
+  }
+}
 
 type SessionUser = {
   id: string;
@@ -59,6 +85,11 @@ export const signIn = {
     fetchOptions?: FetchCallbacks;
   }) => {
     try {
+      // Wipe any prior account's cached editor state BEFORE the new tokens
+      // are written, so the very next render under the new identity sees an
+      // empty tray. Doing it post-login risks a frame where the new user is
+      // authenticated but still looking at the previous user's data.
+      await clearLocalUserState();
       const response = await fetchJson<AuthResponse>("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
@@ -96,6 +127,8 @@ export const signUp = {
     fetchOptions?: FetchCallbacks;
   }) => {
     try {
+      // Fresh account — never bring forward any prior user's persisted state.
+      await clearLocalUserState();
       const response = await fetchJson<AuthResponse>("/api/auth/register", {
         method: "POST",
         body: JSON.stringify({ email, password, name }),
@@ -129,11 +162,66 @@ export async function signOut({
     });
     clearTokens();
     resetSessionCache();
+    await clearLocalUserState();
     fetchOptions?.onSuccess?.();
   } catch (error: any) {
     clearTokens();
     resetSessionCache();
+    await clearLocalUserState();
     fetchOptions?.onError?.({ error: { message: error.message } });
+  }
+}
+
+export async function requestPasswordReset(email: string): Promise<{
+  ok: boolean;
+  message: string;
+}> {
+  // Always treated as success by the API for account-enumeration resistance,
+  // but we still surface network/server failures here so the UI doesn't
+  // mistakenly tell the user "check your email" when the request never
+  // reached the backend.
+  try {
+    const response = await fetchJson<{ success: boolean; message: string }>(
+      "/api/auth/forgot-password",
+      {
+        method: "POST",
+        body: JSON.stringify({ email }),
+        skipAuth: true,
+        timeoutMs: 30000,
+      },
+    );
+    return { ok: true, message: response.message };
+  } catch (error: any) {
+    return {
+      ok: false,
+      message:
+        error instanceof ApiError
+          ? error.message
+          : "Unable to reach the server. Please try again.",
+    };
+  }
+}
+
+export async function resetPassword(
+  token: string,
+  newPassword: string,
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    await fetchJson<{ success: true }>("/api/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, newPassword }),
+      skipAuth: true,
+      timeoutMs: 30000,
+    });
+    return { ok: true, message: "Password updated. You can now sign in." };
+  } catch (error: any) {
+    return {
+      ok: false,
+      message:
+        error instanceof ApiError
+          ? error.message
+          : "Unable to reach the server. Please try again.",
+    };
   }
 }
 

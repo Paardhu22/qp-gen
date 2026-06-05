@@ -144,6 +144,37 @@ CSRF_COOKIE_SECURE = os.environ.get("CSRF_COOKIE_SECURE", "false").lower() == "t
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
 
+# ---------------------------------------------------------------------------
+# Email — password-reset + welcome emails (Cluster A.1).
+#
+# Default backend is the console writer so local development surfaces every
+# email in the runserver log without needing real SMTP credentials. Override
+# `EMAIL_BACKEND` for production (typical values:
+# `django.core.mail.backends.smtp.EmailBackend` for SMTP/SendGrid/SES SMTP
+# relay; or a third-party library backend like `anymail.backends.ses`).
+# The reset URL is built from `FRONTEND_URL` so the host always matches the
+# deployed origin and never leaks `localhost:3000` into production emails.
+# ---------------------------------------------------------------------------
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "true").lower() == "true"
+EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "false").lower() == "true"
+EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "20"))
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL", "qp-gen <no-reply@qp-gen.local>"
+)
+PASSWORD_RESET_TIMEOUT = int(
+    os.environ.get("PASSWORD_RESET_TIMEOUT_SECONDS", str(60 * 60))
+)  # 1 hour default
+PASSWORD_RESET_URL_PATH = os.environ.get(
+    "PASSWORD_RESET_URL_PATH", "/reset-password"
+)
+
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 if not OPENAI_API_KEY:
     raise RuntimeError(
