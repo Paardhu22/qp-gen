@@ -153,6 +153,22 @@ if not OPENAI_API_KEY:
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
 QG_NEW_ENGINE_ENABLED = os.environ.get("QG_NEW_ENGINE_ENABLED", "false").lower() == "true"
 OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+# Vision captioning during PDF ingestion runs against this model. gpt-5-mini
+# (the generation default) is a reasoning model and bills ~10 s of internal
+# reasoning per vision call. gpt-4o-mini is fast but bills ~2800 input tokens
+# per image regardless of detail level (OpenAI's billing model for "mini"
+# vision), which saturates the 200k TPM Tier 1 budget after ~5 concurrent
+# calls. gpt-4o with detail="low" bills ~85 tokens per image and finishes in
+# ~1.2 s, so 22 parallel captioning calls fit comfortably within TPM and
+# total ingestion drops from ~250 s → ~5 s.
+OPENAI_VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4o")
+# Max concurrent vision-API requests during image captioning. The OpenAI Tier 1
+# rate limits for gpt-4o-mini comfortably absorb 8 concurrent requests; bigger
+# tiers can push this higher. Combined with the 22-image trignometry.pdf load
+# this brings total ingestion from ~250 s to <30 s.
+PDF_IMAGE_CAPTION_CONCURRENCY = int(
+    os.environ.get("PDF_IMAGE_CAPTION_CONCURRENCY", "8")
+)
 
 # Cache configuration for improved API performance
 CACHES = {
