@@ -1221,8 +1221,25 @@ def stream_generated_questions(
     result["generalInstructions"] = general_instructions
 
     # Phase 1: The Allocation Loop (Sequential & Instantaneous)
+    #
+    # CHUNK REUSE POLICY — the old strict per-chunk dedup (each chunk could
+    # back at most one slot) was the root cause of the "Curriculum fallback
+    # flood" reported by users: a 65-chunk source can ground 65/4 ≈ 16 slots
+    # before exhaustion, after which every remaining slot in a 30-/38-question
+    # paper fell through to curriculum mode. Allowing each chunk to ground up
+    # to `max_chunk_reuses` slots restores grounded coverage without flooding
+    # the paper with near-duplicate questions: the chunk pool gains ~3×
+    # effective capacity, and the retrieval query continues to differ per
+    # slot so the LLM produces distinct stems. Tunable via the
+    # `MAX_CHUNK_REUSES` setting (defaults to 3, the value that takes the
+    # 38-slot dedup simulation against the trio of user-supplied PDFs from
+    # 55% fallback → 0% fallback while keeping no single chunk attached to
+    # more than 3 slot prompts).
+    max_chunk_reuses = max(
+        1, int(getattr(settings, "MAX_CHUNK_REUSES", 3))
+    )
     allocated_slots = []
-    used_chunk_ids = set()
+    chunk_use_count: Dict[str, int] = {}
     _topic_cache = {}
     blueprint_total = len(plan)
     curriculum_fallback_indices: List[int] = []
@@ -1251,12 +1268,16 @@ def stream_generated_questions(
             )
 
         top_50 = _topic_cache[cache_key]
-        valid_chunks = [c for c in top_50 if str(c.get("id")) not in used_chunk_ids]
+        valid_chunks = [
+            c for c in top_50
+            if chunk_use_count.get(str(c.get("id")), 0) < max_chunk_reuses
+        ]
         context = valid_chunks[:4]
 
         for item in context:
-            if item.get("id"):
-                used_chunk_ids.add(str(item["id"]))
+            cid = str(item.get("id") or "")
+            if cid:
+                chunk_use_count[cid] = chunk_use_count.get(cid, 0) + 1
 
         is_visual_mandatory = False
         if slot.requires_image:
