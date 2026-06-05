@@ -49,7 +49,11 @@ type ParsedPaper = Paper & { classLabel: string; subjectLabel: string };
 // ---------------------------------------------------------------------------
 
 function parsePaper(paper: Paper): ParsedPaper {
-  const parts = (paper.projectName || "").split(" — ");
+  // Tolerate any delimiter style — em-dash, en-dash, hyphen — since the
+  // project name is user-supplied free text. Whatever does not parse cleanly
+  // still goes into the search haystack via raw `projectName`.
+  const cleaned = (paper.projectName || "").trim();
+  const parts = cleaned.split(/\s*[—–\-]\s*/).filter(Boolean);
   return {
     ...paper,
     classLabel: parts[0]?.trim() || "—",
@@ -104,12 +108,18 @@ export default function QuestionBankPage() {
   const filteredPapers = useMemo<ParsedPaper[]>(() => {
     const term = paperSearch.trim().toLowerCase();
     if (!term) return parsedPapers;
-    return parsedPapers.filter(
-      (p) =>
-        p.title.toLowerCase().includes(term) ||
-        p.classLabel.toLowerCase().includes(term) ||
-        p.subjectLabel.toLowerCase().includes(term),
-    );
+    // Cluster D — match against every searchable field on the paper card.
+    // The pre-fix filter only indexed title + parsed class/subject, so
+    // queries like "Math" or the raw project name failed when the parser
+    // didn't find the expected " — " delimiter. Building a single haystack
+    // makes the search robust to project-naming inconsistencies.
+    return parsedPapers.filter((p) => {
+      const haystack = [p.title, p.projectName, p.classLabel, p.subjectLabel]
+        .filter((v): v is string => typeof v === "string" && v.length > 0)
+        .join(" · ")
+        .toLowerCase();
+      return haystack.includes(term);
+    });
   }, [parsedPapers, paperSearch]);
 
   // ---- actions ----

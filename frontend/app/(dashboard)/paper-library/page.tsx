@@ -35,6 +35,16 @@ type Question = {
   options?: string[];
   type: string;
   marks: number;
+  // Backend-supplied metadata. These were dropped from the search index
+  // before Cluster D, which made "Math" or "Class 10" queries useless on
+  // any project whose name didn't already contain those tokens.
+  grade_class?: string | null;
+  subject?: string | null;
+  inferred_topic?: string | null;
+  inferred_chapter?: string | null;
+  source_pdf?: string | null;
+  bloom_taxonomy?: string | null;
+  difficulty?: string | null;
 };
 
 type Project = {
@@ -59,9 +69,13 @@ function parseProjectName(name: string): {
   classLabel: string;
   subjectLabel: string;
 } {
-  const parts = name.split(" \u2014 "); // split on " — "
+  // Tolerate any of: em-dash, en-dash, hyphen, or no delimiter, since the
+  // project name is user-supplied free text. Whatever does not parse cleanly
+  // still goes into the haystack via raw `projectName`.
+  const cleaned = (name || "").trim();
+  const parts = cleaned.split(/\s*[—–\-]\s*/).filter(Boolean);
   return {
-    classLabel: parts[0]?.trim() ?? name,
+    classLabel: parts[0]?.trim() ?? cleaned,
     subjectLabel: parts[1]?.trim() ?? "",
   };
 }
@@ -125,13 +139,33 @@ export default function SavedQuestionsPage() {
   const filteredQuestions = useMemo<SavedQuestion[]>(() => {
     const term = questionSearch.trim().toLowerCase();
     if (!term) return allQuestions;
-    return allQuestions.filter(
-      (q) =>
-        q.content.toLowerCase().includes(term) ||
-        q.type.toLowerCase().includes(term) ||
-        q.classLabel.toLowerCase().includes(term) ||
-        q.subjectLabel.toLowerCase().includes(term),
-    );
+    // Cluster D — every field the user might reasonably look for joins
+    // the search index. Building a single haystack per question keeps
+    // the filter O(N) and treats every token equally, so "Math",
+    // "Class 10", "BPT", "trigonometry", "MCQ" all match the right rows.
+    const matches = (q: SavedQuestion) => {
+      const haystack = [
+        q.content,
+        q.answer,
+        q.type,
+        q.projectName,
+        q.classLabel,
+        q.subjectLabel,
+        q.grade_class,
+        q.subject,
+        q.inferred_topic,
+        q.inferred_chapter,
+        q.source_pdf,
+        q.bloom_taxonomy,
+        q.difficulty,
+        ...(q.options ?? []),
+      ]
+        .filter((v): v is string => typeof v === "string" && v.length > 0)
+        .join(" · ")
+        .toLowerCase();
+      return haystack.includes(term);
+    };
+    return allQuestions.filter(matches);
   }, [allQuestions, questionSearch]);
 
   /* ---------------------------------------------------------------------- */
