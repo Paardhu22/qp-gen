@@ -363,7 +363,22 @@ def _extract_reuse_terms(question: dict) -> Set[str]:
     return terms
 
 
-def _coerce_question(raw_payload: dict, slot, source_chunks: List[dict], is_retry: bool = False, is_visual_mandatory: bool = False) -> dict:
+def _coerce_question(
+    raw_payload: dict,
+    slot,
+    source_chunks: List[dict],
+    is_retry: bool = False,
+    is_visual_mandatory: bool = False,
+    include_vi_alternatives: bool = True,
+) -> dict:
+    """Normalise the LLM payload into the editor-facing question shape.
+
+    ``include_vi_alternatives`` is a per-paper toggle: when False, any VI
+    alternative the model returned is dropped from the printable content,
+    the dedicated field, and the metadata flag — implemented as a
+    post-generation FILTER (not a prompt change) so the model still sees
+    VI cues in the source and uses them for grounding when relevant.
+    """
     raw_question = raw_payload.get("question", raw_payload)
     if not isinstance(raw_question, dict):
         raise ValueError("LLM returned a non-object question payload.")
@@ -460,6 +475,14 @@ def _coerce_question(raw_payload: dict, slot, source_chunks: List[dict], is_retr
         else:
             raise ValueError("LLM omitted the required Visually Impaired alternative.")
 
+    # Per-paper toggle (Cluster C): even when the model generated a
+    # legitimate VI alternative (because the source paper carries them, as
+    # CBSE SQPs do), the user can opt the rendered output out of including
+    # them. This must happen AFTER coercion so the LLM still sees the VI
+    # cue in the source and grounds correctly.
+    if not include_vi_alternatives:
+        vi_alternative = None
+
     first_chunk = source_chunks[0] if source_chunks else {}
     first_meta = first_chunk.get("metadata") or {}
     metadata_raw = raw_question.get("metadata", {})
@@ -478,6 +501,11 @@ def _coerce_question(raw_payload: dict, slot, source_chunks: List[dict], is_retr
         metadata["image_url"] = image_url
     if vi_alternative:
         metadata["vi_alternative"] = True
+    else:
+        # When the toggle drops VI we drop the metadata marker too, so the
+        # review tray and any downstream consumers can't mis-read a filtered
+        # paper as one that still ships VI alternatives.
+        metadata.pop("vi_alternative", None)
 
     _subj = str(getattr(slot, "subject", "")).strip().lower()
     or_label = {"hindi": "अथवा", "telugu": "లేదా"}.get(_subj, "OR")
@@ -1148,6 +1176,17 @@ def stream_generated_questions(
     if scope_policy not in {"strict", "source_only"}:
         scope_policy = "strict"
 
+    # Per-paper toggle for VI alternatives (Cluster C). Default True to
+    # match CBSE Sample Paper convention. Accepts both snake_case and
+    # camelCase + the false-string variants the FE may send.
+    raw_vi_flag = payload.get(
+        "include_vi_alternatives",
+        payload.get("includeViAlternatives", True),
+    )
+    include_vi_alternatives = bool(raw_vi_flag) and str(raw_vi_flag).strip().lower() not in {
+        "false", "0", "no", "off",
+    }
+
     # ── HARD BRANCH: Route based on qp_type ──────────────────────────
     qp_type = str(
         payload.get("qp_type")
@@ -1474,7 +1513,14 @@ def stream_generated_questions(
                 break
 
             try:
-                candidate = _coerce_question(parsed_payload, slot, context, is_retry=(attempt > 0), is_visual_mandatory=is_visual_mandatory)
+                candidate = _coerce_question(
+                    parsed_payload,
+                    slot,
+                    context,
+                    is_retry=(attempt > 0),
+                    is_visual_mandatory=is_visual_mandatory,
+                    include_vi_alternatives=include_vi_alternatives,
+                )
             except Exception as exc:
                 if not is_last:
                     logger.warning("[LLM] Could not normalize slot %s (attempt %s): %s. Retrying...", slot.index, attempt + 1, exc)
