@@ -6,19 +6,46 @@ import {
 } from "@tiptap/react";
 import NextImage from "next/image";
 import React from "react";
-import { Image as ImageIcon, Trash, X } from "lucide-react";
+import { Calendar, Image as ImageIcon, Trash, X } from "lucide-react";
+
+// Cluster C.2 — locale-aware date formatter used by both the editor
+// rendering and the printed output. We format from a stable ISO string so
+// the persisted value is timezone-neutral; the display string is computed
+// fresh on each render against the viewer's locale.
+function formatPaperDate(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }).format(d);
+  } catch {
+    return d.toDateString();
+  }
+}
 
 const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => {
-    console.log("[DEBUG PaperHeaderComponent] MOUNT");
-    return () => {
-      console.log("[DEBUG PaperHeaderComponent] UNMOUNT");
-    };
-  }, []);
-
-  console.log("[DEBUG PaperHeaderComponent] RERENDER");
+  const showDate = Boolean(node.attrs.showDate);
+  const dateValue = node.attrs.dateValue || "";
+  // Default the picker to today when the field is being enabled for the
+  // first time. The persisted value never changes implicitly — only on
+  // user action — so a draft from yesterday doesn't silently advance.
+  const dateInputValue = dateValue || new Date().toISOString().slice(0, 10);
+  const handleToggleDate = () => {
+    if (showDate) {
+      updateAttributes({ showDate: false });
+    } else {
+      updateAttributes({ showDate: true, dateValue: dateInputValue });
+    }
+  };
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    updateAttributes({ dateValue: e.target.value });
+  };
 
   const handleLogoClick = () => {
     fileInputRef.current?.click();
@@ -91,17 +118,47 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
         {/* Details Area */}
         <div className="flex-1">
           <NodeViewContent className="paper-header-content" />
+          {showDate && (
+            <div
+              className="paper-header-date-row"
+              contentEditable={false}
+            >
+              <span className="paper-header-date-label">Date:</span>
+              <input
+                type="date"
+                value={dateValue || dateInputValue}
+                onChange={handleDateChange}
+                className="paper-header-date-input print:hidden"
+                aria-label="Paper date"
+              />
+              <span className="paper-header-date-display">
+                {formatPaperDate(dateValue || dateInputValue)}
+              </span>
+            </div>
+          )}
         </div>
 
-        <button
-          type="button"
-          onClick={deleteNode}
-          className="paper-header-delete print:hidden"
-          title="Remove Header"
+        <div
+          className="paper-header-actions print:hidden"
           contentEditable={false}
         >
-          <Trash className="w-3 h-3" />
-        </button>
+          <button
+            type="button"
+            onClick={handleToggleDate}
+            className={`paper-header-action ${showDate ? "is-active" : ""}`}
+            title={showDate ? "Remove date field" : "Add date field"}
+          >
+            <Calendar className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={deleteNode}
+            className="paper-header-delete"
+            title="Remove Header"
+          >
+            <Trash className="w-3 h-3" />
+          </button>
+        </div>
       </div>
     </NodeViewWrapper>
   );
@@ -117,6 +174,11 @@ export const PaperHeaderBlock = Node.create({
   addAttributes() {
     return {
       logoUrl: { default: null },
+      // Cluster C.2 — optional locale-formatted date field. Persisted as
+      // an ISO `YYYY-MM-DD` string so the editor + exports + answer-script
+      // generator all read a stable, timezone-neutral value.
+      showDate: { default: false },
+      dateValue: { default: "" },
     };
   },
 
@@ -126,7 +188,11 @@ export const PaperHeaderBlock = Node.create({
         tag: 'div[data-type="paper-header-block"]',
         getAttrs: (el) => {
           const element = el as HTMLElement;
-          return { logoUrl: element.getAttribute("data-logo-url") || null };
+          return {
+            logoUrl: element.getAttribute("data-logo-url") || null,
+            showDate: element.getAttribute("data-show-date") === "true",
+            dateValue: element.getAttribute("data-date-value") || "",
+          };
         },
       },
     ];
@@ -134,12 +200,17 @@ export const PaperHeaderBlock = Node.create({
 
   renderHTML({ HTMLAttributes }) {
     const logoUrl = HTMLAttributes.logoUrl as string | null;
+    const showDate = Boolean(HTMLAttributes.showDate);
+    const dateValue = (HTMLAttributes.dateValue as string) || "";
+    const formattedDate = formatPaperDate(dateValue);
 
     return [
       "div",
       mergeAttributes(HTMLAttributes, {
         "data-type": "paper-header-block",
         "data-logo-url": logoUrl,
+        "data-show-date": String(showDate),
+        "data-date-value": dateValue,
         class: "paper-header-block",
       }),
       [
@@ -159,7 +230,19 @@ export const PaperHeaderBlock = Node.create({
               ],
             ]
           : ["div", { class: "paper-header-logo paper-header-logo-empty" }],
-        ["div", { class: "paper-header-content" }, 0],
+        [
+          "div",
+          { class: "paper-header-content-col" },
+          ["div", { class: "paper-header-content" }, 0],
+          ...(showDate && formattedDate
+            ? [[
+                "div",
+                { class: "paper-header-date-row" },
+                ["span", { class: "paper-header-date-label" }, "Date:"],
+                ["span", { class: "paper-header-date-display" }, " " + formattedDate],
+              ]]
+            : []),
+        ],
       ],
     ];
   },

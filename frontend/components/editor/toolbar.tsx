@@ -445,6 +445,32 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
   const router = useRouter();
   const [totalMarks, setTotalMarks] = useState(0);
 
+  // Cluster B.1/B.2 — re-render the toolbar on every TipTap selection or
+  // transaction so `editor.isActive(...)` and `editor.getAttributes(...)`
+  // results reflect the LIVE cursor state. Without this the bold/italic
+  // buttons, heading dropdown, font/family/size selects, color swatches,
+  // alignment buttons and list toggles all read stale state and never
+  // visually highlight even when the underlying marks are present in
+  // the selection.
+  //
+  // We use a bumping `tick` instead of mirroring each attribute into its
+  // own piece of state because TipTap's `editor.state` is updated
+  // synchronously by the editor — we just need React to re-read it.
+  const [, setSelectionTick] = useState(0);
+  useEffect(() => {
+    if (!editor) return;
+    const bump = () => setSelectionTick((t) => (t + 1) | 0);
+    editor.on("selectionUpdate", bump);
+    editor.on("transaction", bump);
+    // Initial bump catches the first render after mount, which often
+    // happens before the editor has emitted any events.
+    bump();
+    return () => {
+      editor.off("selectionUpdate", bump);
+      editor.off("transaction", bump);
+    };
+  }, [editor]);
+
   const calculateTotalMarks = useCallback(() => {
     let total = 0;
     editor.state.doc.descendants((node: any) => {
@@ -873,9 +899,37 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           </div>
         </label>
 
-        {/* Horizontal Rule */}
+        {/* Horizontal Rule.
+
+            Cluster A.2 — the StarterKit HR command (`setHorizontalRule`)
+            inserts at the cursor position, but `horizontalRule` is not in
+            any paperBlock's content schema (questionBlock, sectionBlock,
+            instructionBlock, etc.). When the cursor was inside one of
+            those blocks the engine could not place the HR there and
+            would split/insert near the block edge, which interacted
+            poorly with the pagination engine and corrupted layout when
+            the rule landed on a page boundary. Routing HR through the
+            same `insertAfterCurrentBlock` helper used by the
+            paper-structure buttons puts the HR AFTER the outermost
+            paperBlock ancestor, which is always a legal placement and
+            never interferes with pagination. */}
         <ToolbarBtn
-          onClick={() => editor.chain().focus().setHorizontalRule().run()}
+          onClick={() => {
+            const { state } = editor;
+            const { $from } = state.selection;
+            let insideQp = false;
+            for (let depth = $from.depth; depth > 0; depth--) {
+              if ($from.node(depth).type.spec.group?.includes("paperBlock")) {
+                insideQp = true;
+                break;
+              }
+            }
+            if (insideQp) {
+              insertAfterCurrentBlock("horizontalRule");
+            } else {
+              editor.chain().focus().setHorizontalRule().run();
+            }
+          }}
           title="Horizontal Rule"
         >
           <Minus className="h-3.5 w-3.5" />
@@ -1289,6 +1343,80 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           className="h-6 px-2 text-[10px] font-medium text-rose-400 hover:bg-rose-500/10 rounded transition-colors flex items-center gap-1"
         >
           <PlusCircle className="h-3 w-3" /> MCQ
+        </button>
+        {/* Cluster C.1 — Assertion-Reasoning (CBSE Q19/Q20 pattern). Inserts
+            a questionBlock with Assertion + Reason paragraphs and the four
+            canonical answer options. `questionType: "ASSERTION_REASON"`
+            mirrors the generation router's enum so the saved paper round-
+            trips identically through the answer-script extractor. */}
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() =>
+            insertAfterCurrentBlock(
+              "questionBlock",
+              [
+                {
+                  type: "paragraph",
+                  content: [
+                    { type: "text", marks: [{ type: "bold" }], text: "Assertion (A): " },
+                    { type: "text", text: "Enter assertion here..." },
+                  ],
+                },
+                {
+                  type: "paragraph",
+                  content: [
+                    { type: "text", marks: [{ type: "bold" }], text: "Reason (R): " },
+                    { type: "text", text: "Enter reason here..." },
+                  ],
+                },
+                {
+                  type: "orderedList",
+                  content: [
+                    {
+                      type: "listItem",
+                      content: [{
+                        type: "paragraph",
+                        content: [{
+                          type: "text",
+                          text: "Both A and R are true, and R is the correct explanation of A.",
+                        }],
+                      }],
+                    },
+                    {
+                      type: "listItem",
+                      content: [{
+                        type: "paragraph",
+                        content: [{
+                          type: "text",
+                          text: "Both A and R are true, but R is not the correct explanation of A.",
+                        }],
+                      }],
+                    },
+                    {
+                      type: "listItem",
+                      content: [{
+                        type: "paragraph",
+                        content: [{ type: "text", text: "A is true but R is false." }],
+                      }],
+                    },
+                    {
+                      type: "listItem",
+                      content: [{
+                        type: "paragraph",
+                        content: [{ type: "text", text: "A is false but R is true." }],
+                      }],
+                    },
+                  ],
+                },
+              ],
+              { marks: 1, questionType: "ASSERTION_REASON" },
+            )
+          }
+          className="h-6 px-2 text-[10px] font-medium text-fuchsia-400 hover:bg-fuchsia-500/10 rounded transition-colors flex items-center gap-1"
+          title="Insert an Assertion-Reason question (CBSE Q19/Q20 pattern)"
+        >
+          <PlusCircle className="h-3 w-3" /> Assertion-Reason
         </button>
         <button
           type="button"

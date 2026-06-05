@@ -858,6 +858,40 @@ export const TiptapEditor = ({
           "data-template": template,
           spellcheck: "true",
         },
+        // Cluster C.3 — route any pasted image through the FloatImage
+        // NodeView so it gets the same resize handles and alignment
+        // controls as a menu-inserted image. The default paste path
+        // dropped pasted images as raw inline `image` nodes which
+        // (a) rendered at native size with no handles and (b) failed
+        // to insert at all inside a `questionBlock` whose schema
+        // doesn't list inline images. We intercept the `paste` event,
+        // find the first image item, convert it to a data: URL, and
+        // dispatch `insertFloatImage` — the same path the toolbar's
+        // Image button uses. Non-image pastes fall through unchanged
+        // so text/HTML pastes work normally.
+        handlePaste: (_view, event) => {
+          const items = event.clipboardData?.items;
+          if (!items || items.length === 0) return false;
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (!item.type?.startsWith("image/")) continue;
+            const file = item.getAsFile();
+            if (!file) continue;
+            event.preventDefault();
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              const src = String(ev.target?.result || "");
+              if (!src) return;
+              const e = (window as any).__activeEditor;
+              if (e && !e.isDestroyed) {
+                e.chain().focus().insertFloatImage({ src }).run();
+              }
+            };
+            reader.readAsDataURL(file);
+            return true; // signal we handled the paste
+          }
+          return false; // text/html pastes unchanged
+        },
       },
       onCreate: ({ editor }) => {
         if (typeof window !== "undefined") {
@@ -1691,6 +1725,55 @@ export const TiptapEditor = ({
           text-align: right;
         }
 
+        /* Cluster C.2 — paper header Date field */
+        .paper-header-date-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 6px;
+          font-size: 11pt;
+          color: #000000;
+        }
+        .paper-header-date-label {
+          font-weight: 600;
+        }
+        .paper-header-date-input {
+          font-family: inherit;
+          font-size: 10pt;
+          padding: 1px 4px;
+          border: 1px solid #d4d4d8;
+          border-radius: 3px;
+          background: #ffffff;
+          color: #000000;
+        }
+        .paper-header-date-display {
+          font-weight: 500;
+          color: #000000;
+        }
+        .paper-header-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          align-items: flex-end;
+        }
+        .paper-header-action {
+          border: 1px solid #000000;
+          background: #ffffff;
+          color: #000000;
+          border-radius: 999px;
+          padding: 2px;
+          height: 20px;
+          width: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+        }
+        .paper-header-action.is-active {
+          background: #18181b;
+          color: #ffffff;
+        }
+
         .paper-header-delete {
           border: 1px solid #000000;
           background: #ffffff;
@@ -1910,14 +1993,21 @@ export const TiptapEditor = ({
         }
 
         .question-controls {
+          /* Cluster B.3 — push the hover-popup column further to the right
+             of the question block and give it a bigger inter-button gap so
+             the add-subquestion "+" no longer visually collides with the
+             marks-edit input that sits flush with the block's right edge.
+             The earlier -28px placement put the "+" within ~4px of the M
+             label in grouped-OR / grouped-questions layouts. */
           position: absolute;
-          right: -28px;
+          right: -44px;
           top: 4px;
           opacity: 0;
           transition: opacity 0.2s ease;
           display: flex;
           flex-direction: column;
-          gap: 4px;
+          gap: 6px;
+          padding-left: 4px;
         }
 
         .question-block:hover .question-controls {
