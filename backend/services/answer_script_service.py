@@ -208,6 +208,46 @@ def _fallback_answer_from_text(raw_text: str, or_choice_text: Optional[str]) -> 
     return answer, or_answer
 
 
+_PLACEHOLDER_QUESTION_TEXTS = {
+    "enter question here...",
+    "enter question here",
+    "enter mcq stem here...",
+    "enter mcq stem here",
+    "main question statement...",
+    "main question statement",
+    "option (a) question...",
+    "option (b) question...",
+    "sub-question...",
+    "sub-question (i)...",
+    "sub-question (ii)...",
+    "sub-question (a)...",
+    "sub-question (b)...",
+}
+
+
+def _is_placeholder_question(text: str, options: List[str]) -> bool:
+    """The editor's toolbar buttons (Question, MCQ, Grouped Questions, etc.)
+    insert blocks containing literal placeholder copy. A paper saved without
+    editing those blocks is functionally empty even though it nominally has
+    a `questionBlock` node. The answer-script LLM would happily hallucinate
+    answers to "Enter question here..." — guard against that here so the
+    backend short-circuits before the OpenAI call (Cluster A.4).
+    """
+    normalised = re.sub(r"\s+", " ", (text or "").strip().lower())
+    if not normalised:
+        return True
+    if normalised in _PLACEHOLDER_QUESTION_TEXTS:
+        return True
+    # Also catch MCQ stems whose options are ALL just "Option A/B/C/D".
+    only_default_options = options and all(
+        opt.strip().lower() in {"option a", "option b", "option c", "option d"}
+        for opt in options
+    )
+    if only_default_options and normalised in _PLACEHOLDER_QUESTION_TEXTS:
+        return True
+    return False
+
+
 def _extract_questions_from_content(content_json: str) -> List[Dict[str, Any]]:
     """
     Parse the paper's TipTap JSON content and extract every
@@ -218,6 +258,12 @@ def _extract_questions_from_content(content_json: str) -> List[Dict[str, Any]]:
       doc -> page -> pageContent -> [sectionBlock, questionBlock, ...]
     Questions may also appear as direct children of pageContent without
     a preceding sectionBlock.
+
+    Blocks whose content is the editor's default placeholder ("Enter
+    question here…", "Option A", etc.) are skipped — they represent an
+    unfilled template, not a real question. This stops the answer-script
+    LLM from generating a fabricated answer to placeholder copy
+    (Cluster A.4).
     """
     try:
         doc = json.loads(content_json) if isinstance(content_json, str) else content_json
@@ -243,7 +289,7 @@ def _extract_questions_from_content(content_json: str) -> List[Dict[str, Any]]:
                     text_parts.append(_node_text(child))
             text = " ".join(text_parts).strip()
             text = re.sub(r"\s+", " ", text).strip()
-            
+
             marks = int(attrs.get("marks", 1) or 1)
             q_type = attrs.get("questionType", "SHORT_ANSWER") or "SHORT_ANSWER"
 
@@ -258,6 +304,10 @@ def _extract_questions_from_content(content_json: str) -> List[Dict[str, Any]]:
 
             # Detect OR alternative embedded in text
             text, or_choice = _split_or_choice(text)
+
+            if _is_placeholder_question(text, options):
+                # Skip unfilled template blocks so they never reach the LLM.
+                return
 
             questions.append({
                 "content": text,
@@ -634,9 +684,15 @@ def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
         raise ValueError(f"Paper '{paper_id}' not found.")
 
     # Step 2: Extract questions from TipTap JSON content
+    # The extractor filters out placeholder/template blocks (Cluster A.4) so
+    # an "empty" paper — even one with editor-default questionBlocks the
+    # user never filled in — short-circuits HERE, before any OpenAI call.
     questions = _extract_questions_from_content(paper.content or "")
     if not questions:
-        raise ValueError("This paper has no questions. Cannot generate answer script.")
+        raise ValueError(
+            "This paper has no questions to answer. Add at least one "
+            "question with real content before generating an answer script."
+        )
 
     logger.info(
         "Extracted %d questions from paper %s content",

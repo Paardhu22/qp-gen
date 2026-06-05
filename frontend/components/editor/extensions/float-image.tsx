@@ -180,6 +180,28 @@ export const FloatImage = Node.create({
   draggable: true,
   selectable: true,
 
+  // Cluster A.3 — make Backspace / Delete remove the floatImage when it is
+  // the selected node. Without an explicit handler the keystroke sometimes
+  // bubbles to the surrounding questionBlock, which swallows it and leaves
+  // the image in place. We deliberately only intercept when the selection
+  // is a NodeSelection over THIS node so we don't break normal Backspace
+  // in surrounding text or other selectable atoms.
+  addKeyboardShortcuts() {
+    const deleteIfSelected = () => {
+      const { state } = this.editor;
+      const sel: any = state.selection;
+      const node = sel?.node;
+      if (node && node.type?.name === this.name) {
+        return this.editor.commands.deleteSelection();
+      }
+      return false;
+    };
+    return {
+      Backspace: deleteIfSelected,
+      Delete: deleteIfSelected,
+    };
+  },
+
   addAttributes() {
     return {
       src:   { default: null },

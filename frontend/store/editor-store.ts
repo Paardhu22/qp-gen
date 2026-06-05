@@ -254,6 +254,9 @@ export const useEditorStore = create<EditorState>()(
       clearTray: () => set({ generatedTray: [] }),
     }),
     {
+      // The persistence key is namespaced so callers (auth signOut, account
+      // switch) can wipe it deterministically via the helper below. The
+      // localStorage key MUST match `EDITOR_STORE_PERSIST_KEY` exported below.
       name: "qp-gen-editor-store",
       storage: createJSONStorage(() => {
         if (typeof window === "undefined") {
@@ -280,3 +283,46 @@ export const useEditorStore = create<EditorState>()(
     },
   ),
 );
+
+// ---------------------------------------------------------------------------
+// Account-switch hygiene (Cluster A.5).
+//
+// The Zustand store above persists the per-user `generatedTray` (and
+// `generatorContext`) in localStorage. Without an explicit wipe on signOut,
+// the next user signing in on the same browser inherits the previous user's
+// review tray — questions they never generated, pre-flagged as "Inserted"
+// because the persisted state remembered the prior user's insert action.
+// Calling `resetEditorStoreForAccountSwitch()` from the auth-client's
+// signOut/signIn flow eliminates the leak deterministically.
+// ---------------------------------------------------------------------------
+
+export const EDITOR_STORE_PERSIST_KEY = "qp-gen-editor-store";
+
+export function resetEditorStoreForAccountSwitch(): void {
+  // Reset in-memory state first so any subscriber that re-renders during the
+  // wipe sees the clean shape rather than the soon-to-be-deleted persisted
+  // copy. Then drop the persisted blob so a hard refresh stays clean.
+  useEditorStore.setState({
+    generatedTray: [],
+    questionsToAppend: [],
+    sectionsToAppend: [],
+    instructionsToAppend: null,
+    questionsToSave: [],
+    questionRemovals: [],
+    insertionMode: "review",
+    generatorContext: initialGeneratorContext,
+  });
+  try {
+    useEditorStore.persist?.clearStorage?.();
+  } catch {
+    // Older zustand persist middleware exposes only the storage option, no
+    // helper. Fall back to a direct localStorage removal so the key is gone.
+  }
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.removeItem(EDITOR_STORE_PERSIST_KEY);
+    } catch {
+      // Ignore — localStorage can throw in private-mode browsers.
+    }
+  }
+}
