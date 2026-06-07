@@ -1372,7 +1372,6 @@ export const TiptapEditor = ({
     });
   // documentLoadedSignal is intentional: re-fire when content is loaded so
   // any pending questions (queued before doc was ready) get inserted.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionsToAppend, editor, clearQuestionsToAppend, debouncedLiveSync, documentLoadedSignal]);
 
   // Handle section-wise insertion from AI generator
@@ -1453,7 +1452,6 @@ export const TiptapEditor = ({
       debouncedLiveSync(editor);
       debouncedLiveSync.flush();
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sectionsToAppend, editor, clearSectionsToAppend, debouncedLiveSync, documentLoadedSignal]);
 
   // ── Tray "Undo" → remove a previously inserted question from the doc ──

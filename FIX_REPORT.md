@@ -1,5 +1,86 @@
 # FIX_REPORT — Tester bug round (14 items / 4 clusters) + closeout
 
+## FINAL PRE-DEPLOY ROUND — 2026-06-07
+
+### 1. Dormant Better Auth removal
+
+Removed the reachable but unused Next.js-origin auth surface:
+
+* Deleted `frontend/lib/auth.ts`, `frontend/lib/db.ts`, and
+  `frontend/app/api/auth/[...all]/route.ts`.
+* Removed the stale frontend Prisma upload/retrieval scaffold that still
+  imported those deleted helpers:
+  `frontend/app/api/upload/route.ts`, `frontend/lib/retrieval.ts`,
+  `frontend/actions/generateQuestions.ts`, `frontend/prisma*`, and
+  `frontend/scripts/setup-db.ts`.
+* Dropped unused frontend packages: `better-auth`, `@prisma/client`,
+  `prisma`, `@prisma/adapter-pg`, `pg`, and `@types/pg`.
+* Confirmed Next origin `/api/auth/sign-in/email` returns **404** for
+  both GET and POST under `next start -p 3005`.
+
+### 2. Ingestion timing and rate-limit check
+
+Measured the real Django `process_pdf_upload()` path against
+`/home/paardhu/Downloads/trignometry.pdf` (2,230,227 bytes). Each run
+used a committed temporary user, created real chunks, then deleted the
+temporary usage rows, user-owned document rows, and extracted media.
+
+| Mode | Wall time | Result |
+| --- | ---: | --- |
+| Serial baseline, `PDF_IMAGE_CAPTION_CONCURRENCY=1` | **42.28 s** | ready, 48 chunks |
+| Current default, `PDF_IMAGE_CAPTION_CONCURRENCY=8` | **16.44 s** | ready, 48 chunks |
+
+This is well under the prior ~5 minute observation and under the
+target of ~1 minute.
+
+Rate-limit assessment: OpenAI's current docs describe rate limits as
+RPM/TPM-style metrics, varying by model and organization/project. The
+current GPT-4o model page lists Tier 1 as **500 RPM / 30,000 TPM** and
+Free as unsupported. The vision docs list GPT-4o low-detail image input
+at **85 image tokens** before text/output tokens. This code uses
+`detail: "low"` and caps nearby page text to 1,200 characters, so the
+22-image trignometry batch is not expected to hit Tier 1 GPT-4o limits
+on its own. Concurrency remains configurable via
+`PDF_IMAGE_CAPTION_CONCURRENCY` and now clamps invalid env values to a
+safe 1..32 range.
+
+Sources checked:
+* https://developers.openai.com/api/docs/guides/rate-limits#usage-tiers
+* https://developers.openai.com/api/docs/models/gpt-4o
+* https://developers.openai.com/api/docs/guides/images-vision
+
+### 3. Extra issues fixed during the sweep
+
+* Made OpenAI usage logging best-effort so a telemetry DB insert failure
+  cannot turn a successful caption/embedding call into an ingestion
+  failure or fallback caption.
+* Fixed `scratch/profile_ingestion_full.py` so future timing includes
+  image-derived chunks in the embedding phase.
+* Migrated `frontend/middleware.ts` to `frontend/proxy.ts` per the
+  installed Next 16 docs, removing the build deprecation warning.
+* Cleaned two ESLint unused-expression warnings in `Grainient.tsx` and
+  two stale eslint-disable comments in `tiptap-editor.tsx`.
+* Removed stale tracked `frontend/lint_errors.txt` and updated active
+  README/deploy docs that still pointed at frontend Prisma/Better Auth.
+
+### 4. Verification
+
+* `npx next typegen` — clean.
+* `npx tsc --noEmit` — clean.
+* `npm --prefix frontend run build` — clean, 13 static routes.
+* `curl` against `http://localhost:3005/api/auth/sign-in/email` — GET
+  **404**, POST **404**.
+* `backend/.venv/bin/python manage.py check` — clean.
+* `backend/.venv/bin/python -m pytest apps/common/tests.py` — **3/3
+  passing**.
+* `node frontend/scripts/test-todom-shape.mjs` — **7/7 passing**.
+* `backend/.venv/bin/python -m pytest q_instructions/tests` — **111
+  passed**, one third-party `pypdf`/`cryptography` deprecation warning.
+* `backend/.venv/bin/python -m compileall apps services q_instructions
+  config utils scratch -q` — clean.
+* `npm --prefix frontend run lint` — 0 errors, 4 remaining warnings for
+  intentional raw `<img>` usage in editor/auth/cloud image surfaces.
+
 Test gates after the closeout round:
 
 * `q_instructions` test suite — **111/111 passing** (8 new regressions in

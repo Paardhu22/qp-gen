@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from django.conf import settings
@@ -7,6 +8,7 @@ from apps.accounts.models import User
 from apps.generation.models import ApiUsage
 
 _client: Optional[OpenAI] = None
+logger = logging.getLogger("[OPENAI_SERVICE]")
 
 
 def get_openai_client() -> OpenAI:
@@ -24,14 +26,17 @@ def _record_usage(user: Optional[User], operation: str, model: str, usage: objec
     if not usage:
         return
 
-    ApiUsage.objects.create(
-        user=user,
-        operation=operation,
-        model=model,
-        prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
-        completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
-        total_tokens=getattr(usage, "total_tokens", 0) or 0,
-    )
+    try:
+        ApiUsage.objects.create(
+            user=user,
+            operation=operation,
+            model=model,
+            prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+            completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+            total_tokens=getattr(usage, "total_tokens", 0) or 0,
+        )
+    except Exception as exc:
+        logger.warning("Failed to record %s usage for %s: %s", operation, model, exc)
 
 
 def generate_answer_key(paper_content_html: str, user: Optional[User] = None) -> str:
@@ -71,7 +76,7 @@ def caption_image_for_embedding(
     The stored chunk embeds this caption while the public question payload keeps
     the original image_url in metadata for later multimodal generation.
 
-    Uses ``OPENAI_VISION_MODEL`` (default ``gpt-4o-mini``), NOT the heavier
+    Uses ``OPENAI_VISION_MODEL`` (default ``gpt-4o``), NOT the heavier
     ``OPENAI_MODEL`` reasoning model — captioning a textbook visual for
     retrieval only needs the multimodal head, not chain-of-thought. The
     profile in scratch/profile_ingestion.py shows a ~7× per-call latency

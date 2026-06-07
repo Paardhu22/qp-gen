@@ -30,23 +30,12 @@ Trace recorded definitively in `FIX_REPORT.md` §0.0:
   `account.set_password(new_password)` →
   `account.save(update_fields=["password"])`.
 
-The frontend ALSO ships a **dormant Better Auth installation** at
-`/api/auth/[...all]` on the Next.js origin (`frontend/lib/auth.ts` +
-`frontend/lib/db.ts` + `frontend/app/api/auth/[...all]/route.ts`).
-**No FE code path calls it.** It is reachable to an attacker who
-hand-crafts a POST to `<NEXT_PUBLIC_APP_URL>/api/auth/sign-in/email`,
-but doing so creates rows in the same `account` table with hashes the
-Django login can't read. No public link references it.
-
-**Required production hardening (recommend before deploy or
-immediately after)**: pick one —
-- **(a) Remove**: delete `frontend/lib/auth.ts`,
-  `frontend/lib/db.ts`, `frontend/app/api/auth/[...all]/route.ts`, and
-  drop the `better-auth` + `prisma` + `@prisma/*` deps from
-  `frontend/package.json`. Re-run `next build` to confirm.
-- **(b) Block at the edge**: configure nginx / Vercel / whichever
-  Next.js host to 404 every `/api/auth/*` request that arrives at the
-  Next.js origin. The FE never hits those endpoints anyway.
+The former dormant Better Auth installation on the Next.js origin has
+been removed. `frontend/lib/auth.ts`, `frontend/lib/db.ts`, and
+`frontend/app/api/auth/[...all]/route.ts` are deleted, along with the
+stale frontend Prisma upload/retrieval scaffold and unused
+`better-auth` / Prisma / `pg` dependencies. Production build verification
+now confirms the Next.js origin returns **404** for `/api/auth/*`.
 
 ### 0.2 Live verification — what actually passed
 
@@ -160,9 +149,6 @@ should run them manually against staging before promotion:
 | Var | Required | Purpose | Example |
 |-----|----------|---------|---------|
 | `NEXT_PUBLIC_API_BASE_URL` | **prod-only** if FE/BE on different origins; **must** be set whenever the persisted document carries `/media/…` URLs that need to resolve at render time. Mirrors the backend's `AOS_PUBLIC_MEDIA_BASE_URL`. | API + `/media` origin used by `lib/api-client.ts` and `components/editor/extensions/float-image.tsx#resolveFigureSrc` | `https://api.qp.example.com` |
-| `NEXT_PUBLIC_APP_URL` | yes | Better Auth `baseURL` | `https://qp.example.com` |
-| `BETTER_AUTH_URL` | yes | Better Auth server URL | `https://qp.example.com` |
-| `DATABASE_URL` | yes | Prisma connection (shared with Django) | `postgres://…?sslmode=require` |
 
 **Audit rule** (Cluster D item 1): grep both repos for `localhost:8000`
 before deploy. Only matches in `.env.example`, `README.md`, and the
