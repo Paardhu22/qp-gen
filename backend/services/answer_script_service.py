@@ -208,43 +208,70 @@ def _fallback_answer_from_text(raw_text: str, or_choice_text: Optional[str]) -> 
     return answer, or_answer
 
 
+# Base placeholder phrases the toolbar inserts (no trailing punctuation).
+# `_is_placeholder_question` strips trailing punctuation/whitespace before
+# comparing, so all of `"Enter question here..."`, `"Enter question here."`,
+# `"Enter question here?"`, `"Enter question here....."`, etc. match.
 _PLACEHOLDER_QUESTION_TEXTS = {
-    "enter question here...",
     "enter question here",
-    "enter mcq stem here...",
     "enter mcq stem here",
-    "main question statement...",
     "main question statement",
-    "option (a) question...",
-    "option (b) question...",
-    "sub-question...",
-    "sub-question (i)...",
-    "sub-question (ii)...",
-    "sub-question (a)...",
-    "sub-question (b)...",
+    "option (a) question",
+    "option (b) question",
+    "sub-question",
+    "sub-question (i)",
+    "sub-question (ii)",
+    "sub-question (a)",
+    "sub-question (b)",
 }
+
+# Trailing-noise stripper: collapses `Enter question here...???.` to
+# `enter question here`. Anchored to the END so it never touches meaningful
+# middle punctuation in real questions like `Find x, given y.`.
+_TRAILING_NOISE = re.compile(r"[\s\.\?\!\,\;\:\-…]+$")
 
 
 def _is_placeholder_question(text: str, options: List[str]) -> bool:
-    """The editor's toolbar buttons (Question, MCQ, Grouped Questions, etc.)
-    insert blocks containing literal placeholder copy. A paper saved without
-    editing those blocks is functionally empty even though it nominally has
-    a `questionBlock` node. The answer-script LLM would happily hallucinate
-    answers to "Enter question here..." — guard against that here so the
-    backend short-circuits before the OpenAI call (Cluster A.4).
+    """The editor's toolbar buttons (Question, MCQ, Grouped Questions,
+    Assertion-Reason, etc.) insert blocks containing literal placeholder
+    copy. A paper saved without editing those blocks is functionally
+    empty even though it nominally has a `questionBlock` node. Without
+    this guard the answer-script LLM happily hallucinates answers to
+    "Enter question here..." (Cluster A.4).
+
+    The detection is lenient about trailing punctuation/whitespace so a
+    user lightly editing the placeholder (e.g. `"Enter question here?"`
+    or `"Enter question here. "`) still reads as a placeholder. We only
+    strip trailing noise so real questions whose first words happen to
+    overlap a placeholder still need the stem to be present in full.
     """
     normalised = re.sub(r"\s+", " ", (text or "").strip().lower())
     if not normalised:
         return True
-    if normalised in _PLACEHOLDER_QUESTION_TEXTS:
+    # Strip a tail of `.`, `?`, `!`, `,`, `;`, `:`, `-`, `…`, whitespace.
+    base = _TRAILING_NOISE.sub("", normalised)
+    if base in _PLACEHOLDER_QUESTION_TEXTS:
         return True
-    # Also catch MCQ stems whose options are ALL just "Option A/B/C/D".
-    only_default_options = options and all(
-        opt.strip().lower() in {"option a", "option b", "option c", "option d"}
-        for opt in options
-    )
-    if only_default_options and normalised in _PLACEHOLDER_QUESTION_TEXTS:
-        return True
+    # Assertion-Reason template: the C.1 toolbar button emits a single
+    # questionBlock containing bold "Assertion (A):" + "Enter assertion
+    # here..." + bold "Reason (R):" + "Enter reason here..." in two
+    # paragraphs. The extractor concatenates all paragraph text so we see
+    # both placeholder chunks side-by-side. If they're both present and
+    # nothing of substance remains after removing the canonical glue, the
+    # A-R block is unedited and must not reach the LLM.
+    if "enter assertion here" in base and "enter reason here" in base:
+        scrubbed = base
+        for chunk in (
+            "enter assertion here",
+            "enter reason here",
+            "assertion (a):",
+            "reason (r):",
+            "assertion (a)",
+            "reason (r)",
+        ):
+            scrubbed = scrubbed.replace(chunk, "")
+        if not re.sub(r"[^a-z0-9]+", "", scrubbed):
+            return True
     return False
 
 

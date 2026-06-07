@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
-from datetime import timedelta
+from datetime import timedelta, timezone as dt_timezone
 
 from django.conf import settings
 from django.db import transaction
@@ -80,7 +80,16 @@ def consume_reset_token(token: str, new_password: str) -> bool:
         )
         if verification is None:
             return False
-        if verification.expires_at <= now:
+        # The `verification.expiresAt` column was created by the better-auth
+        # Prisma schema as `TIMESTAMP WITHOUT TIME ZONE`, so Postgres returns
+        # it to Django as a NAIVE datetime even though USE_TZ=True. Comparing
+        # naive vs `timezone.now()` (aware) raises TypeError and surfaces as
+        # an HTTP 500. Wrap to UTC the same way `apps/common/authentication.py`
+        # does for `session.expiresAt` — same column type, same fix.
+        expires_at = verification.expires_at
+        if timezone.is_naive(expires_at):
+            expires_at = timezone.make_aware(expires_at, dt_timezone.utc)
+        if expires_at <= now:
             verification.delete()
             return False
 
