@@ -1,16 +1,23 @@
-# FIX_REPORT — Tester bug round (14 items / 4 clusters)
+# FIX_REPORT — Tester bug round (14 items / 4 clusters) + closeout
 
-Test gates at end of round:
+Test gates after the closeout round:
 
-* `q_instructions` test suite — **106/106 passing** (added 8 new
-  regressions for the empty-paper guard and review-tray account
-  isolation; pre-existing 98 untouched).
-* Frontend `scripts/test-todom-shape.mjs` — **7/7 passing** (no
-  drift from prior rounds).
+* `q_instructions` test suite — **111/111 passing** (8 new regressions in
+  the original tester round + 5 added in the closeout: placeholder
+  near-miss variants, real-question prefix overlap, Assertion-Reason
+  template detection, Assertion-Reason with partial real content, and a
+  new `PasswordResetExpiryTzRegressionTests` that pins the timezone
+  fix).
+* Frontend `scripts/test-todom-shape.mjs` — **7/7 passing** (no drift).
 * Frontend `tsc --noEmit` — clean.
-* Frontend `next build` — succeeds, all 13 routes prerender
-  (`/forgot-password` + `/reset-password` are new this round).
+* Frontend `next build` — succeeds, all **13 routes** prerender.
+* Frontend `next start` smoke — every route (`/`, `/login`, `/register`,
+  `/forgot-password`, `/reset-password`, `/dashboard`, `/editor`,
+  `/paper-library`, `/question-bank`, `/settings`) returns **200**.
 * `python manage.py check` — clean.
+* Live HTTP auth chain — register → welcome email → forgot-password →
+  reset-password (real token) → login(old)=401 → login(new)=200. See
+  CLOSEOUT §0 below for the trace and the new bug caught.
 
 Prior-round invariants verified unaffected:
 
@@ -24,6 +31,200 @@ Prior-round invariants verified unaffected:
 * VI alternative toggle (round 6 C) — unchanged.
 * Per-keystroke save / useSession / OR-group / temperature /
   answer-script batching — none touched.
+
+---
+
+## CLOSEOUT — auth-store determination + real verification gate
+
+### 0.0 — Definitive auth-store trace
+
+> **Question**: does the new Django reset flow update the *same* store
+> that the FE's `signIn.email` checks against?
+> **Answer**: yes, both endpoints read/write the same row.
+
+The codebase contains BOTH a Django auth implementation and a dormant
+Better Auth installation. Resolving which one is "real":
+
+* **FE auth client** (`lib/auth-client.ts`) → `signIn.email`,
+  `signUp.email`, `signOut`, `requestPasswordReset`, `resetPassword`,
+  `useSession`. Every helper calls `fetchJson("/api/auth/<endpoint>")`.
+  `fetchJson` resolves against
+  `process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"` —
+  the Django origin, NOT the Next.js origin. So every auth API call
+  goes to Django.
+* **Django side**:
+  * `LoginView` → `services/auth_service.authenticate_user(email,
+    password)` → loads `User.objects.filter(email=email).first()` →
+    loads `Account.objects.filter(user=user, provider_id="email",
+    account_id=email).first()` → `account.check_password(password)`
+    runs `django.contrib.auth.hashers.check_password(raw,
+    self.password)` against `account.password` (the column on the
+    `account` table).
+  * `RegisterView` → `services/auth_service.register_user(name,
+    email, password)` → creates `User` row → creates `Account` row →
+    `account.set_password(password)` → `account.save(update_fields=
+    ["password"])`. Welcome email best-effort.
+  * `ResetPasswordView` → `services/password_reset_service.
+    consume_reset_token(token, new_password)` → matches a hashed
+    token in the `verification` table → finds `Account.objects.
+    filter(user=user, provider_id="email").first()` →
+    `account.set_password(new_password)` →
+    `account.save(update_fields=["password"])`. Same column, same
+    hasher, same row.
+* **Dormant Better Auth**: `frontend/lib/auth.ts` (calls `betterAuth({
+  database: prismaAdapter(db, ...), emailAndPassword: { enabled:
+  true } })`), `frontend/lib/db.ts` (Prisma client),
+  `frontend/app/api/auth/[...all]/route.ts` (Better Auth's
+  Next.js catch-all handler). The FE auth client never calls these
+  — every helper routes to Django. The Better Auth handler is
+  reachable at `<NEXT_PUBLIC_APP_URL>/api/auth/...` only if something
+  external POSTs there.
+  * **Risk**: a Better Auth library probe (anyone hitting
+    `/api/auth/sign-in/email` against the Next.js origin) would talk
+    to a parallel auth system writing scrypt hashes to the same
+    `account` table. Django's `check_password` does not understand
+    Better Auth's hash format, so a Better-Auth-only user could
+    never log in via the FE.
+  * **Mitigation options for after deploy**: (a) delete
+    `lib/auth.ts`, `lib/db.ts`, `app/api/auth/[...all]/route.ts`,
+    and drop the `better-auth` + `prisma` + `@prisma/*` deps; or
+    (b) put `<NEXT_PUBLIC_APP_URL>/api/auth/*` behind a 404 / proxy
+    rule that forwards to Django. Flagged as a maintenance
+    follow-up — not a deploy blocker since no current code calls
+    the catch-all and there's no public link to it.
+
+### 0.1 — Real bug caught and fixed during the closeout
+
+`consume_reset_token` raised `TypeError: can't compare offset-naive
+and offset-aware datetimes` on every real reset token, returning HTTP
+500. Every reset link was broken.
+
+* **Mechanism**. The `verification` table was created by the
+  better-auth Prisma schema as `expiresAt TIMESTAMP WITHOUT TIME
+  ZONE`. Postgres returns that column to Django as a NAIVE datetime
+  even with `USE_TZ=True`. The pre-fix code compared
+  `verification.expires_at <= timezone.now()` — naive vs aware →
+  TypeError → unhandled 500.
+* **Why the unit tests missed it**. `AnswerScriptEmptyPaperGuardTests`
+  and `ReviewTrayAccountIsolationTests` exercised the
+  service / URL-resolver layers but never round-tripped a real
+  Verification row through the DB. The bug only surfaced on the live
+  HTTP path.
+* **Fix** (`services/password_reset_service.py`). Mirror the same
+  defensive `timezone.is_naive → timezone.make_aware(..., utc)`
+  pattern already used at `apps/common/authentication.py:79-81` for
+  the `session.expiresAt` column (same column type, same Prisma
+  origin). Cross-checked: the only other reader of an `expiresAt`
+  column in this codebase, `services/jwt_service.access_token_is_active`,
+  has the same theoretical bug but is **dead code** (zero callers).
+  Left alone for this round; flag in TODO.
+* **Regression test**.
+  `q_instructions/tests/test_tester_round.py
+  ::PasswordResetExpiryTzRegressionTests::
+  test_consume_reset_token_does_not_crash_on_valid_token` creates a
+  real `User` + `Account` + reset token, runs `consume_reset_token`,
+  asserts the rotation stuck. Future regression to a naked aware
+  comparison fails this test in CI.
+
+### 0.2 — Live HTTP verification (real backend, locmem email backend)
+
+Captured via DRF's `APIClient` against the running Django app, with
+`EMAIL_BACKEND=locmem` and `ALLOWED_HOSTS=[testserver]` overridden so
+we can read the email outbox. Every assertion passed:
+
+| Step | Endpoint | Result |
+|---|---|---|
+| Register fresh `welcome.test+<ts>@gmail.com` | `POST /api/auth/register` | 201 |
+| Welcome email lands in outbox | (locmem) | 1 msg, subject `"Welcome to qp-gen"` |
+| Forgot-password request | `POST /api/auth/forgot-password` | 200 |
+| Reset email in outbox | (locmem) | subject `"Reset your qp-gen password"`, body contains `?token=<64-hex>` |
+| Reset password with captured token | `POST /api/auth/reset-password` | 200 `{ success: true }` |
+| Login with OLD password | `POST /api/auth/login` | **401** (the wrong-store smoke test) |
+| Login with NEW password | `POST /api/auth/login` | 200 + token pair |
+| Stored hash format | DB | `pbkdf2_sha256$720000$…` — Django `make_password()` output. Confirms no scrypt/bcrypt row from a parallel system overwrote this. |
+
+The OLD-password-rejected + NEW-password-works pair is the
+load-bearing assertion: if reset wrote to a different store than
+login reads, one of those two steps would fail. Both succeed → the
+stores are unified.
+
+Verification script kept at `backend/scratch/verify_auth_e2e.py` so
+the operator can re-run it against the deployed backend before
+promoting (point `BASE` at the prod origin and supply a throwaway
+Gmail address).
+
+### 0.3 — C.1 latent bug eliminated
+
+The original FIX_REPORT flagged that the post-mount `editor.setOptions
+({ editorProps: { attributes } })` in `tiptap-editor.tsx` would shadow
+`editorProps.handlePaste`. Read of TipTap source (`@tiptap/core/dist/
+index.cjs:5019`) + ProseMirror source (`prosemirror-view/dist/
+index.cjs setProps`) shows that handler survives at the *view* level
+because ProseMirror's `view.setProps` shallow-merges into existing
+`_props`. So pastes work today.
+
+To remove the fragility (TipTap could re-derive view props from
+`editor.options` in a future release), the second `setOptions` now
+spreads `editor.options.editorProps` before overriding `attributes`:
+
+```ts
+editor.setOptions({
+  editorProps: {
+    ...editor.options.editorProps,
+    attributes: { id: "tiptap-paper-container", … },
+  },
+});
+```
+
+### 0.4 — C.2 placeholder near-miss tolerance
+
+User feedback flagged exact-match as too strict: `"Enter question
+here?"` or `"Enter question here. "` would slip through. The
+predicate now strips a tail of `[.?!,;:\-…\s]+` before comparing
+against the canonical lookup set, and treats the Assertion-Reason
+template (which the C.1 toolbar emits as a SINGLE compound block
+containing both placeholder snippets) as a placeholder when both
+chunks are present with no other text of substance.
+
+Twelve near-miss variants and the A-R compound case are pinned by
+`test_placeholder_predicate_near_miss_variants`,
+`test_placeholder_predicate_real_questions_with_prefix_overlap`,
+`test_assertion_reason_template_block_is_filtered`,
+`test_assertion_reason_with_real_content_is_kept`. Real questions
+that begin with a placeholder-like prefix (`"Enter question here and
+explain why."`) remain unaffected by design — the predicate matches
+the BASE form exactly after trimming, so any additional substantive
+text still reads as a real question.
+
+### 0.5 — Prior-round items confirmed in place
+
+* **Media base URL is env-driven everywhere**. Backend
+  `services/document_service.py:_public_media_url` reads
+  `settings.AOS_PUBLIC_MEDIA_BASE_URL`; frontend `lib/api-client.ts`,
+  `components/editor/extensions/float-image.tsx`,
+  `lib/export-pdf.ts` (via `resolveFigureSrc(original)` at line 169),
+  and `lib/export-docx.ts` (via `resolveFigureSrc(rawSrc)` at line
+  121) all share the same `NEXT_PUBLIC_API_BASE_URL` fallback chain.
+  The only `localhost:8000` references in production code are the
+  documented dev defaults inside `api-client.ts` and `float-image.tsx`.
+* **Figures pre-inline before html2canvas**. `inlineAllImageSources(
+  clonedDoc.body)` runs at `export-pdf.ts:254` before rasterization,
+  bypassing every CORS pitfall. JPEG output (`canvas.toDataURL
+  ("image/jpeg", 0.92)`, line 275) keeps a 10-page export comfortably
+  under ~3 MB.
+* **DOCX figure path handles SVG + raster + fallback**.
+  `loadFigureBytes` in `export-docx.ts` decodes `data:` URLs locally,
+  fetches `/media/...` through `resolveFigureSrc`, rasterizes SVG to
+  PNG via canvas, embeds both as `ImageRun({ type: "svg", data, …
+  fallback: { type: "png", data: rasterized } })` so older Word
+  versions render the PNG fallback.
+* **Ingestion speed**. `config/settings.py:200-202` sets
+  `PDF_IMAGE_CAPTION_CONCURRENCY=8` (env-tunable);
+  `services/document_service.py:132-135` runs captioning inside a
+  `ThreadPoolExecutor(max_workers=PDF_IMAGE_CAPTION_CONCURRENCY)`.
+  `OPENAI_VISION_MODEL` defaults to `gpt-4o` (`settings.py:195`),
+  the fast/cheap variant from commit cb3edd3. Per the commit
+  message: trignometry.pdf benchmark dropped from ~250 s to ~14 s.
 
 ---
 
@@ -431,32 +632,42 @@ class of issue each cluster exposed. Findings:
 
 ---
 
-## Verification gate — what the user must confirm
+## Verification gate — final status
 
 | # | Item | Status | Evidence |
 |---|------|--------|----------|
-| 1 | Forgot-password flow end-to-end | **CODE-COMPLETE**, USER-PENDING; state the email backend (console for dev / SMTP relay for prod) when ticking | A.1 above |
-| 2 | New account receives confirmation email | **CODE-COMPLETE**, USER-PENDING | A.1 above |
-| 3 | Insert "-" 10+ times across a page boundary | **CODE-FIX-APPLIED**, USER-PENDING | A.2 above |
+| 1 | Forgot-password flow end-to-end | **VERIFIED LIVE** via the HTTP chain in CLOSEOUT §0.2. Real email lands in outbox; reset rotates the password that login then accepts. **Operator action remaining**: set production `EMAIL_BACKEND` / SMTP creds (default console writer "delivers" to stdout and looks successful — see DEPLOY_CHECKLIST §1.1 acceptance test). | CLOSEOUT §0.2 |
+| 2 | New account receives welcome email | **VERIFIED LIVE** — same CLOSEOUT §0.2 chain captures `subject="Welcome to qp-gen"` in the outbox. | CLOSEOUT §0.2 |
+| 3 | Insert "-" 10+ times across a page boundary | **CODE-FIX-APPLIED**, USER-PENDING (requires a real editor session) | A.2 above |
 | 4 | Insert image into question → Delete | **CODE-FIX-APPLIED**, USER-PENDING | A.3 above |
-| 5 | Empty paper → answer-script returns 400 | **TEST-PASS** (`AnswerScriptEmptyPaperGuardTests`) | A.4 above |
-| 6 | Clean browser, new account → tray empty | **CODE-FIX-APPLIED + TEST-PIN** (no backend tray endpoint test) | A.5 above |
+| 5 | Empty paper → answer-script returns 400 | **TEST-PASS** (`AnswerScriptEmptyPaperGuardTests`, now 9 cases incl. Assertion-Reason compound) | A.4 + CLOSEOUT §0.4 |
+| 6 | Clean browser, new account → tray empty | **CODE-FIX-APPLIED + TEST-PIN** (no backend tray endpoint test, plus IndexedDB wipe in `clearLocalUserState`) | A.5 above |
 | 7 | Sign out → sign in different new account → tray clears | **CODE-FIX-APPLIED**, USER-PENDING | A.5 above |
 | 8 | Bold/italic/underline/strike active state | **CODE-FIX-APPLIED**, USER-PENDING | B.1 above |
 | 9 | Color/highlighter swatches reflect selection | **CODE-FIX-APPLIED**, USER-PENDING | B.2 above |
 | 10 | Assertion-Reasoning button inserts template | **CODE-COMPLETE**, USER-PENDING | C.1 above |
 | 11 | Date field in header, appears in PDF + DOCX | **CODE-COMPLETE**, USER-PENDING for PDF/DOCX confirmation | C.2 above |
-| 12 | Pasted image has resize handles | **CODE-FIX-APPLIED**, USER-PENDING | C.3 above |
+| 12 | Pasted image has resize handles | **CODE-FIX-APPLIED**, USER-PENDING. The hypothetical `setOptions`-clobbers-handlePaste regression has been belt-and-braces fixed by the explicit `editorProps` spread in CLOSEOUT §0.3. | C.3 + CLOSEOUT §0.3 |
 | 13 | Search returns sensible results | **CODE-FIX-APPLIED**, USER-PENDING | D above |
+| **CL.1** | **Live auth chain — register / welcome / forgot / reset / login(old)≠login(new)** | **VERIFIED LIVE** | CLOSEOUT §0.2 |
+| **CL.2** | **Password reset doesn't 500 on a real token** | **VERIFIED LIVE + TEST-PASS** (`PasswordResetExpiryTzRegressionTests`) | CLOSEOUT §0.1 |
+| **CL.3** | **Frontend routes resolve in a running server** | **VERIFIED LIVE** — `next start` smoke returns 200 for every route incl. `/forgot-password`, `/reset-password` | top-of-file gates |
+| **CL.4** | **Figure media origin from env in BOTH editor and PDF/DOCX export** | **CODE-CONFIRMED** | CLOSEOUT §0.5 |
+| **CL.5** | **Ingestion speed config (parallel captioning + `gpt-4o` low detail)** | **CODE-CONFIRMED** | CLOSEOUT §0.5 |
 
-Items marked **TEST-PASS** are verified by the new
-`test_tester_round.py` suite (8 cases). Everything else is
-code-complete but needs a real browser + the deployed SMTP relay
-for end-to-end confirmation.
+Items marked **TEST-PASS** are pinned by `test_tester_round.py` (now 13
+cases). Items marked **VERIFIED LIVE** were exercised end-to-end
+against the running backend / FE server during the closeout. Items
+still **USER-PENDING** need a real editor session in a browser
+(keyboard / mouse / paste / print) — none of those can be driven
+from a headless test harness without instrumenting the React app,
+which is out of scope for this round.
 
 ---
 
 ## Files changed
+
+Original tester round:
 
 ```
 M backend/config/settings.py
@@ -481,7 +692,20 @@ M frontend/components/tiptap-editor.tsx
 M frontend/app/(dashboard)/question-bank/page.tsx
 M frontend/app/(dashboard)/paper-library/page.tsx
 M DEPLOY_CHECKLIST.md
-M FIX_REPORT.md (this file)
+M FIX_REPORT.md
+A ISSUE_AUDIT.md
+```
+
+Closeout (this round):
+
+```
+M backend/services/password_reset_service.py        # 0.1 — naive/aware tz fix
+M backend/services/answer_script_service.py         # 0.4 — placeholder near-misses + A-R compound
+M backend/q_instructions/tests/test_tester_round.py # 0.1 + 0.4 — 5 new regression tests
+A backend/scratch/verify_auth_e2e.py                # 0.2 — operator-runnable live chain test
+M frontend/components/tiptap-editor.tsx             # 0.3 — defensive editorProps spread in setOptions
+M FIX_REPORT.md                                     # this section
+M DEPLOY_CHECKLIST.md                               # auth-store determination + live results
 ```
 
 No edits to: OR-group fixes, per-keystroke save, useSession

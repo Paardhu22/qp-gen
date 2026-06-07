@@ -961,8 +961,17 @@ export const TiptapEditor = ({
 
   useEffect(() => {
     if (!editor) return;
+    // Preserve any non-attribute editorProps (notably handlePaste from the
+    // initial useEditor config — see Cluster C.3). TipTap's setOptions
+    // shallow-merges at the top level, so passing a bare
+    // `editorProps: { attributes }` here loses every other editorProps key
+    // from `editor.options.editorProps`. ProseMirror's `view.setProps`
+    // happens to still merge into `view._props` so pastes keep working
+    // today, but TipTap may re-derive view props from editor.options in
+    // the future. Explicitly spreading sidesteps that fragility.
     editor.setOptions({
       editorProps: {
+        ...editor.options.editorProps,
         attributes: {
           id: "tiptap-paper-container",
           class: "document-editor focus:outline-none text-black",

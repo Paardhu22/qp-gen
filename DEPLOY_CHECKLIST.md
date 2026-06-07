@@ -1,8 +1,126 @@
 # DEPLOY_CHECKLIST
 
-Pre-deploy verification for the critical fix round (Clusters A–D).
-Run through this list before promoting `main` to production. Every box
-must be ticked or the deploy aborts.
+Pre-deploy verification for the critical fix round (Clusters A–D) + the
+closeout round (auth-store determination, live verification, latent-bug
+fixes). Run through this list before promoting `main` to production.
+Every box must be ticked or the deploy aborts.
+
+---
+
+## 0. Closeout round summary
+
+### 0.1 Auth-store decision — RESOLVED
+
+**Login, register, and password reset all read/write the SAME column**
+— `account.password`, in the table created by the (originally
+Prisma-authored) better-auth schema but now owned by Django via the
+`apps.accounts.models.Account` ORM model.
+
+Trace recorded definitively in `FIX_REPORT.md` §0.0:
+
+* FE `signIn.email` / `signUp.email` / `requestPasswordReset` /
+  `resetPassword` POST to `${NEXT_PUBLIC_API_BASE_URL ||
+  "http://localhost:8000"}/api/auth/<endpoint>` — the **Django**
+  origin, never the Next.js origin.
+* `LoginView` → `authenticate_user` → `Account.check_password`
+  against `account.password`.
+* `RegisterView` → `register_user` → `account.set_password` →
+  `account.save(update_fields=["password"])`.
+* `ResetPasswordView` → `consume_reset_token` →
+  `account.set_password(new_password)` →
+  `account.save(update_fields=["password"])`.
+
+The frontend ALSO ships a **dormant Better Auth installation** at
+`/api/auth/[...all]` on the Next.js origin (`frontend/lib/auth.ts` +
+`frontend/lib/db.ts` + `frontend/app/api/auth/[...all]/route.ts`).
+**No FE code path calls it.** It is reachable to an attacker who
+hand-crafts a POST to `<NEXT_PUBLIC_APP_URL>/api/auth/sign-in/email`,
+but doing so creates rows in the same `account` table with hashes the
+Django login can't read. No public link references it.
+
+**Required production hardening (recommend before deploy or
+immediately after)**: pick one —
+- **(a) Remove**: delete `frontend/lib/auth.ts`,
+  `frontend/lib/db.ts`, `frontend/app/api/auth/[...all]/route.ts`, and
+  drop the `better-auth` + `prisma` + `@prisma/*` deps from
+  `frontend/package.json`. Re-run `next build` to confirm.
+- **(b) Block at the edge**: configure nginx / Vercel / whichever
+  Next.js host to 404 every `/api/auth/*` request that arrives at the
+  Next.js origin. The FE never hits those endpoints anyway.
+
+### 0.2 Live verification — what actually passed
+
+Captured against the running Django backend during the closeout:
+
+- [x] Register a fresh `welcome.test+<ts>@gmail.com` via HTTP → **201**.
+- [x] Welcome email lands in the locmem outbox with subject
+      `"Welcome to qp-gen"`.
+- [x] Login with the registered password → **200** + token pair.
+- [x] `POST /api/auth/forgot-password` → **200** (generic message).
+- [x] Reset email lands in the outbox with subject `"Reset your qp-gen
+      password"`. Body contains a reset link with `?token=<64 hex>`.
+- [x] `POST /api/auth/reset-password` with the captured token →
+      **200** `{success: true}`.
+- [x] Login with the OLD password → **401** (correct rejection).
+- [x] Login with the NEW password → **200** + token pair.
+- [x] Stored hash format = `pbkdf2_sha256$720000$…` — Django
+      `make_password()` output (no parallel scrypt/bcrypt row).
+- [x] `next start` smoke: every FE route (`/`, `/login`, `/register`,
+      `/forgot-password`, `/reset-password`, `/dashboard`, `/editor`,
+      `/paper-library`, `/question-bank`, `/settings`) returns 200.
+- [x] Test gates: backend 111/111 pytest, frontend 7/7 toDOM-shape,
+      `tsc --noEmit` clean, `next build` 13 routes.
+
+Re-runnable as `python manage.py shell -c "exec(open('scratch/
+verify_auth_e2e.py').read())"` from `backend/`. Update `BASE` to the
+prod origin and supply a throwaway test Gmail before promoting.
+
+### 0.3 Bug caught during closeout — FIXED
+
+**Symptom**: `POST /api/auth/reset-password` with a real token →
+**HTTP 500**. Pre-fix code at `services/password_reset_service.py:83`
+compared `verification.expires_at <= timezone.now()` (naive vs aware
+→ `TypeError`). `verification.expiresAt` is `TIMESTAMP WITHOUT TIME
+ZONE` in Postgres (Prisma default), so Django reads it as naive.
+
+**Fix**: import `datetime.timezone as dt_timezone`, wrap with
+`timezone.make_aware(expires_at, dt_timezone.utc)` if naive. Same
+pattern already used at `apps/common/authentication.py:79-81` for
+`session.expiresAt`.
+
+**Pinned by**:
+`q_instructions/tests/test_tester_round.py::
+PasswordResetExpiryTzRegressionTests::
+test_consume_reset_token_does_not_crash_on_valid_token`.
+
+### 0.4 Items still requiring a real-browser pass before declaring deploy-ready
+
+These cannot be driven from a headless test harness. The operator
+should run them manually against staging before promotion:
+
+- [ ] Editor: insert `-` (horizontal rule) 10+ times across a page
+      boundary; verify no crash or layout corruption.
+- [ ] Editor: insert image inside a question, click to select, press
+      Delete; verify it removes cleanly.
+- [ ] Editor: bold / italic / underline / strike highlight when the
+      cursor is inside marked text.
+- [ ] Editor: color and highlight swatches reflect the current
+      selection.
+- [ ] Editor: Assertion-Reason button inserts the canonical template;
+      a generated paper round-trips through answer-script generation.
+- [ ] Editor: Date field in header → enable → exported PDF + DOCX
+      both render the date.
+- [ ] Editor: paste a clipboard image; verify it renders with resize
+      handles and can be dragged.
+- [ ] Editor: empty paper (only an unedited "Enter question here…"
+      block) → click Generate Answer Script → backend returns a clear
+      400 with the empty-paper message (no hallucinated answer).
+- [ ] Account isolation: sign in as user A → tray has items → sign
+      out → sign in as user B → tray is empty.
+- [ ] Account isolation: open in a private/clean browser profile →
+      register a fresh account → tray is empty on first paint.
+- [ ] Search: query the paper library and question library with
+      class / subject / topic / "MCQ" tokens; verify expected matches.
 
 ---
 
