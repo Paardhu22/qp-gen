@@ -30,7 +30,7 @@ from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 from django.conf import settings  # noqa: E402
 
 from services.pdf_service import extract_text_from_pdf  # noqa: E402
-from services.semantic_pipeline import process_semantic_pipeline  # noqa: E402
+from services.semantic_pipeline import SemanticChunk, process_semantic_pipeline  # noqa: E402
 from services.chunking_service import chunk_text  # noqa: E402
 from services.embedding_service import generate_embeddings  # noqa: E402
 from services.openai_service import caption_image_for_embedding  # noqa: E402
@@ -110,6 +110,37 @@ def main(argv):
         fallbacks = sum(1 for c in captions if c.startswith("<fallback>"))
         if fallbacks:
             print(f"      fallbacks={fallbacks}/{len(usable)}")
+
+        start_index = len(chunks)
+        for offset, (image, caption) in enumerate(zip(usable, captions)):
+            page_number = int(image.get("pageNumber") or 0)
+            nearby_text = page_text_map.get(page_number, "")
+            content = (
+                "# Visual Source\n"
+                f"Page: {page_number}\n"
+                f"Hidden caption: {caption}\n"
+                f"Nearby textbook text: {nearby_text[:900]}"
+            ).strip()
+            chunks.append(
+                SemanticChunk(
+                    content=content,
+                    page=page_number,
+                    chunk_index=start_index + offset,
+                    metadata={
+                        "chunkType": "image",
+                        "chapter": "Visual Source",
+                        "heading": f"Page {page_number} image",
+                        "semanticSection": f"Visual Source - Page {page_number}",
+                        "sourcePdf": pdf_path.name,
+                        "mimeType": image.get("mimeType"),
+                        "image_caption": caption,
+                        "width": image.get("width"),
+                        "height": image.get("height"),
+                        "requiresVision": True,
+                    },
+                )
+            )
+        print(f"      chunks_after_images={len(chunks)}")
 
     # 5. Embedding (batched 50 at a time, like real code)
     if chunks:

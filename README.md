@@ -124,7 +124,6 @@ The frontend contains **12 subdirectories** and **15 root files**, orchestrating
 | `/lib` | Folder | Houses client libraries, utilities, and `api-client.ts` containing the Server-Sent Events client logic (`streamSse`). |
 | `/store` | Folder | Client-side reactive stores (e.g. Zustand) to coordinate global variables across components. |
 | `/actions` | Folder | Next.js Server Actions containing safe API interaction routes. |
-| `/prisma` | Folder | Houses database migration models and client declarations for frontend storage. |
 | `/public` | Folder | Static visual assets, brand icons, and static assets. |
 | `/scripts` | Folder | Development utility scripts used in compilation and builds. |
 | `/.agents`, `/.codex` | Folders | Proprietary developmental metadata directories for runtime pair-programming. |
@@ -132,7 +131,7 @@ The frontend contains **12 subdirectories** and **15 root files**, orchestrating
 | `/components.json` | File | Tailwind UI component layout configurations. |
 | `/eslint.config.mjs` | File | Custom lint validation rules for modern TypeScript compilation. |
 | `/next.config.ts` | File | Next.js runtime configurations and webpack overrides. |
-| `/package.json` | File | Defines frontend packages, dependencies, and scripts (e.g., `"nigga": "next dev"`). |
+| `/package.json` | File | Defines frontend packages, dependencies, and scripts such as `dev`, `build`, `start`, and `lint`. |
 | `/tsconfig.json` | File | Configures the TypeScript compilation environments. |
 
 ---
