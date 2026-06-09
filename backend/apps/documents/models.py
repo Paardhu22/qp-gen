@@ -35,6 +35,10 @@ class PdfSource(TimeStampedModel):
     )
     status = models.CharField(max_length=50, default="uploading")
     error = models.TextField(null=True, blank=True)
+    # SHA256 hash of the file content for deduplication
+    sha256 = models.CharField(max_length=64, db_index=True, null=True, blank=True)
+    # AV scan status: 'pending', 'passed', 'failed', or null if AV disabled
+    av_status = models.CharField(max_length=20, null=True, blank=True)
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,

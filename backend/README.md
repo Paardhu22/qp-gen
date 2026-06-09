@@ -54,3 +54,25 @@ python manage.py runserver 0.0.0.0:8000
 ## Notes
 - Session-cookie auth is used, so the frontend must send credentials with requests.
 - Streaming endpoints use Server-Sent Events (SSE).
+
+## S3 / MinIO Storage
+
+This project can use S3-compatible object storage for media (PDF images, extracted files).
+
+Environment variables (add to `.env`):
+
+- `AWS_STORAGE_BUCKET_NAME` — bucket name to enable S3 storage (if unset, local `MEDIA_ROOT` is used)
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` — credentials for S3 or MinIO
+- `AWS_S3_ENDPOINT_URL` — set to `http://localhost:9000` for a local MinIO instance
+- `AWS_S3_REGION_NAME` — optional (default `us-east-1`)
+- `AWS_QUERYSTRING_EXPIRE` — presigned URL expiry in seconds (default 3600)
+
+For local development using MinIO, run:
+
+```bash
+docker run -p 9000:9000 -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=minio123 \
+	-v $(pwd)/minio-data:/data --name minio -d minio/minio server /data
+```
+
+Then set `AWS_S3_ENDPOINT_URL=http://localhost:9000`, `AWS_ACCESS_KEY_ID=minio`, and `AWS_SECRET_ACCESS_KEY=minio123`.
+

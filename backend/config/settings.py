@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "apps.projects",
     "apps.common",
     "apps.question_generation",
+    "storages",
 ]
 
 MIDDLEWARE = [
@@ -235,3 +236,26 @@ DATABASES["default"]["OPTIONS"] = {
     "connect_timeout": 10,
     "application_name": "qp-gen",
 }
+
+# ---------------------------------------------------------------------------
+# Optional S3/MinIO storage configuration. When `AWS_STORAGE_BUCKET_NAME` is
+# set the project will use `django-storages` S3Boto3 backend as the
+# `DEFAULT_FILE_STORAGE`. For local development you can set
+# `AWS_S3_ENDPOINT_URL` to a MinIO instance.
+# ---------------------------------------------------------------------------
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME", "")
+AWS_S3_REGION_NAME = os.environ.get("AWS_S3_REGION_NAME", "us-east-1")
+AWS_S3_ENDPOINT_URL = os.environ.get("AWS_S3_ENDPOINT_URL", "")  # e.g. http://localhost:9000 for MinIO
+AWS_S3_SIGNATURE_VERSION = os.environ.get("AWS_S3_SIGNATURE_VERSION", "s3v4")
+AWS_S3_ADDRESSING_STYLE = os.environ.get("AWS_S3_ADDRESSING_STYLE", "auto")
+AWS_S3_USE_SSL = os.environ.get("AWS_S3_USE_SSL", "true").lower() == "true"
+AWS_QUERYSTRING_EXPIRE = int(os.environ.get("AWS_QUERYSTRING_EXPIRE", "3600"))
+
+if AWS_STORAGE_BUCKET_NAME:
+    DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+    # Allow overriding the public media base if using a CDN or custom domain
+    # e.g. set AOS_PUBLIC_MEDIA_BASE_URL=https://cdn.example.com
+    # The storage backend will still generate URLs via `default_storage.url()`
+
