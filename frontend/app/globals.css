@@ -84,6 +84,32 @@
     --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Issue 6 — auth pages are always light. `[data-auth-page]` on <html> is set
+   synchronously by `app/(auth)/layout.tsx` before paint, and AuthThemeScope
+   strips `.dark` once mounted. This rule is a belt-and-braces fallback for
+   any nested `.dark` class that survives the layout's sync script (e.g. a
+   future portal that mounts outside the html root). */
+html[data-auth-page] .dark,
+html[data-auth-page] *.dark {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+}
+
 .dark {
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);

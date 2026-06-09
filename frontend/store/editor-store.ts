@@ -83,6 +83,10 @@ interface EditorState {
    *  decides what to insert. "auto": old behaviour — every generated
    *  question is auto-inserted into the editor while streaming. */
   insertionMode: InsertionMode;
+  /** Issue 3 — text typed in the generator form's "General Instructions"
+   *  textarea. Persisted so a page reload, account switch back, or
+   *  return-from-editor doesn't lose what the teacher wrote. */
+  generalInstructionsDraft: string;
   /** Staging area for generated questions awaiting review. */
   generatedTray: TrayItem[];
   /** Last metadata picked up from the generator form / loaded paper.
@@ -115,6 +119,7 @@ interface EditorState {
   setSaveState: (state: SaveState) => void;
 
   setInsertionMode: (mode: InsertionMode) => void;
+  setGeneralInstructionsDraft: (draft: string) => void;
   setGeneratorContext: (
     ctx: Partial<EditorState["generatorContext"]>,
   ) => void;
@@ -164,6 +169,7 @@ export const useEditorStore = create<EditorState>()(
       insertionMode: "review",
       generatedTray: [],
       generatorContext: initialGeneratorContext,
+      generalInstructionsDraft: "",
 
       // ── Actions ─────────────────────────────────────────────────────
       appendQuestions: (questions) =>
@@ -197,6 +203,9 @@ export const useEditorStore = create<EditorState>()(
       setSaveState: (saveState) => set({ saveState }),
 
       setInsertionMode: (mode) => set({ insertionMode: mode }),
+
+      setGeneralInstructionsDraft: (draft) =>
+        set({ generalInstructionsDraft: draft }),
 
       setGeneratorContext: (ctx) =>
         set((state) => ({
@@ -278,6 +287,7 @@ export const useEditorStore = create<EditorState>()(
         generatedTray: state.generatedTray,
         generatorContext: state.generatorContext,
         template: state.template,
+        generalInstructionsDraft: state.generalInstructionsDraft,
       }),
       version: 1,
     },
@@ -311,6 +321,7 @@ export function resetEditorStoreForAccountSwitch(): void {
     questionRemovals: [],
     insertionMode: "review",
     generatorContext: initialGeneratorContext,
+    generalInstructionsDraft: "",
   });
   try {
     useEditorStore.persist?.clearStorage?.();

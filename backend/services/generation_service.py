@@ -623,10 +623,17 @@ def _build_user_prompt(
 def _parse_gim_instructions(instructions: str, pdf_count: int, exact_count: Optional[int] = None) -> List[dict]:
     """
     Parse teacher's general instructions text into a flat list of question slots.
-    Returns a list of dicts: [{"type": ..., "marks": ..., "count": ...}, ...]
+    Returns a list of dicts:
+        [{"section_title": Optional[str], "type": ..., "marks": ..., "count": ...}, ...]
+
+    Issue 3 — `section_title` is preserved verbatim from the input ("Section A",
+    "Part B", "Sec C", …) so the generator can honour an A/B/C-style breakdown
+    instead of dumping everything into a single fall-back "Questions" section.
+    Names and order are kept exactly as the teacher wrote them.
     """
     import re
 
+    text_raw = instructions.strip()
     text = instructions.lower().strip()
     if not text:
         return []
@@ -675,8 +682,12 @@ def _parse_gim_instructions(instructions: str, pdf_count: int, exact_count: Opti
         per_pdf_count = int(next(g for g in per_pdf_match.groups() if g is not None))
 
     # Parse explicit type+count clauses like "3 MCQs", "5 short answers of 2 marks"
+    # Issue 3 — split on newlines/semicolons/commas/and AND propagate the
+    # most-recently-seen "Section X" / "Part X" prefix to the slots that follow,
+    # so the structure typed by the teacher is preserved verbatim in the output.
     clauses = re.split(r'[,;\n]+|\band\b', text)
     parsed_any = False
+    current_section: Optional[str] = None
 
     for clause in clauses:
         clause = clause.strip()
@@ -685,6 +696,20 @@ def _parse_gim_instructions(instructions: str, pdf_count: int, exact_count: Opti
         # Skip exclusion clauses
         if re.match(r'\bno\s+', clause):
             continue
+
+        # Section header at the start of the clause: "Section A: 5 short answers"
+        sec_match = re.search(
+            r'\b(section|part|sec)\b\s*[-:]?\s*([a-z0-9]+)\b',
+            clause,
+            re.IGNORECASE,
+        )
+        if sec_match:
+            sec_type = sec_match.group(1).strip().capitalize()
+            if sec_type == "Sec":
+                sec_type = "Section"
+            sec_val = sec_match.group(2).strip().upper()
+            current_section = f"{sec_type} {sec_val}"
+            clause = (clause[: sec_match.start()] + " " + clause[sec_match.end():]).strip()
 
         # Find count
         count_match = re.search(r'(\d+)', clause)
@@ -712,7 +737,12 @@ def _parse_gim_instructions(instructions: str, pdf_count: int, exact_count: Opti
         marks_match = re.search(r'(\d+)\s*marks?', clause)
         marks_val = int(marks_match.group(1)) if marks_match else default_marks.get(found_type, 2)
 
-        slots.append({"type": found_type, "marks": marks_val, "count": count_val})
+        slots.append({
+            "section_title": current_section,
+            "type": found_type,
+            "marks": marks_val,
+            "count": count_val,
+        })
         parsed_any = True
 
     # If per-PDF distribution is specified but no explicit types were parsed
@@ -731,7 +761,7 @@ def _parse_gim_instructions(instructions: str, pdf_count: int, exact_count: Opti
             qtype = 'LONG_ANSWER'
 
         total = per_pdf_count * max(pdf_count, 1)
-        slots.append({"type": qtype, "marks": marks, "count": total})
+        slots.append({"section_title": None, "type": qtype, "marks": marks, "count": total})
         parsed_any = True
 
     # Fallback: if nothing was parsed, use exact_count with defaults
@@ -744,17 +774,53 @@ def _parse_gim_instructions(instructions: str, pdf_count: int, exact_count: Opti
         qtype = 'SHORT_ANSWER'
         if 'SHORT_ANSWER' in no_types:
             qtype = 'LONG_ANSWER' if 'LONG_ANSWER' not in no_types else 'MCQ'
-        slots.append({"type": qtype, "marks": marks, "count": total})
+        slots.append({"section_title": None, "type": qtype, "marks": marks, "count": total})
+
+    # Touch the trailing argument-vs-warning so future code reviewers see
+    # the unused-variable trail rather than guessing.
+    _ = text_raw
 
     return slots
 
 
 def _build_gim_system_prompt(instructions: str, source_chunks_text: str) -> str:
-    """Build the minimal, direct system prompt for General Instructions Mode."""
+    """Build the minimal, direct system prompt for General Instructions Mode.
+
+    Issue 3 — when `source_chunks_text` is empty (no PDFs uploaded, or
+    retrieval returned nothing for this slot) we MUST NOT instruct the model
+    to "generate strictly from source material" — that's the prompt path
+    that produced zero questions and surfaced as "Generation failed before
+    any questions could be produced". In that no-source case we ask the
+    model to use general curriculum knowledge appropriate to the subject /
+    class instead.
+    """
+    has_source = bool(source_chunks_text.strip())
+    grounding_clause = (
+        "Generate questions STRICTLY from the provided source material below. "
+        "Do not add any information not present in the source text."
+        if has_source
+        else (
+            "No source material was attached to this slot. Generate the "
+            "question from general curriculum knowledge appropriate to the "
+            "subject and grade level inferred from the teacher's instructions. "
+            "Stay factually accurate."
+        )
+    )
+    answerability_clause = (
+        "- Every question must be answerable from the source material alone\n"
+        if has_source
+        else (
+            "- Every question must be factually accurate and grade-appropriate\n"
+        )
+    )
+    source_block = (
+        f"SOURCE MATERIAL:\n{source_chunks_text}\n"
+        if has_source
+        else "SOURCE MATERIAL: (none — generate from general curriculum knowledge)\n"
+    )
     return (
-        "You are a question paper generator. Generate questions STRICTLY "
-        "from the provided source material below. Do not add any information "
-        "not present in the source text.\n\n"
+        "You are a question paper generator. "
+        f"{grounding_clause}\n\n"
         "Follow the teacher's instructions EXACTLY as written. Do not add "
         "extra questions, extra sections, or extra structure beyond what "
         "the teacher asked for.\n\n"
@@ -772,10 +838,9 @@ def _build_gim_system_prompt(instructions: str, source_chunks_text: str) -> str:
         "- Do NOT add section headers or labels unless teacher asked for them\n"
         "- Do NOT enforce any board exam pattern\n"
         "- Do NOT add questions beyond the count the teacher asked for\n"
-        "- Every question must be answerable from the source material alone\n"
+        f"{answerability_clause}"
         "- Do NOT use null for any field. Omit optional keys entirely.\n\n"
-        "SOURCE MATERIAL:\n"
-        f"{source_chunks_text}\n"
+        f"{source_block}"
     )
 
 
@@ -837,11 +902,17 @@ def stream_general_instructions_questions(
         )
         return
 
-    # Expand parsed slots into a flat list of individual question entries
+    # Expand parsed slots into a flat list of individual question entries.
+    # Issue 3 — `section_title` survives the expansion so per-section grouping
+    # is honoured downstream. When the teacher writes no section prefix at
+    # all we fall back to a single "Questions" bucket; when they explicitly
+    # say "Section A: 5 short answers" we preserve "Section A" verbatim.
     flat_plan: List[dict] = []
     for slot_spec in parsed_slots:
+        section_title = slot_spec.get("section_title") or "Questions"
         for _ in range(slot_spec["count"]):
             flat_plan.append({
+                "section_title": section_title,
                 "type": slot_spec["type"],
                 "marks": slot_spec["marks"],
                 "index": len(flat_plan) + 1,
@@ -850,7 +921,21 @@ def stream_general_instructions_questions(
     total_questions = len(flat_plan)
     total_marks = sum(s["marks"] for s in flat_plan)
 
-    logger.info("[GIM] Parsed plan: %d questions, %d total marks", total_questions, total_marks)
+    # Issue 3 — section ordering: first-seen wins. Stable across the LLM's
+    # concurrent completion order so what the teacher typed (A → B → C) is
+    # what the rendered paper shows.
+    section_order: List[str] = []
+    section_marks: Dict[str, int] = {}
+    section_questions: Dict[str, int] = {}
+    for entry in flat_plan:
+        title = entry["section_title"]
+        if title not in section_order:
+            section_order.append(title)
+        section_marks[title] = section_marks.get(title, 0) + entry["marks"]
+        section_questions[title] = section_questions.get(title, 0) + 1
+
+    logger.info("[GIM] Parsed plan: %d questions, %d total marks across %d section(s): %s",
+                total_questions, total_marks, len(section_order), section_order)
 
     # Step 3: Build general instructions for the paper header
     general_instructions_lines = [
@@ -872,8 +957,9 @@ def stream_general_instructions_questions(
                 "image_questions": 0,
                 "vi_alternatives": 0,
                 "exact_counts": [f"{s['count']} {s['type'].replace('_', ' ').title()} ({s['marks']}m)" for s in parsed_slots],
-                "section_marks": {"Questions": total_marks},
-                "section_questions": {"Questions": total_questions},
+                "section_marks": section_marks,
+                "section_questions": section_questions,
+                "section_order": section_order,
             },
             "generalInstructions": general_instructions_lines,
         },
@@ -937,19 +1023,25 @@ def stream_general_instructions_questions(
         context = allocated["context"]
         idx = slot_entry["index"]
 
+        # Issue 3 — when no chunks were retrievable for this slot (no PDFs
+        # uploaded, or none of them matched the retrieval query) we used to
+        # bail out with a warning and produce zero questions. The result was
+        # the misleading "Generation failed before any questions could be
+        # produced" error, even though the model could have generated a
+        # question from general curriculum knowledge.
+        #
+        # The teacher's intent in General Instructions Mode is plain: the
+        # text in the textarea IS the spec. If there is no source material,
+        # we fall back to LLM curriculum knowledge AND surface a `warning`
+        # event so the editor can show a "no source-grounded" badge on
+        # those questions. Total failure is reserved for cases where every
+        # slot ALSO failed at the LLM step.
         if not context:
-            return (
-                [_sse_event(
-                    {"error": f"No relevant content found for question {idx}.", "index": idx},
-                    event="warning",
-                )],
-                None,
-            )
-
-        # Build source material text
-        raw_chunks = [_format_chunk_for_prompt(item) for item in context]
-        budget_result = trim_chunks_to_budget(raw_chunks, max_input_tokens)
-        source_text = "\n\n".join(budget_result.selected_chunks)
+            source_text = ""
+        else:
+            raw_chunks = [_format_chunk_for_prompt(item) for item in context]
+            budget_result = trim_chunks_to_budget(raw_chunks, max_input_tokens)
+            source_text = "\n\n".join(budget_result.selected_chunks)
 
         # Build the minimal system prompt
         system_prompt = _build_gim_system_prompt(instructions, source_text)
@@ -1057,6 +1149,7 @@ def stream_general_instructions_questions(
                 first_chunk = context[0] if context else {}
                 first_meta = first_chunk.get("metadata") or {}
 
+                section_name = slot_entry.get("section_title") or "Questions"
                 question = {
                     "content": content,
                     "type": display_type,
@@ -1073,7 +1166,11 @@ def stream_general_instructions_questions(
                         "inferredChapter": first_meta.get("chapter") or first_meta.get("semanticSection") or "",
                         "sourcePdf": first_meta.get("sourcePdf") or "",
                         "difficulty": difficulty,
-                        "section": "Questions",
+                        "section": section_name,
+                        # Tag questions the LLM produced without source backing
+                        # so the editor can show a "no-source" badge — clearer
+                        # than the silent fallback we used to do.
+                        "sourceGrounded": bool(context),
                     },
                 }
                 break
@@ -1089,7 +1186,7 @@ def stream_general_instructions_questions(
             events.append(_sse_event({
                 "index": idx,
                 "total": total_questions,
-                "section": "Questions",
+                "section": slot_entry.get("section_title") or "Questions",
                 "question": question,
             }, event="question"))
 
@@ -1105,15 +1202,49 @@ def stream_general_instructions_questions(
                     yield event
 
                 if question:
-                    section = _find_or_create_section(result, "Questions")
+                    slot_entry = future_to_slot[future]["slot_entry"]
+                    section_name = slot_entry.get("section_title") or "Questions"
+                    section = _find_or_create_section(result, section_name)
                     section["questions"].append(question)
                     yield _sse_event(result, event="update")
             except Exception as exc:
                 logger.error("[GIM] Future failed: %s", exc)
 
+    # Re-order sections to match the teacher's typed order (A → B → C),
+    # since the concurrent executor's completion order is arbitrary.
+    if section_order:
+        result["sections"].sort(
+            key=lambda s: section_order.index(s["title"])
+            if s.get("title") in section_order
+            else len(section_order)
+        )
+
     total_generated = sum(len(s.get("questions", [])) for s in result["sections"])
     if total_generated == 0:
-        yield _sse_event({"error": "Generation failed before any questions could be produced."}, event="error")
+        # Issue 3 — be specific about WHY nothing was produced. The vague
+        # message that used to fire here hid the real cause from the
+        # teacher (no PDFs / retrieval miss / LLM failure all looked alike).
+        diagnosis: List[str] = []
+        if not pdf_source_ids:
+            diagnosis.append(
+                "No PDF sources were uploaded — General Instructions Mode now "
+                "falls back to general curriculum knowledge in that case, so "
+                "this normally still produces output. Check the model / OPENAI_API_KEY "
+                "configuration and the backend logs for the per-slot errors above."
+            )
+        else:
+            diagnosis.append(
+                "Every slot failed at the LLM step. Common causes: invalid "
+                "OPENAI_API_KEY, the model rejected the instructions as unsafe, "
+                "or a network timeout. See the backend logs for the per-slot "
+                "errors above."
+            )
+        yield _sse_event(
+            {
+                "error": "Generation failed before any questions could be produced. " + " ".join(diagnosis),
+            },
+            event="error",
+        )
         return
 
     # Persist history

@@ -115,25 +115,30 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
           />
         </div>
 
-        {/* Details Area */}
+        {/* Details Area.
+            Issue 1 — date renders ONCE. The editor view shows the editable
+            `<input type="date">` only (one resolved value, one place to
+            change it). The formatted "Jun 08, 2026" string is reserved for
+            print / PDF / DOCX export, where it is emitted by:
+              • renderHTML() below   (serialised HTML, DOCX, print preview)
+              • lib/export-pdf.ts    (onclone swaps input → formatted span)
+            so the user never sees two dates side by side. */}
         <div className="flex-1">
           <NodeViewContent className="paper-header-content" />
           {showDate && (
             <div
               className="paper-header-date-row"
               contentEditable={false}
+              data-date-value={dateValue || dateInputValue}
             >
               <span className="paper-header-date-label">Date:</span>
               <input
                 type="date"
                 value={dateValue || dateInputValue}
                 onChange={handleDateChange}
-                className="paper-header-date-input print:hidden"
+                className="paper-header-date-input"
                 aria-label="Paper date"
               />
-              <span className="paper-header-date-display">
-                {formatPaperDate(dateValue || dateInputValue)}
-              </span>
             </div>
           )}
         </div>

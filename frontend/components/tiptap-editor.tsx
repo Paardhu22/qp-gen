@@ -32,6 +32,7 @@ import {
   GroupedQuestionBlock,
 } from "./editor/extensions/nodes";
 import { PaperHeaderBlock as PaperHeaderBlockExt } from "./editor/extensions/header-node";
+import { OrGroupInvariant } from "./editor/extensions/or-group-invariant";
 import { MathBlock, InlineMath } from "./editor/extensions/math-nodes";
 // DrawingBlock intentionally removed — feature retired in this round.
 import { FloatImage } from "./editor/extensions/float-image";
@@ -818,8 +819,70 @@ export const TiptapEditor = ({
         }),
         // Block-level draggable image with resize + alignment controls
         FloatImage,
+        // Issue 2 — placeholders are ProseMirror decorations, never real
+        // text nodes. New blocks inserted by the toolbar are EMPTY; the
+        // greyed prompt shown to the user comes from this extension and
+        // disappears on first keystroke. `includeChildren: true` is what
+        // lets us decorate paragraphs *inside* custom block nodes such as
+        // questionBlock / groupedQuestionBlock (defaults to false). Using
+        // `showOnlyCurrent: false` is what lets us light up every empty
+        // option / sub-question simultaneously, not just the focused one.
         Placeholder.configure({
-          placeholder: "Start writing your exam paper...",
+          includeChildren: true,
+          showOnlyCurrent: false,
+          placeholder: ({ editor, node, pos }) => {
+            try {
+              const $pos = editor.state.doc.resolve(pos);
+              let isInsideList = false;
+              for (let depth = $pos.depth; depth >= 0; depth--) {
+                const ancestor = $pos.node(depth);
+                const name = ancestor.type.name;
+                if (name === "listItem") {
+                  isInsideList = true;
+                }
+                if (name === "questionBlock") {
+                  const qType = (ancestor.attrs?.questionType || "")
+                    .toString()
+                    .toUpperCase();
+                  if (qType === "MCQ") {
+                    return isInsideList
+                      ? "Option…"
+                      : "Enter MCQ stem here…";
+                  }
+                  if (qType === "ASSERTION_REASON") {
+                    return isInsideList ? "Option…" : "Statement…";
+                  }
+                  return isInsideList
+                    ? "Sub-item…"
+                    : "Enter question here…";
+                }
+                if (name === "groupedQuestionBlock") {
+                  return isInsideList
+                    ? "Sub-question…"
+                    : "Main question statement…";
+                }
+                if (name === "questionGroupBlock") {
+                  return "Option statement…";
+                }
+                if (name === "sectionBlock") {
+                  return "SECTION TITLE";
+                }
+                if (name === "instructionBlock") {
+                  return "Instruction…";
+                }
+                if (name === "paperHeaderBlock") {
+                  if (ancestor.type.name === "paperHeaderBlock") {
+                    // Headings & paragraphs inside the header — give a
+                    // generic prompt that doesn't tie to a specific slot.
+                    return "Header line…";
+                  }
+                }
+              }
+            } catch {
+              // fall through to the default
+            }
+            return "Start writing your exam paper…";
+          },
         }),
         Table.configure({
           resizable: true,
@@ -834,6 +897,7 @@ export const TiptapEditor = ({
         InstructionBlock,
         QuestionGroupBlock,
         GroupedQuestionBlock,
+        OrGroupInvariant,
         PaperHeaderBlockExt,
         MathBlock,
         InlineMath,
@@ -2265,6 +2329,35 @@ export const TiptapEditor = ({
           margin-top: 2px;
         }
 
+        /* Issue 4 — the OR separator between branches of an "answer any one"
+           group is rendered as a CSS pseudo-element, NOT as a paragraph
+           sibling. This is the single source of truth for the OR label: it
+           cannot be deleted by drag-reorder, copied past, or split, because
+           it is not part of the document tree at all. The OrGroupInvariant
+           extension strips legacy "OR" paragraph children on first load so
+           older papers do not show the label twice. The combinator pairs
+           cover all four orderings of questionBlock / groupedQuestionBlock
+           siblings; the inner-doc selectors apply in the editor while the
+           data-attribute selectors apply to the serialised renderHTML
+           output used by exports and previews. */
+        .question-group-content > [data-type="question-block"] + [data-type="question-block"]::before,
+        .question-group-content > [data-type="grouped-question-block"] + [data-type="grouped-question-block"]::before,
+        .question-group-content > [data-type="question-block"] + [data-type="grouped-question-block"]::before,
+        .question-group-content > [data-type="grouped-question-block"] + [data-type="question-block"]::before,
+        [data-type="question-group"] > [data-type="question-block"] + [data-type="question-block"]::before,
+        [data-type="question-group"] > [data-type="grouped-question-block"] + [data-type="grouped-question-block"]::before,
+        [data-type="question-group"] > [data-type="question-block"] + [data-type="grouped-question-block"]::before,
+        [data-type="question-group"] > [data-type="grouped-question-block"] + [data-type="question-block"]::before {
+          content: "OR";
+          display: block;
+          text-align: center;
+          font-weight: 700;
+          font-size: 11pt;
+          color: #000;
+          margin: 8px 0;
+          letter-spacing: 0.05em;
+        }
+
         .question-group-controls {
           position: absolute;
           right: -6px;
@@ -2599,11 +2692,31 @@ export const TiptapEditor = ({
           margin-bottom: 0;
         }
 
-        /* ===== Placeholder ===== */
+        /* ===== Placeholder =====
+           Issue 2 — empty-node placeholders live in ProseMirror decorations
+           applied by @tiptap/extension-placeholder. The decoration sets
+           .is-empty and a data-placeholder attribute on every empty
+           text block. The rule below renders that attribute as a ghost
+           line via ::before; the host paragraph stays empty so saves /
+           exports contain no placeholder bleed-through.
+
+           The legacy :first-child filter only covered the top-level
+           empty document; insertion through custom block nodes
+           (questionBlock, groupedQuestionBlock, instructionBlock, …) now
+           triggers the same affordance because we removed that selector
+           and added [data-placeholder]. */
+        .ProseMirror .is-empty[data-placeholder]::before {
+          content: attr(data-placeholder);
+          float: left;
+          color: #71717a;
+          pointer-events: none;
+          height: 0;
+          font-style: italic;
+        }
         .ProseMirror .is-editor-empty:first-child::before {
           content: attr(data-placeholder);
           float: left;
-          color: #000000;
+          color: #71717a;
           pointer-events: none;
           height: 0;
           font-style: italic;

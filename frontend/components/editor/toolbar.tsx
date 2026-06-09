@@ -1128,14 +1128,12 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() =>
+            // Issue 2 — insert structurally complete but TEXTUALLY empty.
+            // The greyed prompt comes from the Placeholder extension, not
+            // from a real text node committed to the document.
             insertAfterCurrentBlock(
               "questionBlock",
-              [
-                {
-                  type: "paragraph",
-                  content: [{ type: "text", text: "Enter question here..." }],
-                },
-              ],
+              [{ type: "paragraph" }],
               { marks: 2 },
             )
           }
@@ -1153,20 +1151,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
                 {
                   type: "orderedList",
                   content: [
-                    {
-                      type: "listItem",
-                      content: [
-                        {
-                          type: "paragraph",
-                          content: [
-                            {
-                              type: "text",
-                              text: "All questions are compulsory.",
-                            },
-                          ],
-                        },
-                      ],
-                    },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
                   ],
                 },
               ],
@@ -1180,48 +1165,23 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() =>
+          onClick={() => {
+            // Issue 2 / Issue 4 — empty branches, with no committed "OR"
+            // text node between siblings. The OR label is auto-rendered
+            // by the NodeView and reasserted by the OR-invariant plugin
+            // after any edit/drag, so reordering the branches cannot
+            // orphan it (see `or-group-invariant.ts`).
+            const emptyBranch = (marks: number) => ({
+              type: "questionBlock",
+              attrs: { marks },
+              content: [{ type: "paragraph" }],
+            });
             insertAfterCurrentBlock(
               "questionGroupBlock",
-              [
-                {
-                  type: "questionBlock",
-                  attrs: { marks: 5 },
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        { type: "text", text: "Option (a) question..." },
-                      ],
-                    },
-                  ],
-                },
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      type: "text",
-                      marks: [{ type: "bold" }],
-                      text: "OR",
-                    },
-                  ],
-                },
-                {
-                  type: "questionBlock",
-                  attrs: { marks: 5 },
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        { type: "text", text: "Option (b) question..." },
-                      ],
-                    },
-                  ],
-                },
-              ],
+              [emptyBranch(5), emptyBranch(5)],
               { label: "Answer any ONE of the following:" },
-            )
-          }
+            );
+          }}
           className="h-6 px-2 text-[10px] font-medium text-purple-400 hover:bg-purple-500/10 rounded transition-colors flex items-center gap-1"
         >
           <PlusCircle className="h-3 w-3" /> OR Group
@@ -1231,30 +1191,23 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
-            const groupedBranch = (label: string) => ({
+            const groupedBranch = () => ({
               type: "groupedQuestionBlock",
               attrs: { marks: 5 },
               content: [
-                {
-                  type: "paragraph",
-                  content: [{ type: "text", text: `${label} question statement...` }],
-                },
+                { type: "paragraph" },
                 {
                   type: "orderedList",
                   content: [
-                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Sub-question (i)..." }] }] },
-                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Sub-question (ii)..." }] }] },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
                   ],
                 },
               ],
             });
             insertAfterCurrentBlock(
               "questionGroupBlock",
-              [
-                groupedBranch("Option (a)"),
-                { type: "paragraph", content: [{ type: "text", marks: [{ type: "bold" }], text: "OR" }] },
-                groupedBranch("Option (b)"),
-              ],
+              [groupedBranch(), groupedBranch()],
               { label: "Answer any ONE of the following:" },
             );
           }}
@@ -1269,43 +1222,12 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             insertAfterCurrentBlock(
               "groupedQuestionBlock",
               [
-                {
-                  type: "paragraph",
-                  content: [
-                    { type: "text", text: "Main question statement..." },
-                  ],
-                },
+                { type: "paragraph" },
                 {
                   type: "orderedList",
                   content: [
-                    {
-                      type: "listItem",
-                      content: [
-                        {
-                          type: "paragraph",
-                          content: [
-                            {
-                              type: "text",
-                              text: "Sub-question (a)...",
-                            },
-                          ],
-                        },
-                      ],
-                    },
-                    {
-                      type: "listItem",
-                      content: [
-                        {
-                          type: "paragraph",
-                          content: [
-                            {
-                              type: "text",
-                              text: "Sub-question (b)...",
-                            },
-                          ],
-                        },
-                      ],
-                    },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
                   ],
                 },
               ],
@@ -1323,17 +1245,14 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             insertAfterCurrentBlock(
               "questionBlock",
               [
-                {
-                  type: "paragraph",
-                  content: [{ type: "text", text: "Enter MCQ stem here..." }],
-                },
+                { type: "paragraph" },
                 {
                   type: "orderedList",
                   content: [
-                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Option A" }] }] },
-                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Option B" }] }] },
-                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Option C" }] }] },
-                    { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Option D" }] }] },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
                   ],
                 },
               ],
@@ -1353,6 +1272,12 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() =>
+            // Issue 2 — drop the "Enter assertion/reason here..." filler that
+            // was being committed as real text. The bold "Assertion (A): " /
+            // "Reason (R): " prefixes ARE the structural labels (so the user
+            // can see what each line is for) and remain real content. The
+            // four canonical AR answer options also remain — they are the
+            // CBSE-standard answer set, not placeholders.
             insertAfterCurrentBlock(
               "questionBlock",
               [
@@ -1360,14 +1285,12 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
                   type: "paragraph",
                   content: [
                     { type: "text", marks: [{ type: "bold" }], text: "Assertion (A): " },
-                    { type: "text", text: "Enter assertion here..." },
                   ],
                 },
                 {
                   type: "paragraph",
                   content: [
                     { type: "text", marks: [{ type: "bold" }], text: "Reason (R): " },
-                    { type: "text", text: "Enter reason here..." },
                   ],
                 },
                 {
@@ -1422,29 +1345,24 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
+            // Issue 2 — the header used to be inserted pre-filled with
+            // ALL-CAPS placeholder text ("SCHOOL / INSTITUTION NAME",
+            // "Time Allowed: __ Hours", …). That text was real content
+            // and survived to PDF/DOCX unedited when teachers missed it.
+            // Now the structural skeleton is empty; the Placeholder
+            // extension provides per-line ghost prompts.
             insertAfterCurrentBlock("paperHeaderBlock", [
-              {
-                type: "heading",
-                attrs: { level: 1 },
-                content: [{ type: "text", text: "SCHOOL / INSTITUTION NAME" }],
-              },
-              {
-                type: "heading",
-                attrs: { level: 2 },
-                content: [{ type: "text", text: "SUBJECT — QUESTION PAPER" }],
-              },
-              {
-                type: "paragraph",
-                content: [{ type: "text", text: "Class —  |  Academic Year 20__–26" }],
-              },
+              { type: "heading", attrs: { level: 1 } },
+              { type: "heading", attrs: { level: 2 } },
+              { type: "paragraph" },
               {
                 type: "table",
                 content: [
                   {
                     type: "tableRow",
                     content: [
-                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph", content: [{ type: "text", text: "Time Allowed: __ Hours" }] }] },
-                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph", content: [{ type: "text", text: "Maximum Marks: __" }] }] },
+                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph" }] },
+                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph" }] },
                     ],
                   },
                 ],

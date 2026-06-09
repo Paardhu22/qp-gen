@@ -34,7 +34,16 @@ def _reset_link(token: str) -> str:
 def send_password_reset_email(
     *, to_email: str, token: str, user_name: Optional[str] = None
 ) -> bool:
-    """Email the password-reset link. Returns True on success, False on failure."""
+    """Email the password-reset link. Returns True on success, False on failure.
+
+    Issue 5 — when `EMAIL_BACKEND` is the dev/console backend (i.e. no real
+    SMTP is configured), `send_mail` "delivers" the message to stdout. The
+    user never receives anything in their inbox. We log the reset URL at
+    WARNING level so it shows up in `manage.py runserver` output without
+    having to scroll through the full RFC-822 dump — that closes the loop
+    on the "no email arrives" complaint in local development. In prod
+    with a real SMTP backend the WARNING is harmless extra context.
+    """
     reset_url = _reset_link(token)
     minutes = max(1, int(settings.PASSWORD_RESET_TIMEOUT // 60))
     greeting = f"Hi {user_name}," if user_name else "Hello,"
@@ -48,6 +57,19 @@ def send_password_reset_email(
         "email — your existing password remains active.\n\n"
         "— qp-gen\n"
     )
+    backend = (settings.EMAIL_BACKEND or "").lower()
+    is_console_or_dummy = (
+        "console" in backend or "dummy" in backend or "locmem" in backend
+    )
+    if is_console_or_dummy:
+        logger.warning(
+            "Password-reset email going through the %s backend (no actual SMTP). "
+            "Reset link for %s (expires in %dm): %s",
+            settings.EMAIL_BACKEND,
+            to_email,
+            minutes,
+            reset_url,
+        )
     return _safe_send(subject=subject, body=body, recipients=[to_email])
 
 

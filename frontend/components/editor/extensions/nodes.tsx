@@ -163,9 +163,14 @@ const GroupedQuestionComponent = ({ node, updateAttributes, deleteNode, editor, 
       }
     });
 
+    // Issue 2 — "Sub-question..." used to be inserted as real text in the
+    // new list item. That left the literal "Sub-question..." string in the
+    // saved document if the teacher didn't manually clear it. Now the new
+    // list item is created EMPTY and the Placeholder extension renders the
+    // greyed prompt on the empty paragraph instead.
     const listItem = schema.nodes.listItem.create(
       {},
-      schema.nodes.paragraph.create({}, schema.text("Sub-question...")),
+      schema.nodes.paragraph.create(),
     );
 
     if (!listNode || listPos === null) {
