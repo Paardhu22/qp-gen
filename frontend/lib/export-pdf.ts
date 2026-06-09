@@ -105,10 +105,50 @@ const HIDE_IN_PDF = [
   ".instruction-controls",
   ".question-group-controls",
   ".paper-header-delete",
+  ".paper-header-actions",
   ".logo-remove-btn",
   ".drawing-delete",
   ".float-image-hide-in-pdf", // alignment toolbar + resize handle
 ];
+
+// Issue 1 — paper header date: replace the `<input type="date">` (an editor
+// affordance) with a formatted, human-readable text span when exporting. The
+// editor shows only the input so the user never sees a duplicate date; PDF
+// readers need a printable date string, not a date-picker widget rendering.
+function rewriteHeaderDateForExport(clonedDoc: Document): void {
+  const rows = clonedDoc.querySelectorAll<HTMLElement>(
+    ".paper-header-date-row",
+  );
+  rows.forEach((row) => {
+    const input = row.querySelector<HTMLInputElement>(
+      "input.paper-header-date-input",
+    );
+    const iso =
+      row.getAttribute("data-date-value") ||
+      input?.getAttribute("value") ||
+      input?.value ||
+      "";
+    if (input) input.remove();
+
+    if (!iso) return;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return;
+    let pretty: string;
+    try {
+      pretty = new Intl.DateTimeFormat(undefined, {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }).format(d);
+    } catch {
+      pretty = d.toDateString();
+    }
+    const span = clonedDoc.createElement("span");
+    span.className = "paper-header-date-display";
+    span.textContent = " " + pretty;
+    row.appendChild(span);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Figure pre-processing
@@ -251,6 +291,7 @@ export async function exportToPDF(
           .querySelectorAll<HTMLElement>(sel)
           .forEach((el) => (el.style.display = "none"));
       });
+      rewriteHeaderDateForExport(clonedDoc);
       await inlineAllImageSources(clonedDoc.body);
     },
   };

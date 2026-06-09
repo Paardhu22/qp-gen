@@ -468,8 +468,49 @@ class CustomHtmlToDocxParser {
           const headerContent = el.querySelector(".paper-header-content");
           if (headerContent) {
             Array.from(headerContent.childNodes).forEach(walk);
-            return;
           }
+          // Issue 1 — emit the date row exactly once, as the formatted string.
+          // The editor view shows only the `<input type="date">`, so the DOCX
+          // walker must look up the persisted `data-date-value` rather than
+          // any visible "Jun 08, 2026" sibling (which no longer exists in
+          // the editor DOM).
+          const dateRow = el.querySelector<HTMLElement>(
+            ".paper-header-date-row",
+          );
+          if (dateRow) {
+            const input = dateRow.querySelector<HTMLInputElement>(
+              "input.paper-header-date-input",
+            );
+            const iso =
+              dateRow.getAttribute("data-date-value") ||
+              input?.value ||
+              input?.getAttribute("value") ||
+              "";
+            if (iso) {
+              const d = new Date(iso);
+              if (!Number.isNaN(d.getTime())) {
+                let pretty: string;
+                try {
+                  pretty = new Intl.DateTimeFormat(undefined, {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  }).format(d);
+                } catch {
+                  pretty = d.toDateString();
+                }
+                docxElements.push(
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: "Date: ", bold: true }),
+                      new TextRun({ text: pretty }),
+                    ],
+                  }),
+                );
+              }
+            }
+          }
+          return;
         }
         if (dataType === "section-block" || hasClass("section-block")) {
           docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_3 }));
@@ -504,15 +545,41 @@ class CustomHtmlToDocxParser {
           return;
         }
         if (dataType === "question-group" || hasClass("question-group")) {
-          const label = el.getAttribute("data-label") || "OR";
-          docxElements.push(
-            new Paragraph({
-              children: [new TextRun({ text: `${label}`, bold: true })],
-              alignment: AlignmentType.CENTER,
-            }),
+          // Issue 4 — emit the GROUP HEADER (e.g. "Answer any ONE of the
+          // following:") exactly once at the top, then walk the immediate
+          // question siblings, interleaving a bold-centred "OR" between
+          // each consecutive pair. The OR is not a child node in the
+          // document any more (see or-group-invariant.ts), so the DOCX
+          // pipeline must reconstruct it the same way the editor's CSS
+          // pseudo-element does.
+          const groupLabel = el.getAttribute("data-label");
+          if (groupLabel) {
+            docxElements.push(
+              new Paragraph({
+                children: [new TextRun({ text: groupLabel, bold: true })],
+              }),
+            );
+          }
+          const questionSiblings = Array.from(
+            el.querySelectorAll<HTMLElement>(
+              ":scope > div[data-type='question-block'], :scope > div[data-type='grouped-question-block'], :scope > .question-block, :scope > .grouped-question-block",
+            ),
           );
-          el.querySelectorAll("div[data-type='question-block'], .question-block").forEach((q) => {
-            docxElements.push(buildQuestionBlock(q as HTMLElement));
+          questionSiblings.forEach((q, idx) => {
+            if (idx > 0) {
+              docxElements.push(
+                new Paragraph({
+                  children: [new TextRun({ text: "OR", bold: true })],
+                  alignment: AlignmentType.CENTER,
+                }),
+              );
+            }
+            const isGrouped =
+              q.getAttribute("data-type") === "grouped-question-block" ||
+              q.classList.contains("grouped-question-block");
+            docxElements.push(
+              isGrouped ? buildGroupedQuestionBlock(q) : buildQuestionBlock(q),
+            );
           });
           return;
         }

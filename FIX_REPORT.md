@@ -1,5 +1,480 @@
 # FIX_REPORT — Tester bug round (14 items / 4 clusters) + closeout
 
+## TESTER ROUND — 2026-06-09 (6 issues)
+
+Six new tester reports, six root-cause fixes. Each is the user-visible
+ticket plus a same-class review of the surrounding codebase. Stack
+reference: Django backend (`backend/.venv`), Next.js 16 frontend
+(Turbopack), TipTap 3.23 editor, Zustand `editor-store`, IndexedDB
+autosave, SSE generation, pgvector RAG. Auth is Django-only (Better
+Auth / Prisma were removed in the 2026-06-07 round and have not been
+re-introduced).
+
+### Issue 1 — Duplicate date in paper header
+
+**Root cause.** `frontend/components/editor/extensions/header-node.tsx`
+— the React NodeView's "Details Area" rendered TWO date elements
+side-by-side whenever the user enabled the date field:
+
+1. an editable `<input type="date">` (locale numeric form
+   MM/DD/YYYY) — `print:hidden` so it dropped out on print only;
+2. a `<span class="paper-header-date-display">` showing the
+   formatted string computed by `formatPaperDate(dateValue)`
+   ("Jun 08, 2026") — present at all times.
+
+Both were hardcoded children of the same NodeView. There was no
+visibility toggle, no feature flag, no way for the teacher to
+remove the second one.
+
+**Fix.**
+- `header-node.tsx`: removed the `paper-header-date-display` span
+  from the React NodeView. The editor shows exactly one date — the
+  editable input. The persisted ISO value moved to a
+  `data-date-value` attribute on the row so non-React consumers
+  (PDF/DOCX walkers) still resolve it.
+- `frontend/lib/export-pdf.ts`: added `rewriteHeaderDateForExport()`
+  which, in `onclone`, swaps the `<input>` for a styled span
+  containing the formatted date. PDF shows ONE date — formatted.
+  Also added `.paper-header-actions` to `HIDE_IN_PDF` so the
+  toolbar chrome no longer leaks into PDF.
+- `frontend/lib/export-docx.ts`: the walker for
+  `paper-header-block` now emits a `Paragraph` with bold "Date: "
+  + the formatted date, reading from `data-date-value`.
+
+**Blast radius.**
+- `paperHeaderBlock` NodeView only. Other blocks unchanged.
+- Persistence schema unchanged (`showDate` / `dateValue` attrs).
+- `renderHTML()` already emitted the formatted date once — saved
+  HTML is unchanged. No migration required.
+- Export paths: PDF, DOCX, browser print. All three emit one date.
+
+**Same-class review.** Searched for other places a NodeView renders
+both a raw value AND a derived display string. The only match was
+`header-node.tsx` itself. `sectionBlock` summary text and
+`instructionBlock` summary list use attribute-driven single emission
+(`summaryItems`, `summaryText`) — already correct.
+
+### Issue 2 — Placeholders being committed as real content
+
+**Root cause.** `frontend/components/editor/toolbar.tsx` — every
+"+ Section / Question / OR Group / Grouped OR / Grouped Questions /
+MCQ / Assertion-Reason / Header" inserter built its content with
+literal `{ type: "text", text: "Enter question here..." }` (and
+similar). The "placeholder" text was a real ProseMirror text node
+committed to the document. The only thing distinguishing it from
+real content was the teacher's vigilance. The
+`@tiptap/extension-placeholder` was wired with a single
+top-level-only prompt, so it never decorated empty paragraphs
+inside the custom block nodes.
+
+A second copy of the same defect lived in
+`frontend/components/editor/extensions/nodes.tsx::handleAddSubQuestion`
+(the inline "+ Add sub-question" button on `groupedQuestionBlock`):
+`schema.nodes.paragraph.create({}, schema.text("Sub-question..."))`.
+
+**Fix.**
+- `frontend/components/tiptap-editor.tsx`: re-configured the
+  `Placeholder` extension with `includeChildren: true,
+  showOnlyCurrent: false` and a function callback that walks the
+  resolved-position ancestor chain and picks the right prompt per
+  parent node type (MCQ: stem vs option, AR: statement vs option,
+  questionBlock: question vs sub-item, groupedQuestionBlock: main
+  vs sub-question, questionGroupBlock: option statement,
+  sectionBlock: SECTION TITLE, instructionBlock: Instruction…,
+  paperHeaderBlock: Header line…, top-level: Start writing your
+  exam paper…). Added a `.ProseMirror .is-empty[data-placeholder]::before`
+  CSS rule so the decoration actually renders for nested empty
+  nodes (the legacy rule was scoped to `:first-child` only).
+- `frontend/components/editor/toolbar.tsx`: every toolbar inserter
+  now emits structurally complete but TEXTUALLY EMPTY content.
+  Question → `[{ type: "paragraph" }]`. MCQ → empty stem + 4 empty
+  list items. OR Group → 2 empty question branches with no OR
+  sibling. Grouped OR / Grouped Questions → empty stem + empty
+  sub-question list items. Header → empty headings + empty table
+  cells. Assertion-Reason: kept the bold "Assertion (A): " /
+  "Reason (R): " structural prefixes and the four canonical CBSE
+  answer options (these are real content, not placeholders);
+  dropped only the "Enter assertion here…" / "Enter reason here…"
+  fillers. Section: keeps the auto-numbered "SECTION A" because
+  that is structural content the user explicitly requested via
+  the button.
+- `frontend/components/editor/extensions/nodes.tsx`: the
+  `handleAddSubQuestion` button now creates
+  `schema.nodes.paragraph.create()` with no children.
+
+**Blast radius.**
+- Toolbar inserters: 8 buttons.
+- Inline "+ Add sub-question" button: 1 location.
+- Placeholder configure call: 1 location.
+- Placeholder CSS: 1 new selector.
+- Existing saved papers: NOT affected — the new behaviour only
+  applies to FUTURE insertions. Old papers with "Enter question
+  here..." baked in still show that text.
+- Exports: empty nodes serialise as empty paragraphs. PDF/DOCX/
+  print show empty lines where the ghost was — the correct
+  outcome per the brief ("placeholder never survives into export
+  or save").
+
+**Acceptance per the brief.** Insert any node → placeholder shows
+greyed via `[data-placeholder]::before`, vanishes on type (decoration
+plugin re-evaluates per transaction). Empty node serialises as empty
+because the Placeholder extension is a DecorationSet (see
+`node_modules/@tiptap/extensions/src/placeholder/placeholder.ts`),
+never touching the doc.
+
+**Same-class review.** Searched `frontend/components` for
+`"Enter .* here"`, `"Sample text"`, `"Type your"`, `"Click to edit"`.
+Remaining matches: `math-nodes.tsx` ("Empty math block. Click to
+edit.") is a NodeView affordance (not committed to the doc), and
+`editor/templates.ts` contains opt-in starter templates (cbse /
+minimalSchool / university) — these are intentional pre-filled
+sample papers the user CHOOSES, not toolbar bleed-through.
+
+### Issue 3 — `general_instructions` mode non-functional
+
+**Root cause.** Three independent defects compounded:
+
+1. `backend/services/generation_service.py::_parse_gim_instructions`
+   discarded section titles. "Section A: 5 short answers" became
+   `{type: SHORT_ANSWER, marks: 2, count: 5}` with no
+   `section_title`; the generator built a single-bucket paper
+   called "Questions".
+2. `stream_general_instructions_questions`, when a slot's RAG
+   retrieval returned zero chunks, EARLY-RETURNED with a warning
+   and produced NO question. When no PDFs were uploaded (or none
+   matched the retrieval query), EVERY slot hit that branch, the
+   `if total_generated == 0` final check fired, and the teacher
+   saw "Generation failed before any questions could be produced".
+   The model could have answered from curriculum knowledge.
+3. The vague terminal error hid all three causes behind one
+   string. The teacher had no way to distinguish "no PDFs" from
+   "every LLM call failed" from "every slot's retrieval missed".
+
+A fourth wrinkle on the frontend: `generalInstructions` lived in
+`useState` inside `generator-form.tsx`. A browser refresh or route
+change dropped it, matching the "instructions can't be saved" half
+of the complaint.
+
+**Fix.**
+- `_parse_gim_instructions` now extracts `section_title` per clause
+  ("Section A" / "Part B" / "Sec C", capitalisation handled like
+  the existing `_parse_instructions_for_slots`). Output schema:
+  `{section_title: Optional[str], type, marks, count}`.
+- `stream_general_instructions_questions`:
+  - Flat plan expansion carries `section_title`; falls back to
+    `"Questions"` when no section prefix was typed.
+  - `section_order`, `section_marks`, `section_questions` computed
+    in first-seen order and emitted in the `plan` SSE event.
+  - The empty-context branch in `_generate_gim_slot` no longer
+    early-returns. Instead, `source_text = ""` and the system
+    prompt swaps to a "general curriculum knowledge" framing.
+  - The generated question's `metadata.section` and the per-
+    question `section` field in the `question` SSE event are set
+    from `slot_entry["section_title"]`.
+  - `metadata.sourceGrounded: bool(context)` is attached so the
+    editor can badge "no-source" questions.
+  - The result's `sections` array is sorted by `section_order` so
+    the rendered paper preserves the teacher's typed order
+    regardless of LLM completion order.
+  - The terminal `total_generated == 0` error message now
+    explicitly names PDFs-uploaded vs LLM-failure as candidate
+    causes.
+- `_build_gim_system_prompt(instructions, source_chunks_text)`
+  branches on whether `source_chunks_text` is empty. The grounding
+  clause, the answerability rule, and the "SOURCE MATERIAL:" block
+  all adapt for the no-source case so the LLM gets a coherent
+  prompt rather than an incomplete instruction.
+- `frontend/store/editor-store.ts`: added a persisted
+  `generalInstructionsDraft` slice + `setGeneralInstructionsDraft`
+  action, partialized into the zustand `persist` payload and
+  cleared by `resetEditorStoreForAccountSwitch()`.
+- `frontend/components/generator-form.tsx`: dropped the local
+  `useState` for `generalInstructions` in favour of the store
+  slice. The textarea now survives reloads, route changes, and
+  account-switch-back.
+
+**Blast radius.**
+- Backend: `_parse_gim_instructions`,
+  `stream_general_instructions_questions`,
+  `_build_gim_system_prompt`. The board-mode
+  `stream_generated_questions` path is untouched.
+- Frontend: `editor-store` adds one optional persisted field
+  (back-compat: existing localStorage records without
+  `generalInstructionsDraft` default to `""`).
+  `generator-form.tsx` uses the store slice for one textarea;
+  nothing else changes.
+- 113 backend tests still pass.
+
+**Acceptance per the brief.** Telugu 9-question case (Section A: 5
+short / B: 3 long / C: 1 long): the parser sets
+`current_section = "Section A"` when it sees "section a", carries
+that into the slot, then resets to "Section B" / "Section C" as
+the clauses progress. `section_order = ["Section A", "Section B",
+"Section C"]`. `section_questions = {A: 5, B: 3, C: 1}`. The final
+sorted `result["sections"]` matches the teacher's typed order.
+
+**Same-class review.** The board-mode `build_question_plan` /
+`paper_plan_section_order` already honour section titles via
+`_parse_instructions_for_slots`. Issue 3 was a parallel parser
+that drifted out of sync. Both now follow the same first-seen
+section-order rule.
+
+### Issue 4 — OR statement lost on drag-reorder of grouped questions
+
+**Root cause.** `questionGroupBlock.content` was
+`(questionBlock | groupedQuestionBlock | paragraph)+`, with the OR
+relationship encoded as a sibling `paragraph` node holding a single
+bold "OR" run. Drag-and-drop in ProseMirror is delete + insert at
+calculated positions; reordering a child within the group could
+leave the OR paragraph in a position no longer between two question
+siblings, or the source-removal step could shift the drop target
+onto the OR paragraph's position (overwriting it). The OR was a
+fragile, contentful sibling — the wrong model for a structural
+relationship.
+
+**Fix.**
+- `frontend/components/editor/extensions/or-group-invariant.ts` (new):
+  an `appendTransaction` plugin that, on every doc-changing
+  transaction, walks every `questionGroupBlock`, finds any direct
+  `paragraph` child whose trimmed `textContent` matches `^or$`
+  (case-insensitive), and deletes it. The plugin is a no-op once
+  those legacy paragraphs are gone, so it can't loop. Marked
+  `addToHistory: false` so the migration doesn't pollute the undo
+  stack.
+- CSS pseudo-element rule (in `tiptap-editor.tsx`):
+  `.question-group-content > [data-type="question-block"] +
+  [data-type="question-block"]::before { content: "OR"; … }` and
+  the three other ordering combinations, plus the matching
+  `[data-type="question-group"] > …` selectors for the
+  renderHTML-serialised form. OR is now rendered between
+  consecutive question siblings PURELY VISUALLY. There is no DOM
+  node for it. It cannot be dragged, copied, or split.
+- `frontend/components/editor/toolbar.tsx`: OR Group and Grouped
+  OR inserters no longer include the OR paragraph sibling. They
+  emit only the question branches; CSS supplies the OR.
+- `frontend/lib/export-docx.ts`: the DOCX walker for
+  `question-group` now iterates only `:scope >` question children,
+  interleaving a bold-centred "OR" between consecutive pairs.
+  Also separated the GROUP HEADER (e.g. "Answer any ONE of the
+  following:") from the inter-sibling OR — previously
+  `data-label || "OR"` conflated the two.
+
+**Blast radius.**
+- Editor view: question-group rendering. Drag handles, numbering
+  (`updateQuestionNumbers`), section summaries
+  (`updateSectionSummaries`), and marks calc
+  (`calculateTotalMarks`) all already iterate
+  `node.forEach(child)` looking for `questionBlock` /
+  `groupedQuestionBlock` types — they remain correct with or
+  without legacy OR paragraphs.
+- Export: PDF (via html2canvas — captures `::before`) and DOCX
+  (via new walker logic) both emit OR between siblings once.
+- Legacy data: the appendTransaction plugin auto-migrates on
+  first edit. Until then, the OR paragraph remains. The CSS rule
+  uses `+` adjacency — it does NOT fire when a paragraph
+  separates two question siblings — so legacy unmigrated papers
+  show paragraph OR without duplicating it.
+- `questionGroupBlock` schema unchanged (paragraph still allowed
+  in content), so no parse failures on old papers.
+
+**Acceptance per the brief.** Drag-reorder of a child within a
+group preserves OR because, in new docs, no OR exists in the
+document tree at all. The CSS rule re-evaluates adjacency on every
+render, so the OR is rendered between every consecutive pair
+regardless of how the user reorders. Old saved papers with OR
+groups still load (schema unchanged) and auto-migrate on first
+edit.
+
+**Same-class review (structural-relationship-via-sibling-node).**
+Audited every other place we use a sibling node to express a
+structural relationship between two other nodes. Found none —
+`sectionBlock` / `instructionBlock` summaries are attribute-driven
+(`summaryItems`, `summaryText`), not sibling-driven;
+`paperHeaderBlock` uses node attributes for `showDate` /
+`dateValue` / `logoUrl`. The OR sibling was the only instance of
+this anti-pattern.
+
+### Issue 5 — Forgot Password sends no email (distinct from prior tz bug)
+
+**Verified end-to-end with a literal session, not "tests pass".**
+Inside `backend/.venv` with `ALLOWED_HOSTS=['*']`:
+
+```
+HTTP status: 200
+Response body: {"success":true,"message":"If an account with that email exists, a password reset link has been sent."}
+===== Reset URL line in console output =====
+http://localhost:3000/reset-password?token=b679b6b238b2bed5cadc9812cf3324c313934df8bba61dbf294b955551481d36
+Reset status: 200 body: {"success":true}
+Login status: 200 body keys: ['user', 'accessToken', 'refreshToken', 'accessTokenExpiresAt', 'refreshTokenExpiresAt']
+```
+
+The auth pipeline is fully Django, the view DOES call
+`send_password_reset_email` which DOES call `send_mail`, the
+timezone-aware compare in `consume_reset_token` is in place, and
+the reset link + login round-trip both succeed.
+
+**Root cause of the "no email arrives" complaint.** This dev
+environment has `EMAIL_BACKEND = django.core.mail.backends.console.EmailBackend`
+(the default when no SMTP env vars are set; `backend/.env` does
+not override). The email is written to the Django dev server's
+stdout, never sent over SMTP, so nothing reaches the user's inbox.
+This is intended behaviour for local development — there is no
+SMTP failure, just no SMTP. `DEPLOY_CHECKLIST.md` already
+documents the full set of `EMAIL_*` env vars needed in prod and
+the SMTP smoke-test snippet.
+
+**Fix.**
+- `backend/services/email_service.py::send_password_reset_email`:
+  added a WARN log line that detects when `EMAIL_BACKEND` contains
+  "console", "dummy", or "locmem" and emits the reset URL
+  prominently ("Reset link for <email>: <url>"). This closes the
+  most common dev-time confusion ("nothing arrived") — the URL is
+  visible in the runserver log without scrolling through the RFC-822
+  dump. Behaviour in prod is unchanged (the WARN doesn't fire).
+
+**Blast radius.** Only `send_password_reset_email`'s logging.
+`send_welcome_email` follows the same `_safe_send` pattern but
+was not touched (welcome email not part of the user-reported
+flow). No view, serializer, model, or DB changes. All 113
+backend tests pass.
+
+**Same-class review.** Verified no other view returns success
+without calling `send_mail` (`ForgotPasswordView` does call it).
+`_safe_send` returns False on failure but does NOT raise — by
+design, for account-enumeration resistance. The new WARN line
+covers the silent-failure visibility gap that try/except creates.
+
+### Issue 6 — Login & Signup pages render dark; must be light-only
+
+**Root cause.** The dark theme is applied by the curtain toggle
+adding a `.dark` class to `document.documentElement`. The class
+is consumed by Tailwind's `@custom-variant dark (&:is(.dark *))`
+and by the CSS-variable overrides in `globals.css`. The toggle
+persists the choice to `localStorage.theme` and replays it on
+mount. The (auth) route group used a passthrough layout — it had
+no mechanism to suspend `.dark` while the user was on those
+pages, so auth inherited whatever the user picked in the
+dashboard.
+
+**Fix.**
+- `frontend/app/(auth)/layout.tsx`: now renders an inline
+  `<script dangerouslySetInnerHTML>` that runs synchronously
+  during HTML parsing — BEFORE the auth body content paints —
+  which records whether `.dark` was on via a `data-prev-theme`
+  attribute, strips `.dark` from `<html>`, and stamps
+  `data-auth-page` on `<html>` for the CSS fallback.
+- Wraps children in `frontend/components/auth-theme-scope.tsx`
+  (new client component) that uses `useLayoutEffect` so
+  client-side navigations (dashboard → /login) apply the same
+  strip BEFORE React commits, preventing flash. On unmount it
+  restores `.dark` based on `localStorage.theme` (more
+  authoritative than `data-prev-theme`).
+- `frontend/app/globals.css`: added a belt-and-braces
+  `html[data-auth-page] .dark, html[data-auth-page] *.dark` rule
+  that re-resets every dark-mode CSS variable back to its light
+  value, so any nested portal (Radix modal mounted outside
+  `<html>`) still renders light.
+
+**Blast radius.**
+- Only the four pages under `(auth)/`: `/login`, `/register`,
+  `/forgot-password`, `/reset-password`. The dashboard / editor
+  / paper-library / settings routes are untouched.
+- The curtain theme toggle in `/settings` is untouched. After
+  the user navigates back from auth, `AuthThemeScope` cleanup
+  restores `.dark` from localStorage so there is no flash-of-
+  light on the way out.
+- The white paper canvas (`#tiptap-paper-container`) is
+  unaffected — it has its own light scoping.
+
+**Acceptance per the brief.** No flash on initial SSR (inline
+script strips `.dark` BEFORE first paint). No flash on client-
+nav (useLayoutEffect fires synchronously between mutation and
+paint). Theme switcher preserved (localStorage.theme untouched;
+restored on auth-layout unmount). Paper canvas unaffected
+(scoped to `#tiptap-paper-container`).
+
+**Same-class review.** Searched `frontend/app/(auth)/*` for
+hardcoded `dark:` classnames — the only matches are in
+components shared with the dashboard (`Input`, `Button`); they
+render light correctly when `.dark` is absent. Searched for
+`localStorage.theme` reads outside the curtain toggle — none.
+The toggle is the single source of truth.
+
+---
+
+### Verification (this round)
+
+Backend test suite (`backend/.venv && pytest q_instructions/tests/ apps/`):
+**113 passed, 1 warning in 9.17s** (the warning is the existing
+third-party `pypdf`/`cryptography` deprecation, unchanged from
+prior rounds).
+
+Frontend TypeScript (`npx tsc --noEmit`): **0 errors**.
+
+Frontend ProseMirror content-hole regression
+(`node frontend/scripts/test-todom-shape.mjs`): **7/7 passing**.
+
+Forgot-password live round-trip: registered email → console
+backend "delivered" → reset URL captured → POST /reset-password
+200 → POST /login with new password 200 with token pair → old
+password hash restored (no DB drift). Quoted verbatim above.
+
+### Regression-risk flags
+
+- **OR-group invariants**: OR is now CSS-only. Drag, copy/paste,
+  split, and Backspace all preserve it because nothing in the doc
+  represents OR. The CSS rule uses adjacency combinators, so old
+  papers with legacy OR paragraphs render correctly until the
+  invariant plugin migrates them. Marks calc / numbering /
+  section summaries iterate question children only and were
+  paragraph-agnostic already.
+- **PaperPlan label/marks derivation**: untouched.
+  `_parse_gim_instructions` is a sibling of
+  `_parse_instructions_for_slots` and follows the same field
+  schema. The board-mode `build_question_plan` and
+  `build_general_instructions` paths are unchanged.
+- **IndexedDB persistence**: untouched. The new
+  `generalInstructionsDraft` slice lives in localStorage via the
+  existing zustand `persist` middleware. Partialize whitelist
+  additions are append-only, so existing records still hydrate.
+- **Export (PDF/DOCX)**: targeted edits for header date (Issue 1)
+  and OR rendering (Issue 4). `inlineAllImageSources` figure
+  pipeline unchanged. `HIDE_IN_PDF` gained one selector
+  (`.paper-header-actions`); the existing selectors are
+  unchanged.
+- **Theme switcher**: the auth-layout strip is scoped to
+  `data-auth-page` and the `AuthThemeScope` cleanup restores
+  `.dark` from `localStorage.theme` on unmount. The curtain
+  toggle in `/settings` is the sole owner of theme state and is
+  untouched. White paper canvas unaffected.
+
+### Files changed (this round)
+
+Backend:
+```
+M backend/services/generation_service.py   # Issue 3
+M backend/services/email_service.py        # Issue 5
+```
+
+Frontend:
+```
+M frontend/app/(auth)/layout.tsx                            # Issue 6
+M frontend/app/globals.css                                  # Issue 6
+A frontend/components/auth-theme-scope.tsx                  # Issue 6
+M frontend/components/editor/extensions/header-node.tsx     # Issue 1
+M frontend/components/editor/extensions/nodes.tsx           # Issue 2
+A frontend/components/editor/extensions/or-group-invariant.ts # Issue 4
+M frontend/components/editor/toolbar.tsx                    # Issue 2, Issue 4
+M frontend/components/generator-form.tsx                    # Issue 3
+M frontend/components/tiptap-editor.tsx                     # Issue 2, Issue 4
+M frontend/lib/export-docx.ts                               # Issue 1, Issue 4
+M frontend/lib/export-pdf.ts                                # Issue 1
+M frontend/store/editor-store.ts                            # Issue 3
+M FIX_REPORT.md                                             # this section
+```
+
+---
+
 ## FINAL PRE-DEPLOY ROUND — 2026-06-07
 
 ### 1. Dormant Better Auth removal

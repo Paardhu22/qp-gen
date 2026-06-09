@@ -81,7 +81,16 @@ export const GeneratorForm = () => {
     { id: string; name: string; size: number }[]
   >([]);
   const [uploadingDocs, setUploadingDocs] = useState<UploadingDoc[]>([]);
-  const [generalInstructions, setGeneralInstructions] = useState("");
+  // Issue 3 — the draft instructions live in the zustand store directly so a
+  // refresh, route change, or browser-close-and-back doesn't drop what the
+  // teacher typed. The store is persisted via zustand `persist`, so the
+  // round-trip is automatic.
+  const generalInstructions = useEditorStore(
+    (s) => s.generalInstructionsDraft,
+  );
+  const setGeneralInstructions = useEditorStore(
+    (s) => s.setGeneralInstructionsDraft,
+  );
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
   const [isSavingToBank, setIsSavingToBank] = useState(false);
   const [liveInsertedCount, setLiveInsertedCount] = useState(0);
