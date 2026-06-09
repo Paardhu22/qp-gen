@@ -57,11 +57,59 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
     setError(null);
 
     try {
+      // Try presigned direct-to-S3 upload first
+      const presignRes = await fetch("/api/documents/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: file.name, content_type: file.type, size: file.size }),
+      });
+
+      if (presignRes.ok) {
+        const presign = await presignRes.json();
+        if (presign && presign.url && presign.fields && presign.key) {
+          // Build form for S3 POST
+          const s3form = new FormData();
+          Object.entries(presign.fields).forEach(([k, v]) => s3form.append(k, v as string));
+          s3form.append("file", file);
+
+          const uploadRes = await fetch(presign.url, {
+            method: "POST",
+            body: s3form,
+          });
+
+          if (!uploadRes.ok) {
+            throw new Error("Failed to upload file to storage");
+          }
+
+          // Notify backend to process the uploaded object
+          const confirmRes = await fetch("/api/documents/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key: presign.key, name: file.name, content_type: file.type }),
+          });
+
+          if (!confirmRes.ok) {
+            const errText = await confirmRes.text();
+            throw new Error(errText || "Failed to confirm upload");
+          }
+
+          const data = await confirmRes.json();
+          setProgress(100);
+          setSuccess(true);
+          if (data.warnings?.length) {
+            for (const w of data.warnings) {
+              toast.warning(w, { duration: 8000 });
+            }
+          }
+          onUploadComplete(data.pdfSourceId);
+          return;
+        }
+      }
+
+      // Fallback to server upload if presign is not available
       const formData = new FormData();
       formData.append("file", file);
 
-      // We'll use a fetch request to a route handler for uploading
-      // Since server actions have size limits and complex streaming might be needed
       const data = await fetchForm<{
         pdfSourceId: string;
         warnings?: string[];
