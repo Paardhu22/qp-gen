@@ -1,8 +1,10 @@
 import base64
 import logging
+import hashlib
+import os
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from apps.documents.models import DocumentChunk, PdfSource
 from django.conf import settings
@@ -18,6 +20,142 @@ from services.pdf_service import extract_text_from_pdf
 from services.semantic_pipeline import SemanticChunk, process_semantic_pipeline
 
 logger = logging.getLogger("[DOCUMENT_SERVICE]")
+
+
+def _compute_sha256(buffer: bytes) -> str:
+    """Compute SHA256 hash of buffer content."""
+    h = hashlib.sha256()
+    h.update(buffer)
+    return h.hexdigest()
+
+
+def _scan_with_av(buffer: bytes, file_name: str) -> tuple[bool, Optional[str]]:
+    """
+    Scan buffer with antivirus if configured.
+    Returns (is_safe, error_message) where is_safe=True means no threat detected.
+
+    For now, this is a stub that always returns True (no AV configured by default).
+    To enable, set CLAMAV_ENABLED=true and CLAMAV_HOST/CLAMAV_PORT in .env
+    and integrate with clamd (pyclamd package).
+    """
+    av_enabled = os.environ.get("CLAMAV_ENABLED", "").lower() == "true"
+    if not av_enabled:
+        return True, None
+
+    try:
+        import pyclamd
+
+        clam = pyclamd.ClamD(
+            host=os.environ.get("CLAMAV_HOST", "localhost"),
+            port=int(os.environ.get("CLAMAV_PORT", "3310")),
+        )
+
+        if not clam.ping():
+            logger.warning("ClamAV unavailable; skipping virus scan")
+            return True, None
+
+        result = clam.scan_stream(buffer)
+        if result:
+            return False, f"Threat detected: {result}"
+        return True, None
+
+    except Exception as exc:
+        logger.error("AV scan failed: %s", exc)
+        # Fail open: if AV is configured but unavailable, allow upload
+        # (set to False if you want to block uploads when AV is unavailable)
+        return True, None
+
+
+def _process_pdf_internal(
+    buffer: bytes, file_name: str, file_type: str, pdf_source: PdfSource, user
+) -> None:
+    """
+    Internal PDF processing: extract text, create chunks, generate embeddings.
+    This is called both from process_pdf_upload and process_pdf_from_storage.
+    """
+    extracted_text = ""
+    pages = []
+    images = []
+    pdf_metadata: Dict[str, object] = {}
+
+    if file_type == "application/pdf":
+        pdf_data = extract_text_from_pdf(buffer)
+        extracted_text = pdf_data.get("text", "")
+        pages = pdf_data.get("pages", [])
+        images = pdf_data.get("images", [])
+        pdf_metadata = pdf_data.get("metadata") or {}
+    elif (
+        file_type
+        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ):
+        extracted_text = _extract_text_from_docx(buffer)
+    else:
+        extracted_text = buffer.decode("utf-8", errors="ignore")
+
+    if not extracted_text.strip() and not images:
+        raise ValueError("Failed to extract text from document")
+
+    if pages:
+        chunks = process_semantic_pipeline(pages)
+    else:
+        chunks = chunk_text(extracted_text)
+
+    image_chunks = _build_image_chunks(
+        pdf_source=pdf_source,
+        file_name=file_name,
+        images=images,
+        pages=pages,
+        start_index=len(chunks),
+        user=user,
+    )
+    chunks.extend(image_chunks)
+
+    if not chunks:
+        raise ValueError("No searchable text or visual chunks could be extracted")
+
+    batch_size = 50
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i : i + batch_size]
+        embeddings = generate_embeddings(
+            [chunk.content for chunk in batch], user=user
+        )
+
+        DocumentChunk.objects.bulk_create(
+            [
+                DocumentChunk(
+                    content=chunk.content,
+                    page=chunk.page,
+                    chunk_index=chunk.chunk_index,
+                    embedding=embedding,
+                    pdf_source=pdf_source,
+                    metadata={
+                        **(getattr(chunk, "metadata", {}) or {}),
+                        "sourcePdf": file_name,
+                    },
+                )
+                for chunk, embedding in zip(batch, embeddings)
+            ]
+        )
+
+    pdf_source.status = "ready"
+    pdf_source.save(update_fields=["status", "updated_at"])
+
+    warnings: List[str] = []
+    if pdf_metadata.get("degraded"):
+        reason = str(pdf_metadata.get("degradedReason") or "")
+        if "pymupdf_not_installed" in reason:
+            warnings.append(
+                "PyMuPDF is not installed on the server. Falling back to text-only "
+                "extraction — image extraction and figure captioning are disabled, "
+                "which can reduce question-paper coverage. Install 'PyMuPDF>=1.24' "
+                "on the backend to enable full extraction."
+            )
+        else:
+            warnings.append(
+                "PDF extraction degraded to text-only mode (no image extraction). "
+                f"Reason: {reason or 'unknown'}."
+            )
+    pdf_source.warnings = warnings  # type: ignore[attr-defined]
 
 
 def _extract_text_from_docx(buffer: bytes) -> str:
@@ -173,11 +311,7 @@ def _build_image_chunks(
     return chunks
 
 
-def process_pdf_upload(file, user) -> PdfSource:  # noqa: C901
-    """Returns the PdfSource; non-persistent `.warnings` attribute carries
-    user-visible degradation notices (e.g. PyMuPDF unavailable → image
-    extraction off) that the API layer should surface.
-    """
+def process_pdf_upload(file, user) -> PdfSource:
     """
     Upload and process a PDF/DOCX/TXT file into a PdfSource.
 
@@ -187,37 +321,31 @@ def process_pdf_upload(file, user) -> PdfSource:  # noqa: C901
     PdfSource is a temporary generation context — it is NOT automatically
     linked to the Question Bank or any Paper. Questions become persistent only
     when the user explicitly saves them.
+
+    Returns the PdfSource; non-persistent `.warnings` attribute carries
+    user-visible degradation notices (e.g. PyMuPDF unavailable → image
+    extraction off) that the API layer should surface.
     """
-    # PDF is the dominant upload path; DocumentUploadSerializer accepts other
-    # file types but downstream extraction routes on the MIME type, so default
-    # to application/pdf when the client (or the test framework) omits the
-    # Content-Type header. This default also satisfies the NOT NULL constraint
-    # on the legacy `content_type` column (see migration 0004).
     file_type = file.content_type or "application/pdf"
     file_name = file.name
     buffer = file.read()
 
-    extracted_text = ""
-    pages = []
-    images = []
-    pdf_metadata: Dict[str, object] = {}
+    # Compute SHA256 for deduplication
+    sha256_hash = _compute_sha256(buffer)
 
-    if file_type == "application/pdf":
-        pdf_data = extract_text_from_pdf(buffer)
-        extracted_text = pdf_data.get("text", "")
-        pages = pdf_data.get("pages", [])
-        images = pdf_data.get("images", [])
-        pdf_metadata = pdf_data.get("metadata") or {}
-    elif (
-        file_type
-        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    ):
-        extracted_text = _extract_text_from_docx(buffer)
-    else:
-        extracted_text = buffer.decode("utf-8", errors="ignore")
+    # Check for duplicate (same hash, same user, ready status)
+    existing = PdfSource.objects.filter(
+        user=user, sha256=sha256_hash, status="ready"
+    ).first()
+    if existing:
+        logger.info("Duplicate PDF detected: reusing %s", existing.id)
+        existing.warnings = []  # type: ignore[attr-defined]
+        return existing
 
-    if not extracted_text.strip() and not images:
-        raise ValueError("Failed to extract text from document")
+    # Scan with AV if configured
+    is_safe, av_error = _scan_with_av(buffer, file_name)
+    if not is_safe:
+        raise ValueError(f"Upload blocked: {av_error}")
 
     with transaction.atomic():
         pdf_source = PdfSource.objects.create(
@@ -226,74 +354,97 @@ def process_pdf_upload(file, user) -> PdfSource:  # noqa: C901
             content_type=file_type,
             status="processing",
             user=user,
+            sha256=sha256_hash,
+            av_status="passed" if not getattr(settings, "CLAMAV_ENABLED", False) else "pending",
         )
 
+        # Save the original uploaded file to the configured storage backend
         try:
-            if pages:
-                chunks = process_semantic_pipeline(pages)
-            else:
-                chunks = chunk_text(extracted_text)
-
-            image_chunks = _build_image_chunks(
-                pdf_source=pdf_source,
-                file_name=file_name,
-                images=images,
-                pages=pages,
-                start_index=len(chunks),
-                user=user,
+            stored_path = default_storage.save(
+                f"pdfs/{pdf_source.id}/{file_name}", ContentFile(buffer)
             )
-            chunks.extend(image_chunks)
+            # Store a public-facing URL when available (e.g. S3 presigned URL or CDN base)
+            pdf_source.url = _public_media_url(stored_path)
+            pdf_source.save(update_fields=["url"])
+        except Exception:
+            # Non-fatal: if storing the raw PDF fails, continue processing
+            logger.exception("Failed to save original PDF to storage for %s", pdf_source.id)
 
-            if not chunks:
-                raise ValueError("No searchable text or visual chunks could be extracted")
-
-            batch_size = 50
-            for i in range(0, len(chunks), batch_size):
-                batch = chunks[i : i + batch_size]
-                embeddings = generate_embeddings(
-                    [chunk.content for chunk in batch], user=user
-                )
-
-                DocumentChunk.objects.bulk_create(
-                    [
-                        DocumentChunk(
-                            content=chunk.content,
-                            page=chunk.page,
-                            chunk_index=chunk.chunk_index,
-                            embedding=embedding,
-                            pdf_source=pdf_source,
-                            metadata={
-                                **(getattr(chunk, "metadata", {}) or {}),
-                                "sourcePdf": file_name,
-                            },
-                        )
-                        for chunk, embedding in zip(batch, embeddings)
-                    ]
-                )
-
-            pdf_source.status = "ready"
-            pdf_source.save(update_fields=["status", "updated_at"])
-
+        try:
+            _process_pdf_internal(buffer, file_name, file_type, pdf_source, user)
         except Exception as exc:
             pdf_source.status = "error"
             pdf_source.error = str(exc)
             pdf_source.save(update_fields=["status", "error", "updated_at"])
             raise
 
-    warnings: List[str] = []
-    if pdf_metadata.get("degraded"):
-        reason = str(pdf_metadata.get("degradedReason") or "")
-        if "pymupdf_not_installed" in reason:
-            warnings.append(
-                "PyMuPDF is not installed on the server. Falling back to text-only "
-                "extraction — image extraction and figure captioning are disabled, "
-                "which can reduce question-paper coverage. Install 'PyMuPDF>=1.24' "
-                "on the backend to enable full extraction."
-            )
-        else:
-            warnings.append(
-                "PDF extraction degraded to text-only mode (no image extraction). "
-                f"Reason: {reason or 'unknown'}."
-            )
-    pdf_source.warnings = warnings  # type: ignore[attr-defined]
+    return pdf_source
+
+
+def process_pdf_from_storage(key: str, user, name: str, content_type: str) -> PdfSource:
+    """
+    Process a PDF already stored in S3/MinIO (presigned upload flow).
+
+    Reads the file from storage, computes SHA256, checks for duplicates,
+    and triggers normal processing without re-saving the file to storage.
+
+    This avoids the double-save that would occur if we downloaded from
+    storage and re-uploaded it.
+
+    Args:
+        key: storage key (e.g. 'uploads/user-id/uuid_filename.pdf')
+        user: the requesting user
+        name: friendly file name for display
+        content_type: MIME type
+    """
+    # Read from storage
+    if not default_storage.exists(key):
+        raise ValueError(f"Object not found in storage: {key}")
+
+    with default_storage.open(key, "rb") as f:
+        buffer = f.read()
+
+    # Compute SHA256 for deduplication
+    sha256_hash = _compute_sha256(buffer)
+
+    # Check for duplicate (same hash, same user, ready status)
+    existing = PdfSource.objects.filter(
+        user=user, sha256=sha256_hash, status="ready"
+    ).first()
+    if existing:
+        logger.info("Duplicate PDF detected (from storage): reusing %s", existing.id)
+        existing.warnings = []  # type: ignore[attr-defined]
+        return existing
+
+    # Scan with AV if configured
+    is_safe, av_error = _scan_with_av(buffer, name)
+    if not is_safe:
+        raise ValueError(f"Upload blocked: {av_error}")
+
+    with transaction.atomic():
+        pdf_source = PdfSource.objects.create(
+            name=name,
+            size=len(buffer),
+            content_type=content_type,
+            status="processing",
+            user=user,
+            sha256=sha256_hash,
+            av_status="passed" if not getattr(settings, "CLAMAV_ENABLED", False) else "pending",
+        )
+
+        # Store the URL pointing to the already-uploaded object
+        try:
+            pdf_source.url = _public_media_url(key)
+            pdf_source.save(update_fields=["url"])
+        except Exception:
+            logger.exception("Failed to set URL for %s", pdf_source.id)
+
+        try:
+            _process_pdf_internal(buffer, name, content_type, pdf_source, user)
+        except Exception as exc:
+            pdf_source.status = "error"
+            pdf_source.error = str(exc)
+            pdf_source.save(update_fields=["status", "error", "updated_at"])
+            raise
+
     return pdf_source
