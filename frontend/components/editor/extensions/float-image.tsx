@@ -60,8 +60,34 @@ const FloatImageComponent = ({
   selected,
 }: FloatImageProps) => {
   const [isResizing, setIsResizing] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const startRef = useRef({ x: 0, width: 0 });
   const { src, alt, width, align } = node.attrs;
+
+  // Cluster B (defense in depth): when the image fails to load — e.g.
+  // a stale `/media/...` URL, a private S3 object whose signature
+  // expired, or a placeholder src the generation layer didn't catch —
+  // delete the node entirely so the editor doesn't render the
+  // 1 px-bordered empty box that looks like a horizontal underline.
+  // The bordered empty <img> was the visible "Question visual" /
+  // figure-placeholder artifact users reported. Without a usable
+  // image the question stem must stand on its own.
+  useEffect(() => {
+    if (loadFailed) {
+      try {
+        deleteNode();
+      } catch {
+        // deleteNode can throw if the node was already removed (e.g.
+        // during teardown). Swallow — there's nothing left to delete.
+      }
+    }
+  }, [loadFailed, deleteNode]);
+
+  // Reset the failure flag whenever the src attribute changes (e.g.
+  // the user re-points the node at a new figure).
+  useEffect(() => {
+    setLoadFailed(false);
+  }, [src]);
 
   useEffect(() => {
     if (!isResizing) return;
@@ -149,6 +175,7 @@ const FloatImageComponent = ({
             alt={alt || ""}
             draggable={false}
             className="float-image-img"
+            onError={() => setLoadFailed(true)}
           />
 
           {/* Resize handle — bottom-right corner */}

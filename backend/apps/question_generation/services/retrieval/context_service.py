@@ -4,9 +4,27 @@ from typing import Dict, List, Optional, Set
 
 from apps.accounts.models import User
 from apps.documents.models import DocumentChunk
+from django.db.models import Q
 from pgvector.django import L2Distance
 
 from services.embedding_service import generate_single_embedding
+
+
+def _source_filter(
+    pdf_source_ids: Optional[List[str]],
+    hsat_source_ids: Optional[List[str]],
+) -> Optional[Q]:
+    """Build a Q() that unions PdfSource and HsatSource keys, or None if both empty."""
+    pdf_ids = [pid for pid in (pdf_source_ids or []) if pid]
+    hsat_ids = [hid for hid in (hsat_source_ids or []) if hid]
+    if not pdf_ids and not hsat_ids:
+        return None
+    q = Q()
+    if pdf_ids:
+        q |= Q(pdf_source_id__in=pdf_ids)
+    if hsat_ids:
+        q |= Q(hsat_source_id__in=hsat_ids)
+    return q
 
 logger = logging.getLogger("[QG_RETRIEVAL]")
 
@@ -43,18 +61,20 @@ def retrieve_fallback_chunks(
     limit: int = 4,
     require_image: bool = False,
     exclude_chunk_ids: Optional[Set[str]] = None,
+    hsat_source_ids: Optional[List[str]] = None,
 ) -> List[dict]:
-    if not pdf_source_ids:
+    source_q = _source_filter(pdf_source_ids, hsat_source_ids)
+    if source_q is None:
         return []
 
-    queryset = DocumentChunk.objects.filter(pdf_source_id__in=pdf_source_ids)
+    queryset = DocumentChunk.objects.filter(source_q)
     if exclude_chunk_ids:
         queryset = queryset.exclude(id__in=exclude_chunk_ids)
     if require_image:
         queryset = queryset.filter(metadata__has_key="image_url")
 
     chunks = list(
-        queryset.order_by("pdf_source_id", "page", "chunk_index")
+        queryset.order_by("pdf_source_id", "hsat_source_id", "page", "chunk_index")
     )
     ranked = sorted(
         chunks,
@@ -71,8 +91,10 @@ def retrieve_relevant_chunks(
     user: Optional[User] = None,
     require_image: bool = False,
     exclude_chunk_ids: Optional[Set[str]] = None,
+    hsat_source_ids: Optional[List[str]] = None,
 ) -> List[dict]:
-    if not pdf_source_ids:
+    source_q = _source_filter(pdf_source_ids, hsat_source_ids)
+    if source_q is None:
         return []
 
     try:
@@ -85,6 +107,7 @@ def retrieve_relevant_chunks(
             limit=limit,
             require_image=require_image,
             exclude_chunk_ids=exclude_chunk_ids,
+            hsat_source_ids=hsat_source_ids,
         )
         if fallback or not require_image:
             return fallback
@@ -93,12 +116,10 @@ def retrieve_relevant_chunks(
             pdf_source_ids,
             limit=limit,
             exclude_chunk_ids=exclude_chunk_ids,
+            hsat_source_ids=hsat_source_ids,
         )
 
-    queryset = DocumentChunk.objects.filter(
-        pdf_source_id__in=pdf_source_ids,
-        embedding__isnull=False,
-    )
+    queryset = DocumentChunk.objects.filter(source_q, embedding__isnull=False)
     if exclude_chunk_ids:
         queryset = queryset.exclude(id__in=exclude_chunk_ids)
     if require_image:
@@ -118,6 +139,7 @@ def retrieve_relevant_chunks(
             limit=limit,
             require_image=require_image,
             exclude_chunk_ids=exclude_chunk_ids,
+            hsat_source_ids=hsat_source_ids,
         )
         if fallback or not require_image:
             return fallback
@@ -126,18 +148,23 @@ def retrieve_relevant_chunks(
             pdf_source_ids,
             limit=limit,
             exclude_chunk_ids=exclude_chunk_ids,
+            hsat_source_ids=hsat_source_ids,
         )
 
     return results
 
 
-def get_all_chunks(pdf_source_ids: List[str]) -> List[dict]:
-    if not pdf_source_ids:
+def get_all_chunks(
+    pdf_source_ids: List[str],
+    hsat_source_ids: Optional[List[str]] = None,
+) -> List[dict]:
+    source_q = _source_filter(pdf_source_ids, hsat_source_ids)
+    if source_q is None:
         return []
 
     queryset = (
-        DocumentChunk.objects.filter(pdf_source_id__in=pdf_source_ids)
-        .order_by("pdf_source_id", "page")
+        DocumentChunk.objects.filter(source_q)
+        .order_by("pdf_source_id", "hsat_source_id", "page")
     )
 
     all_chunks = list(queryset)

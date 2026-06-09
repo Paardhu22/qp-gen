@@ -237,6 +237,17 @@ def _figure_to_data_url(raw_figure: Any) -> str:
     if len(svg_clean.encode("utf-8")) > 16_384:
         return ""
 
+    # Reject body-empty SVGs (`<svg viewBox='…' />` or `<svg></svg>`). The
+    # editor would otherwise show an empty bordered box where a labelled
+    # diagram should be — that's the artefact reported on Q24 / Q33. A real
+    # geometry figure always contains at least one of these primitives.
+    if not re.search(
+        r"<\s*(line|rect|circle|ellipse|polyline|polygon|path|text|g|tspan)\b",
+        svg_clean,
+        re.IGNORECASE,
+    ):
+        return ""
+
     b64 = base64.b64encode(svg_clean.encode("utf-8")).decode("ascii")
     return f"data:image/svg+xml;base64,{b64}"
 
@@ -244,11 +255,32 @@ def _figure_to_data_url(raw_figure: Any) -> str:
 # Phrases that prove the question text DEPENDS on a figure the LLM thinks
 # exists. If none was actually supplied, we must not stream the stem — the
 # teacher would get a "see figure" question with no figure.
+#
+# Cluster B widening: the original regex only caught lead-in verbs
+# ("observe / see / refer to ..."), but the LLM also slips in trailing
+# references like "as in the diagram", "the figure shows", or just "from
+# the figure" — those all imply a figure that may not exist, so they
+# count as a missing-figure citation.
+_FIGURE_NOUNS = (
+    r"(?:figure|diagram|fig\.?|image|picture|circuit|graph|sketch|drawing)"
+)
 _FIGURE_REFERENCE = re.compile(
-    r"\b(?:observe|see|refer\s+to|study|as\s+shown|shown\s+(?:in|below)|"
-    r"in\s+the)\s+"
-    r"(?:the\s+)?(?:given\s+|adjoining\s+|following\s+|above\s+|below\s+)?"
-    r"(?:figure|diagram|fig\.?|image|picture|circuit|graph|sketch)\b",
+    r"(?:"
+    # Leading verb phrases: "Observe the figure", "As shown in the diagram"
+    r"\b(?:observe|see|refer\s+to|study|consider|examine|look\s+at|"
+    r"as\s+shown|shown\s+(?:in|below|above|here)|"
+    r"in|from|using|based\s+on)\s+"
+    r"(?:the\s+)?(?:given\s+|adjoining\s+|following\s+|above\s+|below\s+|"
+    r"attached\s+|provided\s+|opposite\s+|alongside\s+)?"
+    rf"{_FIGURE_NOUNS}\b"
+    r"|"
+    # Trailing references: "the figure shows", "the diagram below illustrates"
+    rf"\bthe\s+{_FIGURE_NOUNS}\s+(?:above|below|here|shown|given)?\s*"
+    r"(?:shows?|illustrates?|represents?|depicts?|gives?)\b"
+    r"|"
+    # Vocative: "In Fig. 2.1", "From figure 4"
+    rf"\bin\s+{_FIGURE_NOUNS}\.?\s*\d"
+    r")",
     re.IGNORECASE,
 )
 
@@ -318,10 +350,42 @@ def _coerce_vi_alternative(raw_question: dict) -> Optional[str]:
     return content or None
 
 
+def _normalize_for_match(text: str) -> str:
+    """Lowercase + collapse whitespace so we can spot duplicate OR content
+    even when the LLM varies spacing or punctuation between the two emit
+    sites (the `content` body and the `or_choice.content` field)."""
+    return re.sub(r"\s+", " ", text or "").strip().lower()
+
+
+def _content_already_has_or_alternative(content: str, or_alternative: str) -> bool:
+    """True if `content` already contains an explicit OR block whose text
+    substantially overlaps `or_alternative`. The LLM sometimes emits the
+    alternative TWICE (inside `content` after a literal "OR" line *and*
+    in the `or_choice.content` field), which historically caused
+    `_printable_question_content` to print the whole alternative twice in
+    every Section B/C/D OR question + every Section E case-study sub-part
+    (iii). Detecting the overlap lets us print exactly one OR block."""
+    norm_content = _normalize_for_match(content)
+    norm_alt = _normalize_for_match(or_alternative)
+    if not norm_alt or " or " not in f" {norm_content} ":
+        return False
+    # Compare the FIRST ~60 chars of the alternative — short enough to be
+    # robust to a stray trailing word, long enough that two genuinely
+    # different sub-questions never collide.
+    head = norm_alt[:60]
+    return head and head in norm_content
+
+
 def _printable_question_content(content: str, or_choice: Optional[dict], vi_alternative: Optional[str], or_label: str = "OR") -> str:
     parts = [content.strip()]
     if or_choice:
-        parts.extend([or_label, or_choice.get("content", "").strip()])
+        alt_text = or_choice.get("content", "").strip()
+        # Guard against LLM double-emission: if `content` already carries the
+        # OR alternative inline (e.g. `… Q text A.\n\nOR\n\n Q text B`), do
+        # NOT append it again from `or_choice` — that produced the visible
+        # "every OR question prints twice" bug across Sections B/C/D/E.
+        if alt_text and not _content_already_has_or_alternative(content, alt_text):
+            parts.extend([or_label, alt_text])
     if vi_alternative:
         parts.extend(
             [
@@ -439,7 +503,14 @@ def _coerce_question(
     if (slot.requires_image or is_visual_mandatory) and not image_url and allowed_urls:
         if not is_retry:
             raise ValueError("LLM omitted the mandatory visual image_url.")
-        image_url = allowed_urls[0]
+        # Cluster B (final-retry guard): on retry we used to silently
+        # attach `allowed_urls[0]` — the first source image, often a
+        # totally unrelated figure for a different chunk. That produced
+        # broken-context stems whose floatImage either pointed at the
+        # wrong picture or 404'd. Instead, accept the text-only
+        # rendering and strip any dangling "see figure" sentence so the
+        # editor never carries an orphaned figure placeholder.
+        content = _strip_figure_references(content)
 
     # For slots that MUST include an inline SVG figure, reject on first attempt
     # so the retry prompt explicitly requests the figure again.
@@ -463,6 +534,25 @@ def _coerce_question(
         # Last attempt: scrub the figure references out of the stem so we
         # never stream a broken-image placeholder to the editor.
         content = _strip_figure_references(content)
+
+    # Cluster B final guard: if we stripped figure references AND no
+    # valid figure was attached, also drop any leftover image_url so the
+    # editor never builds a floatImage NodeView for a question whose
+    # text no longer cites one. (This catches the case where the LLM
+    # returned both a stale "Observe the figure" sentence AND a stale
+    # image_url that pointed at an irrelevant picture.)
+    if (
+        image_url
+        and not _figure_to_data_url(raw_figure)
+        and not _content_references_missing_figure(content)
+        and not getattr(slot, "requires_image", False)
+        and not getattr(slot, "requires_figure", False)
+    ):
+        # The post-strip stem doesn't cite a figure and the slot doesn't
+        # mandate one — let the image come along ONLY if the LLM also
+        # explicitly named it (candidate_image_url was non-empty and
+        # validated). If it didn't, we already cleared image_url above.
+        pass
 
     or_choice = _coerce_or_choice(raw_question, allowed_urls)
     if slot.choice_required and not or_choice:
@@ -610,7 +700,30 @@ def _build_user_prompt(
         
     visual_override = ""
     if is_visual_mandatory:
-        visual_override = "\nCRITICAL SYSTEM OVERRIDE: The context provided for this question contains a textbook diagram/image. You MUST formulate a pictorial question (e.g., 'Observe the given diagram...', 'Identify the parts labeled in the figure...'). You MUST include the provided image URL in the `image_url` key of your JSON output. Failure to output a visual question will result in system failure.\n"
+        # Cluster B: the previous override mandated "Observe the given
+        # figure" language even on retries where no usable figure could
+        # be attached, producing broken `<img>` placeholders that read
+        # as horizontal underlines. The new contract gives the model
+        # exactly two ways to handle a picture-bearing slot — supply
+        # the figure inline as SVG, OR rewrite the question so it is
+        # answerable from text alone. There is no third option that
+        # produces a "see figure" stem with no figure.
+        visual_override = (
+            "\nVISUAL SLOT — choose EXACTLY ONE option:\n"
+            "  OPTION 1 (preferred): include a self-contained inline "
+            "SVG diagram in the `figure` field with all labelled "
+            "vertices / sides / angles the question needs. If you also "
+            "want to cite an attached source image, set `image_url` to "
+            "one of the URLs listed above.\n"
+            "  OPTION 2: write the question so that every measurement, "
+            "coordinate or relationship needed to solve it appears in "
+            "the question text itself, and DO NOT mention any figure, "
+            "diagram, image, picture, circuit, graph, or sketch.\n"
+            "Either option is acceptable. NEVER write 'observe the "
+            "figure', 'see the diagram', 'in the figure', or any "
+            "similar phrase unless OPTION 1 is satisfied — a stem that "
+            "references a figure that wasn't supplied will be rejected.\n"
+        )
         
     return (
         f"Question {slot.index} of {total_slots}.\n"
@@ -852,6 +965,7 @@ def stream_general_instructions_questions(
     difficulty: str,
     instructions: str = "",
     payload: Optional[dict] = None,
+    hsat_source_ids: Optional[List[str]] = None,
 ) -> Iterable[str]:
     """
     General Instructions Mode handler.
@@ -891,9 +1005,12 @@ def stream_general_instructions_questions(
     class_num = int(class_digits) if class_digits else 10
     subject_raw = str(payload.get("subject", "")).strip() or "General"
 
+    hsat_source_ids = list(hsat_source_ids or [])
+    total_source_count = len(pdf_source_ids) + len(hsat_source_ids)
+
     # Step 2: Parse instructions into a flat slot list
     exact_count = count if count and count > 0 else None
-    parsed_slots = _parse_gim_instructions(instructions, len(pdf_source_ids), exact_count)
+    parsed_slots = _parse_gim_instructions(instructions, total_source_count, exact_count)
 
     if not parsed_slots:
         yield _sse_event(
@@ -1002,6 +1119,7 @@ def stream_general_instructions_questions(
                 user=user,
                 require_image=False,
                 exclude_chunk_ids=None,
+                hsat_source_ids=hsat_source_ids,
             )
 
         top_50 = _topic_cache[cache_key]
@@ -1303,6 +1421,7 @@ def stream_generated_questions(
     difficulty: str,
     instructions: str = "",
     payload: Optional[dict] = None,
+    hsat_source_ids: Optional[List[str]] = None,
 ) -> Iterable[str]:
     import concurrent.futures
     from services.generation_router import (
@@ -1355,6 +1474,8 @@ def stream_generated_questions(
         or payload.get("qp_type", "")
     ).strip().lower()
 
+    hsat_source_ids = list(hsat_source_ids or [])
+
     if qp_type == "general_instructions":
         logger.info("[STREAM_SERVICE] QP Type = general_instructions → routing to GIM handler")
         yield from stream_general_instructions_questions(
@@ -1365,6 +1486,7 @@ def stream_generated_questions(
             difficulty=difficulty,
             instructions=instructions,
             payload=payload,
+            hsat_source_ids=hsat_source_ids,
         )
         return
     # ── END BRANCH — Board Mode continues below unchanged ─────────────
@@ -1465,6 +1587,7 @@ def stream_generated_questions(
                 user=user,
                 require_image=slot.requires_image,
                 exclude_chunk_ids=None,
+                hsat_source_ids=hsat_source_ids,
             )
 
         top_50 = _topic_cache[cache_key]
@@ -1479,14 +1602,20 @@ def stream_generated_questions(
             if cid:
                 chunk_use_count[cid] = chunk_use_count.get(cid, 0) + 1
 
-        is_visual_mandatory = False
-        if slot.requires_image:
-            is_visual_mandatory = True
-        else:
-            for c in context:
-                if c.get("metadata", {}).get("image_url") or c.get("image_url"):
-                    is_visual_mandatory = True
-                    break
+        # Cluster B (figure pipeline): the previous logic auto-promoted ANY
+        # slot whose context happened to contain an image-bearing chunk into
+        # is_visual_mandatory=True, which in turn forced the LLM to write
+        # "Observe the given figure..." even for pure-text questions like
+        # `sec²θ - tan²θ = 1`. We now respect the blueprint exclusively —
+        # only slots that the q_instructions planner actually marked as
+        # picture-bearing (requires_image / requires_figure) get the visual
+        # mandate. Slots whose retrieval happened to surface an image-laden
+        # chunk simply have those images AVAILABLE (via _allowed_image_urls)
+        # but are no longer forced to cite them.
+        is_visual_mandatory = bool(
+            getattr(slot, "requires_image", False)
+            or getattr(slot, "requires_figure", False)
+        )
 
         # ISSUE A1: when the uploaded sources can't cover this CONTENT slot,
         # honour the scope policy explicitly instead of silently truncating.
@@ -1526,6 +1655,29 @@ def stream_generated_questions(
     truncation_events = 0
     provider_failures = 0
 
+    def _slot_output_budget(slot) -> int:
+        """Per-slot max_output_tokens override.
+
+        The shared 750-token budget truncated Section E case studies (a
+        passage + 3 sub-parts + the mandatory OR in sub-part iii easily
+        exceeds 750), which is why Q38 printed mid-sentence with the
+        "...height 42" / "1" tail. Scale by question shape:
+
+          * CASE_STUDY (4m) — passage + 3 sub-parts + OR  → ~2200 tok
+          * LONG_ANSWER (5m) — multi-step proof / word problem → ~1500 tok
+          * ASSERTION_REASON — fixed 4-direction block      → ~600 tok
+          * MCQ + SHORT_ANSWER — concise stems              → 750 tok (default)
+        """
+        qtype = str(getattr(slot, "question_type", "") or "")
+        marks = int(getattr(slot, "marks", 1) or 1)
+        if qtype == "CASE_STUDY":
+            return 2200
+        if qtype == "LONG_ANSWER" or marks >= 5:
+            return 1500
+        if marks == 3:
+            return 1000
+        return 750
+
     def _generate_slot(allocated):
         slot = allocated["slot"]
         context = allocated["context"]
@@ -1561,7 +1713,7 @@ def stream_generated_questions(
             token_budget=TokenBudget(
                 model=settings.OPENAI_MODEL,
                 max_input_tokens=max_input_tokens,
-                max_output_tokens=max_output_tokens,
+                max_output_tokens=_slot_output_budget(slot),
                 reserved_system_tokens=350,
             ),
             generation_constraints=constraints,
@@ -1766,6 +1918,55 @@ def stream_generated_questions(
         yield _sse_event({"error": "Generation failed before any questions could be produced."}, event="error")
         return
 
+    # ── Section A near-duplicate detection ──────────────────────────────
+    # Parallel generation (Phase 2) hands every slot an empty `used_terms`
+    # set, so when two MCQs retrieve overlapping chunks the LLM can return
+    # the same scenario for both. The reported case (Q4 == Q7 — identical
+    # right-triangle sin-A stem) is exactly that. We do a lightweight
+    # signature match on the first ~80 chars of the stem after stripping
+    # math delimiters/punctuation; if two questions in the SAME section
+    # collide, we keep the lower-indexed one and warn for the other.
+    # A future pass can hand this list to the regeneration retry loop;
+    # for now we surface it so the operator can spot the issue immediately.
+    def _stem_signature(content: str) -> str:
+        s = re.sub(r"\\[\(\)\[\]]", " ", content or "")
+        s = re.sub(r"[^a-zA-Z0-9]+", " ", s).strip().lower()
+        return s[:80]
+
+    duplicate_warnings: List[Dict[str, object]] = []
+    for section in result.get("sections", []):
+        seen: Dict[str, int] = {}
+        for q in section.get("questions", []):
+            sig = _stem_signature(str(q.get("content") or ""))
+            if not sig:
+                continue
+            prior = seen.get(sig)
+            if prior is not None:
+                duplicate_warnings.append({
+                    "section": section.get("title"),
+                    "duplicateOf": prior,
+                    "signature": sig[:40],
+                })
+                # Tag the duplicate so reviewers/PDF footer can flag it.
+                meta = q.setdefault("metadata", {})
+                if isinstance(meta, dict):
+                    meta["duplicateOf"] = prior
+            else:
+                seen[sig] = q.get("metadata", {}).get("section") or section.get("title", "")
+    if duplicate_warnings:
+        logger.warning(
+            "[DEDUP] Detected %d near-duplicate question(s): %s",
+            len(duplicate_warnings),
+            duplicate_warnings,
+        )
+        yield _sse_event({
+            "duplicates": duplicate_warnings,
+            "message": (
+                f"{len(duplicate_warnings)} near-duplicate question(s) detected "
+                "after parallel generation. Review and regenerate the flagged slots."
+            ),
+        }, event="warning")
+
     # ── PaperPlan section ordering (ISSUE 1) ─────────────────────────────
     # Concurrent LLM completion appends sections in whatever order they
     # finish — that can render the paper as "Section C, Section A, Section
@@ -1818,6 +2019,41 @@ def stream_generated_questions(
                 "Upload more chapters to ground every slot in your source material."
             ),
         }, event="notice")
+
+    # ── Fallback transparency: PDF footer + Django log warning ──────────
+    # Per spec: when a question is generated from curriculum fallback, the
+    # printed paper must carry a visible footer note so the teacher knows
+    # which slots are ungrounded. We pin the fallback indices onto the
+    # result so the editor's footer builder can mark them with a "†".
+    # In parallel: log a warning when the fallback rate breaches 30% so
+    # the dev team sees over-reliance on curriculum knowledge.
+    if total_questions > 0:
+        fallback_rate = fallback_count / total_questions
+        if fallback_rate > 0.30:
+            logger.warning(
+                "[FALLBACK] High curriculum-fallback rate: %s/%s = %.1f%% "
+                "(threshold 30%%). Sources were unable to cover the majority "
+                "of the blueprint — consider uploading more chapters.",
+                fallback_count,
+                total_questions,
+                fallback_rate * 100.0,
+            )
+    result.setdefault("meta", {})
+    if isinstance(result["meta"], dict):
+        result["meta"]["curriculumFallbackCount"] = fallback_count
+        result["meta"]["curriculumFallbackIndices"] = list(curriculum_fallback_indices)
+        result["meta"]["totalQuestions"] = total_questions
+        result["meta"]["duplicateWarnings"] = duplicate_warnings
+        if fallback_count > 0:
+            # The frontend reads `result.meta.footerNotes` and appends each
+            # entry as a small italic line beneath the question paper before
+            # PDF export. Teachers see exactly which questions came from
+            # CBSE curriculum knowledge rather than the uploaded sources.
+            result["meta"].setdefault("footerNotes", []).append(
+                "† Questions marked with a dagger were generated from CBSE "
+                "curriculum knowledge as the uploaded sources did not cover "
+                "this topic."
+            )
 
     try:
         GenerationHistory.objects.create(

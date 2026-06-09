@@ -18,12 +18,13 @@ class QuestionGenerationStreamView(APIView):
 
         stream = stream_generated_questions(
             user=request.user,
-            pdf_source_ids=serializer.validated_data["pdfSourceIds"],
+            pdf_source_ids=serializer.validated_data.get("pdfSourceIds") or [],
             topic=serializer.validated_data["topic"],
             count=serializer.validated_data["count"],
             difficulty=serializer.validated_data["difficulty"],
             instructions=serializer.validated_data["instructions"],
             payload=request.data,
+            hsat_source_ids=serializer.validated_data.get("hsatSourceIds") or [],
         )
 
         response = StreamingHttpResponse(stream, content_type="text/event-stream")

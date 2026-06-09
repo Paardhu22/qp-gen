@@ -24,9 +24,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useEditorStore } from "@/store/editor-store";
 import { toast } from "sonner";
-import { FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
+import { BookOpen, FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
 import { fetchForm, streamSse, saveQuestions } from "@/lib/api-client";
 import { ReviewTray } from "@/components/review-tray";
+import {
+  HsatSourcePicker,
+  type AppliedHsatSource,
+} from "@/components/hsat-source-picker";
 
 const formSchema = z.object({
   qpType: z.enum(["board", "general_instructions"]),
@@ -81,6 +85,8 @@ export const GeneratorForm = () => {
     { id: string; name: string; size: number }[]
   >([]);
   const [uploadingDocs, setUploadingDocs] = useState<UploadingDoc[]>([]);
+  const [hsatSources, setHsatSources] = useState<AppliedHsatSource[]>([]);
+  const [isHsatPickerOpen, setIsHsatPickerOpen] = useState(false);
   // Issue 3 — the draft instructions live in the zustand store directly so a
   // refresh, route change, or browser-close-and-back doesn't drop what the
   // teacher typed. The store is persisted via zustand `persist`, so the
@@ -190,6 +196,18 @@ export const GeneratorForm = () => {
     setUploadedDocs((prev) => prev.filter((d) => d.id !== id));
   };
 
+  const handleHsatApply = (source: AppliedHsatSource) => {
+    setHsatSources((prev) => {
+      if (prev.some((s) => s.id === source.id)) return prev;
+      return [...prev, source];
+    });
+    toast.success(`${source.book} added to sources`);
+  };
+
+  const removeHsatSource = (id: string) => {
+    setHsatSources((prev) => prev.filter((s) => s.id !== id));
+  };
+
   const appendQuestionToResult = (
     current: any,
     sectionTitle: string,
@@ -260,8 +278,15 @@ export const GeneratorForm = () => {
   };
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
-    if (uploadedDocs.length === 0) {
-      toast.error("Upload at least one source file first.");
+    if (uploadedDocs.length === 0 && hsatSources.length === 0) {
+      toast.error("Add at least one source file or HSAT book first.");
+      return;
+    }
+    const notReadyHsat = hsatSources.find((s) => s.status !== "ready");
+    if (notReadyHsat) {
+      toast.error(
+        `${notReadyHsat.book} is still being prepared. Wait for it to finish, then generate again.`,
+      );
       return;
     }
 
@@ -284,6 +309,7 @@ export const GeneratorForm = () => {
         "/api/generation/questions/stream",
         {
           pdfSourceIds: uploadedDocs.map((d) => d.id),
+          hsatSourceIds: hsatSources.map((s) => s.id),
           count: isGIM
             ? parseInt(values.numberOfQuestions || "10", 10)
             : values.countType === "cbse"
@@ -386,6 +412,16 @@ export const GeneratorForm = () => {
         };
       });
       useEditorStore.getState().appendSections(sections);
+      // Bug 5: surface backend `meta.footerNotes` (curriculum-fallback
+      // disclosure) as instruction lines at the bottom of the doc so the
+      // teacher and the rendered PDF both show which questions came from
+      // curriculum knowledge instead of the uploaded sources.
+      const footerNotes: string[] = Array.isArray(generatedResult?.meta?.footerNotes)
+        ? generatedResult.meta.footerNotes
+        : [];
+      if (footerNotes.length > 0) {
+        useEditorStore.getState().appendInstructions(footerNotes);
+      }
       toast.success("Inserted generated sections into the editor.");
     } else {
       (generatedResult.questions || []).forEach((q: any) => {
@@ -445,7 +481,10 @@ export const GeneratorForm = () => {
 
   const showAutoSave = hasMultipleSources || hasMultipleChapters;
 
-  const hasAnyDocs = uploadedDocs.length > 0 || uploadingDocs.length > 0;
+  const hasAnyDocs =
+    uploadedDocs.length > 0 ||
+    uploadingDocs.length > 0 ||
+    hsatSources.length > 0;
 
   return (
     <div className="h-full flex flex-col p-4 bg-background text-muted-foreground overflow-y-auto custom-scrollbar">
@@ -474,16 +513,28 @@ export const GeneratorForm = () => {
           <label className="text-sm font-medium text-foreground">
             Source Files
           </label>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleAddSourceClick}
-            className="h-7 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
-          >
-            <Plus className="h-3 w-3 mr-1" />
-            Add Source
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleAddSourceClick}
+              className="h-7 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Add Source
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsHsatPickerOpen(true)}
+              className="h-7 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+            >
+              <BookOpen className="h-3 w-3 mr-1" />
+              Apply Source from HSAT
+            </Button>
+          </div>
         </div>
 
         <div className="space-y-2">
@@ -560,8 +611,63 @@ export const GeneratorForm = () => {
               </button>
             </div>
           ))}
+
+          {/* Applied HSAT sources — visually distinct: book icon + HSAT label */}
+          {hsatSources.map((source) => {
+            const isPreparing =
+              source.status === "processing" || source.status === "pending";
+            const isError = source.status === "error";
+            return (
+              <div
+                key={source.id}
+                className="flex items-center justify-between p-2 rounded-lg bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 group"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {isPreparing ? (
+                    <Loader2 className="h-4 w-4 text-indigo-500 animate-spin flex-shrink-0" />
+                  ) : isError ? (
+                    <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                  ) : (
+                    <BookOpen className="h-4 w-4 text-indigo-500 flex-shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">
+                        HSAT
+                      </span>
+                      <span className="text-xs text-foreground truncate">
+                        {source.book}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground truncate">
+                      Class {source.grade} · {source.subject}
+                      {source.selectedChapterCount
+                        ? ` · ${source.selectedChapterCount} chapter${source.selectedChapterCount === 1 ? "" : "s"}`
+                        : ""}
+                      {isPreparing && " · preparing…"}
+                      {isError && " · failed — remove and try again"}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => removeHsatSource(source.id)}
+                  className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
+
+      <HsatSourcePicker
+        open={isHsatPickerOpen}
+        onOpenChange={setIsHsatPickerOpen}
+        paperId={null}
+        appliedIds={hsatSources.map((s) => s.id)}
+        onApply={handleHsatApply}
+      />
 
       <Form {...form}>
         <form
