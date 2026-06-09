@@ -72,26 +72,57 @@ function updateQuestionNumbers(editor: any) {
   if (!editor) return;
   let currentNumber = 1;
   const tr = editor.state.tr;
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
   editor.state.doc.descendants((node: any, pos: number) => {
-    // OR group occupies ONE question slot; don't recurse into its children.
+    // OR group occupies ONE question slot. Assign its number, then
+    // walk its branches and stamp each with `subLabel = "<n>(A)"` /
+    // "<n>(B)" so the QuestionBlock NodeView renders the OR-branch
+    // format ("31(A)") instead of its standalone number. Anything
+    // outside an OR group keeps subLabel === null.
     if (node.type.name === "questionGroupBlock") {
-      if (node.attrs.number !== currentNumber) {
-        tr.setNodeMarkup(pos, undefined, { ...node.attrs, number: currentNumber });
+      const groupNumber = currentNumber;
+      if (node.attrs.number !== groupNumber) {
+        tr.setNodeMarkup(pos, undefined, { ...node.attrs, number: groupNumber });
       }
+      let branchIndex = 0;
+      let childOffset = pos + 1;
+      node.forEach((child: any) => {
+        if (
+          child.type.name === "questionBlock" ||
+          child.type.name === "groupedQuestionBlock"
+        ) {
+          const letter = letters[branchIndex] || `${branchIndex + 1}`;
+          const desired = `${groupNumber}(${letter})`;
+          if (child.attrs.subLabel !== desired) {
+            tr.setNodeMarkup(childOffset, undefined, {
+              ...child.attrs,
+              subLabel: desired,
+            });
+          }
+          branchIndex += 1;
+        }
+        childOffset += child.nodeSize;
+      });
       currentNumber++;
-      return false; // skip children — questionBlock inside OR group are not counted separately
+      return false; // OR group is counted once; skip recursion.
     }
 
     if (
       node.type.name === "questionBlock" ||
       node.type.name === "groupedQuestionBlock"
     ) {
+      const updates: Record<string, unknown> = {};
       if (node.attrs.number !== currentNumber) {
-        tr.setNodeMarkup(pos, undefined, {
-          ...node.attrs,
-          number: currentNumber,
-        });
+        updates.number = currentNumber;
+      }
+      // Drag-out from an OR group must drop the stale subLabel,
+      // otherwise the standalone question keeps showing "31(A)".
+      if (node.attrs.subLabel !== null) {
+        updates.subLabel = null;
+      }
+      if (Object.keys(updates).length > 0) {
+        tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...updates });
       }
       currentNumber++;
     }
@@ -850,7 +881,20 @@ export const TiptapEditor = ({
                       : "Enter MCQ stem here…";
                   }
                   if (qType === "ASSERTION_REASON") {
-                    return isInsideList ? "Option…" : "Statement…";
+                    if (isInsideList) return "Option…";
+                    // D — Differentiate Assertion (A) vs Reason (R)
+                    // by the empty paragraph's index inside the
+                    // questionBlock. The toolbar emits two empty
+                    // paragraphs followed by the canonical option
+                    // list, so paragraph #0 is the assertion body and
+                    // paragraph #1 is the reason body. `$pos.index(d)`
+                    // returns the index of the child at depth d+1 in
+                    // its parent at depth d — i.e. where this empty
+                    // paragraph sits in the questionBlock.
+                    const childIndex = $pos.index(depth);
+                    if (childIndex === 0) return "Assertion (A) …";
+                    if (childIndex === 1) return "Reason (R) …";
+                    return "Statement…";
                   }
                   return isInsideList
                     ? "Sub-item…"
@@ -1808,18 +1852,39 @@ export const TiptapEditor = ({
         .paper-header-date-label {
           font-weight: 600;
         }
+        /* G — single date representation. A formatted span is shown
+           on top of an invisible native date input; the input still
+           opens the picker on click but does not render its own
+           date string, so the teacher never sees two dates. */
+        .paper-header-date-picker-wrap {
+          position: relative;
+          display: inline-flex;
+          align-items: baseline;
+          cursor: pointer;
+        }
         .paper-header-date-input {
-          font-family: inherit;
-          font-size: 10pt;
-          padding: 1px 4px;
-          border: 1px solid #d4d4d8;
-          border-radius: 3px;
-          background: #ffffff;
-          color: #000000;
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          padding: 0;
+          margin: 0;
+          border: 0;
+          opacity: 0;
+          color: transparent;
+          background: transparent;
+          cursor: pointer;
+        }
+        .paper-header-date-input::-webkit-calendar-picker-indicator {
+          opacity: 0;
+          cursor: pointer;
         }
         .paper-header-date-display {
           font-weight: 500;
+          font-size: 11pt;
           color: #000000;
+          padding: 1px 4px;
+          border-bottom: 1px dashed #c4c4c8;
         }
         .paper-header-actions {
           display: flex;

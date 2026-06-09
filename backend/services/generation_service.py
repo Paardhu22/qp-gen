@@ -861,6 +861,7 @@ def stream_general_instructions_questions(
     import concurrent.futures
 
     from apps.question_generation.infrastructure.providers.openai_provider import OpenAIProvider
+    from apps.question_generation.infrastructure.providers.base import LLMMessage, LLMRequest
     from apps.question_generation.infrastructure.token_budget.budgeter import (
         allocate_budget,
         trim_chunks_to_budget,
@@ -1067,7 +1068,34 @@ def stream_general_instructions_questions(
             "Do not include markdown. Return only the JSON object."
         )
 
-        # Call LLM
+        # Build a proper LLMRequest. The dict form previously used here
+        # was the deploy-blocker: OpenAIProvider.stream_chat accesses
+        # request.model / request.messages as attributes, so every slot
+        # raised AttributeError before reaching OpenAI. We also drop the
+        # temperature/max_tokens that the dict carried — reasoning-model
+        # defaults like gpt-5-mini reject custom temperature, and the
+        # provider already omits these parameters from the API call.
+        llm_request = LLMRequest(
+            model=settings.OPENAI_MODEL,
+            messages=[
+                LLMMessage(role="system", content=system_prompt),
+                LLMMessage(role="user", content=user_prompt),
+            ],
+            response_format={"type": "json_object"},
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+
+        logger.info(
+            "[GIM] Slot %s/%s start: model=%s type=%s marks=%s section=%r "
+            "prompt_chars=system:%d/user:%d source_chars=%d chunks=%d",
+            idx, total_questions, settings.OPENAI_MODEL,
+            slot_entry["type"], slot_entry["marks"],
+            slot_entry.get("section_title") or "Questions",
+            len(system_prompt), len(user_prompt),
+            len(source_text), len(context),
+        )
+
         events = []
         question = None
 
@@ -1077,18 +1105,6 @@ def stream_general_instructions_questions(
             parsed_payload = None
 
             try:
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ]
-                llm_request = {
-                    "model": settings.OPENAI_MODEL,
-                    "messages": messages,
-                    "max_tokens": max_output_tokens,
-                    "temperature": 0.7,
-                    "stream": True,
-                }
-
                 for delta in provider.stream_chat(llm_request):
                     if not delta:
                         continue
@@ -1097,10 +1113,24 @@ def stream_general_instructions_questions(
                         parsed_payload = parsed
             except Exception as exc:
                 if attempt == 0:
-                    logger.warning("[GIM] Streaming failed for slot %s attempt 1: %s. Retrying...", idx, exc)
+                    logger.warning(
+                        "[GIM] Slot %s streaming failed attempt 1 "
+                        "(%s: %s) — retrying.",
+                        idx, type(exc).__name__, exc,
+                    )
                     continue
-                logger.error("[GIM] Streaming failed for slot %s: %s", idx, exc, exc_info=True)
-                events.append(_sse_event({"error": str(exc), "index": idx}, event="warning"))
+                logger.error(
+                    "[GIM] Slot %s streaming failed (%s: %s). "
+                    "model=%s system_chars=%d user_chars=%d buffer_len=%d",
+                    idx, type(exc).__name__, exc,
+                    settings.OPENAI_MODEL,
+                    len(system_prompt), len(user_prompt), len(buffer),
+                    exc_info=True,
+                )
+                events.append(_sse_event(
+                    {"error": f"{type(exc).__name__}: {exc}", "index": idx},
+                    event="warning",
+                ))
                 break
 
             if parsed_payload is None and buffer.strip():
