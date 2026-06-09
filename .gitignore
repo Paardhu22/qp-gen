@@ -53,3 +53,19 @@ backend/*.sqlite3
 backend/*.sqlite3-journal
 
 /lib/generated/prisma
+
+# Temporary markdown reports and agents
+/*.md
+!/README.md
+
+# Agent and editor dot folders
+/.agents/
+/.cline/
+/.claude/
+/.cursor/
+/.cursorrules
+.vscode/
+
+# Root level temp files
+/next-env.d.ts
+/pyrightconfig.json
