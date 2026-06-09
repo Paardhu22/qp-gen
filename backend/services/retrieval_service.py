@@ -2,6 +2,7 @@ from typing import List, Optional, Set
 
 from apps.accounts.models import User
 from apps.documents.models import DocumentChunk
+from django.db.models import Q
 from pgvector.django import L2Distance
 
 from services.embedding_service import generate_single_embedding
@@ -15,23 +16,34 @@ def retrieve_relevant_chunks(
     require_image: bool = False,
     exclude_chunk_ids: Optional[Set[str]] = None,
     query_embedding: Optional[List[float]] = None,
+    hsat_source_ids: Optional[List[str]] = None,
 ) -> List[dict]:
     """
     Retrieve the most semantically relevant chunks from the given PdfSources
-    for use as generation context. This never touches Question Bank or Paper
-    data — it only reads from DocumentChunk via the PdfSource FK.
+    (user uploads) and/or HsatSources (shared textbooks) for use as
+    generation context. Both source kinds share the DocumentChunk table so
+    the resulting ranking treats them as a single pool — exactly what a
+    "shared HSAT plus my notes" retrieval should do.
 
     If query_embedding is provided, it is used directly to avoid an extra
     embeddings API call per query.
     """
-    if not pdf_source_ids:
+    pdf_ids = [pid for pid in (pdf_source_ids or []) if pid]
+    hsat_ids = [hid for hid in (hsat_source_ids or []) if hid]
+    if not pdf_ids and not hsat_ids:
         return []
 
     if query_embedding is None:
         query_embedding = generate_single_embedding(query, user=user)
 
+    source_filter = Q()
+    if pdf_ids:
+        source_filter |= Q(pdf_source_id__in=pdf_ids)
+    if hsat_ids:
+        source_filter |= Q(hsat_source_id__in=hsat_ids)
+
     queryset = DocumentChunk.objects.filter(
-        pdf_source_id__in=pdf_source_ids,
+        source_filter,
         embedding__isnull=False,
     )
     if require_image:
@@ -69,20 +81,28 @@ def retrieve_relevant_chunks(
 
 def get_all_chunks(
     pdf_source_ids: List[str],
+    hsat_source_ids: Optional[List[str]] = None,
 ) -> List[dict]:
     """
-    Retrieves chunks from the specified PDFs. If the document is too large,
-    it dynamically samples chunks evenly across the document to stay safely
-    below OpenAI's 30,000 TPM rate limit while still representing the ENTIRE document.
+    Retrieves chunks from the specified PDFs and/or HSAT books. If the
+    document is too large, it dynamically samples chunks evenly across the
+    document to stay safely below OpenAI's 30,000 TPM rate limit while
+    still representing the ENTIRE document.
     """
-    if not pdf_source_ids:
+    pdf_ids = [pid for pid in (pdf_source_ids or []) if pid]
+    hsat_ids = [hid for hid in (hsat_source_ids or []) if hid]
+    if not pdf_ids and not hsat_ids:
         return []
 
+    source_filter = Q()
+    if pdf_ids:
+        source_filter |= Q(pdf_source_id__in=pdf_ids)
+    if hsat_ids:
+        source_filter |= Q(hsat_source_id__in=hsat_ids)
+
     queryset = (
-        DocumentChunk.objects.filter(
-            pdf_source_id__in=pdf_source_ids
-        )
-        .order_by("pdf_source_id", "page")
+        DocumentChunk.objects.filter(source_filter)
+        .order_by("pdf_source_id", "hsat_source_id", "page")
     )
 
     all_chunks = list(queryset)

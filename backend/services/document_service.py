@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from typing import Dict, List, Optional
 
-from apps.documents.models import DocumentChunk, PdfSource
+from apps.documents.models import DocumentChunk, HsatSource, PdfSource
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
@@ -69,10 +69,62 @@ def _scan_with_av(buffer: bytes, file_name: str) -> tuple[bool, Optional[str]]:
 def _process_pdf_internal(
     buffer: bytes, file_name: str, file_type: str, pdf_source: PdfSource, user
 ) -> None:
+    """User-upload entry: process a PDF/DOCX/TXT into chunks under `pdf_source`."""
+    extract_and_persist_chunks(
+        buffer=buffer,
+        file_name=file_name,
+        file_type=file_type,
+        pdf_source=pdf_source,
+        user=user,
+        extra_metadata=None,
+        mark_ready=True,
+    )
+
+    # Surface degradation warnings on the source (mirrors prior behaviour).
+    warnings: List[str] = []
+    pdf_metadata = getattr(pdf_source, "_pdf_metadata", {}) or {}
+    if pdf_metadata.get("degraded"):
+        reason = str(pdf_metadata.get("degradedReason") or "")
+        if "pymupdf_not_installed" in reason:
+            warnings.append(
+                "PyMuPDF is not installed on the server. Falling back to text-only "
+                "extraction — image extraction and figure captioning are disabled, "
+                "which can reduce question-paper coverage. Install 'PyMuPDF>=1.24' "
+                "on the backend to enable full extraction."
+            )
+        else:
+            warnings.append(
+                "PDF extraction degraded to text-only mode (no image extraction). "
+                f"Reason: {reason or 'unknown'}."
+            )
+    pdf_source.warnings = warnings  # type: ignore[attr-defined]
+
+
+def extract_and_persist_chunks(
+    *,
+    buffer: bytes,
+    file_name: str,
+    file_type: str,
+    pdf_source: Optional[PdfSource] = None,
+    hsat_source: Optional[HsatSource] = None,
+    extra_metadata: Optional[Dict[str, object]] = None,
+    user=None,
+    mark_ready: bool = False,
+) -> Dict[str, object]:
     """
-    Internal PDF processing: extract text, create chunks, generate embeddings.
-    This is called both from process_pdf_upload and process_pdf_from_storage.
+    Polymorphic chunk pipeline shared by user-PDF and HSAT ingestion.
+
+    Exactly one of ``pdf_source`` or ``hsat_source`` must be supplied —
+    every persisted chunk gets that FK so the retrieval layer can filter
+    by either source kind without changing chunk storage.
+
+    Returns a small stats dict: {"text_chunks", "image_chunks", "metadata"}.
     """
+    if (pdf_source is None) == (hsat_source is None):
+        raise ValueError(
+            "extract_and_persist_chunks needs exactly one of pdf_source / hsat_source"
+        )
+
     extracted_text = ""
     pages = []
     images = []
@@ -100,8 +152,11 @@ def _process_pdf_internal(
     else:
         chunks = chunk_text(extracted_text)
 
+    text_chunk_count = len(chunks)
+
     image_chunks = _build_image_chunks(
         pdf_source=pdf_source,
+        hsat_source=hsat_source,
         file_name=file_name,
         images=images,
         pages=pages,
@@ -112,6 +167,15 @@ def _process_pdf_internal(
 
     if not chunks:
         raise ValueError("No searchable text or visual chunks could be extracted")
+
+    metadata_overlay = {"sourcePdf": file_name, **(extra_metadata or {})}
+
+    # Live chunk-count progress: after every batch we atomically bump the
+    # parent's chunk_count via F('chunk_count') + N so the status endpoint
+    # reflects real progress while a long book is still ingesting. Without
+    # this, the user sees "0 chunks" for several minutes even though
+    # DocumentChunk rows are being written.
+    from django.db.models import F  # local import — avoids circular at top
 
     batch_size = 50
     for i in range(0, len(chunks), batch_size):
@@ -128,17 +192,34 @@ def _process_pdf_internal(
                     chunk_index=chunk.chunk_index,
                     embedding=embedding,
                     pdf_source=pdf_source,
+                    hsat_source=hsat_source,
                     metadata={
                         **(getattr(chunk, "metadata", {}) or {}),
-                        "sourcePdf": file_name,
+                        **metadata_overlay,
                     },
                 )
                 for chunk, embedding in zip(batch, embeddings)
             ]
         )
 
-    pdf_source.status = "ready"
-    pdf_source.save(update_fields=["status", "updated_at"])
+        if hsat_source is not None:
+            HsatSource.objects.filter(pk=hsat_source.pk).update(
+                chunk_count=F("chunk_count") + len(batch),
+            )
+
+    if mark_ready and pdf_source is not None:
+        pdf_source.status = "ready"
+        pdf_source.save(update_fields=["status", "updated_at"])
+        # Stash the extraction metadata so the upload entry point can build
+        # user-visible degradation warnings without re-extracting.
+        pdf_source._pdf_metadata = pdf_metadata  # type: ignore[attr-defined]
+
+    return {
+        "text_chunks": text_chunk_count,
+        "image_chunks": len(image_chunks),
+        "total_chunks": len(chunks),
+        "metadata": pdf_metadata,
+    }
 
     warnings: List[str] = []
     if pdf_metadata.get("degraded"):
@@ -180,12 +261,27 @@ def _normalise_image_extension(extension: str) -> str:
     return extension
 
 
-def _store_extracted_image(pdf_source: PdfSource, image: Dict[str, object]) -> tuple[str, str]:
+def _store_extracted_image(
+    image: Dict[str, object],
+    *,
+    pdf_source: Optional[PdfSource] = None,
+    hsat_source: Optional[HsatSource] = None,
+) -> tuple[str, str]:
     extension = _normalise_image_extension(str(image.get("extension") or "png"))
     page_number = int(image.get("pageNumber") or 0)
     image_index = int(image.get("imageIndex") or 0)
+    if pdf_source is not None:
+        prefix = f"pdf_images/{pdf_source.id}"
+    elif hsat_source is not None:
+        # HSAT images live in a dedicated prefix so they're easy to inspect
+        # without colliding with per-user PdfSource ids. The s3_key from
+        # extra_metadata is not part of the prefix because we don't want odd
+        # characters / accents in storage paths.
+        prefix = f"hsat_images/{hsat_source.id}"
+    else:
+        raise ValueError("_store_extracted_image needs pdf_source or hsat_source")
     stored_path = default_storage.save(
-        f"pdf_images/{pdf_source.id}/page-{page_number}-image-{image_index}.{extension}",
+        f"{prefix}/page-{page_number}-image-{image_index}.{extension}",
         ContentFile(image.get("bytes") or b""),
     )
     return _public_media_url(stored_path), stored_path
@@ -235,7 +331,8 @@ def _caption_one_image(
 
 def _build_image_chunks(
     *,
-    pdf_source: PdfSource,
+    pdf_source: Optional[PdfSource] = None,
+    hsat_source: Optional[HsatSource] = None,
     file_name: str,
     images: List[Dict[str, object]],
     pages: List[dict],
@@ -275,7 +372,9 @@ def _build_image_chunks(
     chunks: List[SemanticChunk] = []
     for offset, image in enumerate(usable_images):
         page_number = int(image.get("pageNumber") or 0)
-        image_url, image_storage_path = _store_extracted_image(pdf_source, image)
+        image_url, image_storage_path = _store_extracted_image(
+            image, pdf_source=pdf_source, hsat_source=hsat_source
+        )
         nearby_text = page_text.get(page_number, "")
         caption = captions[offset]
 

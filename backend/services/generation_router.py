@@ -603,12 +603,15 @@ def _build_mathematics_blueprint_instructions(difficulty: str, count: int) -> st
         return "\n".join(rules)
     rules.extend([
         "- Total: 38 questions, 80 marks, 3 hours.",
-        "- Section A (Q1–Q20, 20×1m): Q1–Q18 MCQs; Q19–Q20 Assertion-Reason.",
+        "- Section A (Q1–Q20, 20×1m): Q1–Q18 are MCQs; Q19 AND Q20 MUST BE Assertion-Reason questions (always at the END of Section A, never elsewhere).",
         "- Section B (Q21–Q25, 5×2m): Internal choice in Q21 and Q24.",
         "- Section C (Q26–Q31, 6×3m): Internal choice in Q29 and Q31.",
         "- Section D (Q32–Q35, 4×5m): Internal choice in Q34 and Q35.",
         "- Section E (Q36–Q38, 3×4m): Sub-parts (i)1+(ii)1+(iii)2; internal OR on sub-part (iii) only.",
         "- Cover at least 7 distinct NCERT topics in Section A. No topic in more than 3 MCQs.",
+        "- Unit weightage (must match exactly): Number Systems 6m, Algebra 20m, Coordinate Geometry 6m, Geometry 15m, Trigonometry 12m, Mensuration 10m, Statistics & Probability 11m.",
+        "- PICTURE/DIAGRAM CAP: The ENTIRE paper may contain AT MOST 2 picture/diagram/figure questions (across all sections combined). Any further questions MUST be answerable from text alone.",
+        "- LaTeX delimiters: write inline math as \\( ... \\) and display equations as \\[ ... \\]. Do NOT use $...$ or $$...$$.",
         "- All answers must be correct mathematically. Show working in long answers.",
         "- Use π = 22/7 unless the question specifically states π = 3.14.",
         "- Calculator not permitted.",
@@ -1130,7 +1133,31 @@ def _build_content_instruction(slot: QuestionGenerationSlot) -> str:
 
     # Mathematics-specific notes
     if subject_norm == "mathematics":
-        lines.append("State π = 22/7 unless otherwise specified. Write equations in plain text/LaTeX (e.g., x² + 3x + 2 = 0).")
+        lines.append("State π = 22/7 unless otherwise specified.")
+        # Uniqueness directive — the parallel generation pipeline can issue
+        # several Section A MCQ prompts with overlapping retrieval contexts
+        # (this is what caused Q4 and Q7 to print identical sin-A right
+        # triangle stems). Tying the slot's `index` and `instruction_hint`
+        # into the per-slot prompt forces the model to produce a distinct
+        # scenario for THIS slot rather than echoing the retrieval chunk
+        # verbatim.
+        if slot.instruction_hint:
+            lines.append(
+                f"UNIQUENESS (slot Q{slot.index}): write a question that "
+                f"matches THIS slot's instruction hint exactly — do NOT "
+                f"recycle a scenario, values, or wording that could equally "
+                f"apply to another slot in the same section. The hint above "
+                f"is the only allowed topic for this question."
+            )
+        # Delimiter contract: the editor parses ONLY \( ... \) and \[ ... \]
+        # for KaTeX rendering. Bare $...$ collides with currency literals and
+        # $$...$$ has no inline form, so both are rejected. Unicode glyphs
+        # (²/³/√/×/÷/π) are still fine when no nesting is needed.
+        lines.append(
+            "Math typesetting: wrap inline math in \\( ... \\) and display equations in \\[ ... \\]. "
+            "Do NOT use $...$ or $$...$$. Example inline: \"Solve \\( x^2 + 3x + 2 = 0 \\).\" "
+            "Example display: \"\\[ \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a} \\]\"."
+        )
         lines.append("MCQ distractors must be plausible (represent common errors), not random numbers.")
 
     if slot.instruction_hint:
@@ -2373,6 +2400,41 @@ def _build_exact_cbse_class10_plan(
     expected_count = _expected_counts.get(subject_norm, 39)
     if len(slots) != expected_count:
         raise ValueError(f"Internal CBSE Class 10 blueprint error: expected {expected_count} questions, got {len(slots)}.")
+
+    # ── Math-specific structural invariants ──────────────────────────────
+    # Every real CBSE Class 10 Maths board paper places the 2 Assertion-Reason
+    # questions at slots Q19 and Q20 of Section A (after 18 MCQs). Random
+    # placement breaks teacher trust, so we hard-fail rather than emit a
+    # paper that violates the official Sample Question Paper layout.
+    if subject_norm == "mathematics":
+        section_a_slots = [s for s in slots if str(s.section_title).startswith("Section A")]
+        if len(section_a_slots) != 20:
+            raise ValueError(
+                f"Mathematics Section A must have exactly 20 questions, got {len(section_a_slots)}."
+            )
+        for idx, s in enumerate(section_a_slots[:18], start=1):
+            if s.legacy_type != "MCQ":
+                raise ValueError(
+                    f"Mathematics Section A invariant: Q{idx} must be MCQ, got {s.legacy_type}."
+                )
+        for q_num, s in zip((19, 20), section_a_slots[18:20]):
+            if s.legacy_type != "ASSERTION_REASON":
+                raise ValueError(
+                    f"Mathematics Section A invariant: Q{q_num} must be ASSERTION_REASON, got {s.legacy_type}."
+                )
+
+    # ── Mathematics-only picture/diagram cap (max 2) ─────────────────────
+    # Math papers must contain at most 2 figure-bearing questions across
+    # the whole paper; Social Science legitimately has more (History
+    # image-MCQ + History map + Geography map + Civics cartoon), so the
+    # cap is scoped to mathematics only.
+    if subject_norm == "mathematics":
+        picture_slots = [s for s in slots if s.requires_figure or s.requires_image]
+        if len(picture_slots) > 2:
+            raise ValueError(
+                f"Mathematics picture-based cap exceeded: blueprint produced "
+                f"{len(picture_slots)} figure/image slots; max 2."
+            )
     return slots
 
 

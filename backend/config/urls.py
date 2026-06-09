@@ -11,6 +11,7 @@ urlpatterns = [
     path("api/", include("apps.common.urls")),
     path("api/auth/", include("apps.accounts.urls")),
     path("api/documents/", include("apps.documents.urls")),
+    path("api/hsat/", include("apps.documents.hsat_urls")),
     path("api/generation/", include("apps.generation.urls")),
     path("api/projects/", include("apps.projects.urls")),
 ]

@@ -1,0 +1,124 @@
+# S3 catalog dump for bucket=qp-gen-pdfs region=ap-southeast-2
+# total_objects=121 total_bytes=279875810
+
+2107726	class 10/English/X - FIRST FLIGHT/CH1 -  A Letter to God.pdf
+2149001	class 10/English/X - FIRST FLIGHT/CH2 - Nelson MandelaLong Walk to Freedom.pdf
+2294648	class 10/English/X - FIRST FLIGHT/CH3 -  Two Stories about Flying.pdf
+1928332	class 10/English/X - FIRST FLIGHT/CH4 -  From the Diary of Anne Frank.pdf
+2074325	class 10/English/X - FIRST FLIGHT/CH5 - Glimpses of India.pdf
+1914442	class 10/English/X - FIRST FLIGHT/CH6 - Mijbil the Otter.pdf
+2372557	class 10/English/X - FIRST FLIGHT/CH7 -  Madam Rides the Bus.pdf
+1519744	class 10/English/X - FIRST FLIGHT/CH8 - The Sermon at Benares.pdf
+2397005	class 10/English/X - FIRST FLIGHT/CH9 - The Proposal.pdf
+2217988	class 10/English/X - Footprints without Feet/CH1 -   A Triumph of Surgery.pdf
+1911290	class 10/English/X - Footprints without Feet/CH2 - The Thief’s Stor.pdf
+2203348	class 10/English/X - Footprints without Feet/CH3 -  The Midnight Visitor.pdf
+1971288	class 10/English/X - Footprints without Feet/CH4 -  A Question of Trust.pdf
+2044078	class 10/English/X - Footprints without Feet/CH5 -  Footprints without Feet.pdf
+1930288	class 10/English/X - Footprints without Feet/CH6 - The Making of a Scientist.pdf
+2349285	class 10/English/X - Footprints without Feet/CH7 - The Necklace.pdf
+2742053	class 10/English/X - Footprints without Feet/CH8 -  Bholi.pdf
+3452293	class 10/English/X - Footprints without Feet/CH9 - The Book That Saved the Earth.pdf
+1037602	class 10/Hindi/X - KRITIKA 2/CH1 - माता का आँचल.pdf
+1296207	class 10/Hindi/X - KRITIKA 2/CH2 - साना साना हाथ जोड़ी.pdf
+495042	class 10/Hindi/X - KRITIKA 2/CH3 - मैं क्या लिखता हूं.pdf
+2225078	class 10/Hindi/X - SANCHAYAN 2/CH1 - हरिहर काका.pdf
+1899301	class 10/Hindi/X - SANCHAYAN 2/CH2 - सपनों के- से दिन.pdf
+1792173	class 10/Hindi/X - SANCHAYAN 2/CH3 - टोपी शुक्ला.pdf
+1339000	class 10/Hindi/X - SPARSH 2/CH1 - कबीर.pdf
+1471504	class 10/Hindi/X - SPARSH 2/CH10 - लीलाधर मंडलोई.pdf
+1358058	class 10/Hindi/X - SPARSH 2/CH11 - प्रहलादअग्रवाल.pdf
+1337737	class 10/Hindi/X - SPARSH 2/CH12 - निदा फाजली.pdf
+1449229	class 10/Hindi/X - SPARSH 2/CH13- रवीन्द्र केलेकर.pdf
+1486082	class 10/Hindi/X - SPARSH 2/CH14 - हबीब तनवीर.pdf
+1111254	class 10/Hindi/X - SPARSH 2/CH2 - मीरा.pdf
+1197374	class 10/Hindi/X - SPARSH 2/CH3 - मैथिलीशरण गुप्त.pdf
+1147932	class 10/Hindi/X - SPARSH 2/CH4 - सुमित्रानंद पंत.pdf
+1024371	class 10/Hindi/X - SPARSH 2/CH5 - वीरेन डंगवाल.pdf
+1077463	class 10/Hindi/X - SPARSH 2/CH6 - कैफ़ी आज़मी.pdf
+1266540	class 10/Hindi/X - SPARSH 2/CH7 - रवीन्द्रनाथ ठाकुर.pdf
+2058967	class 10/Hindi/X - SPARSH 2/CH8 - प्रेमचंद.pdf
+1378239	class 10/Hindi/X - SPARSH 2/CH9 - सीताराम सेकसरिया.pdf
+1056817	class 10/Hindi/X- KSHITIJ 2/CH1 - सूरदास.pdf
+1284196	class 10/Hindi/X- KSHITIJ 2/CH10 - मन्नू भंडारी.pdf
+1123447	class 10/Hindi/X- KSHITIJ 2/CH11 - यतीन्द्र मिश्र.pdf
+642975	class 10/Hindi/X- KSHITIJ 2/CH12 - भदंत आनंद कोसल्याण.pdf
+628133	class 10/Hindi/X- KSHITIJ 2/CH2 - तुलसीदास.pdf
+447652	class 10/Hindi/X- KSHITIJ 2/CH3 - जय शंकर प्रसाद.pdf
+708459	class 10/Hindi/X- KSHITIJ 2/CH4 - सूर्यकांत त्रिपाठी निराला.pdf
+678901	class 10/Hindi/X- KSHITIJ 2/CH5 - नागार्जुन.pdf
+979290	class 10/Hindi/X- KSHITIJ 2/CH6 - मंगलेश डबराल.pdf
+842181	class 10/Hindi/X- KSHITIJ 2/CH7 - स्वयं प्रकाश.pdf
+822248	class 10/Hindi/X- KSHITIJ 2/CH8 - रामबृक्ष बेनीपुरी.pdf
+602461	class 10/Hindi/X- KSHITIJ 2/CH9 - यशपाल.pdf
+1534149	class 10/Maths/jemh101.pdf
+1686285	class 10/Maths/jemh102.pdf
+2084232	class 10/Maths/jemh103.pdf
+1499207	class 10/Maths/jemh104.pdf
+2357823	class 10/Maths/jemh105.pdf
+2799087	class 10/Maths/jemh106.pdf
+2152902	class 10/Maths/jemh107.pdf
+2230227	class 10/Maths/jemh108.pdf
+1838085	class 10/Maths/jemh109.pdf
+1366412	class 10/Maths/jemh110.pdf
+1310079	class 10/Maths/jemh111.pdf
+1620005	class 10/Maths/jemh112.pdf
+2803743	class 10/Maths/jemh113.pdf
+1847788	class 10/Maths/jemh114.pdf
+2024250	class 10/Maths/jemh1a1.pdf
+1452288	class 10/Maths/jemh1a2.pdf
+1561426	class 10/Maths/jemh1an.pdf
+1969484	class 10/Maths/jemh1ps.pdf
+3936863	class 10/Science/CH1 -   Chemical Reactions and Equations.pdf
+1494518	class 10/Science/CH10 - The Human Eye and the Colourful World.pdf
+1207343	class 10/Science/CH11 - Electricity.pdf
+1819027	class 10/Science/CH12 - Magnetic Effects of Electric Current.pdf
+3494025	class 10/Science/CH13 - Our Environment.pdf
+4017613	class 10/Science/CH2 - Acids, Bases and Salts.pdf
+2822178	class 10/Science/CH3 - Metals and Non-metals.pdf
+12895053	class 10/Science/CH4 - Carbon and its Compounds.pdf
+9153322	class 10/Science/CH5 - Life Processes.pdf
+2562756	class 10/Science/CH6 - Control and Coordination.pdf
+3547484	class 10/Science/CH7 - How do Organisms Reproduce.pdf
+18120968	class 10/Science/CH8 - Heredity.pdf
+1114635	class 10/Science/CH9 - Light – Reflection and Refraction.pdf
+1765677	class 10/Social/X - Contemporary India -II/CH1 - Resources and Development.pdf
+975161	class 10/Social/X - Contemporary India -II/CH2 - Forest and Wildlife Resources.pdf
+1984101	class 10/Social/X - Contemporary India -II/CH3 - Water Resources.pdf
+2249678	class 10/Social/X - Contemporary India -II/CH4 - Agriculture.pdf
+2697908	class 10/Social/X - Contemporary India -II/CH5 - Minerals and Energy Resources.pdf
+1642014	class 10/Social/X - Contemporary India -II/CH6 - Manufacturing Industries.pdf
+2200061	class 10/Social/X - Contemporary India -II/CH7 - Lifelines of National Economy.pdf
+1823849	class 10/Social/X - Democratic Politics-II/CH1 - Power-sharing.pdf
+2658274	class 10/Social/X - Democratic Politics-II/CH2 - Federalism.pdf
+2312090	class 10/Social/X - Democratic Politics-II/CH3 - Gender, Religion and Caste.pdf
+3496196	class 10/Social/X - Democratic Politics-II/CH4 - Political Parties.pdf
+2124502	class 10/Social/X - Democratic Politics-II/CH5 - Outcomes of Democracy.pdf
+5594926	class 10/Social/X - India and the Contemporary World – II/CH1 -  The Rise of Nationalism in Europe.pdf
+5002240	class 10/Social/X - India and the Contemporary World – II/CH2 -  Nationalism in India.pdf
+5886652	class 10/Social/X - India and the Contemporary World – II/CH3 -  The Making of a Global World.pdf
+5960506	class 10/Social/X - India and the Contemporary World – II/CH4 -  The Age of Industrialisation.pdf
+5352043	class 10/Social/X - India and the Contemporary World – II/CH5 -  Print Culture and the Modern World.pdf
+2317019	class 10/Social/X - Understanding Economic Development/CH1 - DEVELOPMENT.pdf
+2688738	class 10/Social/X - Understanding Economic Development/CH2 - SECTORS OF THE INDIAN ECONOMY.pdf
+3219969	class 10/Social/X - Understanding Economic Development/CH3 - MONEY AND CREDIT.pdf
+3433855	class 10/Social/X - Understanding Economic Development/CH4 - GLOBALISATION AND THE INDIAN ECONOMY.pdf
+3184018	class 10/Social/X - Understanding Economic Development/CH5 - CONSUMER RIGHTS.pdf
+1534149	jemh101.pdf
+1686285	jemh102.pdf
+2084232	jemh103.pdf
+1499207	jemh104.pdf
+2357823	jemh105.pdf
+2799087	jemh106.pdf
+2152902	jemh107.pdf
+2230227	jemh108.pdf
+1838085	jemh109.pdf
+1366412	jemh110.pdf
+1310079	jemh111.pdf
+1620005	jemh112.pdf
+2803743	jemh113.pdf
+1847788	jemh114.pdf
+2024250	jemh1a1.pdf
+1452288	jemh1a2.pdf
+1561426	jemh1an.pdf
+1969484	jemh1ps.pdf

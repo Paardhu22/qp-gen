@@ -45,6 +45,35 @@ def default_system_rules(constraints: Optional[GenerationConstraints]) -> str:
         "Obey the exact slot contract and JSON schema.",
         "Never add extra question objects or split an OR choice into another question.",
         "Use provided image payloads only for image/map/diagram slots.",
+        # Cluster B (figure pipeline): a stem must NEVER reference an
+        # external figure the response did not supply. There are exactly
+        # two valid shapes for a figure-bearing question:
+        #
+        #   OPTION 1 — emit a self-contained inline SVG in the `figure`
+        #              field with labelled vertices / sides / angles.
+        #              Cap: ~16 KB, no <script>, no <foreignObject>,
+        #              no remote xlink:href.
+        #   OPTION 2 — rewrite the stem so every relationship the
+        #              question depends on is stated in words ("In right
+        #              triangle ABC, right-angled at B, AB = 24 cm…").
+        #
+        # If neither option fits, omit the `figure` key AND remove every
+        # phrase like "observe the figure / see the diagram / in the
+        # figure / refer to the image / shown above / shown below" from
+        # the stem before returning. A "see figure" stem with no figure
+        # is rejected and regenerated.
+        "Figure rule: emit a valid inline SVG in `figure` OR write a "
+        "text-self-contained stem that cites no figure at all. Never "
+        "mention 'figure', 'diagram', 'image', 'picture', 'circuit', "
+        "'graph', or 'sketch' unless you ALSO populated `figure` with a "
+        "valid SVG (or were given a real `image_url` to attach).",
+        "You must analyze how sub-questions (A) and (B) are presented and format them according to these two strict rules:\n\n"
+        "1. Standard Parts (No \"OR\"): > If you see questions labeled (A) and (B) sequentially, and there is NO \"OR\" separating them, treat them as completely separate questions.\n\n"
+        "2. Internal Choice (With \"OR\" in a Single Block): > If you see questions (A) and (B) separated by the word \"OR\", they must be kept together as a single, unified question block (representing one cell). Format it exactly like this:\n\n"
+        "Output the text for (A).\n"
+        "Insert a standalone \" OR \" on a new line immediately following (A).\n"
+        "Output the text for (B) immediately after the \"OR\".\n\n"
+        "Safeguard: Apply this logic strictly. Make sure that correctly grouping the \"OR\" questions into a single block does not break or alter the formatting of standard multi-part questions or any previously established rules.",
     ]
 
     if constraints:

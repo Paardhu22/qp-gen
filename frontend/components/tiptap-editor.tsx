@@ -499,20 +499,75 @@ function scrollToDocumentPosition(editor: any, position: number) {
   });
 }
 
-function buildQuestionContentNodes(content: string) {
-  const blocks = String(content || "")
-    .split(/\n{2,}|\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+// LaTeX delimiter contract (matches the LLM prompt directive in
+// generation_router.py): inline math = \( ... \), display math = \[ ... \].
+// $...$ is also accepted as a tolerant fallback because the editor's existing
+// `$x$` InputRule already trained users on it; we transform it into the same
+// inlineMath node so the rendered output is consistent.
+//
+// Display ( \[ ... \] ) becomes its own ProseMirror block (mathBlock); inline
+// occurrences are spliced into the surrounding paragraph as inlineMath atoms.
+// Without this, raw "\( ... \)" survived to the rendered question stem as
+// literal backslashes — which was the bug teachers reported.
+const DISPLAY_MATH_RE = /\\\[([\s\S]+?)\\\]/g;
+const INLINE_MATH_RE = /\\\(([\s\S]+?)\\\)|\$([^\n$]+?)\$/g;
 
-  if (blocks.length === 0) {
+function buildInlineRun(text: string): any[] {
+  const out: any[] = [];
+  let cursor = 0;
+  INLINE_MATH_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = INLINE_MATH_RE.exec(text))) {
+    if (m.index > cursor) {
+      out.push({ type: "text", text: text.slice(cursor, m.index) });
+    }
+    const latex = (m[1] ?? m[2] ?? "").trim();
+    if (latex) {
+      out.push({ type: "inlineMath", attrs: { latex } });
+    }
+    cursor = m.index + m[0].length;
+  }
+  if (cursor < text.length) {
+    out.push({ type: "text", text: text.slice(cursor) });
+  }
+  return out.length > 0 ? out : [{ type: "text", text }];
+}
+
+function buildQuestionContentNodes(content: string) {
+  const raw = String(content || "");
+  if (!raw.trim()) {
     return [{ type: "paragraph" }];
   }
 
-  return blocks.map((line) => ({
-    type: "paragraph",
-    content: [{ type: "text", text: line }],
-  }));
+  // First split out display-math segments as standalone block nodes; the
+  // remaining string is processed paragraph-by-paragraph with inline math.
+  const blocks: any[] = [];
+  let cursor = 0;
+  DISPLAY_MATH_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = DISPLAY_MATH_RE.exec(raw))) {
+    if (m.index > cursor) {
+      const chunk = raw.slice(cursor, m.index);
+      pushTextBlocks(chunk, blocks);
+    }
+    const latex = (m[1] ?? "").trim();
+    if (latex) {
+      blocks.push({ type: "mathBlock", attrs: { latex, displayMode: true } });
+    }
+    cursor = m.index + m[0].length;
+  }
+  if (cursor < raw.length) {
+    pushTextBlocks(raw.slice(cursor), blocks);
+  }
+
+  return blocks.length > 0 ? blocks : [{ type: "paragraph" }];
+}
+
+function pushTextBlocks(chunk: string, blocks: any[]) {
+  const lines = chunk.split(/\n{2,}|\n/).map((l) => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    blocks.push({ type: "paragraph", content: buildInlineRun(line) });
+  }
 }
 
 // Insertion guard for generated figures. We accept ONLY a `data:` URL (the
@@ -1529,7 +1584,15 @@ export const TiptapEditor = ({
               content: [
                 {
                   type: "paragraph",
-                  content: [{ type: "text", text: opt }],
+                  // Bug 1 fix: MCQ options used to wrap raw text in a single
+                  // { type: "text", text: opt } node. Any LaTeX delimiters
+                  // (\(\tfrac{11}{36}\), \(\dfrac{7}{25}\), \(x^2 - 5x +
+                  // 6 = 0\)) survived to the rendered DOM as literal
+                  // backslashes, which then made it into the PDF rasterizer
+                  // unchanged. Reuse buildInlineRun so math in options gets
+                  // the same inlineMath KaTeX node treatment that question
+                  // stems already enjoy.
+                  content: buildInlineRun(opt),
                 },
               ],
             })),
