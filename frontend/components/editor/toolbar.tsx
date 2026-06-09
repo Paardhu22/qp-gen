@@ -1103,9 +1103,64 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
         </div>
       </div>
 
-      {/* Secondary Toolbar - Paper Structure */}
+      {/* Secondary Toolbar - Paper Structure.
+          E — Order follows paper-construction sequence:
+          Header → Instructions → Section → Question → MCQ →
+          Assertion-Reason → OR Group → Grouped OR → Grouped Questions. */}
       <div className="flex items-center gap-1 px-2 py-1 border-t border-border/50 bg-muted/30">
-        {/* Question Paper Blocks */}
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            // Issue 2 — the header used to be inserted pre-filled with
+            // ALL-CAPS placeholder text ("SCHOOL / INSTITUTION NAME",
+            // "Time Allowed: __ Hours", …). That text was real content
+            // and survived to PDF/DOCX unedited when teachers missed it.
+            // Now the structural skeleton is empty; the Placeholder
+            // extension provides per-line ghost prompts.
+            insertAfterCurrentBlock("paperHeaderBlock", [
+              { type: "heading", attrs: { level: 1 } },
+              { type: "heading", attrs: { level: 2 } },
+              { type: "paragraph" },
+              {
+                type: "table",
+                content: [
+                  {
+                    type: "tableRow",
+                    content: [
+                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph" }] },
+                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph" }] },
+                    ],
+                  },
+                ],
+              },
+            ]);
+          }}
+          className="h-6 px-2 text-[10px] font-medium text-teal-400 hover:bg-teal-500/10 rounded transition-colors flex items-center gap-1"
+        >
+          <PlusCircle className="h-3 w-3" /> Header
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() =>
+            insertAfterCurrentBlock(
+              "instructionBlock",
+              [
+                {
+                  type: "orderedList",
+                  content: [
+                    { type: "listItem", content: [{ type: "paragraph" }] },
+                  ],
+                },
+              ],
+              { variant: "general" },
+            )
+          }
+          className="h-6 px-2 text-[10px] font-medium text-amber-400 hover:bg-amber-500/10 rounded transition-colors flex items-center gap-1"
+        >
+          <PlusCircle className="h-3 w-3" /> Instructions
+        </button>
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
@@ -1146,21 +1201,96 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           onMouseDown={(e) => e.preventDefault()}
           onClick={() =>
             insertAfterCurrentBlock(
-              "instructionBlock",
+              "questionBlock",
               [
+                { type: "paragraph" },
                 {
                   type: "orderedList",
                   content: [
                     { type: "listItem", content: [{ type: "paragraph" }] },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
+                    { type: "listItem", content: [{ type: "paragraph" }] },
                   ],
                 },
               ],
-              { variant: "general" },
+              { marks: 1, questionType: "MCQ" },
             )
           }
-          className="h-6 px-2 text-[10px] font-medium text-amber-400 hover:bg-amber-500/10 rounded transition-colors flex items-center gap-1"
+          className="h-6 px-2 text-[10px] font-medium text-rose-400 hover:bg-rose-500/10 rounded transition-colors flex items-center gap-1"
         >
-          <PlusCircle className="h-3 w-3" /> Instructions
+          <PlusCircle className="h-3 w-3" /> MCQ
+        </button>
+        {/* Cluster C.1 — Assertion-Reasoning (CBSE Q19/Q20 pattern). Inserts
+            a questionBlock with Assertion + Reason paragraphs and the four
+            canonical answer options. `questionType: "ASSERTION_REASON"`
+            mirrors the generation router's enum so the saved paper round-
+            trips identically through the answer-script extractor. */}
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() =>
+            // D — Assertion-Reason bodies are empty with placeholder
+            // decoration. The Placeholder extension renders
+            // "Assertion (A) …" / "Reason (R) …" ghosts on the first
+            // and second empty paragraphs; once the teacher types, the
+            // ghost disappears and only their text is saved. The four
+            // canonical CBSE answer options remain as real text since
+            // they are immutable boilerplate, not user content (see
+            // FIX_REPORT — confirm with user whether to convert these
+            // to placeholders too).
+            insertAfterCurrentBlock(
+              "questionBlock",
+              [
+                { type: "paragraph" },
+                { type: "paragraph" },
+                {
+                  type: "orderedList",
+                  content: [
+                    {
+                      type: "listItem",
+                      content: [{
+                        type: "paragraph",
+                        content: [{
+                          type: "text",
+                          text: "Both A and R are true, and R is the correct explanation of A.",
+                        }],
+                      }],
+                    },
+                    {
+                      type: "listItem",
+                      content: [{
+                        type: "paragraph",
+                        content: [{
+                          type: "text",
+                          text: "Both A and R are true, but R is not the correct explanation of A.",
+                        }],
+                      }],
+                    },
+                    {
+                      type: "listItem",
+                      content: [{
+                        type: "paragraph",
+                        content: [{ type: "text", text: "A is true but R is false." }],
+                      }],
+                    },
+                    {
+                      type: "listItem",
+                      content: [{
+                        type: "paragraph",
+                        content: [{ type: "text", text: "A is false but R is true." }],
+                      }],
+                    },
+                  ],
+                },
+              ],
+              { marks: 1, questionType: "ASSERTION_REASON" },
+            )
+          }
+          className="h-6 px-2 text-[10px] font-medium text-fuchsia-400 hover:bg-fuchsia-500/10 rounded transition-colors flex items-center gap-1"
+          title="Insert an Assertion-Reason question (CBSE Q19/Q20 pattern)"
+        >
+          <PlusCircle className="h-3 w-3" /> Assertion-Reason
         </button>
         <button
           type="button"
@@ -1237,141 +1367,6 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           className="h-6 px-2 text-[10px] font-medium text-sky-500 hover:bg-sky-500/10 rounded transition-colors flex items-center gap-1"
         >
           <PlusCircle className="h-3 w-3" /> Grouped Questions
-        </button>
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() =>
-            insertAfterCurrentBlock(
-              "questionBlock",
-              [
-                { type: "paragraph" },
-                {
-                  type: "orderedList",
-                  content: [
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                  ],
-                },
-              ],
-              { marks: 1, questionType: "MCQ" },
-            )
-          }
-          className="h-6 px-2 text-[10px] font-medium text-rose-400 hover:bg-rose-500/10 rounded transition-colors flex items-center gap-1"
-        >
-          <PlusCircle className="h-3 w-3" /> MCQ
-        </button>
-        {/* Cluster C.1 — Assertion-Reasoning (CBSE Q19/Q20 pattern). Inserts
-            a questionBlock with Assertion + Reason paragraphs and the four
-            canonical answer options. `questionType: "ASSERTION_REASON"`
-            mirrors the generation router's enum so the saved paper round-
-            trips identically through the answer-script extractor. */}
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() =>
-            // Issue 2 — drop the "Enter assertion/reason here..." filler that
-            // was being committed as real text. The bold "Assertion (A): " /
-            // "Reason (R): " prefixes ARE the structural labels (so the user
-            // can see what each line is for) and remain real content. The
-            // four canonical AR answer options also remain — they are the
-            // CBSE-standard answer set, not placeholders.
-            insertAfterCurrentBlock(
-              "questionBlock",
-              [
-                {
-                  type: "paragraph",
-                  content: [
-                    { type: "text", marks: [{ type: "bold" }], text: "Assertion (A): " },
-                  ],
-                },
-                {
-                  type: "paragraph",
-                  content: [
-                    { type: "text", marks: [{ type: "bold" }], text: "Reason (R): " },
-                  ],
-                },
-                {
-                  type: "orderedList",
-                  content: [
-                    {
-                      type: "listItem",
-                      content: [{
-                        type: "paragraph",
-                        content: [{
-                          type: "text",
-                          text: "Both A and R are true, and R is the correct explanation of A.",
-                        }],
-                      }],
-                    },
-                    {
-                      type: "listItem",
-                      content: [{
-                        type: "paragraph",
-                        content: [{
-                          type: "text",
-                          text: "Both A and R are true, but R is not the correct explanation of A.",
-                        }],
-                      }],
-                    },
-                    {
-                      type: "listItem",
-                      content: [{
-                        type: "paragraph",
-                        content: [{ type: "text", text: "A is true but R is false." }],
-                      }],
-                    },
-                    {
-                      type: "listItem",
-                      content: [{
-                        type: "paragraph",
-                        content: [{ type: "text", text: "A is false but R is true." }],
-                      }],
-                    },
-                  ],
-                },
-              ],
-              { marks: 1, questionType: "ASSERTION_REASON" },
-            )
-          }
-          className="h-6 px-2 text-[10px] font-medium text-fuchsia-400 hover:bg-fuchsia-500/10 rounded transition-colors flex items-center gap-1"
-          title="Insert an Assertion-Reason question (CBSE Q19/Q20 pattern)"
-        >
-          <PlusCircle className="h-3 w-3" /> Assertion-Reason
-        </button>
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            // Issue 2 — the header used to be inserted pre-filled with
-            // ALL-CAPS placeholder text ("SCHOOL / INSTITUTION NAME",
-            // "Time Allowed: __ Hours", …). That text was real content
-            // and survived to PDF/DOCX unedited when teachers missed it.
-            // Now the structural skeleton is empty; the Placeholder
-            // extension provides per-line ghost prompts.
-            insertAfterCurrentBlock("paperHeaderBlock", [
-              { type: "heading", attrs: { level: 1 } },
-              { type: "heading", attrs: { level: 2 } },
-              { type: "paragraph" },
-              {
-                type: "table",
-                content: [
-                  {
-                    type: "tableRow",
-                    content: [
-                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph" }] },
-                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph" }] },
-                    ],
-                  },
-                ],
-              },
-            ]);
-          }}
-          className="h-6 px-2 text-[10px] font-medium text-teal-400 hover:bg-teal-500/10 rounded transition-colors flex items-center gap-1"
-        >
-          <PlusCircle className="h-3 w-3" /> Header
         </button>
 
         <ToolbarDivider />

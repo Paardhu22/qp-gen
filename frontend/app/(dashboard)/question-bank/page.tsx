@@ -70,6 +70,43 @@ function formatDate(value?: string): string {
   });
 }
 
+function formatTime(value?: string): string {
+  if (!value) return "";
+  return new Date(value).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+// F — Group papers by Today / Yesterday / explicit date. Buckets are
+// derived from the user's local timezone so the header reads naturally
+// (a paper saved at 11pm tonight stays in "Today" until midnight).
+function dateBucketLabel(value?: string): string {
+  if (!value) return "Undated";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "Undated";
+  const startOfDay = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const today = startOfDay(new Date());
+  const that = startOfDay(d);
+  const diffDays = Math.round((today - that) / 86400000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return d.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: today - that > 365 * 86400000 ? "numeric" : undefined,
+  });
+}
+
+function bucketSortKey(value?: string): number {
+  if (!value) return 0;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return 0;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -289,14 +326,18 @@ export default function QuestionBankPage() {
         </div>
       </div>
 
-      {/* ── Loading skeletons ───────────────────────────────────────────────── */}
+      {/* ── Loading skeletons (match the one-row layout) ─────────────────── */}
       {isLoading && (
-        <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              className="animate-pulse h-44 rounded-xl border bg-muted/40"
-            />
+        <div className="flex flex-col divide-y divide-border rounded-xl border bg-card">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="animate-pulse flex items-center gap-4 px-5 py-4">
+              <div className="h-9 w-9 rounded-lg bg-muted/60 shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-1/2 rounded bg-muted/60" />
+                <div className="h-3 w-3/4 rounded bg-muted/40" />
+              </div>
+              <div className="h-7 w-28 rounded bg-muted/40 shrink-0" />
+            </div>
           ))}
         </div>
       )}
@@ -316,106 +357,153 @@ export default function QuestionBankPage() {
         </div>
       )}
 
-      {/* ── Paper grid ──────────────────────────────────────────────────────── */}
+      {/* ── Paper list (F — one paper per row, grouped by date) ──────────────
+          Papers are bucketed by their updated_at (falling back to
+          created_at) into Today / Yesterday / explicit-date sections;
+          newer buckets come first, and within each bucket newer papers
+          come first. Each row is full-width with name, metadata, and
+          actions on a single horizontal line. */}
       {!isLoading && filteredPapers.length > 0 && (
-        <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredPapers.map((paper) => {
-            const isDeleting = deletingIds.has(paper.id);
-            const isGenerating = generatingIds.has(paper.id);
-            const generationError = generationErrors[paper.id];
-
-            return (
-              <div
-                key={paper.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => router.push(`/editor?paperId=${paper.id}`)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    router.push(`/editor?paperId=${paper.id}`);
-                  }
-                }}
-                className={cn(
-                  "group relative bg-card border border-border rounded-xl p-5 flex flex-col gap-4",
-                  "cursor-pointer transition-all hover:border-primary/50 hover:shadow-md",
-                  isDeleting && "opacity-50 pointer-events-none",
-                )}
-              >
-                {/* Top row: icon + delete button */}
-                <div className="flex items-center justify-between">
-                  <div className="p-2 rounded-lg bg-indigo-500/10">
-                    <FileText className="h-5 w-5 text-indigo-500" />
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Delete paper"
-                    onClick={(e) => handleDeletePaper(paper.id, e)}
-                    className={cn(
-                      "opacity-0 group-hover:opacity-100 transition-opacity",
-                      "p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10",
-                    )}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-
-                {/* Exam name */}
-                <p className="text-base font-bold text-foreground line-clamp-2 leading-snug">
-                  {paper.title}
-                </p>
-
-                {/* Metadata badges */}
-                <div className="flex flex-wrap gap-1.5">
-                  <span className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[11px] px-2 py-0.5 rounded font-medium">
-                    {paper.classLabel}
-                  </span>
-                  <span className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[11px] px-2 py-0.5 rounded font-medium">
-                    {paper.subjectLabel}
-                  </span>
-                </div>
-
-                {/* Footer row */}
-                <div className="mt-auto flex items-center justify-between gap-2">
-                  <span className="text-xs text-indigo-500 font-medium">
-                    Open in Editor →
-                  </span>
-                  <span className="text-[10px] text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded border">
-                    {formatDate(paper.updated_at ?? paper.created_at)}
-                  </span>
-                </div>
-
-                {/* Generate Answer Script button */}
-                <button
-                  type="button"
-                  disabled={isGenerating}
-                  onClick={(e) => handleGenerateAnswerScript(paper.id, e)}
-                  className={cn(
-                    "w-full flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-all",
-                    isGenerating
-                      ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-400 cursor-wait"
-                      : "border-border bg-background text-muted-foreground hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 dark:hover:text-indigo-400",
-                  )}
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Generating answer script…
-                    </>
-                  ) : (
-                    "Generate Answer Script"
-                  )}
-                </button>
-
-                {/* Error state */}
-                {generationError && !isGenerating && (
-                  <p className="text-[11px] text-red-500 dark:text-red-400 leading-snug">
-                    {generationError}
-                  </p>
-                )}
-              </div>
+        <div className="space-y-8">
+          {(() => {
+            const buckets = new Map<
+              string,
+              { label: string; sortKey: number; papers: ParsedPaper[] }
+            >();
+            for (const paper of filteredPapers) {
+              const stamp = paper.updated_at ?? paper.created_at;
+              const label = dateBucketLabel(stamp);
+              const sortKey = bucketSortKey(stamp);
+              if (!buckets.has(label)) {
+                buckets.set(label, { label, sortKey, papers: [] });
+              }
+              buckets.get(label)!.papers.push(paper);
+            }
+            const groups = Array.from(buckets.values()).sort(
+              (a, b) => b.sortKey - a.sortKey,
             );
-          })}
+            for (const group of groups) {
+              group.papers.sort((a, b) => {
+                const av = new Date(a.updated_at ?? a.created_at ?? 0).getTime();
+                const bv = new Date(b.updated_at ?? b.created_at ?? 0).getTime();
+                return bv - av;
+              });
+            }
+
+            return groups.map((group) => (
+              <section key={group.label} className="space-y-3">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {group.label}
+                </h2>
+                <div className="flex flex-col divide-y divide-border rounded-xl border border-border bg-card">
+                  {group.papers.map((paper) => {
+                    const isDeleting = deletingIds.has(paper.id);
+                    const isGenerating = generatingIds.has(paper.id);
+                    const generationError = generationErrors[paper.id];
+                    const stamp = paper.updated_at ?? paper.created_at;
+                    return (
+                      <article
+                        key={paper.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() =>
+                          router.push(`/editor?paperId=${paper.id}`)
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            router.push(`/editor?paperId=${paper.id}`);
+                          }
+                        }}
+                        className={cn(
+                          "group relative flex flex-col gap-3 px-5 py-4 transition-colors",
+                          "cursor-pointer hover:bg-muted/30 focus:bg-muted/30 focus:outline-none",
+                          "sm:flex-row sm:items-center sm:gap-6",
+                          isDeleting && "opacity-50 pointer-events-none",
+                        )}
+                      >
+                        <div className="flex items-start gap-3 sm:flex-1 sm:min-w-0">
+                          <div className="p-2 rounded-lg bg-indigo-500/10 shrink-0">
+                            <FileText className="h-5 w-5 text-indigo-500" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-base font-semibold text-foreground truncate leading-snug">
+                              {paper.title}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              <span className="font-medium text-foreground">
+                                {paper.classLabel}
+                              </span>
+                              <span className="mx-1.5 opacity-50">|</span>
+                              <span className="font-medium text-foreground">
+                                {paper.subjectLabel}
+                              </span>
+                              <span className="mx-1.5 opacity-50">|</span>
+                              {formatDate(stamp)}
+                              {formatTime(stamp) && (
+                                <>
+                                  <span className="mx-1.5 opacity-50">|</span>
+                                  {formatTime(stamp)}
+                                </>
+                              )}
+                            </p>
+                            {generationError && !isGenerating && (
+                              <p className="text-[11px] text-red-500 dark:text-red-400 mt-1">
+                                {generationError}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            disabled={isGenerating}
+                            onClick={(e) =>
+                              handleGenerateAnswerScript(paper.id, e)
+                            }
+                            className={cn(
+                              "inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
+                              isGenerating
+                                ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-400 cursor-wait"
+                                : "border-border bg-background text-muted-foreground hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 dark:hover:text-indigo-400",
+                            )}
+                          >
+                            {isGenerating ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Generating…
+                              </>
+                            ) : (
+                              "Answer Script"
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/editor?paperId=${paper.id}`);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                          >
+                            Open in Editor →
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Delete paper"
+                            onClick={(e) => handleDeletePaper(paper.id, e)}
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ));
+          })()}
         </div>
       )}
     </div>

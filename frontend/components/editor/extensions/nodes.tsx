@@ -12,6 +12,14 @@ import { GripVertical, Trash, Plus } from "lucide-react";
 // ==========================================
 
 const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
+  // C — OR-branch labels ("31(A)") have no trailing dot; standalone
+  // questions ("31.") do. subLabel wins when set.
+  const subLabel = node.attrs.subLabel;
+  const numberDisplay = subLabel
+    ? subLabel
+    : node.attrs.number
+    ? `${node.attrs.number}.`
+    : "";
   return (
     <NodeViewWrapper className="question-block group">
       <div
@@ -28,7 +36,7 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
           contentEditable={false}
           style={{ cursor: "default" }}
         >
-          {node.attrs.number ? `${node.attrs.number}.` : ""}
+          {numberDisplay}
         </div>
         <div className="question-cell question-body editable-container">
           <NodeViewContent />
@@ -82,6 +90,12 @@ export const QuestionBlock = Node.create({
     return {
       marks: { default: 1 },
       number: { default: null },
+      // C — when this block is the branch of an OR group its visible
+      // label is the parent question's number plus a branch letter
+      // ("31(A)" / "31(B)"). `subLabel` overrides `number` rendering;
+      // updateQuestionNumbers writes it whenever the block is inside
+      // a questionGroupBlock and clears it otherwise.
+      subLabel: { default: null },
       difficulty: { default: "medium" },
       questionType: { default: "SHORT" },
       tags: { default: "" },
@@ -97,11 +111,13 @@ export const QuestionBlock = Node.create({
           const el = element as HTMLElement;
           const marksAttr = el.getAttribute("data-marks");
           const numberAttr = el.getAttribute("data-number");
+          const subLabelAttr = el.getAttribute("data-sub-label");
           const marks = marksAttr ? Number(marksAttr) : 1;
           const number = numberAttr ? Number(numberAttr) : null;
           return {
             marks: Number.isNaN(marks) ? 1 : marks,
             number: Number.isNaN(number) ? null : number,
+            subLabel: subLabelAttr || null,
           };
         },
       },
@@ -116,6 +132,7 @@ export const QuestionBlock = Node.create({
         "data-type": "question-block",
         "data-marks": HTMLAttributes.marks ?? "",
         "data-number": HTMLAttributes.number ?? "",
+        "data-sub-label": HTMLAttributes.subLabel ?? "",
       }),
       ["div", { class: "question-content" }, 0],
     ];
@@ -140,6 +157,14 @@ const LABEL_STYLE_OPTIONS: { value: LabelStyle; label: string }[] = [
 
 const GroupedQuestionComponent = ({ node, updateAttributes, deleteNode, editor, getPos }: any) => {
   const labelStyle: LabelStyle = node.attrs.labelStyle || "alpha";
+  // C — OR-branch labels ("31(A)") for grouped questions inside an OR
+  // group; standalone grouped questions use "31." numbering.
+  const subLabel = node.attrs.subLabel;
+  const numberDisplay = subLabel
+    ? subLabel
+    : node.attrs.number
+    ? `${node.attrs.number}.`
+    : "";
 
   const handleAddSubQuestion = () => {
     if (!editor || typeof getPos !== "function") return;
@@ -203,7 +228,7 @@ const GroupedQuestionComponent = ({ node, updateAttributes, deleteNode, editor, 
           contentEditable={false}
           style={{ cursor: "default" }}
         >
-          {node.attrs.number ? `${node.attrs.number}.` : ""}
+          {numberDisplay}
         </div>
         <div className="question-cell question-body editable-container">
           <NodeViewContent />
@@ -286,6 +311,9 @@ export const GroupedQuestionBlock = Node.create({
     return {
       marks: { default: 1 },
       number: { default: null },
+      // C — OR-branch label like "31(A)" when this grouped question
+      // is inside a questionGroupBlock.
+      subLabel: { default: null },
       difficulty: { default: "medium" },
       questionType: { default: "GROUPED" },
       tags: { default: "" },
@@ -302,11 +330,13 @@ export const GroupedQuestionBlock = Node.create({
           const el = element as HTMLElement;
           const marksAttr = el.getAttribute("data-marks");
           const numberAttr = el.getAttribute("data-number");
+          const subLabelAttr = el.getAttribute("data-sub-label");
           const marks = marksAttr ? Number(marksAttr) : 1;
           const number = numberAttr ? Number(numberAttr) : null;
           return {
             marks: Number.isNaN(marks) ? 1 : marks,
             number: Number.isNaN(number) ? null : number,
+            subLabel: subLabelAttr || null,
           };
         },
       },
@@ -320,6 +350,7 @@ export const GroupedQuestionBlock = Node.create({
         "data-type": "grouped-question-block",
         "data-marks": HTMLAttributes.marks ?? "",
         "data-number": HTMLAttributes.number ?? "",
+        "data-sub-label": HTMLAttributes.subLabel ?? "",
         "data-label-style": HTMLAttributes.labelStyle ?? "alpha",
       }),
       ["div", { class: "question-content" }, 0],
@@ -533,6 +564,10 @@ export const InstructionBlock = Node.create({
 // ==========================================
 
 const QuestionGroupComponent = ({ node, deleteNode }: any) => {
+  // C — Board-paper OR groups are rendered as bare branches
+  // ("31(A) … OR 31(B) …"). The parent number lives on each branch's
+  // subLabel (via updateQuestionNumbers); no "Answer any ONE of the
+  // following:" header is shown.
   return (
     <NodeViewWrapper className="question-group group">
       <div
@@ -542,14 +577,6 @@ const QuestionGroupComponent = ({ node, deleteNode }: any) => {
         title="Drag to reorder"
       >
         <GripVertical className="w-3.5 h-3.5" />
-      </div>
-      <div className="question-group-header" contentEditable={false}>
-        {node.attrs.number ? (
-          <span className="question-group-number">{node.attrs.number}.</span>
-        ) : null}
-        <span className="question-group-label-text">
-          {node.attrs.label || "Answer any ONE of the following:"}
-        </span>
       </div>
       <div className="question-group-content editable-container">
         <NodeViewContent />
