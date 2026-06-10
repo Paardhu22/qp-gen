@@ -232,6 +232,60 @@ async function inlineAllImageSources(root: HTMLElement): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
+// KaTeX / inline-SVG pre-rasterization
+//
+// html2canvas cannot reliably draw inline `<svg>` elements — and KaTeX
+// draws radical signs (√), wide accents, and stretchy delimiters as inline
+// SVG paths. The visible symptom (s3b paper, Q38 & several MCQ options):
+// "√5" exports as just "5" — the digits are HTML text spans and survive,
+// the radical is an SVG and is silently dropped.
+//
+// html2canvas DOES render `<img>` elements faithfully (it decodes the
+// source through the browser's own image pipeline — the same property the
+// figure pipeline above relies on). So: in the cloned document, replace
+// every laid-out inline `<svg>` with an `<img>` whose src is the
+// serialized SVG as a data URL, pinned to the box the SVG occupied.
+// Overflow-cropping wrappers (KaTeX `.hide-tail`) keep working because the
+// replacement occupies the exact same box and the wrapper still clips.
+// ---------------------------------------------------------------------------
+
+function inlineSvgElementsAsImages(root: HTMLElement): number {
+  const svgs = Array.from(root.querySelectorAll("svg"));
+  let converted = 0;
+  for (const svg of svgs) {
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) continue; // hidden — skip
+    const view = svg.ownerDocument.defaultView;
+    const computed = view ? view.getComputedStyle(svg) : null;
+
+    const clone = svg.cloneNode(true) as SVGElement;
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    // Pin intrinsic dimensions: an SVG-in-<img> without width/height can
+    // fall back to 300×150 and distort.
+    clone.setAttribute("width", String(rect.width));
+    clone.setAttribute("height", String(rect.height));
+    // KaTeX paths carry no fill and inherit currentColor from the math
+    // span; an <img> cannot inherit CSS colour, so bake it in.
+    if (!clone.getAttribute("fill")) {
+      clone.setAttribute("fill", computed?.color || "#000000");
+    }
+
+    const xml = new XMLSerializer().serializeToString(clone);
+    const img = svg.ownerDocument.createElement("img");
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
+    img.style.width = `${rect.width}px`;
+    img.style.height = `${rect.height}px`;
+    if (computed) {
+      img.style.display = computed.display === "inline" ? "inline-block" : computed.display;
+      img.style.verticalAlign = computed.verticalAlign;
+    }
+    svg.replaceWith(img);
+    converted += 1;
+  }
+  return converted;
+}
+
+// ---------------------------------------------------------------------------
 // Main export function
 // ---------------------------------------------------------------------------
 
@@ -253,6 +307,12 @@ export async function exportToPDF(
 ): Promise<void> {
   const container = document.getElementById(elementId);
   if (!container) throw new Error(`Element #${elementId} not found`);
+
+  // KaTeX layout depends on the KaTeX webfonts. If a capture races font
+  // loading, html2canvas measures with fallback fonts and stacked layouts
+  // (fractions, superscripts) come out misaligned. Fonts are cached after
+  // first paint, so this normally resolves instantly.
+  await document.fonts.ready;
 
   // Collect individual page elements; fall back to the whole container.
   const pageEls = Array.from(
@@ -293,6 +353,10 @@ export async function exportToPDF(
       });
       rewriteHeaderDateForExport(clonedDoc);
       await inlineAllImageSources(clonedDoc.body);
+      // After image inlining (so we never convert an SVG we're about to
+      // replace anyway): swap inline SVGs (KaTeX radicals, accents,
+      // drawing nodes) for data-URL <img>s that html2canvas can draw.
+      inlineSvgElementsAsImages(clonedDoc.body);
     },
   };
 
