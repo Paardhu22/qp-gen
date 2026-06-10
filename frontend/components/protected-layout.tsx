@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
+import { ApiError } from "@/lib/api-client";
 import { useSession } from "@/lib/auth-client";
 import { getRefreshToken } from "@/lib/token-storage";
 
@@ -12,7 +13,7 @@ const SESSION_TIMEOUT_MS = 8000;
 
 export function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { data, isLoading } = useSession();
+  const { data, isLoading, error } = useSession();
   const [timedOut, setTimedOut] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // PERF: detect "previously-logged-in on this device" by sampling the
@@ -29,7 +30,7 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const [hasRefreshToken, setHasRefreshToken] = useState(false);
   useEffect(() => {
     setHasRefreshToken(Boolean(getRefreshToken()));
-  }, []);
+  }, [data?.user, isLoading, error]);
 
   // Start a safety-net timer as soon as we begin loading.
   // If the session check never finishes (network hang), we redirect to login.
@@ -48,12 +49,20 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
     };
   }, [isLoading]);
 
-  // Redirect when: session check is done (or timed out) and no user found
+  // Redirect only when auth is actually absent/rejected. Slow or failed
+  // network checks should not log out a browser that still has a refresh token.
   useEffect(() => {
-    if ((!isLoading || timedOut) && !data?.user) {
+    const authRejected = error instanceof ApiError && error.status === 401;
+    const noStoredSession = !hasRefreshToken;
+
+    if (
+      !data?.user &&
+      ((!isLoading && (noStoredSession || authRejected)) ||
+        (timedOut && noStoredSession))
+    ) {
       router.replace("/login");
     }
-  }, [data?.user, isLoading, timedOut, router]);
+  }, [data?.user, error, hasRefreshToken, isLoading, timedOut, router]);
 
   // Fast path: useSession initialized from its module-level cache (any
   // prior navigation in this session) — render children with no flicker.
@@ -68,7 +77,8 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
   // that consume `useSession().data.user` will read `undefined` for one
   // render until the fetch resolves — they already cope with that via
   // the existing `data?.user` guards (see e.g. editor/page.tsx).
-  if (isLoading && !timedOut && hasRefreshToken) {
+  const authRejected = error instanceof ApiError && error.status === 401;
+  if (!authRejected && hasRefreshToken && (isLoading || error || timedOut)) {
     return <>{children}</>;
   }
 
