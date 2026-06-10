@@ -26,6 +26,13 @@ from apps.question_generation.services.retrieval.context_service import (
     retrieve_relevant_chunks,
     retrieval_quality_summary,
 )
+from services.content_filters import (
+    clean_question_text,
+    clean_vi_alternative_text,
+    remove_orphan_or_tokens,
+    strip_blueprint_leakage,
+    wrap_bare_latex_tokens,
+)
 from services.language_validation import validate_language_question
 from services.media_urls import vision_url_for_chunk
 
@@ -264,9 +271,13 @@ def _figure_to_data_url(raw_figure: Any) -> str:
     # Reject body-empty SVGs (`<svg viewBox='…' />` or `<svg></svg>`). The
     # editor would otherwise show an empty bordered box where a labelled
     # diagram should be — that's the artefact reported on Q24 / Q33. A real
-    # geometry figure always contains at least one of these primitives.
+    # geometry figure always contains at least one DRAWING primitive.
+    # <text>/<g>/<tspan> deliberately do NOT count: an SVG whose only
+    # content is text labels ("A", "ΔB") renders as giant floating letters
+    # where the diagram should be (the s3b Q23 artefact). Labels are
+    # welcome alongside shapes, never instead of them.
     if not re.search(
-        r"<\s*(line|rect|circle|ellipse|polyline|polygon|path|text|g|tspan)\b",
+        r"<\s*(line|rect|circle|ellipse|polyline|polygon|path)\b",
         svg_clean,
         re.IGNORECASE,
     ):
@@ -345,9 +356,18 @@ def _coerce_or_choice(raw_question: dict, allowed_urls: List[str]) -> Optional[d
 
     options_raw = raw_choice.get("options", [])
     options = [str(opt).strip() for opt in options_raw if str(opt).strip()] if isinstance(options_raw, list) else []
+    options = [
+        cleaned
+        for cleaned in (
+            wrap_bare_latex_tokens(strip_blueprint_leakage(opt)) for opt in options
+        )
+        if cleaned.strip()
+    ]
     candidate_url = str(raw_choice.get("image_url") or raw_choice.get("imageUrl") or "").strip()
     image_url = candidate_url if candidate_url in allowed_urls else ""
-    content = _stringify(raw_choice.get("content")).strip()
+    # Same scrub as the parent content — the alternative is just as exposed
+    # to instruction echoes / VI residue / leading "OR" lines.
+    content = clean_question_text(_stringify(raw_choice.get("content")).strip())
     if not content:
         return None
 
@@ -370,7 +390,9 @@ def _coerce_vi_alternative(raw_question: dict) -> Optional[str]:
         return None
     if isinstance(raw_vi, dict):
         raw_vi = raw_vi.get("content") or raw_vi.get("question") or raw_vi.get("text")
-    content = _stringify(raw_vi).strip()
+    # Strip the model's own dashed/Note framing — the printer adds the
+    # canonical framing exactly once.
+    content = clean_vi_alternative_text(_stringify(raw_vi).strip())
     return content or None
 
 
@@ -474,9 +496,22 @@ def _coerce_question(
     content = _stringify(raw_question.get("content")).strip()
     if not content:
         raise ValueError("LLM returned an empty question.")
+    # Round-4 scrub: instruction echoes ("Internal choice — answer
+    # either…"), VI blocks copied from contaminated chunks, orphan OR
+    # separators, and bare un-delimited LaTeX the editor can't render.
+    content = clean_question_text(content)
+    if not content:
+        raise ValueError("Question content was only instruction/VI residue.")
 
     options_raw = raw_question.get("options", [])
     options = [str(opt).strip() for opt in options_raw if str(opt).strip()] if isinstance(options_raw, list) else []
+    options = [
+        cleaned
+        for cleaned in (
+            wrap_bare_latex_tokens(strip_blueprint_leakage(opt)) for opt in options
+        )
+        if cleaned.strip()
+    ]
     if slot.question_type == "ASSERTION_REASON":
         options = [
             "Both A and R are true, and R is the correct explanation of A.",
@@ -624,6 +659,11 @@ def _coerce_question(
     _subj = str(getattr(slot, "subject", "")).strip().lower()
     or_label = {"hindi": "अथवा", "telugu": "లేదా"}.get(_subj, "OR")
     printable_content = _printable_question_content(content, or_choice, vi_alternative, or_label=or_label)
+    # Final pass over the assembled text: collapses an OR that content
+    # ended with against the separator we just added, and drops any OR
+    # left dangling at the very top/bottom. (Per-field cleaning above
+    # can't see across the content/or_choice join.)
+    printable_content = remove_orphan_or_tokens(printable_content)
 
     return {
         "content": printable_content,
@@ -1298,9 +1338,22 @@ def stream_general_instructions_questions(
                 content = _stringify(raw_q.get("content")).strip()
                 if not content:
                     raise ValueError("Empty question content")
+                # Same round-4 scrub as the board-mode engine: instruction
+                # echoes, VI residue, orphan ORs, bare LaTeX.
+                content = clean_question_text(content)
+                if not content:
+                    raise ValueError("Question content was only instruction/VI residue")
 
                 options_raw = raw_q.get("options", [])
                 options = [str(opt).strip() for opt in options_raw if str(opt).strip()] if isinstance(options_raw, list) else []
+                options = [
+                    cleaned
+                    for cleaned in (
+                        wrap_bare_latex_tokens(strip_blueprint_leakage(opt))
+                        for opt in options
+                    )
+                    if cleaned.strip()
+                ]
 
                 if slot_entry["type"] == "ASSERTION_REASON":
                     options = [
