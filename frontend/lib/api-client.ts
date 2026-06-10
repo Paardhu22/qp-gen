@@ -1,6 +1,7 @@
 "use client";
 
 import { getAccessToken } from "@/lib/token-storage";
+import { refreshAccessToken } from "@/lib/auth-refresh";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -45,19 +46,23 @@ export async function fetchJson<T>(
     signal: callerSignal,
     ...requestInit
   } = options;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...((requestInit.headers || {}) as Record<string, string>),
-  };
+  const buildHeaders = () => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...((requestInit.headers || {}) as Record<string, string>),
+    };
 
-  const accessToken = getAccessToken();
-  if (
-    !skipAuth &&
-    accessToken &&
-    !Object.prototype.hasOwnProperty.call(headers, "Authorization")
-  ) {
-    headers["Authorization"] = `Bearer ${accessToken}`;
-  }
+    const accessToken = getAccessToken();
+    if (
+      !skipAuth &&
+      accessToken &&
+      !Object.prototype.hasOwnProperty.call(headers, "Authorization")
+    ) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
+    }
+
+    return headers;
+  };
 
   // Bail immediately if the caller already cancelled before we even started.
   if (callerSignal?.aborted) throw new SyncCancelledError();
@@ -70,13 +75,20 @@ export async function fetchJson<T>(
   const forwardAbort = () => controller.abort();
   callerSignal?.addEventListener("abort", forwardAbort, { once: true });
 
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+  const runFetch = () =>
+    fetch(`${API_BASE_URL}${path}`, {
       ...requestInit,
-      headers,
+      headers: buildHeaders(),
       signal: controller.signal,
     });
+
+  let response: Response;
+  try {
+    response = await runFetch();
+    if (response.status === 401 && !skipAuth) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) response = await runFetch();
+    }
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") {
       // Distinguish intentional cancellation from a genuine timeout.
@@ -123,15 +135,28 @@ export async function fetchForm<T>(
   path: string,
   formData: FormData,
 ): Promise<T> {
-  const headers: Record<string, string> = {};
-  const accessToken = getAccessToken();
-  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+  const buildHeaders = () => {
+    const headers: Record<string, string> = {};
+    const accessToken = getAccessToken();
+    if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+    return headers;
+  };
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  let response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     body: formData,
-    headers,
+    headers: buildHeaders(),
   });
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        method: "POST",
+        body: formData,
+        headers: buildHeaders(),
+      });
+    }
+  }
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
@@ -162,17 +187,30 @@ export async function streamSse(
   payload: Record<string, any>,
   onEvent: SseEventHandler,
 ): Promise<void> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+  const buildHeaders = () => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    const accessToken = getAccessToken();
+    if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+    return headers;
   };
-  const accessToken = getAccessToken();
-  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  let response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    headers,
+    headers: buildHeaders(),
     body: JSON.stringify(payload),
   });
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        method: "POST",
+        headers: buildHeaders(),
+        body: JSON.stringify(payload),
+      });
+    }
+  }
 
   if (!response.ok || !response.body) {
     const errorBody = await response.json().catch(() => ({}));
