@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, fetchJson } from "@/lib/api-client";
-import { clearTokens, getRefreshToken, setTokens } from "@/lib/token-storage";
+import { refreshAccessToken } from "@/lib/auth-refresh";
+import { clearTokens, setTokens } from "@/lib/token-storage";
 import { resetEditorStoreForAccountSwitch } from "@/store/editor-store";
 
 // Local helper: wipe every per-account caches that aren't already cleared
@@ -50,13 +51,6 @@ type AuthResponse = {
   refreshTokenExpiresAt: string;
 };
 
-type RefreshResponse = {
-  accessToken: string;
-  refreshToken: string;
-  accessTokenExpiresAt: string;
-  refreshTokenExpiresAt: string;
-};
-
 type FetchCallbacks = {
   onSuccess?: () => void;
   onError?: (ctx: { error: { message: string } }) => void;
@@ -65,13 +59,11 @@ type FetchCallbacks = {
 let cachedSession: SessionData | null = null;
 let sessionLoaded = false;
 let sessionPromise: Promise<SessionData | null> | null = null;
-let refreshPromise: Promise<boolean> | null = null;
 
 function resetSessionCache(): void {
   cachedSession = null;
   sessionLoaded = false;
   sessionPromise = null;
-  refreshPromise = null;
 }
 
 export const signIn = {
@@ -223,39 +215,6 @@ export async function resetPassword(
           : "Unable to reach the server. Please try again.",
     };
   }
-}
-
-async function refreshAccessToken(): Promise<boolean> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return false;
-
-  if (refreshPromise) return refreshPromise;
-
-  refreshPromise = (async () => {
-    try {
-      const response = await fetchJson<RefreshResponse>("/api/auth/refresh", {
-        method: "POST",
-        body: JSON.stringify({ refreshToken }),
-        skipAuth: true,
-      });
-
-      setTokens({
-        accessToken: response.accessToken,
-        refreshToken: response.refreshToken,
-        accessTokenExpiresAt: response.accessTokenExpiresAt,
-        refreshTokenExpiresAt: response.refreshTokenExpiresAt,
-      });
-      return true;
-    } catch {
-      clearTokens();
-      resetSessionCache();
-      return false;
-    } finally {
-      refreshPromise = null;
-    }
-  })();
-
-  return refreshPromise;
 }
 
 async function loadSession(): Promise<SessionData | null> {
