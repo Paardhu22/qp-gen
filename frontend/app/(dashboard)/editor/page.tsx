@@ -159,6 +159,56 @@ export default function EditorPage() {
   const searchParams = useSearchParams();
   const paperId = searchParams.get("paperId");
   const isNew = searchParams.get("new") === "true";
+  const actionParam = searchParams.get("action"); // e.g. "export-pdf" | "export-docx"
+
+  // Auto-trigger export when the action param is present (set by the
+  // question-paper page Actions modal). We fire after the paper finishes
+  // loading and immediately strip the param from the URL.
+  useEffect(() => {
+    if (!actionParam || paperLoading || paperError) return;
+    const IMPORT_TIMEOUT = 800; // ms — give the editor time to hydrate
+    const t = setTimeout(async () => {
+      if (actionParam === "export-pdf") {
+        try {
+          const { exportToPDF } = await import("@/lib/export-pdf");
+          const defaultName = `paper-${Date.now()}.pdf`;
+          const rawName = window.prompt("Enter a filename for the PDF", defaultName);
+          if (rawName) {
+            const filename = rawName.trim().endsWith(".pdf")
+              ? rawName.trim()
+              : `${rawName.trim()}.pdf`;
+            await exportToPDF("tiptap-paper-container", filename);
+            toast.success("PDF downloaded!");
+          }
+        } catch {
+          toast.error("PDF export failed. Please try from the toolbar.");
+        }
+      } else if (actionParam === "export-docx") {
+        try {
+          const { exportToDocx } = await import("@/lib/export-docx");
+          const defaultName = `paper-${Date.now()}.docx`;
+          const rawName = window.prompt("Enter a filename for the DOCX", defaultName);
+          if (rawName) {
+            const trimmed = rawName.trim();
+            const filename = /\.docx$/i.test(trimmed) ? trimmed : `${trimmed}.docx`;
+            const container = document.getElementById("tiptap-paper-container");
+            if (container) {
+              await exportToDocx(container, filename);
+              toast.success("DOCX downloaded!");
+            }
+          }
+        } catch {
+          toast.error("DOCX export failed. Please try from the toolbar.");
+        }
+      }
+      // Remove the action param from the URL so refresh doesn't re-trigger
+      const url = new URL(window.location.href);
+      url.searchParams.delete("action");
+      router.replace(url.pathname + url.search);
+    }, IMPORT_TIMEOUT);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actionParam, paperLoading, paperError]);
 
   const [resumeDoc, setResumeDoc] = useState<any>(null);
   const [showResumePrompt, setShowResumePrompt] = useState(false);

@@ -1,13 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchPapers,
   deletePaper,
   fetchJson,
   generateAnswerScript,
 } from "@/lib/api-client";
-import { BookOpen, FileText, Search, Trash2, Loader2 } from "lucide-react";
+import {
+  BookOpen,
+  FileText,
+  Search,
+  Trash2,
+  Loader2,
+  MoreHorizontal,
+  Eye,
+  Key,
+  RefreshCcw,
+  FileDown,
+  X,
+  AlertTriangle,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
@@ -38,6 +51,7 @@ type Paper = {
   id: string;
   title: string;
   projectName?: string;
+  answerScriptId?: string | null;   // DB-stored link to the answer script paper
   created_at?: string;
   updated_at?: string;
 };
@@ -49,9 +63,6 @@ type ParsedPaper = Paper & { classLabel: string; subjectLabel: string };
 // ---------------------------------------------------------------------------
 
 function parsePaper(paper: Paper): ParsedPaper {
-  // Tolerate any delimiter style — em-dash, en-dash, hyphen — since the
-  // project name is user-supplied free text. Whatever does not parse cleanly
-  // still goes into the search haystack via raw `projectName`.
   const cleaned = (paper.projectName || "").trim();
   const parts = cleaned.split(/\s*[—–\-]\s*/).filter(Boolean);
   return {
@@ -78,9 +89,6 @@ function formatTime(value?: string): string {
   });
 }
 
-// F — Group papers by Today / Yesterday / explicit date. Buckets are
-// derived from the user's local timezone so the header reads naturally
-// (a paper saved at 11pm tonight stays in "Today" until midnight).
 function dateBucketLabel(value?: string): string {
   if (!value) return "Undated";
   const d = new Date(value);
@@ -107,6 +115,267 @@ function bucketSortKey(value?: string): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 
+/** Answer scripts are stored as separate papers; exclude them from the main list */
+function isAnswerScriptPaper(paper: Paper): boolean {
+  return /answer[\s\-_]*key|answer[\s\-_]*script/i.test(paper.title ?? "");
+}
+
+// ---------------------------------------------------------------------------
+// Actions Modal
+// ---------------------------------------------------------------------------
+
+interface ActionsModalProps {
+  paper: ParsedPaper;
+  answerScriptId: string | null;
+  isGenerating: boolean;
+  generationError?: string;
+  onClose: () => void;
+  onViewPaper: () => void;
+  onGenerateAnswerScript: () => void;
+  onViewAnswerScript: () => void;
+  onExportPDF: () => void;
+  onExportWord: () => void;
+  onExportAnswerScriptPDF: () => void;
+  onDelete: () => void;
+}
+
+function ActionsModal({
+  paper,
+  answerScriptId,
+  isGenerating,
+  generationError,
+  onClose,
+  onViewPaper,
+  onGenerateAnswerScript,
+  onViewAnswerScript,
+  onExportPDF,
+  onExportWord,
+  onExportAnswerScriptPDF,
+  onDelete,
+}: ActionsModalProps) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const hasAnswerScript = Boolean(answerScriptId);
+
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (e.target === overlayRef.current) onClose();
+  };
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  type ActionItem = {
+    id: string;
+    icon: React.ReactNode;
+    label: string;
+    sublabel?: string;
+    disabled?: boolean;
+    danger?: boolean;
+    loading?: boolean;
+    onClick: () => void;
+    dividerAfter?: boolean;
+  };
+
+  const actions: ActionItem[] = [
+    {
+      id: "view",
+      icon: <Eye className="h-4 w-4" />,
+      label: "View Question Paper",
+      sublabel: "Open in editor",
+      onClick: onViewPaper,
+    },
+    {
+      id: "generate",
+      icon: isGenerating ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : hasAnswerScript ? (
+        <RefreshCcw className="h-4 w-4" />
+      ) : (
+        <Key className="h-4 w-4" />
+      ),
+      label: hasAnswerScript
+        ? "Regenerate Answer Script"
+        : "Generate Answer Script",
+      sublabel: isGenerating
+        ? "Generating, please wait…"
+        : hasAnswerScript
+        ? "Override existing answer script with a new one"
+        : "AI-generate an answer key for this paper",
+      disabled: isGenerating,
+      loading: isGenerating,
+      onClick: onGenerateAnswerScript,
+      dividerAfter: true,
+    },
+    {
+      id: "view-answer",
+      icon: <Eye className="h-4 w-4" />,
+      label: "View Answer Script",
+      sublabel: hasAnswerScript
+        ? "Open generated answer key"
+        : "Generate answer script first",
+      disabled: !hasAnswerScript || isGenerating,
+      onClick: onViewAnswerScript,
+      dividerAfter: true,
+    },
+    {
+      id: "export-pdf",
+      icon: <FileDown className="h-4 w-4" />,
+      label: "Export as PDF",
+      sublabel: "Download question paper as PDF",
+      onClick: onExportPDF,
+    },
+    {
+      id: "export-word",
+      icon: <FileDown className="h-4 w-4" />,
+      label: "Export as Word Document",
+      sublabel: "Download question paper as .docx",
+      onClick: onExportWord,
+    },
+    {
+      id: "export-answer-pdf",
+      icon: <FileDown className="h-4 w-4" />,
+      label: "Export Answer Script as PDF",
+      sublabel: hasAnswerScript
+        ? "Download answer key as PDF"
+        : "Generate answer script first",
+      disabled: !hasAnswerScript || isGenerating,
+      onClick: onExportAnswerScriptPDF,
+      dividerAfter: true,
+    },
+    {
+      id: "delete",
+      icon: <Trash2 className="h-4 w-4" />,
+      label: "Delete Paper",
+      sublabel: hasAnswerScript
+        ? "Also removes the linked answer script"
+        : undefined,
+      danger: true,
+      onClick: onDelete,
+    },
+  ];
+
+  return (
+    <div
+      ref={overlayRef}
+      onClick={handleBackdropClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+    >
+      <div
+        className="relative w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between px-5 py-4 border-b border-border">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-base font-semibold text-foreground">Actions</h2>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+              {paper.title}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-3 p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Generation error banner */}
+        {generationError && !isGenerating && (
+          <div className="flex items-start gap-2 mx-4 mt-3 px-3 py-2.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg">
+            <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0 mt-0.5" />
+            <p className="text-xs text-red-600 dark:text-red-400">
+              {generationError}
+            </p>
+          </div>
+        )}
+
+        {/* Action list */}
+        <div className="py-2">
+          {actions.map((action) => (
+            <div key={action.id}>
+              <button
+                type="button"
+                disabled={action.disabled}
+                onClick={() => {
+                  if (!action.disabled) {
+                    action.onClick();
+                    // Close the modal after click unless it's the generate action
+                    // (so the user can see the loading state inline)
+                    if (action.id !== "generate") onClose();
+                  }
+                }}
+                className={cn(
+                  "w-full flex items-center gap-3.5 px-5 py-3 text-left transition-colors",
+                  "disabled:opacity-40 disabled:cursor-not-allowed",
+                  action.danger
+                    ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:hover:bg-transparent"
+                    : "text-foreground hover:bg-accent disabled:hover:bg-transparent",
+                  action.loading && "cursor-wait",
+                )}
+              >
+                <span
+                  className={cn(
+                    "shrink-0",
+                    action.danger
+                      ? "text-red-500"
+                      : action.disabled
+                      ? "text-muted-foreground/50"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {action.icon}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span
+                    className={cn(
+                      "block text-sm font-medium leading-snug",
+                      action.danger && "text-red-500",
+                    )}
+                  >
+                    {action.label}
+                  </span>
+                  {action.sublabel && (
+                    <span
+                      className={cn(
+                        "block text-[11px] leading-tight mt-0.5",
+                        action.danger
+                          ? "text-red-400/80"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {action.sublabel}
+                    </span>
+                  )}
+                </span>
+              </button>
+              {action.dividerAfter && (
+                <div className="mx-5 border-t border-border/60" />
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t border-border flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 text-sm font-medium rounded-lg border border-border bg-background hover:bg-accent text-foreground transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -121,19 +390,28 @@ export default function QuestionBankPage() {
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [isClearing, setIsClearing] = useState(false);
 
-  // Answer script generation state per paper card
+  // Which paper's actions modal is open
+  const [activeActionsPaperId, setActiveActionsPaperId] = useState<
+    string | null
+  >(null);
+
+  // Per-paper generation loading / error state (in-flight only — not persisted)
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
   const [generationErrors, setGenerationErrors] = useState<
     Record<string, string>
   >({});
 
   // ---- fetch on mount ----
-  useEffect(() => {
+  const loadPapers = () => {
     setIsLoading(true);
     fetchPapers<Paper[]>()
       .then((data) => setPapers(data ?? []))
       .catch(() => toast.error("Failed to load saved papers."))
       .finally(() => setIsLoading(false));
+  };
+
+  useEffect(() => {
+    loadPapers();
   }, []);
 
   // ---- derived ----
@@ -142,35 +420,80 @@ export default function QuestionBankPage() {
     [papers],
   );
 
+  // Only show question papers in the list (answer scripts are accessed via Actions)
+  const questionPapers = useMemo(
+    () => parsedPapers.filter((p) => !isAnswerScriptPaper(p)),
+    [parsedPapers],
+  );
+
   const filteredPapers = useMemo<ParsedPaper[]>(() => {
     const term = paperSearch.trim().toLowerCase();
-    if (!term) return parsedPapers;
-    // Cluster D — match against every searchable field on the paper card.
-    // The pre-fix filter only indexed title + parsed class/subject, so
-    // queries like "Math" or the raw project name failed when the parser
-    // didn't find the expected " — " delimiter. Building a single haystack
-    // makes the search robust to project-naming inconsistencies.
-    return parsedPapers.filter((p) => {
+    if (!term) return questionPapers;
+    return questionPapers.filter((p) => {
       const haystack = [p.title, p.projectName, p.classLabel, p.subjectLabel]
         .filter((v): v is string => typeof v === "string" && v.length > 0)
         .join(" · ")
         .toLowerCase();
       return haystack.includes(term);
     });
-  }, [parsedPapers, paperSearch]);
+  }, [questionPapers, paperSearch]);
+
+  // Group by date bucket
+  const groupedPapers = useMemo(() => {
+    const buckets = new Map<
+      string,
+      { label: string; sortKey: number; papers: ParsedPaper[] }
+    >();
+    for (const paper of filteredPapers) {
+      const stamp = paper.updated_at ?? paper.created_at;
+      const label = dateBucketLabel(stamp);
+      const sortKey = bucketSortKey(stamp);
+      if (!buckets.has(label)) {
+        buckets.set(label, { label, sortKey, papers: [] });
+      }
+      buckets.get(label)!.papers.push(paper);
+    }
+    const groups = Array.from(buckets.values()).sort(
+      (a, b) => b.sortKey - a.sortKey,
+    );
+    for (const group of groups) {
+      group.papers.sort((a, b) => {
+        const av = new Date(a.updated_at ?? a.created_at ?? 0).getTime();
+        const bv = new Date(b.updated_at ?? b.created_at ?? 0).getTime();
+        return bv - av;
+      });
+    }
+    return groups;
+  }, [filteredPapers]);
 
   // ---- actions ----
   async function deletePaperById(id: string) {
     setDeletingIds((prev) => new Set(prev).add(id));
+    const paperToDelete = papers.find((p) => p.id === id);
+    const asId = paperToDelete?.answerScriptId;
+
     try {
       await deletePaper(id);
-      setPapers((prev) => prev.filter((p) => p.id !== id));
+
+      // Also delete the linked answer script stored in the DB
+      if (asId) {
+        try {
+          await deletePaper(asId);
+        } catch {
+          // non-fatal — answer script might have already been deleted
+        }
+      }
+
+      setPapers((prev) =>
+        prev.filter((p) => p.id !== id && p.id !== asId),
+      );
 
       const userId = sessionData?.user?.id;
       if (userId) {
-        await deleteLiveDocument(getLiveDocumentId(userId, id)).catch((err) =>
-          console.error("Failed to delete local autosave:", err),
-        );
+        await deleteLiveDocument(getLiveDocumentId(userId, id)).catch(() => {});
+        if (asId) {
+          await deleteLiveDocument(getLiveDocumentId(userId, asId)).catch(() => {});
+        }
       }
 
       toast.success("Paper deleted.");
@@ -185,14 +508,18 @@ export default function QuestionBankPage() {
     }
   }
 
-  function handleDeletePaper(id: string, e: React.MouseEvent) {
-    e.stopPropagation();
+  function handleDeletePaper(id: string) {
+    const paper = papers.find((p) => p.id === id);
     toast.warning("Delete this paper?", {
+      description: paper?.answerScriptId
+        ? "The linked answer script will also be deleted."
+        : undefined,
       action: {
         label: "Delete",
         onClick: () => deletePaperById(id),
       },
     });
+    setActiveActionsPaperId(null);
   }
 
   async function handleClearAll() {
@@ -203,9 +530,7 @@ export default function QuestionBankPage() {
 
       const userId = sessionData?.user?.id;
       if (userId) {
-        await clearLiveDocumentsForUser(userId).catch((err) =>
-          console.error("Failed to clear local autosaves:", err),
-        );
+        await clearLiveDocumentsForUser(userId).catch(() => {});
       }
 
       toast.success("All papers cleared.");
@@ -216,34 +541,36 @@ export default function QuestionBankPage() {
     }
   }
 
-  async function handleGenerateAnswerScript(
-    paperId: string,
-    e: React.MouseEvent,
-  ) {
-    e.stopPropagation();
-
-    // Clear any previous error
+  async function handleGenerateAnswerScript(paperId: string) {
+    // Clear any previous error for this paper
     setGenerationErrors((prev) => {
       const next = { ...prev };
       delete next[paperId];
       return next;
     });
 
-    // Set loading state
     setGeneratingIds((prev) => new Set(prev).add(paperId));
 
     try {
       const result = await generateAnswerScript(paperId);
-      toast.success("Answer script generated successfully!");
-      // Navigate to the editor with the new answer script
-      router.push(result.editor_url);
+
+      // The backend has already saved answerScriptId on the paper row.
+      // Update local state so the UI reflects the new link immediately
+      // without needing a full refetch.
+      setPapers((prev) =>
+        prev.map((p) =>
+          p.id === paperId
+            ? { ...p, answerScriptId: result.answer_script_paper_id }
+            : p,
+        ),
+      );
+
+      toast.success("Answer script generated and saved!");
     } catch (err: any) {
       const errorMessage =
         err?.message || "Failed to generate. Please try again.";
-      setGenerationErrors((prev) => ({
-        ...prev,
-        [paperId]: errorMessage,
-      }));
+      setGenerationErrors((prev) => ({ ...prev, [paperId]: errorMessage }));
+      toast.error(errorMessage);
     } finally {
       setGeneratingIds((prev) => {
         const next = new Set(prev);
@@ -253,6 +580,11 @@ export default function QuestionBankPage() {
     }
   }
 
+  // ---- render helpers ----
+  const activePaper = activeActionsPaperId
+    ? (parsedPapers.find((p) => p.id === activeActionsPaperId) ?? null)
+    : null;
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -261,26 +593,20 @@ export default function QuestionBankPage() {
     <div className="p-8 space-y-6 bg-background min-h-full">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        {/* Left: title block */}
         <div>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold leading-tight">
-                Question Paper
-              </h1>
-              {!isLoading && papers.length > 0 && (
-                <span className="inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold dark:bg-indigo-950 dark:text-indigo-400">
-                  {papers.length}
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Browse and open your saved exam papers in the editor.
-            </p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold leading-tight">Question Paper</h1>
+            {!isLoading && questionPapers.length > 0 && (
+              <span className="inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold dark:bg-indigo-950 dark:text-indigo-400">
+                {questionPapers.length}
+              </span>
+            )}
           </div>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Browse and open your saved exam papers in the editor.
+          </p>
         </div>
 
-        {/* Right: search + clear */}
         <div className="flex items-center gap-3">
           {/* Search */}
           <div className="relative">
@@ -293,7 +619,7 @@ export default function QuestionBankPage() {
             />
           </div>
 
-          {/* Clear All — only when there are papers and not loading */}
+          {/* Clear All */}
           {!isLoading && papers.length > 0 && (
             <AlertDialog>
               <AlertDialogTrigger
@@ -307,8 +633,8 @@ export default function QuestionBankPage() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Clear all saved papers?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will permanently delete every saved paper. This action
-                    cannot be undone.
+                    This will permanently delete every saved paper and its
+                    generated answer scripts. This action cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -326,187 +652,185 @@ export default function QuestionBankPage() {
         </div>
       </div>
 
-      {/* ── Loading skeletons (match the one-row layout) ─────────────────── */}
+      {/* ── Loading skeletons ─────────────────────────────────────────────── */}
       {isLoading && (
         <div className="flex flex-col divide-y divide-border rounded-xl border bg-card">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="animate-pulse flex items-center gap-4 px-5 py-4">
+            <div
+              key={i}
+              className="animate-pulse flex items-center gap-4 px-5 py-4"
+            >
               <div className="h-9 w-9 rounded-lg bg-muted/60 shrink-0" />
               <div className="flex-1 space-y-2">
                 <div className="h-4 w-1/2 rounded bg-muted/60" />
                 <div className="h-3 w-3/4 rounded bg-muted/40" />
               </div>
-              <div className="h-7 w-28 rounded bg-muted/40 shrink-0" />
+              <div className="h-8 w-24 rounded-lg bg-muted/40 shrink-0" />
+              <div className="h-8 w-8 rounded-lg bg-muted/40 shrink-0" />
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Empty state ─────────────────────────────────────────────────────── */}
-      {!isLoading && filteredPapers.length === 0 && (
+      {/* ── Empty state ───────────────────────────────────────────────────── */}
+      {!isLoading && questionPapers.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed py-20 text-center">
           <BookOpen className="h-10 w-10 opacity-30" />
           <div>
             <p className="font-semibold text-foreground">
-              No saved papers yet.
+              {paperSearch.trim()
+                ? "No papers match your search."
+                : "No saved papers yet."}
             </p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Save a paper from the Editor to see it here.
-            </p>
+            {!paperSearch.trim() && (
+              <p className="text-sm text-muted-foreground mt-1">
+                Save a paper from the Editor to see it here.
+              </p>
+            )}
           </div>
         </div>
       )}
 
-      {/* ── Paper list (F — one paper per row, grouped by date) ──────────────
-          Papers are bucketed by their updated_at (falling back to
-          created_at) into Today / Yesterday / explicit-date sections;
-          newer buckets come first, and within each bucket newer papers
-          come first. Each row is full-width with name, metadata, and
-          actions on a single horizontal line. */}
+      {/* ── Paper list ───────────────────────────────────────────────────── */}
       {!isLoading && filteredPapers.length > 0 && (
         <div className="space-y-8">
-          {(() => {
-            const buckets = new Map<
-              string,
-              { label: string; sortKey: number; papers: ParsedPaper[] }
-            >();
-            for (const paper of filteredPapers) {
-              const stamp = paper.updated_at ?? paper.created_at;
-              const label = dateBucketLabel(stamp);
-              const sortKey = bucketSortKey(stamp);
-              if (!buckets.has(label)) {
-                buckets.set(label, { label, sortKey, papers: [] });
-              }
-              buckets.get(label)!.papers.push(paper);
-            }
-            const groups = Array.from(buckets.values()).sort(
-              (a, b) => b.sortKey - a.sortKey,
-            );
-            for (const group of groups) {
-              group.papers.sort((a, b) => {
-                const av = new Date(a.updated_at ?? a.created_at ?? 0).getTime();
-                const bv = new Date(b.updated_at ?? b.created_at ?? 0).getTime();
-                return bv - av;
-              });
-            }
+          {groupedPapers.map((group) => (
+            <section key={group.label} className="space-y-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {group.label}
+              </h2>
 
-            return groups.map((group) => (
-              <section key={group.label} className="space-y-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {group.label}
-                </h2>
-                <div className="flex flex-col divide-y divide-border rounded-xl border border-border bg-card">
-                  {group.papers.map((paper) => {
-                    const isDeleting = deletingIds.has(paper.id);
-                    const isGenerating = generatingIds.has(paper.id);
-                    const generationError = generationErrors[paper.id];
-                    const stamp = paper.updated_at ?? paper.created_at;
-                    return (
-                      <article
-                        key={paper.id}
-                        role="button"
-                        tabIndex={0}
+              <div className="flex flex-col divide-y divide-border rounded-xl border border-border bg-card">
+                {group.papers.map((paper) => {
+                  const isDeleting = deletingIds.has(paper.id);
+                  const isGenerating = generatingIds.has(paper.id);
+                  const hasAnswerScript = Boolean(paper.answerScriptId);
+                  const stamp = paper.updated_at ?? paper.created_at;
+
+                  return (
+                    <article
+                      key={paper.id}
+                      className={cn(
+                        "group flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:gap-6 transition-colors",
+                        isDeleting && "opacity-50 pointer-events-none",
+                      )}
+                    >
+                      {/* Left: icon + text (clickable to open) */}
+                      <div
+                        className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
                         onClick={() =>
                           router.push(`/editor?paperId=${paper.id}`)
                         }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            router.push(`/editor?paperId=${paper.id}`);
-                          }
-                        }}
-                        className={cn(
-                          "group relative flex flex-col gap-3 px-5 py-4 transition-colors",
-                          "cursor-pointer hover:bg-muted/30 focus:bg-muted/30 focus:outline-none",
-                          "sm:flex-row sm:items-center sm:gap-6",
-                          isDeleting && "opacity-50 pointer-events-none",
-                        )}
                       >
-                        <div className="flex items-start gap-3 sm:flex-1 sm:min-w-0">
-                          <div className="p-2 rounded-lg bg-indigo-500/10 shrink-0">
-                            <FileText className="h-5 w-5 text-indigo-500" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-base font-semibold text-foreground truncate leading-snug">
-                              {paper.title}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              <span className="font-medium text-foreground">
-                                {paper.classLabel}
-                              </span>
-                              <span className="mx-1.5 opacity-50">|</span>
-                              <span className="font-medium text-foreground">
-                                {paper.subjectLabel}
-                              </span>
-                              <span className="mx-1.5 opacity-50">|</span>
-                              {formatDate(stamp)}
-                              {formatTime(stamp) && (
-                                <>
-                                  <span className="mx-1.5 opacity-50">|</span>
-                                  {formatTime(stamp)}
-                                </>
-                              )}
-                            </p>
-                            {generationError && !isGenerating && (
-                              <p className="text-[11px] text-red-500 dark:text-red-400 mt-1">
-                                {generationError}
-                              </p>
-                            )}
-                          </div>
+                        <div className="p-2 rounded-lg bg-indigo-500/10 shrink-0">
+                          <FileText className="h-5 w-5 text-indigo-500" />
                         </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            disabled={isGenerating}
-                            onClick={(e) =>
-                              handleGenerateAnswerScript(paper.id, e)
-                            }
-                            className={cn(
-                              "inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
-                              isGenerating
-                                ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-400 cursor-wait"
-                                : "border-border bg-background text-muted-foreground hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 dark:hover:text-indigo-400",
-                            )}
-                          >
-                            {isGenerating ? (
+                        <div className="min-w-0 flex-1">
+                          <p className="text-base font-semibold text-foreground truncate leading-snug">
+                            {paper.title}
+                          </p>
+                          <div className="flex items-center flex-wrap text-xs text-muted-foreground mt-0.5">
+                            <span className="font-medium text-foreground">
+                              {paper.classLabel}
+                            </span>
+                            <span className="mx-1.5 opacity-50">|</span>
+                            <span className="font-medium text-foreground">
+                              {paper.subjectLabel}
+                            </span>
+                            <span className="mx-1.5 opacity-50">|</span>
+                            {formatDate(stamp)}
+                            {formatTime(stamp) && (
                               <>
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                Generating…
+                                <span className="mx-1.5 opacity-50">|</span>
+                                {formatTime(stamp)}
                               </>
-                            ) : (
-                              "Answer Script"
                             )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              router.push(`/editor?paperId=${paper.id}`);
-                            }}
-                            className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
-                          >
-                            Open in Editor →
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="Delete paper"
-                            onClick={(e) => handleDeletePaper(paper.id, e)}
-                            className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          </div>
+                          {/* Answer script status badge */}
+                          {hasAnswerScript && !isGenerating && (
+                            <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded px-1.5 py-0.5">
+                              <Key className="h-2.5 w-2.5" />
+                              Answer Script Ready
+                            </span>
+                          )}
+                          {isGenerating && (
+                            <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-1.5 py-0.5">
+                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                              Generating Answer Script…
+                            </span>
+                          )}
                         </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            ));
-          })()}
+                      </div>
+
+                      {/* Right: Actions + Delete */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setActiveActionsPaperId(paper.id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-all"
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                          Actions
+                        </button>
+
+                        <button
+                          type="button"
+                          aria-label="Delete paper"
+                          onClick={() => handleDeletePaper(paper.id)}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
+      )}
+
+      {/* ── Actions Modal ─────────────────────────────────────────────────── */}
+      {activePaper && (
+        <ActionsModal
+          paper={activePaper}
+          answerScriptId={activePaper.answerScriptId ?? null}
+          isGenerating={generatingIds.has(activePaper.id)}
+          generationError={generationErrors[activePaper.id]}
+          onClose={() => setActiveActionsPaperId(null)}
+          onViewPaper={() => {
+            router.push(`/editor?paperId=${activePaper.id}`);
+          }}
+          onGenerateAnswerScript={() => {
+            handleGenerateAnswerScript(activePaper.id);
+            // Keep modal open — user sees live loading badge on the row
+          }}
+          onViewAnswerScript={() => {
+            if (activePaper.answerScriptId) {
+              router.push(`/editor?paperId=${activePaper.answerScriptId}`);
+            }
+          }}
+          onExportPDF={() => {
+            router.push(
+              `/editor?paperId=${activePaper.id}&action=export-pdf`,
+            );
+          }}
+          onExportWord={() => {
+            router.push(
+              `/editor?paperId=${activePaper.id}&action=export-docx`,
+            );
+          }}
+          onExportAnswerScriptPDF={() => {
+            if (activePaper.answerScriptId) {
+              router.push(
+                `/editor?paperId=${activePaper.answerScriptId}&action=export-pdf`,
+              );
+            }
+          }}
+          onDelete={() => handleDeletePaper(activePaper.id)}
+        />
       )}
     </div>
   );
 }
-

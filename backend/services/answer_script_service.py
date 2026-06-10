@@ -822,7 +822,20 @@ def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
             project=paper.project,
             user=user
         )
-        
+
+        # Step 6b: Write the link back onto the source paper so the DB holds
+        # the relationship (no more localStorage-only mapping on the frontend).
+        # Use update() to avoid touching the auto-updated `updated_at` field
+        # on the source paper (a pure metadata write shouldn't bump the edit ts).
+        Paper.objects.filter(id=paper_id, user=user).update(
+            answer_script_id=new_paper.id
+        )
+
+        # Bust the papers list cache so the next GET /api/projects/papers/
+        # returns the fresh answerScriptId immediately.
+        from django.core.cache import cache
+        cache.delete(f"user_papers:{user.id}")
+
     except Exception as e:
         logger.error(f"Failed to create answer script paper for {paper_id}: {e}")
         raise RuntimeError("Failed to create answer script paper.")
@@ -837,3 +850,4 @@ def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
         "answer_script_paper_id": new_paper.id,
         "editor_url": f"/editor?paperId={new_paper.id}",
     }
+
