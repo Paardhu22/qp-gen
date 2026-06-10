@@ -20,10 +20,12 @@ class ProjectSerializer(serializers.ModelSerializer):
 
 class PaperListSerializer(serializers.ModelSerializer):
     projectName = serializers.CharField(source="project.name", read_only=True)
+    answerScriptId = serializers.CharField(source="answer_script_id", read_only=True, allow_null=True)
 
     class Meta:
         model = Paper
-        fields = ["id", "title", "projectName", "created_at", "updated_at"]
+        fields = ["id", "title", "projectName", "answerScriptId", "created_at", "updated_at"]
+
 
 
 class PaperDetailSerializer(serializers.ModelSerializer):

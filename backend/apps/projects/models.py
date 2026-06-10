@@ -22,9 +22,18 @@ class Paper(TimeStampedModel):
     content = models.TextField()
     project = models.ForeignKey(Project, on_delete=models.CASCADE, db_column="projectId", related_name="papers")
     user = models.ForeignKey(User, on_delete=models.CASCADE, db_column="userId", related_name="papers")
+    # Stores the ID of the generated answer script paper (if any).
+    # Nullable — not every paper has an answer script yet.
+    answer_script_id = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        db_column="answerScriptId",
+    )
 
     class Meta:
         db_table = "Paper"
+
 
 
 class Question(TimeStampedModel):

@@ -391,6 +391,280 @@ const ToolbarDivider = () => (
 );
 
 // ==================================
+// Insert Block Dropdown
+// ==================================
+interface InsertBlockDropdownProps {
+  insertAfterCurrentBlock: (type: string, content?: any, attrs?: any) => void;
+  editor: Editor;
+}
+
+const InsertBlockDropdown: React.FC<InsertBlockDropdownProps> = ({
+  insertAfterCurrentBlock,
+  editor,
+}) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleSelect = (fn: () => void) => {
+    fn();
+    setOpen(false);
+  };
+
+  const options = [
+    {
+      label: "Header",
+      color: "text-teal-500",
+      hoverBg: "hover:bg-teal-500/10",
+      action: () =>
+        insertAfterCurrentBlock("paperHeaderBlock", [
+          { type: "heading", attrs: { level: 1 } },
+          { type: "heading", attrs: { level: 2 } },
+          { type: "paragraph" },
+          {
+            type: "table",
+            content: [
+              {
+                type: "tableRow",
+                content: [
+                  { type: "tableCell", attrs: {}, content: [{ type: "paragraph" }] },
+                  { type: "tableCell", attrs: {}, content: [{ type: "paragraph" }] },
+                ],
+              },
+            ],
+          },
+        ]),
+    },
+    {
+      label: "Instructions",
+      color: "text-amber-500",
+      hoverBg: "hover:bg-amber-500/10",
+      action: () =>
+        insertAfterCurrentBlock(
+          "instructionBlock",
+          [
+            {
+              type: "orderedList",
+              content: [
+                { type: "listItem", content: [{ type: "paragraph" }] },
+              ],
+            },
+          ],
+          { variant: "general" },
+        ),
+    },
+    {
+      label: "Section",
+      color: "text-indigo-500",
+      hoverBg: "hover:bg-indigo-500/10",
+      action: () => {
+        let sectionCount = 0;
+        editor.state.doc.descendants((node: any) => {
+          if (node.type.name === "sectionBlock") sectionCount++;
+        });
+        const letter = String.fromCharCode(65 + sectionCount);
+        insertAfterCurrentBlock("sectionBlock", [
+          { type: "text", text: `SECTION ${letter}` },
+        ]);
+      },
+    },
+    {
+      label: "Question",
+      color: "text-emerald-500",
+      hoverBg: "hover:bg-emerald-500/10",
+      action: () =>
+        insertAfterCurrentBlock(
+          "questionBlock",
+          [{ type: "paragraph" }],
+          { marks: 2 },
+        ),
+    },
+    {
+      label: "MCQ",
+      color: "text-rose-500",
+      hoverBg: "hover:bg-rose-500/10",
+      action: () =>
+        insertAfterCurrentBlock(
+          "questionBlock",
+          [
+            { type: "paragraph" },
+            {
+              type: "orderedList",
+              content: [
+                { type: "listItem", content: [{ type: "paragraph" }] },
+                { type: "listItem", content: [{ type: "paragraph" }] },
+                { type: "listItem", content: [{ type: "paragraph" }] },
+                { type: "listItem", content: [{ type: "paragraph" }] },
+              ],
+            },
+          ],
+          { marks: 1, questionType: "MCQ" },
+        ),
+    },
+    {
+      label: "Assertion–Reason",
+      color: "text-fuchsia-500",
+      hoverBg: "hover:bg-fuchsia-500/10",
+      action: () =>
+        insertAfterCurrentBlock(
+          "questionBlock",
+          [
+            { type: "paragraph" },
+            { type: "paragraph" },
+            {
+              type: "orderedList",
+              content: [
+                {
+                  type: "listItem",
+                  content: [{
+                    type: "paragraph",
+                    content: [{ type: "text", text: "Both A and R are true, and R is the correct explanation of A." }],
+                  }],
+                },
+                {
+                  type: "listItem",
+                  content: [{
+                    type: "paragraph",
+                    content: [{ type: "text", text: "Both A and R are true, but R is not the correct explanation of A." }],
+                  }],
+                },
+                {
+                  type: "listItem",
+                  content: [{
+                    type: "paragraph",
+                    content: [{ type: "text", text: "A is true but R is false." }],
+                  }],
+                },
+                {
+                  type: "listItem",
+                  content: [{
+                    type: "paragraph",
+                    content: [{ type: "text", text: "A is false but R is true." }],
+                  }],
+                },
+              ],
+            },
+          ],
+          { marks: 1, questionType: "ASSERTION_REASON" },
+        ),
+    },
+    {
+      label: "OR Group",
+      color: "text-purple-500",
+      hoverBg: "hover:bg-purple-500/10",
+      action: () => {
+        const emptyBranch = (marks: number) => ({
+          type: "questionBlock",
+          attrs: { marks },
+          content: [{ type: "paragraph" }],
+        });
+        insertAfterCurrentBlock(
+          "questionGroupBlock",
+          [emptyBranch(5), emptyBranch(5)],
+          { label: "Answer any ONE of the following:" },
+        );
+      },
+    },
+    {
+      label: "Grouped OR",
+      color: "text-violet-500",
+      hoverBg: "hover:bg-violet-500/10",
+      action: () => {
+        const groupedBranch = () => ({
+          type: "groupedQuestionBlock",
+          attrs: { marks: 5 },
+          content: [
+            { type: "paragraph" },
+            {
+              type: "orderedList",
+              content: [
+                { type: "listItem", content: [{ type: "paragraph" }] },
+                { type: "listItem", content: [{ type: "paragraph" }] },
+              ],
+            },
+          ],
+        });
+        insertAfterCurrentBlock(
+          "questionGroupBlock",
+          [groupedBranch(), groupedBranch()],
+          { label: "Answer any ONE of the following:" },
+        );
+      },
+    },
+    {
+      label: "Grouped Questions",
+      color: "text-sky-500",
+      hoverBg: "hover:bg-sky-500/10",
+      action: () =>
+        insertAfterCurrentBlock(
+          "groupedQuestionBlock",
+          [
+            { type: "paragraph" },
+            {
+              type: "orderedList",
+              content: [
+                { type: "listItem", content: [{ type: "paragraph" }] },
+                { type: "listItem", content: [{ type: "paragraph" }] },
+              ],
+            },
+          ],
+          { marks: 5 },
+        ),
+    },
+  ];
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "h-6 px-2.5 text-[10px] font-semibold rounded transition-colors flex items-center gap-1.5",
+          "border border-border bg-background text-foreground hover:bg-accent hover:border-primary/40",
+          open && "bg-accent border-primary/40",
+        )}
+      >
+        <PlusCircle className="h-3 w-3 text-primary" />
+        Insert Block
+        <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[180px]">
+          <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground px-3 pt-1.5 pb-1">
+            Paper Structure
+          </p>
+          {options.map((opt) => (
+            <button
+              key={opt.label}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => handleSelect(opt.action)}
+              className={cn(
+                "w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-medium transition-colors text-left",
+                opt.color,
+                opt.hoverBg,
+              )}
+            >
+              <PlusCircle className="h-3 w-3 shrink-0" />
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==================================
 // Font Family Dropdown
 // ==================================
 const FONT_FAMILIES = [
@@ -1103,271 +1377,12 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
         </div>
       </div>
 
-      {/* Secondary Toolbar - Paper Structure.
-          E — Order follows paper-construction sequence:
-          Header → Instructions → Section → Question → MCQ →
-          Assertion-Reason → OR Group → Grouped OR → Grouped Questions. */}
-      <div className="flex items-center gap-1 px-2 py-1 border-t border-border/50 bg-muted/30">
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            // Issue 2 — the header used to be inserted pre-filled with
-            // ALL-CAPS placeholder text ("SCHOOL / INSTITUTION NAME",
-            // "Time Allowed: __ Hours", …). That text was real content
-            // and survived to PDF/DOCX unedited when teachers missed it.
-            // Now the structural skeleton is empty; the Placeholder
-            // extension provides per-line ghost prompts.
-            insertAfterCurrentBlock("paperHeaderBlock", [
-              { type: "heading", attrs: { level: 1 } },
-              { type: "heading", attrs: { level: 2 } },
-              { type: "paragraph" },
-              {
-                type: "table",
-                content: [
-                  {
-                    type: "tableRow",
-                    content: [
-                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph" }] },
-                      { type: "tableCell", attrs: {}, content: [{ type: "paragraph" }] },
-                    ],
-                  },
-                ],
-              },
-            ]);
-          }}
-          className="h-6 px-2 text-[10px] font-medium text-teal-400 hover:bg-teal-500/10 rounded transition-colors flex items-center gap-1"
-        >
-          <PlusCircle className="h-3 w-3" /> Header
-        </button>
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() =>
-            insertAfterCurrentBlock(
-              "instructionBlock",
-              [
-                {
-                  type: "orderedList",
-                  content: [
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                  ],
-                },
-              ],
-              { variant: "general" },
-            )
-          }
-          className="h-6 px-2 text-[10px] font-medium text-amber-400 hover:bg-amber-500/10 rounded transition-colors flex items-center gap-1"
-        >
-          <PlusCircle className="h-3 w-3" /> Instructions
-        </button>
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            // Auto-label: count existing sections and pick the next letter.
-            let sectionCount = 0;
-            editor.state.doc.descendants((node: any) => {
-              if (node.type.name === "sectionBlock") sectionCount++;
-            });
-            const letter = String.fromCharCode(65 + sectionCount); // A, B, C…
-            insertAfterCurrentBlock("sectionBlock", [
-              { type: "text", text: `SECTION ${letter}` },
-            ]);
-          }}
-          className="h-6 px-2 text-[10px] font-medium text-indigo-400 hover:bg-indigo-500/10 rounded transition-colors flex items-center gap-1"
-        >
-          <PlusCircle className="h-3 w-3" /> Section
-        </button>
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() =>
-            // Issue 2 — insert structurally complete but TEXTUALLY empty.
-            // The greyed prompt comes from the Placeholder extension, not
-            // from a real text node committed to the document.
-            insertAfterCurrentBlock(
-              "questionBlock",
-              [{ type: "paragraph" }],
-              { marks: 2 },
-            )
-          }
-          className="h-6 px-2 text-[10px] font-medium text-emerald-400 hover:bg-emerald-500/10 rounded transition-colors flex items-center gap-1"
-        >
-          <PlusCircle className="h-3 w-3" /> Question
-        </button>
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() =>
-            insertAfterCurrentBlock(
-              "questionBlock",
-              [
-                { type: "paragraph" },
-                {
-                  type: "orderedList",
-                  content: [
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                  ],
-                },
-              ],
-              { marks: 1, questionType: "MCQ" },
-            )
-          }
-          className="h-6 px-2 text-[10px] font-medium text-rose-400 hover:bg-rose-500/10 rounded transition-colors flex items-center gap-1"
-        >
-          <PlusCircle className="h-3 w-3" /> MCQ
-        </button>
-        {/* Cluster C.1 — Assertion-Reasoning (CBSE Q19/Q20 pattern). Inserts
-            a questionBlock with Assertion + Reason paragraphs and the four
-            canonical answer options. `questionType: "ASSERTION_REASON"`
-            mirrors the generation router's enum so the saved paper round-
-            trips identically through the answer-script extractor. */}
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() =>
-            // D — Assertion-Reason bodies are empty with placeholder
-            // decoration. The Placeholder extension renders
-            // "Assertion (A) …" / "Reason (R) …" ghosts on the first
-            // and second empty paragraphs; once the teacher types, the
-            // ghost disappears and only their text is saved. The four
-            // canonical CBSE answer options remain as real text since
-            // they are immutable boilerplate, not user content (see
-            // FIX_REPORT — confirm with user whether to convert these
-            // to placeholders too).
-            insertAfterCurrentBlock(
-              "questionBlock",
-              [
-                { type: "paragraph" },
-                { type: "paragraph" },
-                {
-                  type: "orderedList",
-                  content: [
-                    {
-                      type: "listItem",
-                      content: [{
-                        type: "paragraph",
-                        content: [{
-                          type: "text",
-                          text: "Both A and R are true, and R is the correct explanation of A.",
-                        }],
-                      }],
-                    },
-                    {
-                      type: "listItem",
-                      content: [{
-                        type: "paragraph",
-                        content: [{
-                          type: "text",
-                          text: "Both A and R are true, but R is not the correct explanation of A.",
-                        }],
-                      }],
-                    },
-                    {
-                      type: "listItem",
-                      content: [{
-                        type: "paragraph",
-                        content: [{ type: "text", text: "A is true but R is false." }],
-                      }],
-                    },
-                    {
-                      type: "listItem",
-                      content: [{
-                        type: "paragraph",
-                        content: [{ type: "text", text: "A is false but R is true." }],
-                      }],
-                    },
-                  ],
-                },
-              ],
-              { marks: 1, questionType: "ASSERTION_REASON" },
-            )
-          }
-          className="h-6 px-2 text-[10px] font-medium text-fuchsia-400 hover:bg-fuchsia-500/10 rounded transition-colors flex items-center gap-1"
-          title="Insert an Assertion-Reason question (CBSE Q19/Q20 pattern)"
-        >
-          <PlusCircle className="h-3 w-3" /> Assertion-Reason
-        </button>
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            // Issue 2 / Issue 4 — empty branches, with no committed "OR"
-            // text node between siblings. The OR label is auto-rendered
-            // by the NodeView and reasserted by the OR-invariant plugin
-            // after any edit/drag, so reordering the branches cannot
-            // orphan it (see `or-group-invariant.ts`).
-            const emptyBranch = (marks: number) => ({
-              type: "questionBlock",
-              attrs: { marks },
-              content: [{ type: "paragraph" }],
-            });
-            insertAfterCurrentBlock(
-              "questionGroupBlock",
-              [emptyBranch(5), emptyBranch(5)],
-              { label: "Answer any ONE of the following:" },
-            );
-          }}
-          className="h-6 px-2 text-[10px] font-medium text-purple-400 hover:bg-purple-500/10 rounded transition-colors flex items-center gap-1"
-        >
-          <PlusCircle className="h-3 w-3" /> OR Group
-        </button>
-        {/* Grouped OR — OR group whose branches are multi-part questions */}
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            const groupedBranch = () => ({
-              type: "groupedQuestionBlock",
-              attrs: { marks: 5 },
-              content: [
-                { type: "paragraph" },
-                {
-                  type: "orderedList",
-                  content: [
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                  ],
-                },
-              ],
-            });
-            insertAfterCurrentBlock(
-              "questionGroupBlock",
-              [groupedBranch(), groupedBranch()],
-              { label: "Answer any ONE of the following:" },
-            );
-          }}
-          className="h-6 px-2 text-[10px] font-medium text-violet-400 hover:bg-violet-500/10 rounded transition-colors flex items-center gap-1"
-        >
-          <PlusCircle className="h-3 w-3" /> Grouped OR
-        </button>
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() =>
-            insertAfterCurrentBlock(
-              "groupedQuestionBlock",
-              [
-                { type: "paragraph" },
-                {
-                  type: "orderedList",
-                  content: [
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                    { type: "listItem", content: [{ type: "paragraph" }] },
-                  ],
-                },
-              ],
-              { marks: 5 },
-            )
-          }
-          className="h-6 px-2 text-[10px] font-medium text-sky-500 hover:bg-sky-500/10 rounded transition-colors flex items-center gap-1"
-        >
-          <PlusCircle className="h-3 w-3" /> Grouped Questions
-        </button>
+      {/* Secondary Toolbar - Paper Structure (compact dropdown). */}
+      <div className="flex items-center gap-2 px-2 py-1 border-t border-border/50 bg-muted/30">
+        <InsertBlockDropdown
+          insertAfterCurrentBlock={insertAfterCurrentBlock}
+          editor={editor}
+        />
 
         <ToolbarDivider />
 
