@@ -10,7 +10,8 @@
 !.yarn/releases
 !.yarn/versions
 /package-lock.json
-
+/.claude-flow/
+/.swarm/
 # testing
 /coverage
 

@@ -27,7 +27,12 @@ export async function exportToDocx(
   // /media/... source images are fetched from the resolved Django origin.
 
   const parser = new CustomHtmlToDocxParser(source);
-  const children = await parser.parse();
+  const children = (await parser.parse()).filter(Boolean);
+
+  // Fallback to avoid generating a corrupted/empty document if no content is found
+  if (children.length === 0) {
+    children.push(new Paragraph({ text: "Empty Document" }));
+  }
 
   const doc = new Document({
     sections: [
@@ -183,18 +188,16 @@ function buildImageParagraph(
   width: number,
   height: number,
 ): Paragraph {
+  // SVG files can cause corruption in MS Word when embedded natively using 'svg' type.
+  // Instead, we use the rasterized PNG fallback directly to ensure robust cross-platform compatibility.
   if (fig.kind === "svg" && fig.fallback) {
     return new Paragraph({
       alignment: AlignmentType.CENTER,
       children: [
         new ImageRun({
-          type: "svg",
-          data: fig.data,
+          type: "png",
+          data: fig.fallback,
           transformation: { width, height },
-          fallback: {
-            type: "png",
-            data: fig.fallback,
-          },
         }),
       ],
     });
@@ -278,6 +281,9 @@ class CustomHtmlToDocxParser {
       marksText: string,
       body: Paragraph[],
     ) => {
+      // TableCell must always contain at least one Paragraph in OpenXML format
+      const bodyChildren = body.length > 0 ? body : [new Paragraph({ children: [] })];
+
       const numCell = new TableCell({
         width: { size: 8, type: WidthType.PERCENTAGE },
         borders: cellBorder,
@@ -292,7 +298,7 @@ class CustomHtmlToDocxParser {
       const bodyCell = new TableCell({
         width: { size: 84, type: WidthType.PERCENTAGE },
         borders: cellBorder,
-        children: body,
+        children: bodyChildren,
       });
 
       const marksCell = new TableCell({
@@ -451,15 +457,19 @@ class CustomHtmlToDocxParser {
         const rows: TableRow[] = [];
         el.querySelectorAll("tr").forEach(tr => {
           const cells: TableCell[] = [];
-          tr.querySelectorAll("td, th").forEach(td => {
+          const tds = tr.querySelectorAll("td, th");
+          if (tds.length === 0) return; // Skip empty rows to avoid division by zero or invalid row XML
+          tds.forEach(td => {
             cells.push(new TableCell({
               children: [new Paragraph({ children: [new TextRun({ text: (td as HTMLElement).innerText, bold: td.tagName === "TH" })] })],
-              width: { size: 100 / tr.children.length, type: WidthType.PERCENTAGE }
+              width: { size: 100 / tds.length, type: WidthType.PERCENTAGE }
             }));
           });
           rows.push(new TableRow({ children: cells }));
         });
-        docxElements.push(new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } }));
+        if (rows.length > 0) {
+          docxElements.push(new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } }));
+        }
         return;
       }
 
