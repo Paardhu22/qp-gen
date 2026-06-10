@@ -1,14 +1,70 @@
 import logging
+import re
+import threading
+import time
 from typing import Optional
 
 from django.conf import settings
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    OpenAI,
+    RateLimitError,
+)
 
 from apps.accounts.models import User
 from apps.generation.models import ApiUsage
 
 _client: Optional[OpenAI] = None
 logger = logging.getLogger("[OPENAI_SERVICE]")
+
+# ── Vision-captioning throughput control ────────────────────────────────
+#
+# Caption calls are gated by a PROCESS-WIDE semaphore, not a per-chapter
+# pool. HSAT ingestion runs chapters in parallel (HSAT_CHAPTER_CONCURRENCY)
+# and each chapter used to spin its own 8-thread captioning pool, so the
+# real vision concurrency was outer × inner = up to 24 simultaneous gpt-4o
+# calls. At ~1,130 tokens per call that slams the 30,000 TPM ceiling within
+# seconds and every retry re-collides — the observed wall of 429s. With a
+# global cap of 3, in-flight demand is ~3,400 tokens, comfortably inside
+# the budget no matter how many chapters ingest at once.
+_caption_gate: Optional[threading.BoundedSemaphore] = None
+_caption_gate_lock = threading.Lock()
+
+#: Max attempts for one caption call. Combined with exact-wait 429 backoff
+#: this absorbs a sustained TPM squeeze without giving up on the image.
+_CAPTION_MAX_ATTEMPTS = 6
+
+_RETRY_AFTER_RE = re.compile(r"try again in\s+(\d+(?:\.\d+)?)\s*(ms|s)", re.IGNORECASE)
+
+
+def _caption_concurrency() -> int:
+    return max(1, int(getattr(settings, "PDF_IMAGE_CAPTION_CONCURRENCY", 3)))
+
+
+def _get_caption_gate() -> threading.BoundedSemaphore:
+    global _caption_gate
+    with _caption_gate_lock:
+        if _caption_gate is None:
+            _caption_gate = threading.BoundedSemaphore(_caption_concurrency())
+        return _caption_gate
+
+
+def _rate_limit_wait_seconds(error_message: str) -> float:
+    """Sleep exactly as long as OpenAI asks, not a fixed/exponential guess.
+
+    The 429 body carries 'Please try again in 2.3s' (or '...in 350ms').
+    Honouring it (+100 ms of slack) drains the token bucket at precisely
+    the right cadence instead of re-colliding or oversleeping.
+    """
+    match = _RETRY_AFTER_RE.search(error_message)
+    if not match:
+        return 2.0
+    value = float(match.group(1))
+    if match.group(2).lower() == "ms":
+        value /= 1000.0
+    return value + 0.1
 
 
 def get_openai_client() -> OpenAI:
@@ -82,51 +138,87 @@ def caption_image_for_embedding(
     profile in scratch/profile_ingestion.py shows a ~7× per-call latency
     cut from this switch.
     """
-    client = get_openai_client()
+    # max_retries=0: this loop owns retry timing. The SDK's generic
+    # exponential backoff neither parses the 'try again in Xs' hint nor
+    # coordinates with the global gate, so its retries re-collided with
+    # the other in-flight captions.
+    client = get_openai_client().with_options(max_retries=0)
     context = page_context.strip()
     if len(context) > 1200:
         context = context[:1200]
 
     model = getattr(settings, "OPENAI_VISION_MODEL", settings.OPENAI_MODEL)
-    completion = client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Caption textbook visuals for retrieval. Describe only visible academic content, "
-                    "labels, entities, map regions, axes, and the likely CBSE concept. Be concise."
-                ),
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            "Create a hidden retrieval caption for this textbook image. "
-                            f"Nearby page text: {context or 'None'}"
-                        ),
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Caption textbook visuals for retrieval. Describe only visible academic content, "
+                "labels, entities, map regions, axes, and the likely CBSE concept. Be concise."
+            ),
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "Create a hidden retrieval caption for this textbook image. "
+                        f"Nearby page text: {context or 'None'}"
+                    ),
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": image_data_url,
+                        # `detail: "low"` bills a flat 85 tokens per
+                        # image instead of tiling the source at full
+                        # resolution (a 2480×3508 PDF page costs
+                        # ~9,000 tokens at default detail, which slams
+                        # TPM rate limits within the first few concurrent
+                        # captioning calls). Retrieval-grade captioning
+                        # needs only the gist of the figure, so the
+                        # low-detail vision branch is the right fit.
+                        "detail": "low",
                     },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": image_data_url,
-                            # `detail: "low"` bills a flat 85 tokens per
-                            # image instead of tiling the source at full
-                            # resolution (a 2480×3508 PDF page costs
-                            # ~9,000 tokens at default detail, which slams
-                            # TPM rate limits within the first 8 concurrent
-                            # captioning calls). Retrieval-grade captioning
-                            # needs only the gist of the figure, so the
-                            # low-detail vision branch is the right fit.
-                            "detail": "low",
-                        },
-                    },
-                ],
-            },
-        ],
-    )
+                },
+            ],
+        },
+    ]
 
-    _record_usage(user, "image_caption", model, completion.usage)
-    return (completion.choices[0].message.content or "").strip()
+    gate = _get_caption_gate()
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, _CAPTION_MAX_ATTEMPTS + 1):
+        # Hold a gate slot only while a request is actually in flight —
+        # sleeping inside the gate would let one rate-limited call starve
+        # the other caption workers.
+        with gate:
+            try:
+                completion = client.chat.completions.create(
+                    model=model, messages=messages
+                )
+                _record_usage(user, "image_caption", model, completion.usage)
+                return (completion.choices[0].message.content or "").strip()
+            except RateLimitError as exc:
+                last_exc = exc
+                wait = _rate_limit_wait_seconds(str(exc))
+            except (APIConnectionError, APITimeoutError) as exc:
+                last_exc = exc
+                wait = min(1.0 * (2 ** (attempt - 1)), 8.0)
+            except APIStatusError as exc:
+                if exc.status_code < 500:
+                    raise
+                last_exc = exc
+                wait = min(1.0 * (2 ** (attempt - 1)), 8.0)
+        if attempt >= _CAPTION_MAX_ATTEMPTS:
+            break
+        logger.info(
+            "Caption retry %s/%s in %.2fs after %s",
+            attempt,
+            _CAPTION_MAX_ATTEMPTS,
+            wait,
+            type(last_exc).__name__,
+        )
+        time.sleep(wait)
+
+    assert last_exc is not None
+    raise last_exc

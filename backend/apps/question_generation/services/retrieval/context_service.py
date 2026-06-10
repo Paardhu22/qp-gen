@@ -8,6 +8,7 @@ from django.db.models import Q
 from pgvector.django import L2Distance
 
 from services.embedding_service import generate_single_embedding
+from services.media_urls import normalise_chunk_payload
 
 
 def _source_filter(
@@ -40,7 +41,10 @@ def _chunk_to_payload(chunk, similarity: float) -> dict:
     }
     if metadata.get("image_url"):
         payload["image_url"] = metadata.get("image_url")
-    return payload
+    # Legacy chunks persisted presigned URLs in metadata.image_url; rebuild
+    # the stable /media/ URL from the permanent storage path so nothing
+    # downstream (prompts, validation, the saved question) can go stale.
+    return normalise_chunk_payload(payload)
 
 
 def _lexical_score(query: str, content: str) -> int:
@@ -180,12 +184,14 @@ def get_all_chunks(
     results = []
     for chunk in sampled_chunks:
         results.append(
-            {
-                "content": chunk.content,
-                "page": chunk.page,
-                "similarity": 1.0,
-                "metadata": chunk.metadata,
-            }
+            normalise_chunk_payload(
+                {
+                    "content": chunk.content,
+                    "page": chunk.page,
+                    "similarity": 1.0,
+                    "metadata": chunk.metadata,
+                }
+            )
         )
 
     return results

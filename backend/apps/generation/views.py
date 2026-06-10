@@ -55,7 +55,6 @@ class GenerationHistoryListView(APIView):
         deleted_count, _ = GenerationHistory.objects.filter(user=request.user).delete()
         return Response({"deleted": deleted_count})
 
-from rest_framework.permissions import AllowAny
 import dataclasses
 
 class TestScienceEngineView(APIView):
@@ -63,8 +62,11 @@ class TestScienceEngineView(APIView):
     Isolated integration test view for the new AOS Academic Generation Facade.
     Executes a real generation pipeline for a single vertical slice:
     CBSE -> Class 10 -> Science -> Electricity chapter.
+
+    Auth required: this endpoint triggers REAL LLM calls (it spends OpenAI
+    budget), so it must never be reachable anonymously on a deployed host.
     """
-    permission_classes = [AllowAny] # Set to AllowAny for testing the vertical slice
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         from django.conf import settings

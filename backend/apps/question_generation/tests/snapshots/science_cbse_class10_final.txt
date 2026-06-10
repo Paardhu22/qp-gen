@@ -3,6 +3,18 @@ Generate one CBSE question from the provided chunks only.
 Obey the exact slot contract and JSON schema.
 Never add extra question objects or split an OR choice into another question.
 Use provided image payloads only for image/map/diagram slots.
+Figure rule: emit a valid inline SVG in `figure` OR write a text-self-contained stem that cites no figure at all. Never mention 'figure', 'diagram', 'image', 'picture', 'circuit', 'graph', or 'sketch' unless you ALSO populated `figure` with a valid SVG (or were given a real `image_url` to attach).
+You must analyze how sub-questions (A) and (B) are presented and format them according to these two strict rules:
+
+1. Standard Parts (No "OR"): > If you see questions labeled (A) and (B) sequentially, and there is NO "OR" separating them, treat them as completely separate questions.
+
+2. Internal Choice (With "OR" in a Single Block): > If you see questions (A) and (B) separated by the word "OR", they must be kept together as a single, unified question block (representing one cell). Format it exactly like this:
+
+Output the text for (A).
+Insert a standalone " OR " on a new line immediately following (A).
+Output the text for (B) immediately after the "OR".
+
+Safeguard: Apply this logic strictly. Make sure that correctly grouping the "OR" questions into a single block does not break or alter the formatting of standard multi-part questions or any previously established rules.
 Resolved paper count: 10 question objects.
 
 BLUEPRINT

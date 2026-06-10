@@ -1503,7 +1503,10 @@ export const TiptapEditor = ({
             content: [
               {
                 type: "paragraph",
-                content: [{ type: "text", text: opt }],
+                // Same LaTeX pass as question stems and the section-insert
+                // path below: a raw text node leaves \(\tfrac{11}{36}\)
+                // unrendered in options inserted via live auto-insert.
+                content: buildInlineRun(opt),
               },
             ],
           })),

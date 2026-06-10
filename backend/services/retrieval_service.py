@@ -6,6 +6,7 @@ from django.db.models import Q
 from pgvector.django import L2Distance
 
 from services.embedding_service import generate_single_embedding
+from services.media_urls import normalise_chunk_payload
 
 
 def retrieve_relevant_chunks(
@@ -72,7 +73,8 @@ def retrieve_relevant_chunks(
         }
         if metadata.get("image_url"):
             payload["image_url"] = metadata.get("image_url")
-        results.append(payload)
+        # Rebuild stale legacy presigned image URLs into stable /media/ URLs.
+        results.append(normalise_chunk_payload(payload))
         
         if len(results) >= limit:
             break
@@ -121,12 +123,14 @@ def get_all_chunks(
     results = []
     for chunk in sampled_chunks:
         results.append(
-            {
-                "content": chunk.content,
-                "page": chunk.page,
-                "similarity": 1.0,
-                "metadata": chunk.metadata,
-            }
+            normalise_chunk_payload(
+                {
+                    "content": chunk.content,
+                    "page": chunk.page,
+                    "similarity": 1.0,
+                    "metadata": chunk.metadata,
+                }
+            )
         )
 
     return results
