@@ -33,12 +33,12 @@ from services.s3_client import S3NotConfigured, download_to_buffer, is_configure
 
 logger = logging.getLogger("[HSAT_SERVICE]")
 
-# How many chapters to ingest in parallel inside one book. Vision
-# captioning already runs at PDF_IMAGE_CAPTION_CONCURRENCY=8 INSIDE a
-# chapter, so outer × inner concurrency is multiplicative. Default 3 ×
-# 8 = 24 max concurrent vision calls — well inside a Tier-1 OpenAI
-# RPM budget — but the knob exists so a slimmer account can dial it
-# down to 1.
+# How many chapters to ingest in parallel inside one book. This only
+# multiplies download / text-chunking work: vision captioning is gated by
+# a PROCESS-WIDE semaphore (PDF_IMAGE_CAPTION_CONCURRENCY, default 3) in
+# services.openai_service, so chapter parallelism can no longer multiply
+# gpt-4o TPM pressure the way the old per-chapter 8-thread pools did
+# (3 chapters × 8 threads = 24 in-flight calls → 30k TPM saturation).
 HSAT_CHAPTER_CONCURRENCY_DEFAULT = 3
 
 # At-most-one ingest per (grade, subject, book) at a time, even if the

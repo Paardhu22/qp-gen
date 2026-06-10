@@ -27,6 +27,7 @@ from apps.question_generation.services.retrieval.context_service import (
     retrieval_quality_summary,
 )
 from services.language_validation import validate_language_question
+from services.media_urls import vision_url_for_chunk
 
 logger = logging.getLogger("[LEGACY_ENGINE]")
 
@@ -173,15 +174,38 @@ def _storage_image_data_url(metadata: dict) -> str:
 
 
 def _vision_image_payload_urls(source_chunks: List[dict]) -> List[str]:
+    """URLs OpenAI downloads to *see* the source images.
+
+    These must be minted at call time: chunk metadata only stores the
+    permanent storage key, and any http(s) URL persisted at ingest time
+    (legacy chunks stored presigned URLs with X-Amz-Expires=3600) is
+    stale by now — OpenAI rejects it with `invalid_image_url`. Order of
+    preference per chunk:
+      1. fresh presigned S3 URL (expire=900, consumed immediately),
+      2. base64 data URL read from storage (local-disk deployments),
+      3. the stored URL, only when it carries no storage path at all
+         (e.g. data: URLs, which never expire).
+    """
     urls: List[str] = []
     seen: Set[str] = set()
+    # Track per-chunk identity so two chunks pointing at the same stored
+    # image still dedupe even though each presigned URL is unique.
+    seen_paths: Set[str] = set()
     for chunk in source_chunks:
         metadata = chunk.get("metadata") or {}
+        storage_path = str(metadata.get("image_storage_path") or "")
+        if storage_path:
+            if storage_path in seen_paths:
+                continue
+            vision_url = vision_url_for_chunk(metadata) or _storage_image_data_url(metadata)
+            if vision_url:
+                seen_paths.add(storage_path)
+                urls.append(vision_url)
+            continue
         image_url = str(chunk.get("image_url") or metadata.get("image_url") or "").strip()
-        vision_url = image_url if _is_model_readable_image_url(image_url) else _storage_image_data_url(metadata)
-        if vision_url and vision_url not in seen:
-            urls.append(vision_url)
-            seen.add(vision_url)
+        if image_url.startswith("data:") and image_url not in seen:
+            urls.append(image_url)
+            seen.add(image_url)
     return urls
 
 
@@ -1866,6 +1890,11 @@ def stream_generated_questions(
             question.setdefault("metadata", {})
             if isinstance(question["metadata"], dict):
                 question["metadata"]["sourceType"] = source_type
+                # Plan position (1-indexed). Parallel generation finishes in
+                # arbitrary order; consumers sort by this to restore the
+                # blueprint layout (e.g. Maths Section A: Q1–18 MCQ then
+                # Q19–20 Assertion-Reason).
+                question["metadata"]["slotIndex"] = slot.index
             question["sourceType"] = source_type
 
             events.append(_sse_event({
@@ -1918,6 +1947,21 @@ def stream_generated_questions(
         yield _sse_event({"error": "Generation failed before any questions could be produced."}, event="error")
         return
 
+    # ── Intra-section slot ordering ──────────────────────────────────────
+    # The parallel loop above appends questions in COMPLETION order, so a
+    # blueprint that pins Assertion-Reason to Section A slots 19–20 could
+    # render them anywhere in the section (the reported paper had an AR at
+    # Q20 but a probability MCQ at Q19). Restore the plan's order before
+    # the dedup pass and the final result the editor consumes.
+    for section in result.get("sections", []):
+        questions = section.get("questions") or []
+        if len(questions) > 1:
+            questions.sort(
+                key=lambda q: int(
+                    (q.get("metadata") or {}).get("slotIndex") or 10**6
+                )
+            )
+
     # ── Section A near-duplicate detection ──────────────────────────────
     # Parallel generation (Phase 2) hands every slot an empty `used_terms`
     # set, so when two MCQs retrieve overlapping chunks the LLM can return
@@ -1931,11 +1975,18 @@ def stream_generated_questions(
     def _stem_signature(content: str) -> str:
         s = re.sub(r"\\[\(\)\[\]]", " ", content or "")
         s = re.sub(r"[^a-zA-Z0-9]+", " ", s).strip().lower()
-        return s[:80]
+        # 60-char prefix: long enough that two genuinely different stems
+        # never collide, short enough to catch rephrased tails. (Was 80,
+        # which let near-identical stems diverge in the last 20 chars and
+        # slip through.)
+        return s[:60]
 
     duplicate_warnings: List[Dict[str, object]] = []
+    # One signature map across the WHOLE paper, not per section — two
+    # sections can retrieve the same chunk and the LLM will happily reuse
+    # the scenario across a 1-mark MCQ and a 2-mark short answer.
+    seen: Dict[str, object] = {}
     for section in result.get("sections", []):
-        seen: Dict[str, int] = {}
         for q in section.get("questions", []):
             sig = _stem_signature(str(q.get("content") or ""))
             if not sig:

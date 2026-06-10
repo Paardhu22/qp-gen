@@ -2,6 +2,7 @@ import base64
 import logging
 import hashlib
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from typing import Dict, List, Optional
@@ -15,6 +16,7 @@ from docx import Document as DocxDocument
 
 from services.chunking_service import chunk_text
 from services.embedding_service import generate_embeddings
+from services.media_urls import stable_media_url
 from services.openai_service import caption_image_for_embedding
 from services.pdf_service import extract_text_from_pdf
 from services.semantic_pipeline import SemanticChunk, process_semantic_pipeline
@@ -149,6 +151,11 @@ def extract_and_persist_chunks(
 
     if pages:
         chunks = process_semantic_pipeline(pages)
+        if not chunks and extracted_text.strip():
+            # Degenerate structure (no headings/sections the semantic pass
+            # can use) must not fail an ingest that plain chunking can
+            # serve — the raw text is right there.
+            chunks = chunk_text(extracted_text)
     else:
         chunks = chunk_text(extracted_text)
 
@@ -221,23 +228,6 @@ def extract_and_persist_chunks(
         "metadata": pdf_metadata,
     }
 
-    warnings: List[str] = []
-    if pdf_metadata.get("degraded"):
-        reason = str(pdf_metadata.get("degradedReason") or "")
-        if "pymupdf_not_installed" in reason:
-            warnings.append(
-                "PyMuPDF is not installed on the server. Falling back to text-only "
-                "extraction — image extraction and figure captioning are disabled, "
-                "which can reduce question-paper coverage. Install 'PyMuPDF>=1.24' "
-                "on the backend to enable full extraction."
-            )
-        else:
-            warnings.append(
-                "PDF extraction degraded to text-only mode (no image extraction). "
-                f"Reason: {reason or 'unknown'}."
-            )
-    pdf_source.warnings = warnings  # type: ignore[attr-defined]
-
 
 def _extract_text_from_docx(buffer: bytes) -> str:
     doc = DocxDocument(BytesIO(buffer))
@@ -245,11 +235,13 @@ def _extract_text_from_docx(buffer: bytes) -> str:
 
 
 def _public_media_url(stored_path: str) -> str:
-    media_url = default_storage.url(stored_path)
-    public_base = getattr(settings, "AOS_PUBLIC_MEDIA_BASE_URL", "")
-    if public_base:
-        return f"{public_base}{media_url if media_url.startswith('/') else '/' + media_url}"
-    return media_url
+    # NEVER return default_storage.url() here: with S3 storage that is a
+    # presigned URL (X-Amz-Expires=3600) and this value gets PERSISTED in
+    # chunk metadata / PdfSource.url. By generation time the signature is
+    # stale and OpenAI rejects the download with `invalid_image_url`.
+    # We persist only the stable /media/<key> URL; apps.common.views
+    # .serve_media redirects it to a freshly signed URL on every request.
+    return stable_media_url(stored_path)
 
 
 def _normalise_image_extension(extension: str) -> str:
@@ -309,16 +301,18 @@ def _is_usable_image(image: Dict[str, object]) -> bool:
 
 def _caption_one_image(
     image: Dict[str, object], page_text: str, file_name: str, user
-) -> str:
+) -> tuple[str, bool]:
     """Caption a single image; tolerate API failures by falling back to a
-    page-context summary so a partial vision outage never breaks ingestion."""
+    page-context summary so a partial vision outage never breaks ingestion.
+    Returns (caption, succeeded) so the caller can report failure counts."""
     page_number = int(image.get("pageNumber") or 0)
     try:
-        return caption_image_for_embedding(
+        caption = caption_image_for_embedding(
             _image_data_url(image),
             page_context=page_text,
             user=user,
         )
+        return caption, True
     except Exception as exc:
         logger.warning(
             "Image captioning failed for %s page %s: %s",
@@ -326,7 +320,10 @@ def _caption_one_image(
             page_number,
             exc,
         )
-        return f"Textbook visual from page {page_number}. Nearby text: {page_text[:500]}"
+        return (
+            f"Textbook visual from page {page_number}. Nearby text: {page_text[:500]}",
+            False,
+        )
 
 
 def _build_image_chunks(
@@ -349,16 +346,45 @@ def _build_image_chunks(
     # trignometry.pdf showed ~11 s per call × 22 images ≈ 4 min serial.
     # Running the captioning loop on a ThreadPoolExecutor (I/O-bound,
     # GIL-friendly) cuts wall-clock to ceil(N / concurrency) × per-call ms.
+    # The pool size here only bounds threads for THIS file — actual
+    # vision-API concurrency is capped process-wide by the semaphore in
+    # services.openai_service so parallel chapters can't multiply it.
     # See settings.PDF_IMAGE_CAPTION_CONCURRENCY for the knob.
     concurrency = max(
-        1, int(getattr(settings, "PDF_IMAGE_CAPTION_CONCURRENCY", 8))
+        1, int(getattr(settings, "PDF_IMAGE_CAPTION_CONCURRENCY", 3))
     )
     captions: List[str] = [""] * len(usable_images)
 
+    # Per-chapter progress counters: the teacher-facing ingest log should
+    # show steady forward motion, not just a wall of retry warnings.
+    total_queued = len(usable_images)
+    progress_lock = threading.Lock()
+    done_count = 0
+    failed_count = 0
+
+    logger.info(
+        "Captioning chapter %s: %d images queued, 0 done, 0 failed",
+        file_name,
+        total_queued,
+    )
+
     def caption_at(index: int) -> None:
+        nonlocal done_count, failed_count
         image = usable_images[index]
         nearby_text = page_text.get(int(image.get("pageNumber") or 0), "")
-        captions[index] = _caption_one_image(image, nearby_text, file_name, user)
+        caption, succeeded = _caption_one_image(image, nearby_text, file_name, user)
+        captions[index] = caption
+        with progress_lock:
+            done_count += 1
+            if not succeeded:
+                failed_count += 1
+            logger.info(
+                "Captioning chapter %s: %d images queued, %d done, %d failed",
+                file_name,
+                total_queued,
+                done_count,
+                failed_count,
+            )
 
     if concurrency == 1 or len(usable_images) == 1:
         for index in range(len(usable_images)):

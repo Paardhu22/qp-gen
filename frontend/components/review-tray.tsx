@@ -35,6 +35,17 @@ function groupBySection(items: TrayItem[]) {
     list.push(item);
     map.set(item.sectionTitle, list);
   }
+  // Generation is parallel, so items arrive in completion order. The
+  // backend stamps metadata.slotIndex with the blueprint position —
+  // sort by it so inserts respect the plan layout (e.g. Maths Section A
+  // must end with the two Assertion-Reason questions at Q19–Q20).
+  for (const list of map.values()) {
+    list.sort(
+      (a, b) =>
+        (Number(a.question.metadata?.slotIndex) || Number.MAX_SAFE_INTEGER) -
+        (Number(b.question.metadata?.slotIndex) || Number.MAX_SAFE_INTEGER),
+    );
+  }
   return Array.from(map.entries());
 }
 

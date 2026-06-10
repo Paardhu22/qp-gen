@@ -1,8 +1,7 @@
-from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import include, path
+from django.urls import include, path, re_path
 
+from apps.common.views import serve_media
 from config.debug_views import science_engine_health
 
 urlpatterns = [
@@ -14,7 +13,9 @@ urlpatterns = [
     path("api/hsat/", include("apps.documents.hsat_urls")),
     path("api/generation/", include("apps.generation.urls")),
     path("api/projects/", include("apps.projects.urls")),
+    # Stable media resolver: redirects to a fresh presigned URL on S3,
+    # streams from MEDIA_ROOT locally. Replaces the DEBUG-only static()
+    # route, which 404'd every /media/pdf_images/... request when files
+    # lived in S3 (or whenever DEBUG was off).
+    re_path(r"^media/(?P<path>.+)$", serve_media, name="serve-media"),
 ]
-
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

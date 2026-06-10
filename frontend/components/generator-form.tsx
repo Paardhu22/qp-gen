@@ -25,7 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useEditorStore } from "@/store/editor-store";
 import { toast } from "sonner";
 import { BookOpen, FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
-import { fetchForm, streamSse, saveQuestions } from "@/lib/api-client";
+import { fetchForm, fetchJson, streamSse, saveQuestions } from "@/lib/api-client";
 import { ReviewTray } from "@/components/review-tray";
 import {
   HsatSourcePicker,
@@ -57,6 +57,19 @@ interface UploadingDoc {
   status: "uploading" | "error";
   error?: string;
 }
+
+// Values accepted by the Subject / Class dropdowns below. HSAT sources
+// carry the same canonical strings ("Mathematics", "Science", …, grade
+// "10"), so an applied book can safely auto-select the matching option.
+const FORM_SUBJECT_VALUES = [
+  "Science",
+  "Social Science",
+  "Mathematics",
+  "English",
+  "Hindi",
+  "Telugu",
+];
+const FORM_CLASS_VALUES = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 
 export const GeneratorForm = () => {
   const form = useForm<z.infer<typeof formSchema>>({
@@ -201,8 +214,82 @@ export const GeneratorForm = () => {
       if (prev.some((s) => s.id === source.id)) return prev;
       return [...prev, source];
     });
+    // The paper config must match the book that was just applied — leaving
+    // Subject on its previous value (e.g. "Science" with an HSAT
+    // Mathematics book) generates a paper whose blueprint and retrieval
+    // disagree. HSAT catalog subjects/grades use the same canonical strings
+    // as the form options, but guard against future drift: only overwrite
+    // when the value is a known option.
+    if (FORM_SUBJECT_VALUES.includes(source.subject)) {
+      form.setValue("subject", source.subject);
+    }
+    if (FORM_CLASS_VALUES.includes(source.grade)) {
+      form.setValue("academicClass", source.grade);
+    }
     toast.success(`${source.book} added to sources`);
   };
+
+  // Self-heal applied-source status: a source can be applied while its
+  // ingest is still running (or the picker's completion poll can be cut
+  // short by closing the dialog). The chip status and onSubmit's readiness
+  // guard would then stay "processing" forever without a page refresh.
+  // While any applied source is not terminal, poll the catalog and fold
+  // fresh status/chunk counts back into state; stop as soon as everything
+  // is ready or errored.
+  const hasPendingHsat = hsatSources.some(
+    (s) => s.status !== "ready" && s.status !== "error",
+  );
+  useEffect(() => {
+    if (!hasPendingHsat) return;
+    let cancelled = false;
+
+    const refresh = async () => {
+      try {
+        const data = await fetchJson<{
+          tree?: Record<
+            string,
+            Record<
+              string,
+              Record<
+                string,
+                { status: AppliedHsatSource["status"]; chunk_count: number }
+              >
+            >
+          >;
+        }>("/api/hsat/catalog/");
+        if (cancelled) return;
+        setHsatSources((prev) => {
+          let changed = false;
+          const next = prev.map((s) => {
+            const entry = data.tree?.[s.grade]?.[s.subject]?.[s.book];
+            if (!entry) return s;
+            if (
+              entry.status !== s.status ||
+              (entry.chunk_count ?? s.chunkCount) !== s.chunkCount
+            ) {
+              changed = true;
+              return {
+                ...s,
+                status: entry.status,
+                chunkCount: entry.chunk_count ?? s.chunkCount,
+              };
+            }
+            return s;
+          });
+          return changed ? next : prev;
+        });
+      } catch {
+        // Transient network/catalog failure — the next tick retries.
+      }
+    };
+
+    void refresh();
+    const interval = setInterval(refresh, 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [hasPendingHsat]);
 
   const removeHsatSource = (id: string) => {
     setHsatSources((prev) => prev.filter((s) => s.id !== id));
@@ -934,7 +1021,16 @@ export const GeneratorForm = () => {
           <div className="pt-4 sticky bottom-0 bg-background pb-4">
             <Button
               type="submit"
-              disabled={isGenerating || uploadedDocs.length === 0}
+              // HSAT books are first-class sources: a paper can be generated
+              // from an applied HSAT book with zero uploaded PDFs. Gating on
+              // uploadedDocs alone left the button permanently grey after an
+              // HSAT-only apply. Readiness (status !== "ready") is enforced
+              // in onSubmit with a toast — a disabled button can't explain
+              // itself, a toast can.
+              disabled={
+                isGenerating ||
+                (uploadedDocs.length === 0 && hsatSources.length === 0)
+              }
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg gap-2"
             >
               {isGenerating

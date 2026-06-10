@@ -211,11 +211,14 @@ OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embeddin
 # trignometry.pdf 22-image caption batch inside a typical paid Tier 1 gpt-4o
 # budget while still giving useful retrieval captions.
 OPENAI_VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4o")
-# Max concurrent vision-API requests during image captioning. OpenAI applies
-# RPM/TPM limits rather than a hard "concurrent requests" metric; keep this
-# configurable for accounts with tighter project-level limits or other traffic.
+# Max concurrent vision-API caption requests — enforced PROCESS-WIDE by a
+# semaphore in services.openai_service, so parallel chapter ingestion does
+# not multiply it. 3 concurrent × ~1,130 tokens per caption call keeps
+# in-flight demand around 3,400 tokens against the 30,000 TPM gpt-4o
+# ceiling; the previous default of 8 (× 3 parallel chapters = 24 calls)
+# saturated TPM and produced 40+ caption failures per book ingest.
 PDF_IMAGE_CAPTION_CONCURRENCY = _int_env(
-    "PDF_IMAGE_CAPTION_CONCURRENCY", 8, minimum=1, maximum=32
+    "PDF_IMAGE_CAPTION_CONCURRENCY", 3, minimum=1, maximum=32
 )
 
 # Cache configuration for improved API performance
