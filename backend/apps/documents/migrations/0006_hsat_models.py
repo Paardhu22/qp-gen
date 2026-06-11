@@ -16,6 +16,111 @@ import django.db.models.deletion
 import utils.ids
 from django.db import migrations, models
 
+def run_hsat_sql(apps, schema_editor):
+    connection = schema_editor.connection
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("""
+            -- hsat_source ------------------------------------------------
+            CREATE TABLE IF NOT EXISTS "hsat_source" (
+                "createdAt"      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+                "updatedAt"      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+                "id"             VARCHAR(255)  NOT NULL,
+                "grade"          VARCHAR(8)    NOT NULL,
+                "subject"        VARCHAR(64)   NOT NULL,
+                "book"           VARCHAR(128)  NOT NULL,
+                "status"         VARCHAR(20)   NOT NULL DEFAULT 'pending',
+                "chunk_count"    INTEGER       NOT NULL DEFAULT 0,
+                "error"          TEXT,
+                "chapter_errors" JSONB         NOT NULL DEFAULT '{}'::jsonb,
+                "processed_at"   TIMESTAMPTZ,
+                PRIMARY KEY ("id")
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "hsat_source_gsb_uniq"
+                ON "hsat_source" ("grade", "subject", "book");
+            CREATE INDEX IF NOT EXISTS "hsat_gsb_idx"
+                ON "hsat_source" ("grade", "subject", "book");
+            CREATE INDEX IF NOT EXISTS "hsat_status_idx"
+                ON "hsat_source" ("status");
+
+            -- paper_hsat_source -----------------------------------------
+            CREATE TABLE IF NOT EXISTS "paper_hsat_source" (
+                "createdAt"     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                "updatedAt"     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                "id"            VARCHAR(255) NOT NULL,
+                "paperId"       VARCHAR(32)  NOT NULL
+                                    REFERENCES "Paper"("id") ON DELETE CASCADE,
+                "hsatSourceId"  VARCHAR(255) NOT NULL
+                                    REFERENCES "hsat_source"("id") ON DELETE CASCADE,
+                PRIMARY KEY ("id")
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "paper_hsat_source_uniq"
+                ON "paper_hsat_source" ("paperId", "hsatSourceId");
+            CREATE INDEX IF NOT EXISTS "phs_paper_idx"
+                ON "paper_hsat_source" ("paperId");
+
+            -- DocumentChunk: allow NULL pdfSourceId + add hsatSourceId ---
+            ALTER TABLE "DocumentChunk"
+                ALTER COLUMN "pdfSourceId" DROP NOT NULL;
+            ALTER TABLE "DocumentChunk"
+                ADD COLUMN IF NOT EXISTS "hsatSourceId" VARCHAR(255);
+            """)
+
+            cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'documentchunk_hsatsourceid_fk'
+                ) THEN
+                    ALTER TABLE "DocumentChunk"
+                        ADD CONSTRAINT documentchunk_hsatsourceid_fk
+                        FOREIGN KEY ("hsatSourceId")
+                        REFERENCES "hsat_source"("id") ON DELETE CASCADE;
+                END IF;
+            END$$;
+            """)
+
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS "document_chunk_hsat_source_idx"
+                ON "DocumentChunk" ("hsatSourceId");
+            """)
+    else:
+        # SQLite
+        with connection.cursor() as cursor:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS "hsat_source" (
+                "createdAt"      datetime   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updatedAt"      datetime   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "id"             VARCHAR(255)  NOT NULL,
+                "grade"          VARCHAR(8)    NOT NULL,
+                "subject"        VARCHAR(64)   NOT NULL,
+                "book"           VARCHAR(128)  NOT NULL,
+                "status"         VARCHAR(20)   NOT NULL DEFAULT 'pending',
+                "chunk_count"    INTEGER       NOT NULL DEFAULT 0,
+                "error"          TEXT,
+                "chapter_errors" TEXT          NOT NULL DEFAULT '{}',
+                "processed_at"   datetime,
+                PRIMARY KEY ("id")
+            );
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS "paper_hsat_source" (
+                "createdAt"     datetime  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updatedAt"     datetime  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "id"            VARCHAR(255) NOT NULL,
+                "paperId"       VARCHAR(32)  NOT NULL REFERENCES "Paper"("id") ON DELETE CASCADE,
+                "hsatSourceId"  VARCHAR(255) NOT NULL REFERENCES "hsat_source"("id") ON DELETE CASCADE,
+                PRIMARY KEY ("id")
+            );
+            """)
+            
+            # Introspect to see if we need to add the column hsatSourceId
+            introspection = connection.introspection
+            columns = {col.name for col in introspection.get_table_description(cursor, "DocumentChunk")}
+            if "hsatSourceId" not in columns:
+                cursor.execute('ALTER TABLE "DocumentChunk" ADD COLUMN "hsatSourceId" VARCHAR(255);')
+
 
 class Migration(migrations.Migration):
 
@@ -157,67 +262,9 @@ class Migration(migrations.Migration):
             ],
             # ── Actual SQL — idempotent ───────────────────────────────────────
             database_operations=[
-                migrations.RunSQL(
-                    sql="""
-                    -- hsat_source ------------------------------------------------
-                    CREATE TABLE IF NOT EXISTS "hsat_source" (
-                        "createdAt"      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-                        "updatedAt"      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-                        "id"             VARCHAR(255)  NOT NULL,
-                        "grade"          VARCHAR(8)    NOT NULL,
-                        "subject"        VARCHAR(64)   NOT NULL,
-                        "book"           VARCHAR(128)  NOT NULL,
-                        "status"         VARCHAR(20)   NOT NULL DEFAULT 'pending',
-                        "chunk_count"    INTEGER       NOT NULL DEFAULT 0,
-                        "error"          TEXT,
-                        "chapter_errors" JSONB         NOT NULL DEFAULT '{}'::jsonb,
-                        "processed_at"   TIMESTAMPTZ,
-                        PRIMARY KEY ("id")
-                    );
-                    CREATE UNIQUE INDEX IF NOT EXISTS "hsat_source_gsb_uniq"
-                        ON "hsat_source" ("grade", "subject", "book");
-                    CREATE INDEX IF NOT EXISTS "hsat_gsb_idx"
-                        ON "hsat_source" ("grade", "subject", "book");
-                    CREATE INDEX IF NOT EXISTS "hsat_status_idx"
-                        ON "hsat_source" ("status");
-
-                    -- paper_hsat_source -----------------------------------------
-                    CREATE TABLE IF NOT EXISTS "paper_hsat_source" (
-                        "createdAt"     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-                        "updatedAt"     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-                        "id"            VARCHAR(255) NOT NULL,
-                        "paperId"       VARCHAR(32)  NOT NULL
-                                            REFERENCES "Paper"("id") ON DELETE CASCADE,
-                        "hsatSourceId"  VARCHAR(255) NOT NULL
-                                            REFERENCES "hsat_source"("id") ON DELETE CASCADE,
-                        PRIMARY KEY ("id")
-                    );
-                    CREATE UNIQUE INDEX IF NOT EXISTS "paper_hsat_source_uniq"
-                        ON "paper_hsat_source" ("paperId", "hsatSourceId");
-                    CREATE INDEX IF NOT EXISTS "phs_paper_idx"
-                        ON "paper_hsat_source" ("paperId");
-
-                    -- DocumentChunk: allow NULL pdfSourceId + add hsatSourceId ---
-                    ALTER TABLE "DocumentChunk"
-                        ALTER COLUMN "pdfSourceId" DROP NOT NULL;
-                    ALTER TABLE "DocumentChunk"
-                        ADD COLUMN IF NOT EXISTS "hsatSourceId" VARCHAR(255);
-                    DO $$
-                    BEGIN
-                        IF NOT EXISTS (
-                            SELECT 1 FROM pg_constraint
-                            WHERE conname = 'documentchunk_hsatsourceid_fk'
-                        ) THEN
-                            ALTER TABLE "DocumentChunk"
-                                ADD CONSTRAINT documentchunk_hsatsourceid_fk
-                                FOREIGN KEY ("hsatSourceId")
-                                REFERENCES "hsat_source"("id") ON DELETE CASCADE;
-                        END IF;
-                    END$$;
-                    CREATE INDEX IF NOT EXISTS "document_chunk_hsat_source_idx"
-                        ON "DocumentChunk" ("hsatSourceId");
-                    """,
-                    reverse_sql=migrations.RunSQL.noop,
+                migrations.RunPython(
+                    run_hsat_sql,
+                    reverse_code=migrations.RunPython.noop,
                 )
             ],
         ),

@@ -32,12 +32,25 @@ class S3NotConfigured(RuntimeError):
     """Raised when AWS credentials / bucket are missing from settings."""
 
 
-def is_configured() -> bool:
-    return bool(
-        getattr(settings, "AWS_STORAGE_BUCKET_NAME", "")
-        and getattr(settings, "AWS_ACCESS_KEY_ID", "")
-        and getattr(settings, "AWS_SECRET_ACCESS_KEY", "")
+def _hsat_bucket() -> str:
+    # HSAT source textbooks have their own bucket/region (settings.HSAT_S3_*),
+    # which may differ from the uploads bucket. Fall back to the uploads bucket
+    # for single-bucket deployments.
+    return getattr(settings, "HSAT_S3_BUCKET", "") or getattr(
+        settings, "AWS_STORAGE_BUCKET_NAME", ""
     )
+
+
+def _hsat_region() -> Optional[str]:
+    return (
+        getattr(settings, "HSAT_S3_REGION", "")
+        or getattr(settings, "AWS_S3_REGION_NAME", None)
+        or None
+    )
+
+
+def is_configured() -> bool:
+    return bool(_hsat_bucket())
 
 
 def get_client():
@@ -48,8 +61,7 @@ def get_client():
     """
     if not is_configured():
         raise S3NotConfigured(
-            "AWS_STORAGE_BUCKET_NAME / AWS_ACCESS_KEY_ID / "
-            "AWS_SECRET_ACCESS_KEY are missing from the environment."
+            "AWS_STORAGE_BUCKET_NAME is missing from the environment."
         )
     with _client_lock:
         client = _client_cache.get("client")
@@ -69,9 +81,11 @@ def get_client():
         )
         client = boto3.client(
             "s3",
-            region_name=getattr(settings, "AWS_S3_REGION_NAME", None),
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            # Sign for the HSAT bucket's OWN region — not the uploads region —
+            # or cross-region GetObject fails with 403 AuthorizationHeaderMalformed.
+            region_name=_hsat_region(),
+            aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", None),
+            aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", None),
             endpoint_url=endpoint,
             config=config,
         )
@@ -80,9 +94,12 @@ def get_client():
 
 
 def get_bucket() -> str:
-    if not is_configured():
-        raise S3NotConfigured("AWS_STORAGE_BUCKET_NAME is not set.")
-    return settings.AWS_STORAGE_BUCKET_NAME
+    bucket = _hsat_bucket()
+    if not bucket:
+        raise S3NotConfigured(
+            "HSAT_S3_BUCKET (or AWS_STORAGE_BUCKET_NAME) is not set."
+        )
+    return bucket
 
 
 def head_object(key: str) -> dict:

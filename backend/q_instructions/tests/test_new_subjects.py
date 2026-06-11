@@ -16,7 +16,7 @@ def _load_router():
     router_path = os.path.join(
         os.path.dirname(__file__), '..', '..', 'services', 'generation_router.py'
     )
-    src = open(router_path).read()
+    src = open(router_path, encoding="utf-8").read()
     src = src.replace('from django.conf import settings', '')
     globs = {'__builtins__': __builtins__, 'logging': __import__('logging')}
     exec(compile(src, router_path, 'exec'), globs)

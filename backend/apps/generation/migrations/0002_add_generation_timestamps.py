@@ -3,6 +3,27 @@
 from django.db import migrations
 
 
+def add_generation_timestamps(apps, schema_editor):
+    connection = schema_editor.connection
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("""
+            ALTER TABLE "GenerationHistory"
+            ADD COLUMN IF NOT EXISTS "createdAt" timestamptz NOT NULL DEFAULT NOW();
+            ALTER TABLE "GenerationHistory"
+            ADD COLUMN IF NOT EXISTS "updatedAt" timestamptz NOT NULL DEFAULT NOW();
+            """)
+    else:
+        # SQLite
+        with connection.cursor() as cursor:
+            introspection = connection.introspection
+            columns = {col.name for col in introspection.get_table_description(cursor, "GenerationHistory")}
+            if "createdAt" not in columns:
+                cursor.execute('ALTER TABLE "GenerationHistory" ADD COLUMN "createdAt" datetime NOT NULL DEFAULT CURRENT_TIMESTAMP;')
+            if "updatedAt" not in columns:
+                cursor.execute('ALTER TABLE "GenerationHistory" ADD COLUMN "updatedAt" datetime NOT NULL DEFAULT CURRENT_TIMESTAMP;')
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -10,13 +31,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            """
-            ALTER TABLE \"GenerationHistory\"
-            ADD COLUMN IF NOT EXISTS \"createdAt\" timestamptz NOT NULL DEFAULT NOW();
-            ALTER TABLE \"GenerationHistory\"
-            ADD COLUMN IF NOT EXISTS \"updatedAt\" timestamptz NOT NULL DEFAULT NOW();
-            """,
-            reverse_sql="SELECT 1;",
+        migrations.RunPython(
+            add_generation_timestamps,
+            reverse_code=migrations.RunPython.noop,
         ),
     ]

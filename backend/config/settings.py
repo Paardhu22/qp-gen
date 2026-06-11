@@ -70,20 +70,30 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
-# Require a PostgreSQL DATABASE_URL (Neon) — do not fall back to SQLite.
-if not DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL is required. Add it to backend/.env and restart the app."
-    )
+# Require a PostgreSQL DATABASE_URL — do not fall back to SQLite unless running tests.
+import sys
+if "test" in sys.argv:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
+else:
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL is required. Add it to backend/.env and restart the app."
+        )
 
-# Parse the DATABASE_URL and require SSL (Neon provides sslmode=require).
-DATABASES = {
-    "default": dj_database_url.parse(
-        DATABASE_URL,
-        conn_max_age=600,
-        ssl_require=True,
-    )
-}
+    # Parse the DATABASE_URL. SSL is optional for local PostgreSQL deployments on EC2.
+    DATABASE_SSL_REQUIRE = os.environ.get("DATABASE_SSL_REQUIRE", "false").lower() == "true"
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            ssl_require=DATABASE_SSL_REQUIRE,
+        )
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -137,10 +147,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "apps.common.authentication.JWTAuthentication",
+        "apps.common.authentication.CognitoJWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
+        "apps.common.permissions.IsApprovedOrAdmin",
     ],
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
@@ -149,10 +159,16 @@ REST_FRAMEWORK = {
     ],
 }
 
-JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
-JWT_ACCESS_TTL_DAYS = int(os.environ.get("JWT_ACCESS_TTL_DAYS", "7"))
-JWT_REFRESH_TTL_DAYS = int(os.environ.get("JWT_REFRESH_TTL_DAYS", "30"))
-JWT_ISSUER = os.environ.get("JWT_ISSUER", "qp-gen")
+# AWS Cognito Configuration
+AWS_COGNITO_REGION = os.environ.get("AWS_COGNITO_REGION", "ap-south-1")
+AWS_COGNITO_USER_POOL_ID = os.environ.get("AWS_COGNITO_USER_POOL_ID", "ap-south-1_zHrjkaeQy")
+# NO hard-coded default: the prior literal "…occdoLk7ivf" contained an ℓ/1 typo
+# (console value ends "…occdo1k7ivf") which silently broke the access-token
+# `client_id` / ID-token `aud` check and rejected every token. The value must
+# also be the NEW *no-secret* app client (see FIX_REPORT.md → ACTION REQUIRED).
+# Unset ⇒ the validator fails closed (rejects all tokens) instead of trusting a
+# wrong client. Must match NEXT_PUBLIC_AWS_COGNITO_APP_CLIENT_ID on the frontend.
+AWS_COGNITO_APP_CLIENT_ID = os.environ.get("AWS_COGNITO_APP_CLIENT_ID", "")
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 CORS_ALLOWED_ORIGINS = [FRONTEND_URL]
@@ -234,11 +250,12 @@ CACHES = {
 }
 
 # Database connection pooling for faster response times
-DATABASES["default"]["CONN_MAX_AGE"] = 600  # Keep connections alive for 10 minutes
-DATABASES["default"]["OPTIONS"] = {
-    "connect_timeout": 10,
-    "application_name": "qp-gen",
-}
+if "test" not in sys.argv:
+    DATABASES["default"]["CONN_MAX_AGE"] = 600  # Keep connections alive for 10 minutes
+    DATABASES["default"]["OPTIONS"] = {
+        "connect_timeout": 10,
+        "application_name": "qp-gen",
+    }
 
 # ---------------------------------------------------------------------------
 # Optional S3/MinIO storage configuration. When `AWS_STORAGE_BUCKET_NAME` is
@@ -246,10 +263,10 @@ DATABASES["default"]["OPTIONS"] = {
 # `DEFAULT_FILE_STORAGE`. For local development you can set
 # `AWS_S3_ENDPOINT_URL` to a MinIO instance.
 # ---------------------------------------------------------------------------
-AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "")
-AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID") or None
+AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY") or None
 AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME", "")
-AWS_S3_REGION_NAME = os.environ.get("AWS_S3_REGION_NAME", "us-east-1")
+AWS_S3_REGION_NAME = os.environ.get("AWS_S3_REGION_NAME", "ap-south-1")
 # NOTE: botocore rejects an empty string endpoint_url with "Invalid endpoint:".
 # django-storages passes settings.AWS_S3_ENDPOINT_URL straight through, so we
 # must collapse "" → None here. None tells boto3 to use the default regional
@@ -265,4 +282,18 @@ if AWS_STORAGE_BUCKET_NAME:
     # Allow overriding the public media base if using a CDN or custom domain
     # e.g. set AOS_PUBLIC_MEDIA_BASE_URL=https://cdn.example.com
     # The storage backend will still generate URLs via `default_storage.url()`
+
+# ---------------------------------------------------------------------------
+# HSAT shared-textbook bucket — read-only source PDFs consumed by
+# services/s3_client.py (NOT django-storages). This bucket can live in a
+# DIFFERENT region than the uploads bucket above:
+#   uploads  → AWS_STORAGE_BUCKET_NAME @ AWS_S3_REGION_NAME  (e.g. qp-gen-pdfs / ap-southeast-2)
+#   HSAT     → HSAT_S3_BUCKET          @ HSAT_S3_REGION       (e.g. storagetank-hsat / ap-south-1)
+# A boto3/SigV4 request or presigned URL signed for the WRONG region fails with
+# 403 AuthorizationHeaderMalformed, so each client must sign for its own bucket's
+# region. When HSAT_S3_* are unset they fall back to the uploads bucket/region so
+# single-bucket (or local MinIO) deployments keep working unchanged.
+# ---------------------------------------------------------------------------
+HSAT_S3_BUCKET = os.environ.get("HSAT_S3_BUCKET", "") or AWS_STORAGE_BUCKET_NAME
+HSAT_S3_REGION = os.environ.get("HSAT_S3_REGION", "") or AWS_S3_REGION_NAME
 
