@@ -1,108 +1,112 @@
-from django.conf import settings
-from django.db import DataError
-from django.utils import timezone
-from datetime import timezone as dt_timezone
+import logging
 from rest_framework.authentication import BaseAuthentication, get_authorization_header
 from rest_framework.exceptions import AuthenticationFailed
-import jwt
 
-from apps.accounts.models import Session, User
-from django.core.cache import cache
+from apps.accounts.models import User
+from services.cognito_service import CognitoTokenValidator, get_user_info_from_cognito
 
+logger = logging.getLogger("[COGNITO_AUTHENTICATION]")
 
-class JWTAuthentication(BaseAuthentication):
+class CognitoJWTAuthentication(BaseAuthentication):
     keyword = "Bearer"
 
+    def __init__(self):
+        super().__init__()
+        self.validator = CognitoTokenValidator()
+
     def authenticate(self, request):
+        auth = get_authorization_header(request).split()
+        if not auth:
+            return None
+
+        if auth[0].decode().lower() != self.keyword.lower():
+            return None
+
+        if len(auth) != 2:
+            raise AuthenticationFailed("Invalid Authorization header format. Must be Bearer <token>")
+
+        token = auth[1].decode()
+
+        # Validate token and extract claims
+        payload = self.validator.validate_token(token)
+
+        sub = payload.get("sub")
+        if not sub:
+            raise AuthenticationFailed("Token is missing sub claim.")
+
+        # Cognito sub is a 36-char UUID. Strip hyphens to fit local User.id (32 chars)
+        user_id = sub.replace("-", "")
+
+        # Extract groups to determine status: admin > approved > pending
+        groups = payload.get("cognito:groups", [])
+        if not isinstance(groups, list):
+            groups = [groups]
+
+        if "admin" in groups:
+            status = "admin"
+        elif "approved" in groups:
+            status = "approved"
+        else:
+            status = "pending"
+
         try:
-            auth = get_authorization_header(request).split()
-            if not auth:
-                return None
+            user = User.objects.filter(id=user_id).first()
+            if not user:
+                # User does not exist locally. Retrieve details from token or query Cognito
+                token_use = payload.get("token_use")
+                email = payload.get("email")
+                name = payload.get("name") or payload.get("given_name")
 
-            if auth[0].decode().lower() != self.keyword.lower():
-                return None
+                if not email:
+                    if token_use == "access":
+                        # If it's an access token, fetch user info from Cognito user pool API
+                        user_info = get_user_info_from_cognito(token)
+                        email = user_info.get("email")
+                        name = user_info.get("name")
+                    else:
+                        # Fallback if email is somehow missing from ID token
+                        username = payload.get("cognito:username") or payload.get("username") or "user"
+                        email = f"{username}@example.com"
+                        name = username
 
-            if len(auth) != 2:
-                raise AuthenticationFailed("Invalid Authorization header.")
+                if not name:
+                    name = email.split("@")[0] if email else "User"
 
-            token = auth[1].decode()
-
-            try:
-                payload = jwt.decode(
-                    token,
-                    settings.SECRET_KEY,
-                    algorithms=[settings.JWT_ALGORITHM],
-                    issuer=settings.JWT_ISSUER,
-                    options={"require": ["exp", "iat", "jti", "sub", "type"]},
+                # Create the user profile locally
+                user = User.objects.create(
+                    id=user_id,
+                    email=email,
+                    name=name,
+                    status=status
                 )
-            except jwt.ExpiredSignatureError as exc:
-                raise AuthenticationFailed("Access token expired.") from exc
-            except jwt.InvalidTokenError as exc:
-                raise AuthenticationFailed("Invalid access token.") from exc
+                logger.info("Created local user profile for user %s (%s) with status %s", user.email, user.id, status)
+            else:
+                # User exists locally. Sync fields if they changed.
+                email = payload.get("email")
+                name = payload.get("name") or payload.get("given_name")
+                
+                # Check for updates from token claims
+                updated_fields = []
+                if email and user.email != email:
+                    user.email = email
+                    updated_fields.append("email")
+                if name and user.name != name:
+                    user.name = name
+                    updated_fields.append("name")
+                if user.status != status:
+                    # Sync Cognito group status to local DB
+                    user.status = status
+                    updated_fields.append("status")
 
-            if payload.get("type") != "access":
-                raise AuthenticationFailed("Invalid access token.")
+                if updated_fields:
+                    user.save(update_fields=updated_fields)
+                    logger.info("Synchronized user %s (%s) fields: %s", user.email, user.id, updated_fields)
 
-            user_id = payload.get("sub")
-            jti = payload.get("jti")
-            if not user_id or not jti:
-                raise AuthenticationFailed("Invalid access token.")
+            return (user, None)
 
-            # Guard against malformed tokens causing DB-level type/length errors.
-            if len(str(user_id)) > 32 or len(str(jti)) > 255:
-                raise AuthenticationFailed("Invalid access token.")
-
-            cached = cache.get(f"session:{jti}")
-            if cached:
-                cached_exp = cached.get("expires_at")
-                if cached_exp and cached_exp <= int(timezone.now().timestamp()):
-                    cache.delete(f"session:{jti}")
-                else:
-                    user_data = cached.get("user_data")
-                    if user_data:
-                        return (User(**user_data), None)
-                    # Fallback for old cache format: delete and fall through to DB fetch
-                    cache.delete(f"session:{jti}")
-
-            session = (
-                Session.objects
-                .select_related("user")
-                .filter(token=jti, user_id=user_id)
-                .first()
-            )
-            if not session:
-                raise AuthenticationFailed("Access token revoked.")
-
-            expires_at = session.expires_at
-            if timezone.is_naive(expires_at):
-                expires_at = timezone.make_aware(expires_at, dt_timezone.utc)
-
-            if expires_at <= timezone.now():
-                raise AuthenticationFailed("Access token revoked.")
-
-            # Cache session info to avoid a DB round-trip on every request
-            ttl = int((expires_at - timezone.now()).total_seconds())
-            if ttl > 0:
-                user = session.user
-                user_data = {
-                    "id": user.id,
-                    "name": user.name,
-                    "email": user.email,
-                    "image": user.image,
-                }
-                cache.set(
-                    f"session:{jti}",
-                    {
-                        "user_id": user.id,
-                        "expires_at": int(expires_at.timestamp()),
-                        "user_data": user_data
-                    },
-                    ttl,
-                )
-
-            return (session.user, None)
-        except DataError as exc:
-            raise AuthenticationFailed("Invalid access token.") from exc
+        except Exception as e:
+            logger.error("Error creating/syncing user during auth: %s", e)
+            raise AuthenticationFailed(f"User synchronization failed: {str(e)}")
 
     def authenticate_header(self, request) -> str:
         return self.keyword

@@ -17,6 +17,79 @@ import utils.ids
 from django.db import migrations, models
 
 
+def run_initial_sql(apps, schema_editor):
+    connection = schema_editor.connection
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("""
+            -- Remove the old legacy Document table if it was ever created
+            -- by a previous Django migration. CASCADE also drops any FK
+            -- constraints pointing at it (e.g. old DocumentChunk rows).
+            DROP TABLE IF EXISTS "Document" CASCADE;
+
+            -- Create pdf_source if Prisma hasn't already done so.
+            CREATE TABLE IF NOT EXISTS "pdf_source" (
+                "createdAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                "updatedAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                "id"         VARCHAR(255) NOT NULL,
+                "name"       VARCHAR(255) NOT NULL,
+                "size"       INTEGER      NOT NULL,
+                "url"        VARCHAR(2048) NOT NULL DEFAULT '',
+                "status"     VARCHAR(50)  NOT NULL DEFAULT 'uploading',
+                "error"      TEXT,
+                "userId"     VARCHAR(255) NOT NULL
+                                 REFERENCES "user"("id") ON DELETE CASCADE,
+                PRIMARY KEY ("id")
+            );
+
+            -- Create DocumentChunk with the pdfSourceId FK if Prisma
+            -- hasn't already done so.
+            CREATE TABLE IF NOT EXISTS "DocumentChunk" (
+                "id"          VARCHAR(255) NOT NULL,
+                "content"     TEXT         NOT NULL,
+                "page"        INTEGER,
+                "chunkIndex"  INTEGER      NOT NULL,
+                "embedding"   vector(1536),
+                "pdfSourceId" VARCHAR(255) NOT NULL
+                                  REFERENCES "pdf_source"("id") ON DELETE CASCADE,
+                PRIMARY KEY ("id")
+            );
+
+            CREATE INDEX IF NOT EXISTS "document_chunk_pdf_source_idx"
+                ON "DocumentChunk" ("pdfSourceId");
+            """)
+    else:
+        # SQLite
+        with connection.cursor() as cursor:
+            cursor.execute('DROP TABLE IF EXISTS "Document";')
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS "pdf_source" (
+                "createdAt"  datetime  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updatedAt"  datetime  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "id"         VARCHAR(255) NOT NULL,
+                "name"       VARCHAR(255) NOT NULL,
+                "size"       INTEGER      NOT NULL,
+                "url"        VARCHAR(2048) NOT NULL DEFAULT '',
+                "status"     VARCHAR(50)  NOT NULL DEFAULT 'uploading',
+                "error"      TEXT,
+                "userId"     VARCHAR(255) NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
+                PRIMARY KEY ("id")
+            );
+            """)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS "DocumentChunk" (
+                "id"          VARCHAR(255) NOT NULL,
+                "content"     TEXT         NOT NULL,
+                "page"        INTEGER,
+                "chunkIndex"  INTEGER      NOT NULL,
+                "embedding"   text,
+                "pdfSourceId" VARCHAR(255) NOT NULL REFERENCES "pdf_source"("id") ON DELETE CASCADE,
+                PRIMARY KEY ("id")
+            );
+            """)
+            cursor.execute('CREATE INDEX IF NOT EXISTS "document_chunk_pdf_source_idx" ON "DocumentChunk" ("pdfSourceId");')
+
+
 class Migration(migrations.Migration):
     initial = True
 
@@ -125,45 +198,9 @@ class Migration(migrations.Migration):
             ],
             # ── Actual SQL (idempotent) ───────────────────────────────────────
             database_operations=[
-                migrations.RunSQL(
-                    sql="""
-                    -- Remove the old legacy Document table if it was ever created
-                    -- by a previous Django migration. CASCADE also drops any FK
-                    -- constraints pointing at it (e.g. old DocumentChunk rows).
-                    DROP TABLE IF EXISTS "Document" CASCADE;
-
-                    -- Create pdf_source if Prisma hasn't already done so.
-                    CREATE TABLE IF NOT EXISTS "pdf_source" (
-                        "createdAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-                        "updatedAt"  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-                        "id"         VARCHAR(255) NOT NULL,
-                        "name"       VARCHAR(255) NOT NULL,
-                        "size"       INTEGER      NOT NULL,
-                        "url"        VARCHAR(2048) NOT NULL DEFAULT '',
-                        "status"     VARCHAR(50)  NOT NULL DEFAULT 'uploading',
-                        "error"      TEXT,
-                        "userId"     VARCHAR(255) NOT NULL
-                                         REFERENCES "user"("id") ON DELETE CASCADE,
-                        PRIMARY KEY ("id")
-                    );
-
-                    -- Create DocumentChunk with the pdfSourceId FK if Prisma
-                    -- hasn't already done so.
-                    CREATE TABLE IF NOT EXISTS "DocumentChunk" (
-                        "id"          VARCHAR(255) NOT NULL,
-                        "content"     TEXT         NOT NULL,
-                        "page"        INTEGER,
-                        "chunkIndex"  INTEGER      NOT NULL,
-                        "embedding"   vector(1536),
-                        "pdfSourceId" VARCHAR(255) NOT NULL
-                                          REFERENCES "pdf_source"("id") ON DELETE CASCADE,
-                        PRIMARY KEY ("id")
-                    );
-
-                    CREATE INDEX IF NOT EXISTS "document_chunk_pdf_source_idx"
-                        ON "DocumentChunk" ("pdfSourceId");
-                    """,
-                    reverse_sql=migrations.RunSQL.noop,
+                migrations.RunPython(
+                    run_initial_sql,
+                    reverse_code=migrations.RunPython.noop,
                 )
             ],
         )
