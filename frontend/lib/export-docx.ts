@@ -318,12 +318,44 @@ class CustomHtmlToDocxParser {
       });
     };
 
+    // ── Math-aware text extraction ──────────────────────────────────
+    // A naive innerText read is wrong for both math DOM shapes:
+    //   • live NodeView DOM: KaTeX emits the visual HTML layer PLUS a
+    //     visually-hidden MathML annotation of the LaTeX source, so
+    //     innerText returns the expression TWICE (garbled);
+    //   • static renderHTML output: the math span is EMPTY (latex lives
+    //     only in data-latex), so innerText silently DROPS the math.
+    // Substitute each math node with its LaTeX source (in \( \) so it
+    // stays lossless and recognisable in Word) before reading text.
+    const MATH_NODE_SELECTOR =
+      '[data-type="inline-math"], [data-type="math-block"], .inline-math, .math-block';
+
+    const mathLatexOf = (el: HTMLElement): string =>
+      (
+        el.getAttribute("data-latex") ||
+        el.querySelector("annotation")?.textContent ||
+        ""
+      ).trim();
+
+    const docxText = (el: HTMLElement): string => {
+      if (!el.querySelector(MATH_NODE_SELECTOR)) return el.innerText;
+      const clone = el.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll<HTMLElement>(MATH_NODE_SELECTOR).forEach((math) => {
+        const latex = mathLatexOf(math);
+        math.replaceWith(
+          clone.ownerDocument.createTextNode(latex ? `\\(${latex}\\)` : ""),
+        );
+      });
+      // textContent (not innerText): the detached clone has no layout.
+      return (clone.textContent || "").replace(/\s+/g, " ").trim();
+    };
+
     const extractOptions = (listEl: HTMLElement | null) => {
       if (!listEl) return [] as Paragraph[];
       const items = Array.from(listEl.querySelectorAll("li"));
       return items.map((li, index) => {
         const label = String.fromCharCode(65 + index);
-        return paragraph(`${label}) ${(li as HTMLElement).innerText}`, {
+        return paragraph(`${label}) ${docxText(li as HTMLElement)}`, {
           indentLeft: 360,
         });
       });
@@ -334,7 +366,7 @@ class CustomHtmlToDocxParser {
       const items = Array.from(listEl.querySelectorAll("li"));
       return items.map((li, index) => {
         const label = String.fromCharCode(97 + index);
-        return paragraph(`${label}) ${(li as HTMLElement).innerText}`, {
+        return paragraph(`${label}) ${docxText(li as HTMLElement)}`, {
           indentLeft: 360,
         });
       });
@@ -348,7 +380,7 @@ class CustomHtmlToDocxParser {
       const contentRoot =
         el.querySelector(".question-content") || el;
       const stem = contentRoot.querySelector("p");
-      const stemText = stem ? (stem as HTMLElement).innerText : "";
+      const stemText = stem ? docxText(stem as HTMLElement) : "";
       const list = contentRoot.querySelector("ol, ul");
       const options = extractOptions(list as HTMLElement | null);
 
@@ -372,7 +404,7 @@ class CustomHtmlToDocxParser {
       const contentRoot =
         el.querySelector(".question-content") || el;
       const stem = contentRoot.querySelector("p");
-      const stemText = stem ? (stem as HTMLElement).innerText : "";
+      const stemText = stem ? docxText(stem as HTMLElement) : "";
       const list = contentRoot.querySelector("ol, ul");
       const subQuestions = extractSubQuestions(list as HTMLElement | null);
 
@@ -432,20 +464,20 @@ class CustomHtmlToDocxParser {
       }
 
       if (el.tagName === "H1") {
-        docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }));
+        docxElements.push(new Paragraph({ text: docxText(el), heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }));
         return;
       }
       if (el.tagName === "H2") {
-        docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER }));
+        docxElements.push(new Paragraph({ text: docxText(el), heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER }));
         return;
       }
       if (el.tagName === "H3") {
-        docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_3, alignment: AlignmentType.CENTER }));
+        docxElements.push(new Paragraph({ text: docxText(el), heading: HeadingLevel.HEADING_3, alignment: AlignmentType.CENTER }));
         return;
       }
       if (el.tagName === "P") {
-        docxElements.push(new Paragraph({ 
-          children: [new TextRun({ text: el.innerText, bold: el.querySelector("strong") !== null })] 
+        docxElements.push(new Paragraph({
+          children: [new TextRun({ text: docxText(el), bold: el.querySelector("strong") !== null })]
         }));
         return;
       }
@@ -461,7 +493,7 @@ class CustomHtmlToDocxParser {
           if (tds.length === 0) return; // Skip empty rows to avoid division by zero or invalid row XML
           tds.forEach(td => {
             cells.push(new TableCell({
-              children: [new Paragraph({ children: [new TextRun({ text: (td as HTMLElement).innerText, bold: td.tagName === "TH" })] })],
+              children: [new Paragraph({ children: [new TextRun({ text: docxText(td as HTMLElement), bold: td.tagName === "TH" })] })],
               width: { size: 100 / tds.length, type: WidthType.PERCENTAGE }
             }));
           });
@@ -531,12 +563,12 @@ class CustomHtmlToDocxParser {
           const listItems = el.querySelectorAll("li");
           if (listItems.length > 0) {
             listItems.forEach((li, index) => {
-              const text = `${index + 1}. ${(li as HTMLElement).innerText}`;
+              const text = `${index + 1}. ${docxText(li as HTMLElement)}`;
               docxElements.push(new Paragraph({ text }));
             });
           } else {
             el.querySelectorAll("p").forEach(p => {
-              docxElements.push(new Paragraph({ text: (p as HTMLElement).innerText }));
+              docxElements.push(new Paragraph({ text: docxText(p as HTMLElement) }));
             });
           }
           return;
@@ -549,8 +581,11 @@ class CustomHtmlToDocxParser {
           docxElements.push(buildGroupedQuestionBlock(el));
           return;
         }
-        if (dataType === "math-block") {
-          const latex = el.getAttribute("data-latex") || el.innerText;
+        if (dataType === "math-block" || hasClass("math-block")) {
+          // Live NodeView DOM has no data-latex attribute — recover the
+          // source from KaTeX's MathML annotation instead of innerText
+          // (which would return the doubled visual+MathML text).
+          const latex = mathLatexOf(el) || docxText(el);
           docxElements.push(new Paragraph({ text: `$$ ${latex} $$`, alignment: AlignmentType.CENTER }));
           return;
         }

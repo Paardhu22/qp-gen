@@ -15,6 +15,7 @@ from django.db import transaction
 from docx import Document as DocxDocument
 
 from services.chunking_service import chunk_text
+from services.content_filters import is_label_only_caption, strip_vi_blocks
 from services.embedding_service import generate_embeddings
 from services.media_urls import stable_media_url
 from services.openai_service import caption_image_for_embedding
@@ -145,6 +146,19 @@ def extract_and_persist_chunks(
         extracted_text = _extract_text_from_docx(buffer)
     else:
         extracted_text = buffer.decode("utf-8", errors="ignore")
+
+    # Round-4: CBSE sample papers / HSAT books embed "Visually Impaired
+    # Students only" alternate blocks. If those survive into chunks, the
+    # retrieval context hands them to the LLM and they leak into standard
+    # papers (s3b Q31/Q37). Strip them at the source so no chunk ever
+    # stores one. (Generation-side scrubbing exists too, as defence for
+    # chunks ingested before this fix.)
+    extracted_text = strip_vi_blocks(extracted_text)
+    if pages:
+        pages = [
+            {**page, "content": strip_vi_blocks(str(page.get("content") or ""))}
+            for page in pages
+        ]
 
     if not extracted_text.strip() and not images:
         raise ValueError("Failed to extract text from document")
@@ -306,12 +320,28 @@ def _caption_one_image(
     page-context summary so a partial vision outage never breaks ingestion.
     Returns (caption, succeeded) so the caller can report failure counts."""
     page_number = int(image.get("pageNumber") or 0)
+    fallback = (
+        f"Textbook visual from page {page_number}. Nearby text: {page_text[:500]}"
+    )
     try:
         caption = caption_image_for_embedding(
             _image_data_url(image),
             page_context=page_text,
             user=user,
         )
+        # Round-4: a vision pass over a geometry figure sometimes returns
+        # only the diagram's own labels ("A", "ΔB"). Stored as-is, that
+        # residue pollutes retrieval and can surface in figure slots.
+        # Treat a label-only caption as no caption: fall back to the
+        # page-context summary, which at least carries real prose.
+        if is_label_only_caption(caption):
+            logger.info(
+                "Caption for %s page %s was label-only residue (%r); using page-context fallback",
+                file_name,
+                page_number,
+                caption[:60],
+            )
+            return fallback, True
         return caption, True
     except Exception as exc:
         logger.warning(
@@ -320,10 +350,7 @@ def _caption_one_image(
             page_number,
             exc,
         )
-        return (
-            f"Textbook visual from page {page_number}. Nearby text: {page_text[:500]}",
-            False,
-        )
+        return fallback, False
 
 
 def _build_image_chunks(
