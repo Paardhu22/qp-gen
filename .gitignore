@@ -12,6 +12,7 @@
 /package-lock.json
 /.claude-flow/
 /.swarm/
+
 # testing
 /coverage
 

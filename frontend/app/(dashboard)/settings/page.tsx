@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useSession } from "@/lib/auth-client";
 import { fetchJson } from "@/lib/api-client";
+import { getCognitoAccessToken } from "@/lib/token-storage";
+import { cognitoSignIn, cognitoChangePassword } from "@/lib/cognito-client";
 import {
   Card,
   CardContent,
@@ -40,6 +42,9 @@ function ChangePasswordModal({
   open: boolean;
   onClose: () => void;
 }) {
+  const { data: session } = useSession();
+  const user = session?.user;
+
   const [step, setStep] = useState<ModalStep>("verify");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -69,13 +74,14 @@ function ChangePasswordModal({
     }
     setIsVerifying(true);
     try {
-      await fetchJson("/api/auth/verify-password", {
-        method: "POST",
-        body: JSON.stringify({ password: currentPassword }),
-      });
+      const email = user?.email;
+      if (!email) {
+        throw new Error("User email not found in session.");
+      }
+      await cognitoSignIn(email, currentPassword);
       setStep("new-password");
-    } catch {
-      toast.error("Incorrect current password. Please try again.");
+    } catch (err: any) {
+      toast.error(err.message || "Incorrect current password. Please try again.");
     } finally {
       setIsVerifying(false);
     }
@@ -103,10 +109,11 @@ function ChangePasswordModal({
     }
     setIsSaving(true);
     try {
-      await fetchJson("/api/auth/change-password", {
-        method: "POST",
-        body: JSON.stringify({ oldPassword: currentPassword, newPassword }),
-      });
+      const accessToken = getCognitoAccessToken();
+      if (!accessToken) {
+        throw new Error("No active Cognito session found. Please sign in again.");
+      }
+      await cognitoChangePassword(accessToken, currentPassword, newPassword);
       toast.success("Password changed successfully.");
       resetAndClose();
     } catch (err: any) {

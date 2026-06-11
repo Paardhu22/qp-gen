@@ -3,11 +3,20 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, fetchJson } from "@/lib/api-client";
-import { refreshAccessToken } from "@/lib/auth-refresh";
-import { clearTokens, setTokens } from "@/lib/token-storage";
+import { clearTokens, getAccessToken, getCognitoAccessToken, getRefreshToken, setTokens } from "@/lib/token-storage";
 import { resetEditorStoreForAccountSwitch } from "@/store/editor-store";
+import {
+  cognitoSignIn,
+  cognitoSignUp,
+  cognitoConfirmSignUp,
+  cognitoResendConfirmationCode,
+  cognitoRefreshToken,
+  cognitoForgotPassword,
+  cognitoConfirmForgotPassword,
+  cognitoSignOut,
+} from "@/lib/cognito-client";
 
-// Local helper: wipe every per-account caches that aren't already cleared
+// Local helper: wipe every per-account cache that isn't already cleared
 // inside `clearTokens()` / `resetSessionCache()`. The Zustand editor store
 // persists the review tray + generator context in localStorage; the IndexedDB
 // `qp_gen_editor_db` keeps live editor drafts. Both must be reset before a
@@ -32,38 +41,105 @@ async function clearLocalUserState(): Promise<void> {
   }
 }
 
-type SessionUser = {
+export type SessionUser = {
   id: string;
   name: string;
   email: string;
   image?: string | null;
+  status: "pending" | "approved" | "admin" | "rejected";
 };
 
 type SessionData = {
   user: SessionUser;
 };
 
-type AuthResponse = {
-  user: SessionUser;
-  accessToken: string;
-  refreshToken: string;
-  accessTokenExpiresAt: string;
-  refreshTokenExpiresAt: string;
-};
-
 type FetchCallbacks = {
   onSuccess?: () => void;
   onError?: (ctx: { error: { message: string } }) => void;
+  /**
+   * Called when SignUp succeeded but the account still needs email
+   * verification (pool has verification ON → user is UNCONFIRMED). The UI
+   * should collect the emailed code and call `confirmSignUp.email`.
+   */
+  onConfirmationRequired?: (ctx: { email: string }) => void;
 };
+
+/**
+ * Shared post-credential bootstrap: exchange email+password for Cognito tokens,
+ * persist them, reset caches, and sync the Django profile. Used by signIn,
+ * the auto-confirm signUp path, and confirmSignUp so the three stay identical.
+ * Throws if the backend profile cannot be loaded.
+ */
+async function establishSession(email: string, password: string): Promise<void> {
+  const authResult = await cognitoSignIn(email, password);
+
+  setTokens({
+    accessToken: authResult.IdToken, // ID Token → local access token for Django endpoints
+    cognitoAccessToken: authResult.AccessToken, // true Access Token for Cognito calls
+    refreshToken: authResult.RefreshToken,
+    accessTokenExpiresAt: new Date(Date.now() + authResult.ExpiresIn * 1000).toISOString(),
+    refreshTokenExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+
+  resetSessionCache();
+
+  const session = await loadSession();
+  if (!session) {
+    throw new Error("Could not retrieve user profile from the backend.");
+  }
+}
 
 let cachedSession: SessionData | null = null;
 let sessionLoaded = false;
 let sessionPromise: Promise<SessionData | null> | null = null;
+let refreshPromise: Promise<boolean> | null = null;
 
 function resetSessionCache(): void {
   cachedSession = null;
   sessionLoaded = false;
   sessionPromise = null;
+}
+
+function parseJwt(token: string): any {
+  try {
+    const base64Url = token.split(".")[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    return null;
+  }
+}
+
+export function getCognitoGroups(): string[] {
+  const token = getAccessToken(); // We check the ID token
+  if (!token) return [];
+  const payload = parseJwt(token);
+  const groups = payload?.["cognito:groups"] || [];
+  return Array.isArray(groups) ? groups : [groups];
+}
+
+export function isPending(user?: SessionUser | null): boolean {
+  if (user?.status) return user.status === "pending";
+  const groups = getCognitoGroups();
+  return groups.includes("pending") || (!groups.includes("approved") && !groups.includes("admin"));
+}
+
+export function isApproved(user?: SessionUser | null): boolean {
+  if (user?.status) return user.status === "approved" || user.status === "admin";
+  const groups = getCognitoGroups();
+  return groups.includes("approved") || groups.includes("admin");
+}
+
+export function isAdmin(user?: SessionUser | null): boolean {
+  if (user?.status) return user.status === "admin";
+  const groups = getCognitoGroups();
+  return groups.includes("admin");
 }
 
 export const signIn = {
@@ -79,28 +155,14 @@ export const signIn = {
     try {
       // Wipe any prior account's cached editor state BEFORE the new tokens
       // are written, so the very next render under the new identity sees an
-      // empty tray. Doing it post-login risks a frame where the new user is
-      // authenticated but still looking at the previous user's data.
+      // empty tray.
       await clearLocalUserState();
-      const response = await fetchJson<AuthResponse>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-        skipAuth: true,
-        timeoutMs: 30000,
-      });
-      setTokens({
-        accessToken: response.accessToken,
-        refreshToken: response.refreshToken,
-        accessTokenExpiresAt: response.accessTokenExpiresAt,
-        refreshTokenExpiresAt: response.refreshTokenExpiresAt,
-      });
-      resetSessionCache();
+
+      await establishSession(email, password);
+
       fetchOptions?.onSuccess?.();
     } catch (error: any) {
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : "Unable to reach the server. Please check the backend and try again.";
+      const message = error?.message || "Authentication failed. Please check your credentials and try again.";
       fetchOptions?.onError?.({ error: { message } });
     }
   },
@@ -121,37 +183,103 @@ export const signUp = {
     try {
       // Fresh account — never bring forward any prior user's persisted state.
       await clearLocalUserState();
-      const response = await fetchJson<AuthResponse>("/api/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ email, password, name }),
-        skipAuth: true,
-        timeoutMs: 30000,
-      });
-      setTokens({
-        accessToken: response.accessToken,
-        refreshToken: response.refreshToken,
-        accessTokenExpiresAt: response.accessTokenExpiresAt,
-        refreshTokenExpiresAt: response.refreshTokenExpiresAt,
-      });
-      resetSessionCache();
+
+      const result = await cognitoSignUp(email, password, name);
+
+      // If the pool requires email verification the user is UNCONFIRMED now;
+      // auto sign-in would throw UserNotConfirmedException. Hand off to the UI
+      // to collect the emailed code (→ confirmSignUp.email). Only auto sign-in
+      // when the pool auto-confirmed the account.
+      if (!result.UserConfirmed) {
+        if (typeof window !== "undefined") {
+          window.sessionStorage.setItem("pending_confirmation_email", email);
+        }
+        fetchOptions?.onConfirmationRequired?.({ email });
+        return;
+      }
+
+      await establishSession(email, password);
+
       fetchOptions?.onSuccess?.();
     } catch (error: any) {
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : "Unable to reach the server. Please check the backend and try again.";
+      const message = error?.message || "Sign up failed. Please try again.";
       fetchOptions?.onError?.({ error: { message } });
     }
   },
 };
 
+/**
+ * Complete email verification for a freshly-registered account, then sign in.
+ * `password` is the password the user just chose at sign-up (kept in the form's
+ * state) so we can establish the session immediately after confirming.
+ */
+export const confirmSignUp = {
+  email: async ({
+    email,
+    code,
+    password,
+    fetchOptions,
+  }: {
+    email: string;
+    code: string;
+    password: string;
+    fetchOptions?: FetchCallbacks;
+  }) => {
+    try {
+      await clearLocalUserState();
+
+      try {
+        await cognitoConfirmSignUp(email, code);
+      } catch (confirmError: any) {
+        // If the account is already verified (e.g. auto-confirm pool, an admin
+        // confirmed it, or a double-submit), Cognito throws
+        // NotAuthorizedException "User cannot be confirmed. Current status is
+        // CONFIRMED". That's not a failure — skip confirmation and sign in.
+        const msg = String(confirmError?.message || "");
+        const alreadyConfirmed =
+          msg.includes("Current status is CONFIRMED") ||
+          msg.includes("User cannot be confirmed");
+        if (!alreadyConfirmed) throw confirmError;
+      }
+
+      await establishSession(email, password);
+
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem("pending_confirmation_email");
+      }
+
+      fetchOptions?.onSuccess?.();
+    } catch (error: any) {
+      const message =
+        error?.message || "Account confirmation failed. Check the code and try again.";
+      fetchOptions?.onError?.({ error: { message } });
+    }
+  },
+};
+
+/** Re-send the email verification code for an unconfirmed account. */
+export async function resendConfirmationCode(
+  email: string,
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    await cognitoResendConfirmationCode(email);
+    return { ok: true, message: "A new verification code has been sent to your email." };
+  } catch (error: any) {
+    return {
+      ok: false,
+      message: error?.message || "Failed to resend the verification code.",
+    };
+  }
+}
+
 export async function signOut({
   fetchOptions,
 }: { fetchOptions?: FetchCallbacks } = {}) {
   try {
-    await fetchJson("/api/auth/logout", {
-      method: "POST",
-    });
+    const cognitoAccess = getCognitoAccessToken();
+    if (cognitoAccess) {
+      await cognitoSignOut(cognitoAccess);
+    }
     clearTokens();
     resetSessionCache();
     await clearLocalUserState();
@@ -168,53 +296,84 @@ export async function requestPasswordReset(email: string): Promise<{
   ok: boolean;
   message: string;
 }> {
-  // Always treated as success by the API for account-enumeration resistance,
-  // but we still surface network/server failures here so the UI doesn't
-  // mistakenly tell the user "check your email" when the request never
-  // reached the backend.
   try {
-    const response = await fetchJson<{ success: boolean; message: string }>(
-      "/api/auth/forgot-password",
-      {
-        method: "POST",
-        body: JSON.stringify({ email }),
-        skipAuth: true,
-        timeoutMs: 30000,
-      },
-    );
-    return { ok: true, message: response.message };
+    await cognitoForgotPassword(email);
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem("forgot_password_email", email);
+    }
+    return { ok: true, message: "A password reset code has been sent to your email." };
   } catch (error: any) {
     return {
       ok: false,
-      message:
-        error instanceof ApiError
-          ? error.message
-          : "Unable to reach the server. Please try again.",
+      message: error?.message || "Failed to request password reset. Please try again.",
     };
   }
 }
 
 export async function resetPassword(
-  token: string,
+  token: string, // In Cognito, the token from URL is the confirmation code
   newPassword: string,
 ): Promise<{ ok: boolean; message: string }> {
   try {
-    await fetchJson<{ success: true }>("/api/auth/reset-password", {
-      method: "POST",
-      body: JSON.stringify({ token, newPassword }),
-      skipAuth: true,
-      timeoutMs: 30000,
-    });
-    return { ok: true, message: "Password updated. You can now sign in." };
+    let email = "";
+    if (typeof window !== "undefined") {
+      email = window.sessionStorage.getItem("forgot_password_email") || "";
+      // Fallback: search in query params if session storage is empty
+      if (!email) {
+        const urlParams = new URLSearchParams(window.location.search);
+        email = urlParams.get("email") || "";
+      }
+    }
+    
+    if (!email) {
+      return {
+        ok: false,
+        message: "Could not resolve the email address for password reset. Please request another reset link.",
+      };
+    }
+
+    await cognitoConfirmForgotPassword(email, token, newPassword);
+    
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem("forgot_password_email");
+    }
+    
+    return { ok: true, message: "Password updated successfully." };
   } catch (error: any) {
     return {
       ok: false,
-      message:
-        error instanceof ApiError
-          ? error.message
-          : "Unable to reach the server. Please try again.",
+      message: error?.message || "Failed to reset password. Please try again.",
     };
   }
+}
+
+async function refreshAccessToken(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const authResult = await cognitoRefreshToken(refreshToken);
+
+      setTokens({
+        accessToken: authResult.IdToken,
+        cognitoAccessToken: authResult.AccessToken,
+        refreshToken: authResult.RefreshToken || refreshToken, // Cognito may not always return a new refresh token
+        accessTokenExpiresAt: new Date(Date.now() + authResult.ExpiresIn * 1000).toISOString(),
+      });
+      return true;
+    } catch {
+      clearTokens();
+      resetSessionCache();
+      return false;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 async function loadSession(): Promise<SessionData | null> {
@@ -254,14 +413,6 @@ async function loadSession(): Promise<SessionData | null> {
 }
 
 export function useSession() {
-  // PERF: initialize from the module-level cache synchronously. After the
-  // very first session fetch in the app's lifetime, every subsequent
-  // protected-route navigation gets `data` populated and `isLoading=false`
-  // on the FIRST render — no spinner flash, no extra render cycle. Before
-  // this, useState started with `data=null, isLoading=true` even on cache
-  // hit, so ProtectedLayout rendered the spinner once and then re-rendered
-  // children, which added a perceptible flicker to every navigation and
-  // gated the protected layout on a render cycle.
   const [data, setData] = useState<SessionData | null>(
     sessionLoaded ? cachedSession : null,
   );
@@ -269,9 +420,6 @@ export function useSession() {
   const [error, setError] = useState<Error | null>(null);
 
   const fetchSession = useCallback(async () => {
-    // If the cache is already hot, skip the loading-state flip — the
-    // initial values above are correct and any flip would trigger a
-    // pointless re-render of every ProtectedLayout subtree.
     if (!sessionLoaded) {
       setIsLoading(true);
     }
@@ -287,19 +435,12 @@ export function useSession() {
     }
   }, []);
 
-  // Explicit refresh: always bypasses the module-level cache so fresh
-  // data (e.g. updated tokens_consumed) is fetched from the server.
   const forceRefresh = useCallback(async () => {
     resetSessionCache();
     await fetchSession();
   }, [fetchSession]);
 
   useEffect(() => {
-    // Skip the redundant fetch on cache hit — initial state is already
-    // populated from `cachedSession`, and another fetchSession() round
-    // would only add a wasted HTTP profile call per navigation. The
-    // explicit `forceRefresh` path remains for callers that need fresh
-    // data (e.g. after token consumption).
     if (sessionLoaded) return;
     fetchSession();
   }, [fetchSession]);

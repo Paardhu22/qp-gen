@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
-import { signUp } from "@/lib/auth-client";
+import { signUp, confirmSignUp, resendConfirmationCode } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,11 @@ export function RegisterForm({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // Two-phase signup: "form" collects details; "confirm" collects the emailed
+  // verification code (shown only when the Cognito pool requires verification).
+  const [phase, setPhase] = useState<"form" | "confirm">("form");
+  const [code, setCode] = useState("");
+  const [info, setInfo] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [cursor, setCursor] = useState({ x: 0, y: 0 });
   const [eyePos, setEyePos] = useState({ x: 0, y: 0 });
@@ -74,12 +79,48 @@ export function RegisterForm({
       password,
       fetchOptions: {
         onSuccess: () => router.push("/dashboard"),
+        onConfirmationRequired: () => {
+          // Pool requires email verification — switch to the code-entry step.
+          setPhase("confirm");
+          setInfo("We emailed you a verification code. Enter it below to finish.");
+          setLoading(false);
+        },
         onError: (ctx) => {
           setError(ctx.error.message);
           setLoading(false);
         },
       },
     });
+  };
+
+  const handleConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setInfo("");
+    setLoading(true);
+    await confirmSignUp.email({
+      email,
+      code: code.trim(),
+      password,
+      fetchOptions: {
+        onSuccess: () => router.push("/dashboard"),
+        onError: (ctx) => {
+          setError(ctx.error.message);
+          setLoading(false);
+        },
+      },
+    });
+  };
+
+  const handleResend = async () => {
+    setError("");
+    setInfo("");
+    const result = await resendConfirmationCode(email);
+    if (result.ok) {
+      setInfo(result.message);
+    } else {
+      setError(result.message);
+    }
   };
 
   return (
@@ -94,10 +135,12 @@ export function RegisterForm({
         <div className="flex flex-col items-center gap-6">
           <div className="text-center">
             <h1 className="text-2xl font-semibold text-foreground">
-              Create an account
+              {phase === "confirm" ? "Verify your email" : "Create an account"}
             </h1>
             <p className="text-sm text-muted-foreground">
-              Enter your details to get started
+              {phase === "confirm"
+                ? `Enter the code sent to ${email}`
+                : "Enter your details to get started"}
             </p>
           </div>
 
@@ -139,6 +182,37 @@ export function RegisterForm({
             ))}
           </div>
 
+          {phase === "confirm" ? (
+            <form onSubmit={handleConfirm} className="w-full space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="code">Verification code</Label>
+                <Input
+                  id="code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  required
+                />
+              </div>
+
+              {info && <p className="text-sm text-muted-foreground">{info}</p>}
+              {error && <p className="text-sm text-destructive">{error}</p>}
+
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? "Verifying…" : "Verify & continue"}
+              </Button>
+              <button
+                type="button"
+                onClick={handleResend}
+                className="w-full text-center text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+              >
+                Didn&apos;t get a code? Resend
+              </button>
+            </form>
+          ) : (
           <form onSubmit={handleSubmit} className="w-full space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
@@ -233,6 +307,7 @@ export function RegisterForm({
               </Link>
             </p>
           </form>
+          )}
         </div>
       </div>
     </div>

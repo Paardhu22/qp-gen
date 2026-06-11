@@ -1,0 +1,21 @@
+[Unit]
+Description=Gunicorn instance to serve the qp-gen Django Backend
+After=network.target
+
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=/home/ubuntu/qp-gen/backend
+EnvironmentFile=/home/ubuntu/qp-gen/backend/.env
+ExecStart=/home/ubuntu/qp-gen/backend/.venv/bin/gunicorn \
+          --workers 3 \
+          --bind unix:/run/qp-gen.sock \
+          --access-logfile /home/ubuntu/qp-gen/backend/gunicorn-access.log \
+          --error-logfile /home/ubuntu/qp-gen/backend/gunicorn-error.log \
+          config.wsgi:application
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

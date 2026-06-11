@@ -22,7 +22,7 @@ def _load_router():
     router_path = os.path.join(
         os.path.dirname(__file__), '..', '..', 'services', 'generation_router.py'
     )
-    src = open(router_path).read()
+    src = open(router_path, encoding="utf-8").read()
     src = src.replace('from django.conf import settings', '')
     globs = {'__builtins__': __builtins__, 'logging': __import__('logging')}
     exec(compile(src, router_path, 'exec'), globs)
@@ -144,7 +144,7 @@ class TestSourceTypeStamping(unittest.TestCase):
             os.path.dirname(__file__), '..', '..', 'services',
             'generation_service.py',
         )
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             src = f.read()
         # Top-level field on the question
         self.assertIn('question["sourceType"] = source_type', src)
@@ -164,7 +164,7 @@ class TestPdfServiceImportShim(unittest.TestCase):
         pdf_service_path = os.path.join(
             os.path.dirname(__file__), '..', '..', 'services', 'pdf_service.py'
         )
-        src = open(pdf_service_path).read()
+        src = open(pdf_service_path, encoding="utf-8").read()
         # Robust import: pymupdf first (newer name), fall back to fitz (older).
         self.assertIn("import pymupdf", src)
         self.assertIn("import fitz", src)

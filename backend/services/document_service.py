@@ -513,7 +513,7 @@ def process_pdf_upload(file, user) -> PdfSource:
         # Save the original uploaded file to the configured storage backend
         try:
             stored_path = default_storage.save(
-                f"pdfs/{pdf_source.id}/{file_name}", ContentFile(buffer)
+                f"uploads/{user.id}/pdfs/{pdf_source.id}/{file_name}", ContentFile(buffer)
             )
             # Store a public-facing URL when available (e.g. S3 presigned URL or CDN base)
             pdf_source.url = _public_media_url(stored_path)

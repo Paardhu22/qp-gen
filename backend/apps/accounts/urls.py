@@ -1,26 +1,18 @@
 from django.urls import path
 
 from .views import (
-    ChangePasswordView,
-    ForgotPasswordView,
-    LoginView,
-    LogoutView,
+    AdminUserApproveView,
+    AdminUserRejectView,
+    AdminUsersListView,
     ProfileView,
-    RefreshView,
-    RegisterView,
-    ResetPasswordView,
-    VerifyPasswordView,
 )
 
 urlpatterns = [
-    path("register", RegisterView.as_view(), name="register"),
-    path("login", LoginView.as_view(), name="login"),
-    path("logout", LogoutView.as_view(), name="logout"),
     path("profile", ProfileView.as_view(), name="profile"),
     path("dashboard", ProfileView.as_view(), name="dashboard"),
-    path("refresh", RefreshView.as_view(), name="refresh"),
-    path("change-password", ChangePasswordView.as_view(), name="change-password"),
-    path("verify-password", VerifyPasswordView.as_view(), name="verify-password"),
-    path("forgot-password", ForgotPasswordView.as_view(), name="forgot-password"),
-    path("reset-password", ResetPasswordView.as_view(), name="reset-password"),
+    
+    # Admin User management routes
+    path("users", AdminUsersListView.as_view(), name="admin-users-list"),
+    path("users/<str:user_id>/approve", AdminUserApproveView.as_view(), name="admin-user-approve"),
+    path("users/<str:user_id>/reject", AdminUserRejectView.as_view(), name="admin-user-reject"),
 ]
