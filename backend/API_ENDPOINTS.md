@@ -4,7 +4,7 @@ This document lists the currently registered backend routes and the endpoints cu
 
 ## Overview
 
-- **Base URL:** `http://localhost:8000`
+- **Base URL:** `http://3.110.176.28:8000`
 - **API prefix:** `/api/`
 - **Authentication:** Most application endpoints require a Bearer access token, except public health and authentication bootstrap/reset endpoints.
 - **Streaming:** Question generation uses Server-Sent Events (SSE).
@@ -86,4 +86,3 @@ This document lists the currently registered backend routes and the endpoints cu
 ## Frontend-Confirmed Usage
 
 The frontend currently calls the account, document upload, HSAT catalog/chapters/ingest/apply, question generation stream, project, paper, question deletion, answer-script generation, and password-management endpoints listed above.
-

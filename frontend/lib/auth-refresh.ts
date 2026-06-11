@@ -3,7 +3,7 @@
 import { clearTokens, getRefreshToken, setTokens } from "@/lib/token-storage";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.110.176.28:8000";
 
 type RefreshResponse = {
   accessToken: string;

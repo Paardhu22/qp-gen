@@ -4,7 +4,7 @@ import { getAccessToken } from "@/lib/token-storage";
 import { refreshAccessToken } from "@/lib/auth-refresh";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.110.176.28:8000";
 
 type FetchJsonOptions = RequestInit & {
   skipAuth?: boolean;
