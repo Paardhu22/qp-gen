@@ -41,10 +41,11 @@ python manage.py runserver 0.0.0.0:8000
 ```
 
 ## API Overview
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `GET /api/auth/me`
+- `GET /api/accounts/profile` — Get current authenticated user profile
+- `GET /api/accounts/dashboard` — (Alias) Get current authenticated user profile
+- `GET /api/accounts/users` — List local users (Admin only)
+- `POST /api/accounts/users/<user_id>/approve` — Approve user in Cognito and locally (Admin only)
+- `POST /api/accounts/users/<user_id>/reject` — Reject/disable user in Cognito and locally (Admin only)
 - `POST /api/documents/upload`
 - `GET /api/projects/`
 - `POST /api/projects/questions/save`
@@ -52,7 +53,7 @@ python manage.py runserver 0.0.0.0:8000
 - `POST /api/generation/answer-key`
 
 ## Notes
-- Session-cookie auth is used, so the frontend must send credentials with requests.
+- AWS Cognito JWT token-based authentication is used. The frontend must pass the JWT in the `Authorization: Bearer <JWT>` header.
 - Streaming endpoints use Server-Sent Events (SSE).
 
 ## S3 / MinIO Storage
