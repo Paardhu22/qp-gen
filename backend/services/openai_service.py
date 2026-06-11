@@ -153,7 +153,10 @@ def caption_image_for_embedding(
             "role": "system",
             "content": (
                 "Caption textbook visuals for retrieval. Describe only visible academic content, "
-                "labels, entities, map regions, axes, and the likely CBSE concept. Be concise."
+                "labels, entities, map regions, axes, and the likely CBSE concept. Be concise. "
+                "Describe what the diagram shows in one or two FULL SENTENCES of prose. "
+                "Never reply with just label names, single letters, or symbols "
+                "(e.g. 'A', 'ΔB', '∠ABC') — that is residue, not a caption."
             ),
         },
         {

@@ -1166,7 +1166,11 @@ def _build_content_instruction(slot: QuestionGenerationSlot) -> str:
     if slot.choice_required:
         lines.append(
             "Add exactly one internal choice in `question.or_choice`. "
-            "Do NOT output the OR alternative as a separate question object."
+            "Do NOT output the OR alternative as a separate question object. "
+            "Never write the word 'OR' before the first alternative or after "
+            "the last one — the renderer inserts the OR separator BETWEEN the "
+            "two alternatives itself. Never repeat these instructions or any "
+            "field name in the question text."
         )
     else:
         lines.append("Set `question.or_choice` to null.")
@@ -1189,7 +1193,10 @@ def _build_content_instruction(slot: QuestionGenerationSlot) -> str:
         lines.append(
             "MANDATORY FIGURE: This question MUST include an inline SVG diagram in the `figure` field. "
             "Emit `\"figure\": {\"type\": \"svg\", \"content\": \"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'>...</svg>\"}`. "
-            "The SVG must have labelled vertices/sides/angles. "
+            "The SVG must DRAW the actual geometry with shape elements "
+            "(<line>, <path>, <circle>, <polygon>, <rect>) — an SVG containing "
+            "ONLY <text> labels is rejected as residue. "
+            "Label vertices/sides/angles with <text> IN ADDITION to the shapes. "
             "NO <script>, NO <foreignObject>, NO external xlink:href. "
             "A response without a valid `figure` field will be rejected."
         )
