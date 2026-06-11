@@ -162,7 +162,13 @@ REST_FRAMEWORK = {
 # AWS Cognito Configuration
 AWS_COGNITO_REGION = os.environ.get("AWS_COGNITO_REGION", "ap-south-1")
 AWS_COGNITO_USER_POOL_ID = os.environ.get("AWS_COGNITO_USER_POOL_ID", "ap-south-1_zHrjkaeQy")
-AWS_COGNITO_APP_CLIENT_ID = os.environ.get("AWS_COGNITO_APP_CLIENT_ID", "3haedrtub40tv44occdolk7ivf")
+# NO hard-coded default: the prior literal "…occdoLk7ivf" contained an ℓ/1 typo
+# (console value ends "…occdo1k7ivf") which silently broke the access-token
+# `client_id` / ID-token `aud` check and rejected every token. The value must
+# also be the NEW *no-secret* app client (see FIX_REPORT.md → ACTION REQUIRED).
+# Unset ⇒ the validator fails closed (rejects all tokens) instead of trusting a
+# wrong client. Must match NEXT_PUBLIC_AWS_COGNITO_APP_CLIENT_ID on the frontend.
+AWS_COGNITO_APP_CLIENT_ID = os.environ.get("AWS_COGNITO_APP_CLIENT_ID", "")
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 CORS_ALLOWED_ORIGINS = [FRONTEND_URL]
@@ -276,4 +282,18 @@ if AWS_STORAGE_BUCKET_NAME:
     # Allow overriding the public media base if using a CDN or custom domain
     # e.g. set AOS_PUBLIC_MEDIA_BASE_URL=https://cdn.example.com
     # The storage backend will still generate URLs via `default_storage.url()`
+
+# ---------------------------------------------------------------------------
+# HSAT shared-textbook bucket — read-only source PDFs consumed by
+# services/s3_client.py (NOT django-storages). This bucket can live in a
+# DIFFERENT region than the uploads bucket above:
+#   uploads  → AWS_STORAGE_BUCKET_NAME @ AWS_S3_REGION_NAME  (e.g. qp-gen-pdfs / ap-southeast-2)
+#   HSAT     → HSAT_S3_BUCKET          @ HSAT_S3_REGION       (e.g. storagetank-hsat / ap-south-1)
+# A boto3/SigV4 request or presigned URL signed for the WRONG region fails with
+# 403 AuthorizationHeaderMalformed, so each client must sign for its own bucket's
+# region. When HSAT_S3_* are unset they fall back to the uploads bucket/region so
+# single-bucket (or local MinIO) deployments keep working unchanged.
+# ---------------------------------------------------------------------------
+HSAT_S3_BUCKET = os.environ.get("HSAT_S3_BUCKET", "") or AWS_STORAGE_BUCKET_NAME
+HSAT_S3_REGION = os.environ.get("HSAT_S3_REGION", "") or AWS_S3_REGION_NAME
 
