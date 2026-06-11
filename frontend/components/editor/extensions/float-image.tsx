@@ -30,12 +30,12 @@ interface FloatImageProps {
 // If BOTH are unset, source-image URLs stay relative and only render when
 // the FE and BE share an origin (typical for an nginx-proxied prod
 // deployment where /media/ is routed to Django from the same host). The
-// `localhost:8000` fallback here is a dev affordance ONLY — production
-// must set one of the two env vars above. We reuse the same fallback as
+// The fallback here points to the AWS backend currently used by the app.
+// Production should still set one of the two env vars above. We reuse the same fallback as
 // `lib/api-client.ts:API_BASE_URL` to keep the FE/API and FE/media origins
 // in sync; if api-client can talk to Django, this resolver can too.
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.110.176.28:8000";
 
 export function resolveFigureSrc(src: string | null | undefined): string {
   if (!src) return "";
