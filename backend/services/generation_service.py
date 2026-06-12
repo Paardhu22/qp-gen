@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import re
+import time
 from typing import Any, Dict, Iterable, List, Optional, Set
 
 from apps.generation.models import GenerationHistory
@@ -125,6 +126,23 @@ class JsonObjectStreamExtractor:
                     self._escape = False
 
         return completed
+
+
+def _get_rate_limit_sleep_time(exc) -> float:
+    # Check if this looks like a rate limit error (e.g. contains 429 or "rate limit")
+    exc_str = str(exc)
+    if "429" in exc_str or "rate limit" in exc_str.lower() or "tpm" in exc_str.lower():
+        # Look for "try again in X.XXXs" or "try again in X.XXX seconds"
+        match = re.search(r"try again in (\d+(?:\.\d+)?)s", exc_str, re.IGNORECASE)
+        if match:
+            return float(match.group(1)) + 0.5 # Add a small buffer
+        # Also match "try again in X seconds"
+        match = re.search(r"try again in (\d+(?:\.\d+)?) seconds", exc_str, re.IGNORECASE)
+        if match:
+            return float(match.group(1)) + 0.5
+        # Default backoff sleep
+        return 5.0
+    return 1.0 # default short sleep for other transient connection/stream errors
 
 
 def _empty_result() -> Dict[str, Any]:
@@ -1295,11 +1313,13 @@ def stream_general_instructions_questions(
                         parsed_payload = parsed
             except Exception as exc:
                 if attempt == 0:
+                    sleep_time = _get_rate_limit_sleep_time(exc)
                     logger.warning(
                         "[GIM] Slot %s streaming failed attempt 1 "
-                        "(%s: %s) — retrying.",
-                        idx, type(exc).__name__, exc,
+                        "(%s: %s) — sleeping %s s before retrying.",
+                        idx, type(exc).__name__, exc, sleep_time,
                     )
+                    time.sleep(sleep_time)
                     continue
                 logger.error(
                     "[GIM] Slot %s streaming failed (%s: %s). "
@@ -1885,7 +1905,12 @@ def stream_generated_questions(
                         parsed_payload = parsed
             except Exception as exc:
                 if not is_last:
-                    logger.warning("[LLM] Streaming failed for slot %s (attempt %s): %s. Retrying...", slot.index, attempt + 1, exc)
+                    sleep_time = _get_rate_limit_sleep_time(exc)
+                    logger.warning(
+                        "[LLM] Streaming failed for slot %s (attempt %s): %s. Sleeping %s s before retrying...",
+                        slot.index, attempt + 1, exc, sleep_time
+                    )
+                    time.sleep(sleep_time)
                     continue
                 failures += 1
                 logger.error("[LLM] Streaming failed for slot %s: %s", slot.index, exc, exc_info=True)
