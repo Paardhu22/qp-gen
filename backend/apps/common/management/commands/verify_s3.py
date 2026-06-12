@@ -131,6 +131,55 @@ class Command(BaseCommand):
             except Exception as exc:  # noqa: BLE001
                 report("s3:GetObject", False, str(exc))
 
+        # 6. Write-access probes for the three new output prefixes.
+        # Each probe: PutObject → GetObject → DeleteObject on a tiny sentinel.
+        # These tests FAIL until IAM grants s3:PutObject on the matching prefix.
+        write_prefixes = [
+            "question-papers",
+            "answer-scripts",
+            "question_bank",
+        ]
+        sentinel_data = b"verify_s3_write_probe"
+        for prefix in write_prefixes:
+            probe_key = f"{prefix}/_verify_s3_probe"
+            label = f"s3:PutObject/{prefix}"
+            try:
+                client.put_object(
+                    Bucket=bucket,
+                    Key=probe_key,
+                    Body=sentinel_data,
+                    ContentType="application/octet-stream",
+                )
+            except ClientError as exc:
+                code = (exc.response.get("Error") or {}).get("Code", "")
+                report(label, False, f"{code}: IAM key likely missing s3:PutObject — {exc}")
+                continue
+            except Exception as exc:  # noqa: BLE001
+                report(label, False, str(exc))
+                continue
+
+            # Verify round-trip
+            try:
+                buf = BytesIO()
+                client.download_fileobj(bucket, probe_key, buf)
+                assert buf.getvalue() == sentinel_data
+                report(f"s3:GetObject/{prefix}", True)
+            except Exception as exc:  # noqa: BLE001
+                report(f"s3:GetObject/{prefix}", False, str(exc))
+
+            # Clean up
+            try:
+                client.delete_object(Bucket=bucket, Key=probe_key)
+                report(f"s3:DeleteObject/{prefix}", True)
+                report(label, True)
+            except ClientError as exc:
+                code = (exc.response.get("Error") or {}).get("Code", "")
+                report(
+                    f"s3:DeleteObject/{prefix}",
+                    False,
+                    f"{code}: IAM key likely missing s3:DeleteObject — {exc}",
+                )
+
         if failed:
             self.stdout.write(self.style.ERROR(f"\nverify_s3: {failed} failed"))
             sys.exit(1)

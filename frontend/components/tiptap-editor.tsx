@@ -614,6 +614,7 @@ type TiptapEditorProps = {
   serverUpdatedAt?: string | null;
   paperMetadata?: PaperMetadata;
   onPaperCreatedAction?: (paperId: string) => void;
+  exportType?: "question_paper" | "answer_script" | "question_bank";
 };
 
 export const TiptapEditor = ({
@@ -622,6 +623,7 @@ export const TiptapEditor = ({
   serverUpdatedAt = null,
   paperMetadata,
   onPaperCreatedAction,
+  exportType = "question_paper",
 }: TiptapEditorProps) => {
   const [isClient, setIsClient] = useState(false);
   const template = useEditorStore((state) => state.template);
@@ -1696,6 +1698,8 @@ export const TiptapEditor = ({
         <EditorToolbar
           editor={editor}
           onFindReplace={() => setShowFindReplace((v) => !v)}
+          paperId={paperIdRef.current}
+          exportType={exportType}
         />
       )}
       {editor && showFindReplace && (
