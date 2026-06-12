@@ -355,7 +355,7 @@ HAVING count > 1;
 ```
 
 ### Logs
-- **Upload errors**: `backend/upload_error.log`
+- **Upload errors**: application logger `apps.documents.views` → stdout/stderr (CloudWatch in prod). The old local `upload_error.log` was removed in the statelessness pass.
 - **Django logs**: stdout/stderr when running `runserver`
 - **MinIO logs**: available in MinIO console
 

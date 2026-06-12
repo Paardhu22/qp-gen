@@ -19,3 +19,7 @@ cryptography>=42.0.0
 django-storages[boto3]==1.13.1
 boto3==1.28.0
 python-magic==0.4.27
+# Shared cache for multi-instance deployments (statelessness pass P3).
+# Django's built-in RedisCache backend needs redis-py. The app falls back to
+# LocMemCache when REDIS_URL is unset, so this is only exercised in prod.
+redis>=5.0

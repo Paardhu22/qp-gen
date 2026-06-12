@@ -141,6 +141,8 @@ class Command(BaseCommand):
             "question-papers",
             "answer-scripts",
             "question_bank",
+            # P2 statelessness pass: Paper.content dual-write mirror.
+            "paper-content",
         ]
         sentinel_data = b"verify_s3_write_probe"
         for prefix in write_prefixes:

@@ -116,3 +116,72 @@ class PdfSourceContentTypeRegressionTests(TestCase):
         )
         pdf_source.refresh_from_db()
         self.assertEqual(pdf_source.content_type, "application/pdf")
+
+
+class UploadErrorLoggingTests(TestCase):
+    """P0 statelessness pass: upload failures go to the app logger, never
+    to a local upload_error.log file (ephemeral EC2 disk, multi-instance)."""
+
+    LOG_FILE = "upload_error.log"
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.user = User.objects.create(
+            id="loguser000000000000000000000001a",
+            name="Logger",
+            email="logger@test.local",
+        )
+
+    def setUp(self) -> None:
+        import os
+
+        from rest_framework.test import APIClient
+
+        # Defensive: a stale artifact from pre-fix code must not skew the
+        # "no file created" assertion.
+        if os.path.exists(self.LOG_FILE):
+            os.remove(self.LOG_FILE)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _assert_no_log_file(self) -> None:
+        import os
+
+        self.assertFalse(
+            os.path.exists(self.LOG_FILE),
+            "upload error handling must not write a local log file",
+        )
+
+    def test_upload_failure_logs_and_writes_no_file(self) -> None:
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        with patch(
+            "apps.documents.views.process_pdf_upload",
+            side_effect=RuntimeError("boom"),
+        ):
+            with self.assertLogs("apps.documents.views", level="ERROR") as logs:
+                response = self.client.post(
+                    "/api/documents/upload",
+                    {"file": SimpleUploadedFile("t.pdf", b"%PDF", content_type="application/pdf")},
+                    format="multipart",
+                )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("PDF upload failed", logs.output[0])
+        self._assert_no_log_file()
+
+    def test_confirm_failure_logs_and_writes_no_file(self) -> None:
+        with patch(
+            "apps.documents.views.process_pdf_from_storage",
+            side_effect=RuntimeError("boom"),
+        ):
+            with self.assertLogs("apps.documents.views", level="ERROR") as logs:
+                response = self.client.post(
+                    "/api/documents/confirm",
+                    {"key": "uploads/u/x.pdf"},
+                    format="json",
+                )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("confirm failed", logs.output[0])
+        self._assert_no_log_file()
