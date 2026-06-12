@@ -727,8 +727,11 @@ def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
     )
 
     # Step 3: Find PDF source IDs
+    hsat_source_ids = list(
+        paper.hsat_sources.values_list("hsat_source_id", flat=True)
+    )
     pdf_source_ids = _find_pdf_source_ids(paper, user)
-    if not pdf_source_ids:
+    if not pdf_source_ids and not hsat_source_ids:
         raise RuntimeError(
             "Source files no longer available. Cannot generate answer script."
         )
@@ -760,11 +763,12 @@ def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
         query_embedding = None
         if question_embeddings:
             query_embedding = question_embeddings[idx - 1]
-        if pdf_source_ids:
+        if pdf_source_ids or hsat_source_ids:
             try:
                 source_chunks = retrieve_relevant_chunks(
                     query=primary_content,
                     pdf_source_ids=pdf_source_ids,
+                    hsat_source_ids=hsat_source_ids,
                     limit=4,
                     user=user,
                     exclude_chunk_ids=used_chunk_ids,
