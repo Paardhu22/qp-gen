@@ -22,8 +22,8 @@ from apps.question_generation.infrastructure.token_budget.budgeter import (
 )
 from apps.question_generation.services.prompting.assembler import PromptAssembler, default_system_rules
 from apps.question_generation.services.prompting.request_factory import LLMRequestFactory
+from services.retrieval_service import retrieve_relevant_chunks
 from apps.question_generation.services.retrieval.context_service import (
-    retrieve_relevant_chunks,
     retrieval_quality_summary,
 )
 from services.content_filters import (
@@ -1044,8 +1044,8 @@ def stream_general_instructions_questions(
         allocate_budget,
         trim_chunks_to_budget,
     )
+    from services.retrieval_service import retrieve_relevant_chunks
     from apps.question_generation.services.retrieval.context_service import (
-        retrieve_relevant_chunks,
         retrieval_quality_summary,
     )
 
