@@ -1,4 +1,4 @@
-import traceback
+import logging
 
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -6,6 +6,8 @@ from rest_framework.views import APIView
 from services.document_service import process_pdf_upload, process_pdf_from_storage
 
 from apps.documents.serializers import DocumentUploadSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentUploadView(APIView):
@@ -23,8 +25,10 @@ class DocumentUploadView(APIView):
         except ValueError as exc:
             return Response({"error": str(exc)}, status=400)
         except Exception as exc:
-            with open("upload_error.log", "a") as f:
-                f.write(f"Error: {exc}\n{traceback.format_exc()}\n")
+            # Stateless box: errors go to the app logger (stdout/stderr →
+            # CloudWatch), never to a local file the instance loses on
+            # recycle. logger.exception carries the traceback.
+            logger.exception("PDF upload failed")
             return Response({"error": f"Internal server error: {exc}"}, status=500)
 
         # Return "pdfSourceId" to match the new architecture.
@@ -111,8 +115,7 @@ class ConfirmUploadView(APIView):
         except ValueError as exc:
             return Response({"error": str(exc)}, status=400)
         except Exception as exc:
-            with open("upload_error.log", "a") as f:
-                f.write(f"Confirm error: {exc}\n{traceback.format_exc()}\n")
+            logger.exception("Presigned-upload confirm failed for key=%s", key)
             return Response({"error": f"Internal server error: {exc}"}, status=500)
 
         warnings = getattr(pdf_source, "warnings", []) or []

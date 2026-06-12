@@ -3,6 +3,7 @@ from typing import List, Optional
 from django.db import transaction
 
 from apps.projects.models import Project, Question, Paper
+from services.paper_content_service import dual_write_paper_content
 
 
 def list_projects_for_user(user) -> List[Project]:
@@ -117,5 +118,11 @@ def save_paper_to_project(
             # Link new ones
             for hsat_id in hsat_source_ids:
                 PaperHsatSource.objects.get_or_create(paper=paper, hsat_source_id=hsat_id)
+
+    # P2 dual-write: mirror the committed content to S3 AFTER the atomic
+    # block, so a slow or failed S3 call can never roll back or delay the
+    # authoritative DB save. Covers both the create and update branches.
+    # Never raises; failures are logged and retried by the backfill command.
+    dual_write_paper_content(paper)
 
     return paper

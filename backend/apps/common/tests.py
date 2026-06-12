@@ -34,6 +34,41 @@ class SettingsEnvTests(SimpleTestCase):
             )
 
 
+class CacheConfigTests(SimpleTestCase):
+    """P3 statelessness pass: CACHES is env-driven — Redis when REDIS_URL is
+    set (multi-instance shared cache), LocMem otherwise, and a graceful
+    LocMem fallback when the redis package is missing."""
+
+    def test_no_redis_url_selects_locmem(self):
+        config = project_settings.build_cache_config("")
+        self.assertEqual(
+            config["default"]["BACKEND"],
+            "django.core.cache.backends.locmem.LocMemCache",
+        )
+
+    def test_redis_url_selects_redis_backend(self):
+        config = project_settings.build_cache_config(
+            "redis://elasticache.example:6379/0", redis_importable=True
+        )
+        self.assertEqual(
+            config["default"]["BACKEND"],
+            "django.core.cache.backends.redis.RedisCache",
+        )
+        self.assertEqual(
+            config["default"]["LOCATION"], "redis://elasticache.example:6379/0"
+        )
+
+    def test_missing_redis_package_falls_back_to_locmem(self):
+        with self.assertLogs("config.settings", level="WARNING"):
+            config = project_settings.build_cache_config(
+                "redis://elasticache.example:6379/0", redis_importable=False
+            )
+        self.assertEqual(
+            config["default"]["BACKEND"],
+            "django.core.cache.backends.locmem.LocMemCache",
+        )
+
+
 class OpenAIUsageLoggingTests(SimpleTestCase):
     def test_record_usage_is_best_effort(self):
         usage = SimpleNamespace(

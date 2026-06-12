@@ -20,6 +20,38 @@ class GenerationTests(TestCase):
         self.assertTrue(True)
 
 
+class GenerationHistoryStatelessnessTests(TestCase):
+    """P1 statelessness pass: GenerationHistory persists prompt/settings/
+    result entirely to RDS — it has no file fields and no local-disk
+    dependency, so no S3 offload is required for statelessness."""
+
+    def test_history_is_db_only_metadata(self):
+        from django.db import models as dj_models
+
+        from apps.accounts.models import User
+        from apps.generation.models import GenerationHistory
+
+        # No FileField/ImageField anywhere on the model — nothing can ever
+        # land on the instance's local disk.
+        for field in GenerationHistory._meta.get_fields():
+            self.assertNotIsInstance(field, dj_models.FileField)
+
+        user = User.objects.create(
+            id="histuser00000000000000000000001a",
+            name="Hist",
+            email="hist@test.local",
+        )
+        history = GenerationHistory.objects.create(
+            prompt='{"blueprint": "..."}',
+            settings={"topic": "Electricity"},
+            result={"sections": []},
+            user=user,
+        )
+        history.refresh_from_db()
+        self.assertEqual(history.settings["topic"], "Electricity")
+        self.assertEqual(history.result, {"sections": []})
+
+
 # ---------------------------------------------------------------------------
 # ITEM 1 — Off-syllabus exclusions (Science + Social Science)
 # ---------------------------------------------------------------------------

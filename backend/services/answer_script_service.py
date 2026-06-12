@@ -23,6 +23,7 @@ from apps.documents.models import PdfSource
 from apps.projects.models import Paper
 from services.embedding_service import generate_embeddings
 from services.openai_service import get_openai_client, _record_usage
+from services.paper_content_service import dual_write_paper_content, read_paper_content
 from services.retrieval_service import retrieve_relevant_chunks
 
 logger = logging.getLogger("[ANSWER_SCRIPT]")
@@ -714,7 +715,11 @@ def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
     # The extractor filters out placeholder/template blocks (Cluster A.4) so
     # an "empty" paper — even one with editor-default questionBlocks the
     # user never filled in — short-circuits HERE, before any OpenAI call.
-    questions = _extract_questions_from_content(paper.content or "")
+    # Content is read through the P2 accessor (DB-authoritative by default;
+    # S3-first only when PAPER_CONTENT_SOURCE="s3"). Read once, reused at
+    # Step 6 so both steps see the same snapshot.
+    paper_content = read_paper_content(paper)
+    questions = _extract_questions_from_content(paper_content)
     if not questions:
         raise ValueError(
             "This paper has no questions to answer. Add at least one "
@@ -861,7 +866,7 @@ def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
     # Step 6: Create new paper for the answer script
     try:
         answer_doc = {"type": "doc", "content": answer_blocks}
-        new_doc = _build_answer_paper_content(paper.content or "", answer_doc)
+        new_doc = _build_answer_paper_content(paper_content, answer_doc)
 
         new_paper = Paper.objects.create(
             title=f"{paper.title} - Answer Key",
@@ -869,6 +874,10 @@ def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
             project=paper.project,
             user=user
         )
+
+        # P2 dual-write: answer scripts are Paper rows too — mirror their
+        # content to S3 exactly like teacher-saved papers. Never raises.
+        dual_write_paper_content(new_paper)
 
         # Step 6b: Write the link back onto the source paper so the DB holds
         # the relationship (no more localStorage-only mapping on the frontend).

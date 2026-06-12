@@ -44,6 +44,16 @@ class Paper(TimeStampedModel):
         blank=True,
         db_column="s3DocxKey",
     )
+    # Dual-write mirror of `content` at paper-content/{userId}/{paperId}.json.
+    # The DB `content` column REMAINS the source of truth; reads only consult
+    # S3 when settings.PAPER_CONTENT_SOURCE == "s3" (with DB fallback). All
+    # reads/writes go through services/paper_content_service.py.
+    s3_content_key = models.CharField(
+        max_length=1024,
+        null=True,
+        blank=True,
+        db_column="s3ContentKey",
+    )
 
     class Meta:
         db_table = "Paper"

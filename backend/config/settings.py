@@ -238,17 +238,62 @@ PDF_IMAGE_CAPTION_CONCURRENCY = _int_env(
     "PDF_IMAGE_CAPTION_CONCURRENCY", 3, minimum=1, maximum=32
 )
 
-# Cache configuration for improved API performance
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "qp-gen-cache",
-        "OPTIONS": {
-            "MAX_ENTRIES": 1000,
-        },
-        "TIMEOUT": 300,  # 5 minutes default
+# ---------------------------------------------------------------------------
+# Cache — Elasticache-ready (statelessness pass P3).
+#
+# REDIS_URL set   → shared Redis cache (django.core.cache.backends.redis,
+#                   needs the `redis` package). Required for multi-instance
+#                   deployments: the per-user read caches in
+#                   apps/projects/views.py are invalidated on write, and
+#                   that invalidation only works if all instances share one
+#                   cache. Elasticache: redis://<primary-endpoint>:6379/0
+#                   (rediss:// when in-transit encryption is on).
+# REDIS_URL unset → per-process LocMemCache, exactly today's behaviour —
+#                   fine for local dev and a single-instance box.
+#
+# If REDIS_URL is set but the redis package is missing we WARN and fall
+# back to LocMem rather than crash the boot (degrade-gracefully rule).
+# ---------------------------------------------------------------------------
+def build_cache_config(redis_url: str, redis_importable: bool | None = None) -> dict:
+    """Pure helper so tests can assert backend selection without reimporting
+    settings. ``redis_importable=None`` autodetects the redis package."""
+    if redis_url:
+        if redis_importable is None:
+            try:
+                import redis  # noqa: F401
+                redis_importable = True
+            except ImportError:
+                redis_importable = False
+        if redis_importable:
+            return {
+                "default": {
+                    "BACKEND": "django.core.cache.backends.redis.RedisCache",
+                    "LOCATION": redis_url,
+                    "KEY_PREFIX": "qpgen",
+                    "TIMEOUT": 300,  # 5 minutes default
+                }
+            }
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "REDIS_URL is set but the `redis` package is not installed; "
+            "falling back to per-process LocMemCache. "
+            "`pip install redis` to enable the shared cache."
+        )
+    return {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "qp-gen-cache",
+            "OPTIONS": {
+                "MAX_ENTRIES": 1000,
+            },
+            "TIMEOUT": 300,  # 5 minutes default
+        }
     }
-}
+
+
+REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+CACHES = build_cache_config(REDIS_URL)
 
 # Database connection pooling for faster response times
 if "test" not in sys.argv:
@@ -297,4 +342,60 @@ if AWS_STORAGE_BUCKET_NAME:
 # ---------------------------------------------------------------------------
 HSAT_S3_BUCKET = os.environ.get("HSAT_S3_BUCKET", "") or AWS_STORAGE_BUCKET_NAME
 HSAT_S3_REGION = os.environ.get("HSAT_S3_REGION", "") or AWS_S3_REGION_NAME
+
+# ---------------------------------------------------------------------------
+# Paper.content read source (statelessness pass P2).
+#
+# "db" (default): Paper content is read from the authoritative DB column —
+#                 byte-for-byte today's behaviour.
+# "s3":           reads try the dual-written paper-content/{userId}/{paperId}
+#                 .json object first and fall back to the DB column on ANY
+#                 miss or error.
+#
+# Writes ALWAYS dual-write (DB first — authoritative — then best-effort S3
+# mirror). Flip this to "s3" via env only after the dual-write + backfill
+# have run in prod; flipping back is equally a pure env change.
+# ---------------------------------------------------------------------------
+PAPER_CONTENT_SOURCE = os.environ.get("PAPER_CONTENT_SOURCE", "db").strip().lower()
+if PAPER_CONTENT_SOURCE not in {"db", "s3"}:
+    PAPER_CONTENT_SOURCE = "db"
+
+# ---------------------------------------------------------------------------
+# Logging — stdout/stderr ONLY (statelessness pass P0).
+#
+# No FileHandler anywhere: an EC2 instance's disk is ephemeral, and the
+# process supervisor (gunicorn/systemd) forwards std streams to CloudWatch.
+# Without this block, Django's DEFAULT_LOGGING hides django.* console
+# output when DEBUG=False and app loggers rely on Python's last-resort
+# stderr handler (WARNING+ only) — INFO logs were silently dropped in prod.
+# ---------------------------------------------------------------------------
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "console": {
+            "format": "{levelname} {asctime} {name} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "console",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": os.environ.get("DJANGO_LOG_LEVEL", "INFO"),
+    },
+    "loggers": {
+        # Request/server errors must surface in prod (DEFAULT_LOGGING gates
+        # these behind require_debug_true).
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
 

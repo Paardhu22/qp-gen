@@ -13,6 +13,7 @@ from apps.projects.serializers import (
     PaperListSerializer,
     PaperDetailSerializer,
 )
+from services.paper_content_service import read_paper_content
 from services.project_service import (
     list_projects_for_user,
     save_questions_to_project,
@@ -124,6 +125,11 @@ class PaperDetailView(APIView):
         except Exception as exc:
             raise Http404("Paper not found") from exc
 
+        # P2: resolve content through the single accessor. With the default
+        # PAPER_CONTENT_SOURCE="db" this is the DB column unchanged; "s3"
+        # tries the mirror first with DB fallback. Instance-only assignment —
+        # nothing is written back.
+        paper.content = read_paper_content(paper)
         data = PaperDetailSerializer(paper).data
         cache.set(cache_key, data, timeout=30)
         return Response(data)
