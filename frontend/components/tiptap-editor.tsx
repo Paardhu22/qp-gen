@@ -64,6 +64,7 @@ import {
 import { useSession } from "@/lib/auth-client";
 import { updatePaperAction } from "@/actions/savePaper";
 import { SyncCancelledError } from "@/lib/api-client";
+import { type AppliedHsatSource } from "@/components/hsat-source-picker";
 
 // ==================================
 // Auto-numbering utility
@@ -613,6 +614,8 @@ type TiptapEditorProps = {
   paperId?: string | null;
   serverUpdatedAt?: string | null;
   paperMetadata?: PaperMetadata;
+  hsatSources?: AppliedHsatSource[];
+  uploadedDocs?: { id: string; name: string; size: number }[];
   onPaperCreatedAction?: (paperId: string) => void;
   exportType?: "question_paper" | "answer_script" | "question_bank";
 };
@@ -622,6 +625,8 @@ export const TiptapEditor = ({
   paperId = null,
   serverUpdatedAt = null,
   paperMetadata,
+  hsatSources,
+  uploadedDocs,
   onPaperCreatedAction,
   exportType = "question_paper",
 }: TiptapEditorProps) => {
@@ -631,6 +636,17 @@ export const TiptapEditor = ({
   const userIdRef = useRef<string | null>(null);
   const paperIdRef = useRef<string | null>(paperId);
   const paperMetadataRef = useRef<PaperMetadata | undefined>(paperMetadata);
+  const hsatSourcesRef = useRef<AppliedHsatSource[]>(hsatSources || []);
+  const uploadedDocsRef = useRef<{ id: string; name: string; size: number }[]>(uploadedDocs || []);
+
+  useEffect(() => {
+    hsatSourcesRef.current = hsatSources || [];
+  }, [hsatSources]);
+
+  useEffect(() => {
+    uploadedDocsRef.current = uploadedDocs || [];
+  }, [uploadedDocs]);
+
   const onPaperCreatedRef =
     useRef<TiptapEditorProps["onPaperCreatedAction"]>(onPaperCreatedAction);
   const syncPromiseRef = useRef<Promise<void>>(Promise.resolve());
@@ -776,6 +792,8 @@ export const TiptapEditor = ({
                 ...contentPayload.metadata,
                 className: effectiveClassName,
                 subject: effectiveSubject,
+                hsatSources: hsatSourcesRef.current,
+                uploadedDocs: uploadedDocsRef.current,
               },
               layout: contentPayload.layout,
               sync: {
@@ -815,6 +833,7 @@ export const TiptapEditor = ({
                     examName: metadata.title,
                     content,
                     questionRefs: [],
+                    hsatSourceIds: hsatSourcesRef.current.map((s) => s.id),
                   },
                   syncAbortController.signal,
                 );

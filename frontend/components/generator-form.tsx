@@ -75,7 +75,19 @@ const FORM_SUBJECT_VALUES = [
 ];
 const FORM_CLASS_VALUES = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 
-export const GeneratorForm = () => {
+interface GeneratorFormProps {
+  uploadedDocs: { id: string; name: string; size: number }[];
+  setUploadedDocs: React.Dispatch<React.SetStateAction<{ id: string; name: string; size: number }[]>>;
+  hsatSources: AppliedHsatSource[];
+  setHsatSources: React.Dispatch<React.SetStateAction<AppliedHsatSource[]>>;
+}
+
+export const GeneratorForm = ({
+  uploadedDocs,
+  setUploadedDocs,
+  hsatSources,
+  setHsatSources,
+}: GeneratorFormProps) => {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -99,11 +111,7 @@ export const GeneratorForm = () => {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedResult, setGeneratedResult] = useState<any>(null);
-  const [uploadedDocs, setUploadedDocs] = useState<
-    { id: string; name: string; size: number }[]
-  >([]);
   const [uploadingDocs, setUploadingDocs] = useState<UploadingDoc[]>([]);
-  const [hsatSources, setHsatSources] = useState<AppliedHsatSource[]>([]);
   const [isHsatPickerOpen, setIsHsatPickerOpen] = useState(false);
   // Issue 3 — the draft instructions live in the zustand store directly so a
   // refresh, route change, or browser-close-and-back doesn't drop what the

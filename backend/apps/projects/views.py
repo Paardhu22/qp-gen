@@ -101,6 +101,7 @@ class PaperListView(APIView):
             title=serializer.validated_data["title"],
             content=serializer.validated_data["content"],
             questions=serializer.validated_data.get("questions", []),
+            hsat_source_ids=serializer.validated_data.get("hsatSourceIds"),
         )
         # Bust all relevant caches so the saved page reflects the new paper immediately
         cache.delete(f"user_papers:{request.user.id}")
@@ -138,6 +139,7 @@ class PaperDetailView(APIView):
                 content=serializer.validated_data["content"],
                 questions=serializer.validated_data.get("questions", []),
                 paper_id=paper_id,
+                hsat_source_ids=serializer.validated_data.get("hsatSourceIds"),
             )
         except Paper.DoesNotExist:
             raise Http404("Paper not found")

@@ -58,6 +58,7 @@ export async function savePaperAction(
     examName: string;
     content: string;
     questionRefs: string[];
+    hsatSourceIds?: string[];
   },
   signal?: AbortSignal,
 ): Promise<{ success: boolean; paperId: string }> {
@@ -67,6 +68,7 @@ export async function savePaperAction(
       title: data.examName,
       content: data.content,
       questions: [],
+      hsatSourceIds: data.hsatSourceIds || [],
     },
     signal,
   );
@@ -83,6 +85,7 @@ export async function updatePaperAction(
     examName?: string;
     content?: string;
     questionRefs?: string[];
+    hsatSourceIds?: string[];
   },
   signal?: AbortSignal,
 ): Promise<{ success: boolean; paperId: string }> {
@@ -93,6 +96,7 @@ export async function updatePaperAction(
       title: data.examName ?? "",
       content: data.content ?? "",
       questions: [],
+      hsatSourceIds: data.hsatSourceIds || [],
     },
     signal,
   );

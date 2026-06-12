@@ -48,3 +48,6 @@ class SavePaperSerializer(serializers.Serializer):
     questions = serializers.ListField(
         child=serializers.DictField(), required=False, default=list
     )
+    hsatSourceIds = serializers.ListField(
+        child=serializers.CharField(), required=False, default=list
+    )
