@@ -304,7 +304,7 @@ function inlineSvgElementsAsImages(root: HTMLElement): number {
 export async function exportToPDF(
   elementId: string,
   filename = "exam-paper.pdf",
-): Promise<void> {
+): Promise<Blob> {
   const container = document.getElementById(elementId);
   if (!container) throw new Error(`Element #${elementId} not found`);
 
@@ -401,6 +401,7 @@ export async function exportToPDF(
     }
 
     pdf.save(filename);
+    return pdf.output("blob") as Blob;
   } catch (error) {
     console.error("Error exporting PDF:", error);
     // Re-throw so the caller (toolbar) can show the error toast.

@@ -7,6 +7,14 @@ from typing import List, Dict, Any, Iterable, Optional, Set, Tuple
 from django.conf import settings
 
 from q_instructions.master.facade import AcademicGenerationFacade, GeneratePaperRequest
+from services.syllabus_scope import (
+    excluded_topics_prose_block,
+    excluded_topics_compact_line,
+    social_science_bloom_bias_block,
+    social_science_bloom_bias_line,
+    maths_cognitive_band_block,
+    maths_cognitive_band_line,
+)
 
 logger = logging.getLogger("[GEN_ROUTER]")
 logger.setLevel(logging.INFO)
@@ -32,6 +40,13 @@ _SUBJECT_ALIASES: Dict[str, str] = {
     "maths":          "mathematics",
     "math":           "mathematics",
     "mathematics standard": "mathematics",
+    "mathematics basic": "mathematics",
+    "maths basic":    "mathematics",
+    "math basic":     "mathematics",
+    "mathematics (code 041)": "mathematics",
+    "mathematics (code 241)": "mathematics",
+    "041":            "mathematics",
+    "241":            "mathematics",
     "sst":            "social science",
     "social studies": "social science",
     "hindi b":        "hindi",
@@ -82,6 +97,35 @@ def normalize_subject(subject: str) -> str:
         if alias in subject_norm:
             return canonical
     return subject_norm
+
+
+def resolve_maths_basic(subject_raw: str, payload: Optional[dict] = None) -> bool:
+    """True when the request targets Mathematics **Basic** (Code 241).
+
+    Standard (041) vs Basic (241) share the identical 38-question A–E
+    skeleton — only the cognitive-band target prose differs. The tier is a
+    selection-time flag, NOT a structural change, so it never touches the
+    section plan. Detected from an explicit payload field (``mathLevel`` /
+    ``math_level`` / ``mathsLevel``) or a "basic"/"241" marker in the subject
+    string. Anything that is not Mathematics, or not explicitly Basic,
+    resolves to Standard (False) — no breaking change to existing calls.
+    """
+    if normalize_subject(subject_raw) != "mathematics":
+        return False
+    payload = payload or {}
+    level = str(
+        payload.get("mathLevel")
+        or payload.get("math_level")
+        or payload.get("mathsLevel")
+        or payload.get("maths_level")
+        or ""
+    ).strip().lower()
+    if level in {"basic", "241"}:
+        return True
+    if level in {"standard", "041"}:
+        return False
+    raw = str(subject_raw or "").lower()
+    return "basic" in raw or "241" in raw
 
 
 def is_eligible_for_new_engine(subject_norm: str, class_num: int) -> bool:
@@ -239,13 +283,20 @@ def build_slot_blueprint_instructions(
     difficulty: str,
     class_num: int,
     subject: str,
+    maths_basic: bool = False,
 ) -> str:
     """
     Directive 5: Truncated prompt to save TTFT.
     Only pass what is absolutely necessary for THIS specific slot.
+
+    This is the prose that actually reaches the LLM per question (the
+    paper-level builders feed history logging / the printed header). The
+    off-syllabus, Bloom-bias, and Maths-tier guidance is therefore injected
+    here too — kept to one compact line each so TTFT is unaffected.
     """
     _lmap = {"social science": "Social Science", "mathematics": "Mathematics", "english": "English", "hindi": "Hindi", "telugu": "Telugu"}
-    subject_label = _lmap.get(normalize_subject(subject), "Science")
+    subject_norm = normalize_subject(subject)
+    subject_label = _lmap.get(subject_norm, "Science")
     lines = [
         "ACADEMIC BLUEPRINT INSTRUCTIONS (MANDATORY):",
         f"- Board: CBSE | Class: {class_num} | Subject: {subject_label}",
@@ -253,7 +304,22 @@ def build_slot_blueprint_instructions(
         f"- Generate EXACTLY ONE question for {slot.marks} marks.",
         f"- Question Type: {slot.legacy_type}",
     ]
-    
+
+    # Off-syllabus exclusions (single source of truth: services.syllabus_scope).
+    exclusion_line = excluded_topics_compact_line(subject_norm, class_num)
+    if exclusion_line:
+        lines.append(exclusion_line)
+
+    # Social Science is ~50% HOTS — bias every slot toward analysis.
+    if subject_norm == "social science":
+        bias_line = social_science_bloom_bias_line(class_num)
+        if bias_line:
+            lines.append(bias_line)
+
+    # Mathematics Standard (041) vs Basic (241) cognitive-tier selection.
+    if subject_norm == "mathematics" and class_num == 10:
+        lines.append(maths_cognitive_band_line(maths_basic))
+
     # Send word limits only if it's a descriptive question
     if slot.legacy_type in ["SHORT", "LONG", "CASE_STUDY"]:
         if slot.marks == 2:
@@ -262,11 +328,11 @@ def build_slot_blueprint_instructions(
             lines.append("- Word limit: Max 60 words.")
         elif slot.marks >= 5:
             lines.append("- Word limit: Max 120 words.")
-            
+
     # Send CBQ specific rule
     if slot.legacy_type == "CASE_STUDY":
         lines.append("- CBQ rules: Always exactly 3 sub-questions totaling 4 marks (e.g. 1+1+2). No OR within CBQ.")
-        
+
     return "\n".join(lines)
 
 
@@ -276,9 +342,13 @@ def build_plan_blueprint_instructions(
     difficulty: str,
     class_num: int,
     subject: str,
+    maths_basic: bool = False,
 ) -> str:
     _lmap2 = {"social science": "Social Science", "mathematics": "Mathematics", "english": "English", "hindi": "Hindi", "telugu": "Telugu"}
-    subject_label = _lmap2.get(normalize_subject(subject), "Science")
+    subject_norm = normalize_subject(subject)
+    subject_label = _lmap2.get(subject_norm, "Science")
+    if subject_norm == "mathematics":
+        subject_label = "Mathematics Basic (Code 241)" if maths_basic else "Mathematics Standard (Code 041)"
     summary = summarize_question_plan(plan)
     lines = [
         "CBSE QUESTION PLAN (STRICT):",
@@ -311,6 +381,19 @@ def build_plan_blueprint_instructions(
     )
     if section_line:
         lines.append(f"- Locked sections: {section_line}.")
+
+    # Cognitive-band + off-syllabus guidance (history-log fidelity; the LLM
+    # gets the same guidance per-slot via build_slot_blueprint_instructions).
+    if not is_custom:
+        if subject_norm == "mathematics" and class_num == 10:
+            lines.append(maths_cognitive_band_line(maths_basic))
+        if subject_norm == "social science":
+            bias = social_science_bloom_bias_line(class_num)
+            if bias:
+                lines.append(bias)
+        exclusion_line = excluded_topics_compact_line(subject_norm, class_num)
+        if exclusion_line:
+            lines.append(exclusion_line)
     return "\n".join(lines)
 
 
@@ -585,14 +668,25 @@ def build_social_science_blueprint_instructions(difficulty: str, count: int, cla
             "- SECTION D (Economics): NO 2-mark VSA question. NO CBQ. NO Map question. THREE 3-mark SA questions. OR only at 5m.",
             "- CBQ rules: Always exactly 3 sub-questions totaling 4 marks (e.g. 1+1+2). No OR within CBQ."
         ])
-        
+        # Bloom-band bias (30/14/50 + map) and off-syllabus exclusions — Class 10
+        # only. Single source of truth: services.syllabus_scope.
+        rules.extend(social_science_bloom_bias_block(class_num))
+        rules.extend(excluded_topics_prose_block("social science", class_num))
+
     return "\n".join(rules)
 
 
-def _build_mathematics_blueprint_instructions(difficulty: str, count: int) -> str:
+def _build_mathematics_blueprint_instructions(difficulty: str, count: int, maths_basic: bool = False) -> str:
+    # Standard (041) vs Basic (241) share the identical A–E skeleton; only the
+    # subject label and the cognitive-band target prose differ.
+    subject_line = (
+        "- Board: CBSE | Class: 10 | Subject: Mathematics Basic (Code 241)"
+        if maths_basic
+        else "- Board: CBSE | Class: 10 | Subject: Mathematics Standard (Code 041)"
+    )
     rules = [
         "ACADEMIC BLUEPRINT INSTRUCTIONS (MANDATORY):",
-        "- Board: CBSE | Class: 10 | Subject: Mathematics Standard (Code 041)",
+        subject_line,
         f"- Overall Difficulty Target: {difficulty.upper()}",
     ]
     if count > 0:
@@ -600,6 +694,7 @@ def _build_mathematics_blueprint_instructions(difficulty: str, count: int) -> st
             f"- You MUST generate exactly {count} questions.",
             "WORKSHEET MODE: Sections based on question type; no formal section split required.",
         ])
+        rules.extend(maths_cognitive_band_block(maths_basic))
         return "\n".join(rules)
     rules.extend([
         "- Total: 38 questions, 80 marks, 3 hours.",
@@ -616,6 +711,8 @@ def _build_mathematics_blueprint_instructions(difficulty: str, count: int) -> st
         "- Use π = 22/7 unless the question specifically states π = 3.14.",
         "- Calculator not permitted.",
     ])
+    # Cognitive-band target: Standard 54/24/22 vs Basic 75/15/10 (same skeleton).
+    rules.extend(maths_cognitive_band_block(maths_basic))
     return "\n".join(rules)
 
 
@@ -692,6 +789,7 @@ def build_blueprint_instructions(
     class_num: int = 10,
     subject: str = "science",
     plan: Optional[List[QuestionGenerationSlot]] = None,
+    maths_basic: bool = False,
 ) -> str:
     """
     Returns strict pedagogical prompt for the LLM based on Grade Tiers.
@@ -702,13 +800,14 @@ def build_blueprint_instructions(
             difficulty=difficulty,
             class_num=class_num,
             subject=subject,
+            maths_basic=maths_basic,
         )
 
     subject_norm = normalize_subject(subject)
     if subject_norm == "social science":
         return build_social_science_blueprint_instructions(difficulty, count, class_num)
     if subject_norm == "mathematics" and class_num == 10:
-        return _build_mathematics_blueprint_instructions(difficulty, count)
+        return _build_mathematics_blueprint_instructions(difficulty, count, maths_basic=maths_basic)
     if subject_norm == "english" and class_num == 10:
         return _build_english_blueprint_instructions(difficulty, count)
     if subject_norm == "hindi" and class_num == 10:
@@ -789,7 +888,10 @@ def build_blueprint_instructions(
             "- SPECIAL RULES: Diagram questions MUST have a Visually Impaired (VI) text alternative. Physics must be numerical-dominant. Competency-based questions appear in 3-4 mark tier.",
             "Distribute questions across MCQ, ASSERTION_REASON, SHORT, LONG, and CASE_STUDY logically."
         ])
-        
+        # Off-syllabus exclusions — Class 10 Science only. Single source of
+        # truth: services.syllabus_scope.
+        rules.extend(excluded_topics_prose_block("science", class_num))
+
     return "\n".join(rules)
 
 

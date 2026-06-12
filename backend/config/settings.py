@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "apps.projects",
     "apps.common",
     "apps.question_generation",
+    "apps.storage",
     "storages",
 ]
 

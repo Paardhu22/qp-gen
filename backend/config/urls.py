@@ -13,6 +13,7 @@ urlpatterns = [
     path("api/hsat/", include("apps.documents.hsat_urls")),
     path("api/generation/", include("apps.generation.urls")),
     path("api/projects/", include("apps.projects.urls")),
+    path("api/storage/", include("apps.storage.urls")),
     # Stable media resolver: redirects to a fresh presigned URL on S3,
     # streams from MEDIA_ROOT locally. Replaces the DEBUG-only static()
     # route, which 404'd every /media/pdf_images/... request when files

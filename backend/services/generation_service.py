@@ -1510,9 +1510,11 @@ def stream_generated_questions(
         extract_class_number,
         normalize_subject,
         paper_plan_section_order,
+        resolve_maths_basic,
         summarize_question_plan,
         should_use_new_engine,
     )
+    from services.syllabus_scope import excluded_source_substrings
 
     logger.info(f"[STREAM_SERVICE] Entered stream_generated_questions for topic '{topic}'")
 
@@ -1579,6 +1581,13 @@ def stream_generated_questions(
     subject_raw = str(payload.get("subject", "Science")).strip() or "Science"
     subject_norm = normalize_subject(subject_raw)
     subject_label = "Social Science" if subject_norm == "social science" else "Science"
+    # Mathematics Standard (041) vs Basic (241): same A–E skeleton, different
+    # Bloom-band target prose. Detected from the payload / subject string.
+    maths_basic = resolve_maths_basic(subject_raw, payload)
+    # Off-syllabus whole-chapter exclusions (e.g. Social Science "Age of
+    # Industrialisation") to drop from RAG retrieval. Single source of truth in
+    # services.syllabus_scope — same list the prose builder cites.
+    exclude_substrings = excluded_source_substrings(subject_norm, class_num)
     count_variation = str(payload.get("count_variation") or payload.get("countVariation") or payload.get("countType") or "").strip().lower()
     resolved_count = -1 if count_variation in {"cbse exact pattern", "cbse", "exact"} else count
 
@@ -1588,7 +1597,7 @@ def stream_generated_questions(
         )
         # We still generate the master blueprint for history logging
         master_blueprint = build_blueprint_instructions(
-            topic=topic, difficulty=difficulty, count=resolved_count, class_num=class_num, subject=subject_raw, plan=plan,
+            topic=topic, difficulty=difficulty, count=resolved_count, class_num=class_num, subject=subject_raw, plan=plan, maths_basic=maths_basic,
         )
     except Exception as exc:
         logger.error("[AOS] Failed to compile q_instructions plan: %s", exc, exc_info=True)
@@ -1665,6 +1674,7 @@ def stream_generated_questions(
                 require_image=slot.requires_image,
                 exclude_chunk_ids=None,
                 hsat_source_ids=hsat_source_ids,
+                exclude_source_substrings=exclude_substrings,
             )
 
         top_50 = _topic_cache[cache_key]
@@ -1798,7 +1808,7 @@ def stream_generated_questions(
         )
         
         # Directive 5: Truncated prompt
-        slot_blueprint = build_slot_blueprint_instructions(slot, difficulty, class_num, subject_raw)
+        slot_blueprint = build_slot_blueprint_instructions(slot, difficulty, class_num, subject_raw, maths_basic=maths_basic)
 
         if curriculum_fallback:
             system_rules = (

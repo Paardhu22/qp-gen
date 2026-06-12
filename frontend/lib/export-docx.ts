@@ -20,7 +20,7 @@ type DocxSource = string | HTMLElement;
 export async function exportToDocx(
   source: DocxSource,
   filename: string = "exam-paper.docx",
-) {
+): Promise<Blob> {
   // HTML→DOCX converter that handles paper structure (headers, sections,
   // questions, OR groups) and figures (`floatImage`). Figures are loaded
   // asynchronously — SVG data URLs are rasterized to PNG via canvas;
@@ -45,6 +45,7 @@ export async function exportToDocx(
 
   const buffer = await Packer.toBlob(doc);
   saveAs(buffer, filename);
+  return buffer;
 }
 
 // ---------------------------------------------------------------------------

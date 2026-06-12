@@ -7,6 +7,7 @@ from pgvector.django import L2Distance
 
 from services.embedding_service import generate_single_embedding
 from services.media_urls import normalise_chunk_payload
+from services.syllabus_scope import chunk_source_is_excluded
 
 
 def retrieve_relevant_chunks(
@@ -18,6 +19,7 @@ def retrieve_relevant_chunks(
     exclude_chunk_ids: Optional[Set[str]] = None,
     query_embedding: Optional[List[float]] = None,
     hsat_source_ids: Optional[List[str]] = None,
+    exclude_source_substrings: Optional[List[str]] = None,
 ) -> List[dict]:
     """
     Retrieve the most semantically relevant chunks from the given PdfSources
@@ -61,8 +63,16 @@ def retrieve_relevant_chunks(
     for chunk in queryset[:max_fetch]:
         if exclude_chunk_ids and str(chunk.id) in exclude_chunk_ids:
             continue
-            
+
         metadata = chunk.metadata or {}
+        # Off-syllabus filter: drop chunks whose source chapter is excluded
+        # from the year-end theory paper (e.g. Social Science "Age of
+        # Industrialisation"). Whole-chapter only — see services.syllabus_scope.
+        if exclude_source_substrings and chunk_source_is_excluded(
+            metadata, exclude_source_substrings
+        ):
+            continue
+
         similarity = 1 - float(chunk.distance) if chunk.distance is not None else 0
         payload = {
             "id": chunk.id,
@@ -84,6 +94,7 @@ def retrieve_relevant_chunks(
 def get_all_chunks(
     pdf_source_ids: List[str],
     hsat_source_ids: Optional[List[str]] = None,
+    exclude_source_substrings: Optional[List[str]] = None,
 ) -> List[dict]:
     """
     Retrieves chunks from the specified PDFs and/or HSAT books. If the
@@ -108,8 +119,14 @@ def get_all_chunks(
     )
 
     all_chunks = list(queryset)
+    if exclude_source_substrings:
+        all_chunks = [
+            c
+            for c in all_chunks
+            if not chunk_source_is_excluded(c.metadata or {}, exclude_source_substrings)
+        ]
     total_chunks = len(all_chunks)
-    
+
     # Target safe ceiling of 55 chunks to guarantee staying under the 30,000 TPM limit (leaving room for generated output)
     MAX_CHUNKS = 55
     

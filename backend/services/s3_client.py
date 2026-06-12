@@ -107,6 +107,42 @@ def head_object(key: str) -> dict:
     return get_client().head_object(Bucket=get_bucket(), Key=key)
 
 
+def upload_bytes(
+    key: str,
+    data: bytes,
+    *,
+    content_type: str = "application/octet-stream",
+) -> None:
+    """Upload raw bytes to the HSAT bucket at the given key.
+
+    Uses the same client / credentials as download_to_buffer so the IAM
+    key only needs to be updated in one place.  Callers are responsible for
+    choosing a key prefix that matches the IAM policy (e.g.
+    question-papers/*, answer-scripts/*, question_bank/*).
+    """
+    get_client().put_object(
+        Bucket=get_bucket(),
+        Key=key,
+        Body=data,
+        ContentType=content_type,
+    )
+
+
+def generate_presigned_get_url(key: str, expire: int = 900) -> str:
+    """Return a short-lived presigned GET URL for the given key.
+
+    ``expire`` defaults to 900 s (15 min) — enough for an immediate
+    browser redirect or download without leaving long-lived URLs in the
+    wild.  Never persist the returned URL; store the key and call this
+    function again at access time.
+    """
+    return get_client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": get_bucket(), "Key": key},
+        ExpiresIn=expire,
+    )
+
+
 def download_to_buffer(
     key: str, *, max_attempts: int = 3, backoff_base: float = 0.5
 ) -> bytes:

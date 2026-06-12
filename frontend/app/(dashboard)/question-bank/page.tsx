@@ -824,7 +824,7 @@ export default function QuestionBankPage() {
           onExportAnswerScriptPDF={() => {
             if (activePaper.answerScriptId) {
               router.push(
-                `/editor?paperId=${activePaper.answerScriptId}&action=export-pdf`,
+                `/editor?paperId=${activePaper.answerScriptId}&action=export-pdf&exportType=answer_script`,
               );
             }
           }}

@@ -70,6 +70,7 @@ import { Badge } from "../ui/badge";
 import { useEditorStore } from "@/store/editor-store";
 import { exportToPDF } from "@/lib/export-pdf";
 import { exportToDocx } from "@/lib/export-docx";
+import { uploadExportToS3, type ExportType } from "@/lib/s3-upload";
 import { toast } from "sonner";
 import { extractPagesFromDoc } from "./pagination-utils";
 
@@ -710,11 +711,15 @@ const HEADING_LEVELS = [
 interface ToolbarProps {
   editor: Editor;
   onFindReplace?: () => void;
+  paperId?: string | null;
+  exportType?: ExportType;
 }
 
 export const EditorToolbar: React.FC<ToolbarProps> = ({
   editor,
   onFindReplace,
+  paperId,
+  exportType = "question_paper",
 }) => {
   const router = useRouter();
   const [totalMarks, setTotalMarks] = useState(0);
@@ -811,8 +816,14 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
       : `${rawName.trim()}.pdf`;
     const toastId = toast.loading("Generating PDF…");
     try {
-      await exportToPDF("tiptap-paper-container", filename);
+      const blob = await exportToPDF("tiptap-paper-container", filename);
       toast.success("PDF downloaded!", { id: toastId });
+      // Fire-and-forget cloud backup — never blocks the local download.
+      if (paperId && paperId !== "current") {
+        uploadExportToS3(blob, { exportType, fileFormat: "pdf", paperId })
+          .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
+          .catch((err) => console.error("[S3 upload]", err));
+      }
     } catch (err) {
       console.error(err);
       toast.error("Failed to export PDF. Please try again.", { id: toastId });
@@ -834,8 +845,14 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
     try {
       const container = document.getElementById("tiptap-paper-container");
       if (!container) throw new Error("Editor container not found.");
-      await exportToDocx(container, filename);
+      const blob = await exportToDocx(container, filename);
       toast.success("DOCX downloaded!", { id: toastId });
+      // Fire-and-forget cloud backup — never blocks the local download.
+      if (paperId && paperId !== "current") {
+        uploadExportToS3(blob, { exportType, fileFormat: "docx", paperId })
+          .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
+          .catch((err) => console.error("[S3 upload]", err));
+      }
     } catch (err) {
       console.error(err);
       toast.error("Failed to export DOCX. Please try again.", { id: toastId });

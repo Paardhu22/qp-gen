@@ -324,6 +324,15 @@ export async function deletePaper(paperId: string): Promise<void> {
   });
 }
 
+export async function getExportUrl(
+  s3Key: string,
+): Promise<{ url: string; expires_in: number }> {
+  return fetchJson<{ url: string; expires_in: number }>(
+    `/api/storage/export-url/?key=${encodeURIComponent(s3Key)}`,
+    { method: "GET" },
+  );
+}
+
 export async function generateAnswerScript(
   paperId: string,
 ): Promise<{ answer_script_paper_id: string; editor_url: string }> {

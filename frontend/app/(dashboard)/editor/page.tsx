@@ -160,6 +160,11 @@ export default function EditorPage() {
   const paperId = searchParams.get("paperId");
   const isNew = searchParams.get("new") === "true";
   const actionParam = searchParams.get("action"); // e.g. "export-pdf" | "export-docx"
+  // exportTypeParam lets the question-bank page signal that an answer script is being exported.
+  const exportTypeParam = (searchParams.get("exportType") ?? "question_paper") as
+    | "question_paper"
+    | "answer_script"
+    | "question_bank";
 
   // Auto-trigger export when the action param is present (set by the
   // question-paper page Actions modal). We fire after the paper finishes
@@ -177,8 +182,19 @@ export default function EditorPage() {
             const filename = rawName.trim().endsWith(".pdf")
               ? rawName.trim()
               : `${rawName.trim()}.pdf`;
-            await exportToPDF("tiptap-paper-container", filename);
+            const blob = await exportToPDF("tiptap-paper-container", filename);
             toast.success("PDF downloaded!");
+            const realPaperId = paperId && paperId !== "current" ? paperId : null;
+            if (realPaperId) {
+              const { uploadExportToS3 } = await import("@/lib/s3-upload");
+              uploadExportToS3(blob, {
+                exportType: exportTypeParam,
+                fileFormat: "pdf",
+                paperId: realPaperId,
+              })
+                .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
+                .catch((err) => console.error("[S3 upload]", err));
+            }
           }
         } catch {
           toast.error("PDF export failed. Please try from the toolbar.");
@@ -193,8 +209,19 @@ export default function EditorPage() {
             const filename = /\.docx$/i.test(trimmed) ? trimmed : `${trimmed}.docx`;
             const container = document.getElementById("tiptap-paper-container");
             if (container) {
-              await exportToDocx(container, filename);
+              const blob = await exportToDocx(container, filename);
               toast.success("DOCX downloaded!");
+              const realPaperId = paperId && paperId !== "current" ? paperId : null;
+              if (realPaperId) {
+                const { uploadExportToS3 } = await import("@/lib/s3-upload");
+                uploadExportToS3(blob, {
+                  exportType: exportTypeParam,
+                  fileFormat: "docx",
+                  paperId: realPaperId,
+                })
+                  .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
+                  .catch((err) => console.error("[S3 upload]", err));
+              }
             }
           }
         } catch {
@@ -694,6 +721,7 @@ export default function EditorPage() {
             subject: paperSubject,
           }}
           onPaperCreatedAction={handleLivePaperCreated}
+          exportType={exportTypeParam}
         />
       </div>
 

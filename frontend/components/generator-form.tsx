@@ -37,6 +37,10 @@ const formSchema = z.object({
   board: z.string(),
   academicClass: z.string(),
   subject: z.string(),
+  // Mathematics Standard (041) vs Basic (241) — same A–E section skeleton,
+  // different Bloom-band target. Only meaningful for Maths Class 10; ignored
+  // by the backend for every other subject. Defaults to Standard.
+  mathLevel: z.enum(["standard", "basic"]),
   difficulty: z.string(),
   questionType: z.string(),
   countType: z.enum(["custom", "cbse"]),
@@ -79,6 +83,7 @@ export const GeneratorForm = () => {
       board: "CBSE",
       academicClass: "10",
       subject: "Science",
+      mathLevel: "standard",
       difficulty: "medium",
       questionType: "mcq",
       countType: "cbse",
@@ -410,6 +415,7 @@ export const GeneratorForm = () => {
           subject: values.subject,
           class: values.academicClass,
           qp_type: values.qpType,
+          mathLevel: values.mathLevel,
           include_vi_alternatives: values.includeViAlternatives,
         },
         (event, data) => {
@@ -866,7 +872,32 @@ export const GeneratorForm = () => {
             )}
           />
 
-
+          {/* Mathematics tier: Standard (041) vs Basic (241). Same A–E
+              section structure — only the cognitive (Bloom) mix differs.
+              Shown only for Maths Class 10. */}
+          {formSubjectValue === "Mathematics" && formClassValue === "10" && (
+            <FormField
+              control={form.control}
+              name="mathLevel"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-foreground">Mathematics Level</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger className="w-full bg-background border-border text-foreground">
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground">
+                      <SelectItem value="standard">Standard (Code 041)</SelectItem>
+                      <SelectItem value="basic">Basic (Code 241)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
 
           <FormField
             control={form.control}

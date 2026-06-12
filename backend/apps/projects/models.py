@@ -30,10 +30,41 @@ class Paper(TimeStampedModel):
         blank=True,
         db_column="answerScriptId",
     )
+    # S3 keys for exported files — only the key is stored, never a presigned URL.
+    # Mint fresh presigned URLs at use time via GET /api/storage/export-url/.
+    s3_pdf_key = models.CharField(
+        max_length=1024,
+        null=True,
+        blank=True,
+        db_column="s3PdfKey",
+    )
+    s3_docx_key = models.CharField(
+        max_length=1024,
+        null=True,
+        blank=True,
+        db_column="s3DocxKey",
+    )
 
     class Meta:
         db_table = "Paper"
 
+
+
+class ExportRecord(TimeStampedModel):
+    """Tracks question_bank exports that are not tied to a specific Paper."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=generate_id, editable=False)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        db_column="userId",
+        related_name="export_records",
+    )
+    s3_key = models.CharField(max_length=1024, db_column="s3Key")
+    file_format = models.CharField(max_length=10, db_column="fileFormat")  # 'pdf' or 'docx'
+
+    class Meta:
+        db_table = "ExportRecord"
 
 
 class Question(TimeStampedModel):
