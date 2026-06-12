@@ -732,6 +732,49 @@ def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
     )
     pdf_source_ids = _find_pdf_source_ids(paper, user)
     if not pdf_source_ids and not hsat_source_ids:
+        # Fallback: try to match via project name (class — subject)
+        import re
+        from apps.documents.models import HsatSource
+
+        project_name = paper.project.name or ""
+        parts = project_name.split(" — ")
+        if len(parts) >= 2:
+            class_part = parts[0].strip()
+            subject_part = parts[1].strip().lower()
+            grade_match = re.search(r"\d+", class_part)
+            if grade_match:
+                grade = grade_match.group(0)
+                matched_sources = HsatSource.objects.filter(
+                    status="ready", grade=grade
+                )
+                matched_ids = [
+                    s.id
+                    for s in matched_sources
+                    if s.subject.lower() == subject_part
+                ]
+                if matched_ids:
+                    logger.info(
+                        "Resolved fallback HSAT source IDs %s from project name %r",
+                        matched_ids,
+                        project_name,
+                    )
+                    hsat_source_ids = matched_ids
+                    # Retrospectively link them to the paper
+                    from apps.documents.models import PaperHsatSource
+                    for h_id in hsat_source_ids:
+                        try:
+                            PaperHsatSource.objects.get_or_create(
+                                paper=paper, hsat_source_id=h_id
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to link fallback HSAT source %s to paper %s: %s",
+                                h_id,
+                                paper.id,
+                                exc,
+                            )
+
+    if not pdf_source_ids and not hsat_source_ids:
         raise RuntimeError(
             "Source files no longer available. Cannot generate answer script."
         )

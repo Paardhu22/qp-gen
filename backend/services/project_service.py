@@ -69,6 +69,7 @@ def save_paper_to_project(
     content: str,
     questions: Optional[List[dict]] = None,
     paper_id: Optional[str] = None,
+    hsat_source_ids: Optional[List[str]] = None,
 ) -> Paper:
     """Create or update a Paper and persist its questions."""
     if questions is None:
@@ -108,5 +109,13 @@ def save_paper_to_project(
                 for q in questions
             ]
             Question.objects.bulk_create(question_objects)
+
+        if hsat_source_ids is not None:
+            from apps.documents.models import PaperHsatSource
+            # Remove any linked HSAT sources not in the new set
+            PaperHsatSource.objects.filter(paper=paper).exclude(hsat_source_id__in=hsat_source_ids).delete()
+            # Link new ones
+            for hsat_id in hsat_source_ids:
+                PaperHsatSource.objects.get_or_create(paper=paper, hsat_source_id=hsat_id)
 
     return paper

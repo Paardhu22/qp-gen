@@ -14,6 +14,8 @@ export interface LiveEditorDocument {
     subject: string;
     template: string;
     updatedAt: number;
+    hsatSources?: any[];
+    uploadedDocs?: any[];
   };
   layout: {
     pageSize: "A4";

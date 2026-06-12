@@ -3,6 +3,8 @@
 import { GeneratorForm } from "@/components/generator-form";
 import { TiptapEditor } from "@/components/tiptap-editor";
 import { useEditorStore } from "@/store/editor-store";
+import { type AppliedHsatSource } from "@/components/hsat-source-picker";
+import { fetchJson } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +40,9 @@ import {
 export default function EditorPage() {
   const router = useRouter();
   const { data: sessionData } = useSession();
+
+  const [hsatSources, setHsatSources] = useState<AppliedHsatSource[]>([]);
+  const [uploadedDocs, setUploadedDocs] = useState<{ id: string; name: string; size: number }[]>([]);
 
   // Modals state from store
   const savePaperModalOpen = useEditorStore(
@@ -368,6 +373,8 @@ export default function EditorPage() {
       setPaperClass("");
       setPaperSubject("");
       setPaperExamName("");
+      setHsatSources([]);
+      setUploadedDocs([]);
       setCheckedResume(true); // Bypass resume prompt for explicitly new papers
       router.replace("/editor");
       return;
@@ -379,6 +386,8 @@ export default function EditorPage() {
       setPaperError(null);
       setPaperUpdatedAt(null);
       setCurrentPaperId(null);
+      setHsatSources([]);
+      setUploadedDocs([]);
       return () => {
         active = false;
       };
@@ -403,6 +412,8 @@ export default function EditorPage() {
             setPaperUpdatedAt(new Date(draft.updatedAt).toISOString());
             setCurrentPaperId("current");
             setPaperError(null);
+            setHsatSources(draft.metadata?.hsatSources || []);
+            setUploadedDocs(draft.metadata?.uploadedDocs || []);
           } else if (active) {
             setPaperContent("");
             setLoadedPaperTitle("Unsaved Draft");
@@ -412,6 +423,8 @@ export default function EditorPage() {
             setPaperUpdatedAt(null);
             setCurrentPaperId("current");
             setPaperError(null);
+            setHsatSources([]);
+            setUploadedDocs([]);
           }
         } catch (error) {
           console.error("Failed to load local draft metadata:", error);
@@ -442,6 +455,24 @@ export default function EditorPage() {
         setPaperUpdatedAt(paper.updatedAt || null);
         setCurrentPaperId(paper.id);
         setPaperError(null);
+
+        // Fetch applied HSAT sources for this paper
+        fetchJson<{ sources: any[] }>(`/api/hsat/papers/${paperId}/sources/`)
+          .then((data) => {
+            if (!active) return;
+            const mapped = data.sources.map((s: any) => ({
+              id: s.hsat_source_id,
+              grade: s.grade,
+              subject: s.subject,
+              book: s.book,
+              status: s.status,
+              chunkCount: s.chunk_count,
+            }));
+            setHsatSources(mapped);
+          })
+          .catch((err) => {
+            console.error("Failed to load applied HSAT sources:", err);
+          });
       })
       .catch((error) => {
         if (!active) return;
@@ -461,6 +492,8 @@ export default function EditorPage() {
           setPaperError(null);
           setPaperUpdatedAt(null);
           setCurrentPaperId(null);
+          setHsatSources([]);
+          setUploadedDocs([]);
 
           router.replace("/editor");
 
@@ -550,6 +583,7 @@ export default function EditorPage() {
         examName: trimmedExamName,
         content: contentToSave,
         questionRefs: [], // Can implement question refs extracting later if needed
+        hsatSourceIds: hsatSources.map((s) => s.id),
       };
 
       // "current" is a sentinel for an unsaved local draft; treat it as null
@@ -678,7 +712,12 @@ export default function EditorPage() {
         className="flex-shrink-0 bg-background flex flex-col h-full overflow-hidden"
         style={{ width: sidebarWidth }}
       >
-        <GeneratorForm />
+        <GeneratorForm
+          uploadedDocs={uploadedDocs}
+          setUploadedDocs={setUploadedDocs}
+          hsatSources={hsatSources}
+          setHsatSources={setHsatSources}
+        />
       </div>
 
       {/* Drag handle */}
@@ -720,6 +759,8 @@ export default function EditorPage() {
             className: paperClass,
             subject: paperSubject,
           }}
+          hsatSources={hsatSources}
+          uploadedDocs={uploadedDocs}
           onPaperCreatedAction={handleLivePaperCreated}
           exportType={exportTypeParam}
         />
