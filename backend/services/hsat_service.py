@@ -176,7 +176,10 @@ def _ingest_one_chapter(
     chapter_label = os.path.basename(s3_key) or s3_key
     chapter_start = time.perf_counter()
     try:
-        buffer = download_to_buffer(s3_key)
+        download_key = s3_key
+        if not download_key.startswith("input-pdfs/"):
+            download_key = f"input-pdfs/{download_key}"
+        buffer = download_to_buffer(download_key)
         download_secs = time.perf_counter() - chapter_start
 
         source = _HS.objects.get(pk=hsat_source_id)

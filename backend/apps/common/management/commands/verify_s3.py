@@ -109,8 +109,11 @@ class Command(BaseCommand):
             report("s3:GetObject", False, "no catalog keys available to probe")
         else:
             try:
+                download_key = probe_key
+                if not download_key.startswith("input-pdfs/"):
+                    download_key = f"input-pdfs/{download_key}"
                 buf = BytesIO()
-                client.download_fileobj(bucket, probe_key, buf)
+                client.download_fileobj(bucket, download_key, buf)
                 size = buf.tell()
                 if size <= 0:
                     report("s3:GetObject", False, f"empty download for {probe_key!r}")
