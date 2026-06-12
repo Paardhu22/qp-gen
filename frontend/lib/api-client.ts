@@ -1,7 +1,7 @@
 "use client";
 
 import { getAccessToken } from "@/lib/token-storage";
-import { refreshAccessToken } from "@/lib/auth-refresh";
+import { refreshAccessToken } from "@/lib/auth-client";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.110.176.28:8000";
