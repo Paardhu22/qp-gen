@@ -1299,7 +1299,7 @@ def stream_general_instructions_questions(
         events = []
         question = None
 
-        for attempt in range(2):
+        for attempt in range(3):
             extractor = JsonObjectStreamExtractor()
             buffer = ""
             parsed_payload = None
@@ -1438,7 +1438,7 @@ def stream_general_instructions_questions(
         return events, question
 
     # Execute generation in parallel
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         future_to_slot = {executor.submit(_generate_gim_slot, a): a for a in allocated_slots}
         for future in concurrent.futures.as_completed(future_to_slot):
             try:
@@ -1888,7 +1888,7 @@ def stream_generated_questions(
 
         # Language (non-CONTENT) slots get an extra attempt so a hard validation/script
         # failure can be regenerated rather than silently streamed to the editor.
-        max_attempts = 3 if slot_mode != "CONTENT" else 2
+        max_attempts = 3 if slot_mode != "CONTENT" else 3
 
         for attempt in range(max_attempts):
             is_last = attempt >= max_attempts - 1
@@ -1996,7 +1996,7 @@ def stream_generated_questions(
         return events, audit_info, question, (failures, budget_result.estimated_tokens, budget_result.truncation_events)
 
     # Phase 2: The Generation Loop (Parallel)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         future_to_slot = {executor.submit(_generate_slot, a): a for a in allocated_slots}
         for future in concurrent.futures.as_completed(future_to_slot):
             try:
