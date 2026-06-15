@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
@@ -15,9 +16,9 @@ export function ForgotPasswordForm({
   className,
   ...props
 }: React.ComponentProps<"div">) {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -29,12 +30,15 @@ export function ForgotPasswordForm({
     }
     setLoading(true);
     const result = await requestPasswordReset(email);
-    setLoading(false);
     if (!result.ok) {
+      setLoading(false);
       setError(result.message);
       return;
     }
-    setSubmitted(true);
+    // Cognito emailed a 6-digit code — send the user straight to the reset page
+    // with their email pre-filled so they only need to enter the code + new
+    // password. Keep `loading` true through the navigation.
+    router.push(`/reset-password?email=${encodeURIComponent(email)}`);
   };
 
   return (
@@ -52,28 +56,12 @@ export function ForgotPasswordForm({
               Forgot your password?
             </h1>
             <p className="text-sm text-muted-foreground">
-              Enter the email you signed up with — we&apos;ll email a reset link.
+              Enter the email you signed up with — we&apos;ll email you a 6-digit
+              reset code.
             </p>
           </div>
 
-          {submitted ? (
-            <div className="w-full space-y-4 text-center">
-              <p className="text-sm text-foreground">
-                If an account with <strong>{email}</strong> exists, a password
-                reset link has been sent. Check your inbox (and spam folder).
-              </p>
-              <p className="text-xs text-muted-foreground">
-                The link expires in 60 minutes.
-              </p>
-              <Link
-                href="/login"
-                className="block underline underline-offset-4 hover:text-foreground"
-              >
-                Back to sign in
-              </Link>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="w-full space-y-4">
+          <form onSubmit={handleSubmit} className="w-full space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -90,7 +78,7 @@ export function ForgotPasswordForm({
               {error && <p className="text-sm text-destructive">{error}</p>}
 
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Sending…" : "Send reset link"}
+                {loading ? "Sending…" : "Send reset code"}
               </Button>
               <p className="text-center text-sm text-muted-foreground">
                 Remembered it?{" "}
@@ -102,7 +90,6 @@ export function ForgotPasswordForm({
                 </Link>
               </p>
             </form>
-          )}
         </div>
       </div>
     </div>

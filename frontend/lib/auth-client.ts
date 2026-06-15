@@ -310,39 +310,31 @@ export async function requestPasswordReset(email: string): Promise<{
   }
 }
 
+/**
+ * Complete the code-based Cognito password reset: ConfirmForgotPassword with the
+ * email, the 6-digit code from the user's inbox, and the new password. `code` is
+ * the Cognito ConfirmationCode (Cognito sends a code, not a clickable link).
+ * Returns the Cognito exception type as `code` (e.g. CodeMismatchException) so
+ * the UI can map it to friendly copy.
+ */
 export async function resetPassword(
-  token: string, // In Cognito, the token from URL is the confirmation code
+  email: string,
+  code: string,
   newPassword: string,
-): Promise<{ ok: boolean; message: string }> {
+): Promise<{ ok: boolean; message: string; code?: string }> {
   try {
-    let email = "";
-    if (typeof window !== "undefined") {
-      email = window.sessionStorage.getItem("forgot_password_email") || "";
-      // Fallback: search in query params if session storage is empty
-      if (!email) {
-        const urlParams = new URLSearchParams(window.location.search);
-        email = urlParams.get("email") || "";
-      }
-    }
-    
-    if (!email) {
-      return {
-        ok: false,
-        message: "Could not resolve the email address for password reset. Please request another reset link.",
-      };
-    }
+    await cognitoConfirmForgotPassword(email, code, newPassword);
 
-    await cognitoConfirmForgotPassword(email, token, newPassword);
-    
     if (typeof window !== "undefined") {
       window.sessionStorage.removeItem("forgot_password_email");
     }
-    
+
     return { ok: true, message: "Password updated successfully." };
   } catch (error: any) {
     return {
       ok: false,
       message: error?.message || "Failed to reset password. Please try again.",
+      code: error?.name,
     };
   }
 }
