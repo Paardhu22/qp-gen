@@ -27,7 +27,17 @@ async function callCognito(action: string, payload: Record<string, any>) {
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
     const message = errorBody?.message || errorBody?.Message || `Cognito operation ${action} failed.`;
-    throw new Error(message);
+    const error = new Error(message);
+    // Cognito returns the exception type in `__type`, sometimes namespaced
+    // (e.g. "com.amazonaws.cognito.identity.idp#CodeMismatchException"). Expose
+    // the bare code via `error.name` so callers can map it to friendly copy
+    // (e.g. CodeMismatchException, ExpiredCodeException). Existing callers that
+    // only read `error.message` are unaffected.
+    const rawType: string = errorBody?.__type || errorBody?.code || "";
+    if (typeof rawType === "string" && rawType) {
+      error.name = rawType.includes("#") ? rawType.split("#").pop()! : rawType;
+    }
+    throw error;
   }
 
   return response.json();

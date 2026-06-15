@@ -11,49 +11,94 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff } from "lucide-react";
 
+const CODE_REGEX = /^\d{6}$/;
+// Cognito pool policy: minimum 8 characters with at least one number. Mirror it
+// client-side so the user gets instant feedback instead of a round-trip
+// InvalidPasswordException.
+const HAS_NUMBER_REGEX = /\d/;
+
+// Map Cognito ConfirmForgotPassword exception types (surfaced as `error.name`
+// → returned as `code`) to human-readable messages.
+function friendlyError(code: string | undefined, fallback: string): string {
+  switch (code) {
+    case "CodeMismatchException":
+      return "Incorrect code. Please check your email and try again.";
+    case "ExpiredCodeException":
+      return "This code has expired. Please request a new one.";
+    case "InvalidPasswordException":
+      return "Password doesn't meet requirements. Use at least 8 characters including a number.";
+    case "LimitExceededException":
+      return "Too many attempts. Please wait a few minutes and try again.";
+    case "UserNotFoundException":
+      return "No account found with this email.";
+    default:
+      return fallback || "Something went wrong. Please try again.";
+  }
+}
+
 export function ResetPasswordForm({
   className,
   ...props
 }: React.ComponentProps<"div">) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [token, setToken] = useState("");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
+  // When the code has expired, surface a shortcut back to /forgot-password so
+  // the user can request a fresh one.
+  const [codeExpired, setCodeExpired] = useState(false);
 
+  // Pre-fill the email from ?email=... (the forgot-password page passes it),
+  // but keep the field editable.
   useEffect(() => {
-    setToken(searchParams.get("token") || "");
+    const fromQuery = searchParams.get("email");
+    if (fromQuery) setEmail(fromQuery);
   }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!token) {
-      setError("Missing reset token. Please use the link from your email.");
+    setCodeExpired(false);
+
+    const trimmedEmail = email.trim();
+    const trimmedCode = code.trim();
+
+    if (!trimmedEmail || !trimmedCode || !password || !confirmPassword) {
+      setError("Please fill in all fields.");
       return;
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    if (!CODE_REGEX.test(trimmedCode)) {
+      setError("The verification code must be 6 digits.");
+      return;
+    }
+    if (password.length < 8 || !HAS_NUMBER_REGEX.test(password)) {
+      setError("Password must be at least 8 characters and include a number.");
       return;
     }
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
       return;
     }
+
     setLoading(true);
-    const result = await resetPassword(token, password);
+    const result = await resetPassword(trimmedEmail, trimmedCode, password);
     setLoading(false);
+
     if (!result.ok) {
-      setError(result.message);
+      setError(friendlyError(result.code, result.message));
+      if (result.code === "ExpiredCodeException") setCodeExpired(true);
       return;
     }
+
     setSuccess(true);
-    // Redirect after a brief beat so the user reads the success state.
-    window.setTimeout(() => router.push("/login"), 1800);
+    // Brief beat so the user reads the success state, then to sign in.
+    window.setTimeout(() => router.push("/login"), 2000);
   };
 
   return (
@@ -78,7 +123,7 @@ export function ResetPasswordForm({
           {success ? (
             <div className="w-full space-y-4 text-center">
               <p className="text-sm text-foreground">
-                Password updated. Redirecting you to sign in…
+                Password reset! Redirecting to sign in…
               </p>
               <Link
                 href="/login"
@@ -89,6 +134,38 @@ export function ResetPasswordForm({
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="w-full space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="m@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="code">
+                  Enter the code we sent to your email
+                </Label>
+                <Input
+                  id="code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) =>
+                    setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  required
+                />
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="password">New password</Label>
                 <div className="relative">
@@ -130,7 +207,19 @@ export function ResetPasswordForm({
                 />
               </div>
 
-              {error && <p className="text-sm text-destructive">{error}</p>}
+              {error && (
+                <div className="space-y-1">
+                  <p className="text-sm text-destructive">{error}</p>
+                  {codeExpired && (
+                    <Link
+                      href="/forgot-password"
+                      className="block text-sm underline underline-offset-4 hover:text-foreground"
+                    >
+                      Request a new code
+                    </Link>
+                  )}
+                </div>
+              )}
 
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? "Updating…" : "Set new password"}
