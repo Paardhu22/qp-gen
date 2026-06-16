@@ -3,16 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "npm run copy-lottie-wasm",
     "dev": "next dev",
+    "prebuild": "npm run copy-lottie-wasm",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "copy-lottie-wasm": "node -e \"const p=require('path'),fs=require('fs');const d=p.dirname(require.resolve('@lottiefiles/dotlottie-web'));fs.mkdirSync('public',{recursive:true});fs.copyFileSync(p.join(d,'dotlottie-player.wasm'),'public/dotlottie-player.wasm')\""
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.63",
     "@ai-sdk/rsc": "^2.0.180",
     "@base-ui/react": "^1.4.1",
     "@hookform/resolvers": "^5.2.2",
+    "@lottiefiles/dotlottie-web": "^0.74.0",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-slot": "^1.2.4",
     "@tailwindcss/typography": "^0.5.19",
