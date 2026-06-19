@@ -126,12 +126,12 @@ export function RegisterForm({
   return (
     <div
       className={cn(
-        "flex min-h-svh items-center justify-center p-4",
+        "flex min-h-svh items-center justify-center p-4 px-safe py-safe",
         className,
       )}
       {...props}
     >
-      <div className="w-full max-w-md rounded-2xl border border-white/30 bg-white/30 p-8 shadow-xl backdrop-blur-md">
+      <div className="w-full max-w-md rounded-2xl border border-white/30 bg-white/30 p-6 sm:p-8 shadow-xl backdrop-blur-md">
         <div className="flex flex-col items-center gap-6">
           <div className="text-center">
             <h1 className="text-2xl font-semibold text-foreground">
@@ -144,7 +144,7 @@ export function RegisterForm({
             </p>
           </div>
 
-          <div className="relative h-44 w-[300px]">
+          <div className="relative h-44 w-full max-w-[300px]">
             <img
               src="https://pub-940ccf6255b54fa799a9b01050e6c227.r2.dev/cloud.jpg"
               alt="Cloud background"
@@ -157,7 +157,7 @@ export function RegisterForm({
                 className="absolute flex items-end justify-center overflow-hidden"
                 style={{
                   top: 60,
-                  left: idx === 0 ? 80 : 150,
+                  left: idx === 0 ? "26.7%" : "50%",
                   width: 28,
                   height: isTyping ? 4 : blink ? 6 : 40,
                   borderRadius: isTyping || blink ? "2px" : "50% / 60%",

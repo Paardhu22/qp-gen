@@ -84,14 +84,14 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
 
   if (isLoading && !timedOut) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-dvh items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-background">
+    <div className="flex h-dvh items-center justify-center bg-background">
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
     </div>
   );

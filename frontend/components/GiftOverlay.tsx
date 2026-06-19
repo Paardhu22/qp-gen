@@ -33,8 +33,10 @@ const GLOW =
   "radial-gradient(circle, rgba(180,60,10,0.34) 0%, rgba(180,60,10,0) 66%)";
 
 // Responsive sizing — the present should fill the screen and the bow dominates.
-const BAND_THICKNESS = "clamp(72px, 13vmin, 132px)";
-const BOW_WIDTH = "clamp(280px, 54vmin, 560px)";
+// Lower mobile floors keep the bands/bow proportional on ~320px phones; on
+// larger screens the vmin term takes over so desktop is unchanged.
+const BAND_THICKNESS = "clamp(54px, 13vmin, 132px)";
+const BOW_WIDTH = "clamp(236px, 54vmin, 560px)";
 
 // Satisfying ease for the wrapping parting open.
 const OPEN_EASE: [number, number, number, number] = [0.83, 0, 0.17, 1];
@@ -298,7 +300,7 @@ export default function GiftOverlay({ onOpened }: GiftOverlayProps) {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -6 }}
                       transition={{ duration: 0.4 }}
-                      className="flex items-center gap-2 whitespace-nowrap rounded-full px-5 py-2.5 font-medium backdrop-blur-sm"
+                      className="flex max-w-[88vw] items-center gap-2 rounded-full px-5 py-2.5 text-center font-medium backdrop-blur-sm"
                       style={{
                         fontSize: "clamp(1rem, 2.6vmin, 1.35rem)",
                         color: "#7A2A00",

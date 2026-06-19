@@ -265,11 +265,11 @@ function ActionsModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
     >
       <div
-        className="relative w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden"
+        className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-start justify-between px-5 py-4 border-b border-border">
+        <div className="flex shrink-0 items-start justify-between px-5 py-4 border-b border-border">
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold text-foreground">Actions</h2>
             <p className="text-xs text-muted-foreground mt-0.5 truncate">
@@ -296,7 +296,7 @@ function ActionsModal({
         )}
 
         {/* Action list */}
-        <div className="py-2">
+        <div className="py-2 flex-1 overflow-y-auto overscroll-contain">
           {actions.map((action) => (
             <div key={action.id}>
               <button
@@ -362,7 +362,7 @@ function ActionsModal({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-border flex justify-end">
+        <div className="px-5 py-3 border-t border-border flex justify-end shrink-0">
           <button
             type="button"
             onClick={onClose}
@@ -590,7 +590,7 @@ export default function QuestionBankPage() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="p-8 space-y-6 bg-background min-h-full">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 bg-background min-h-full">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -607,12 +607,12 @@ export default function QuestionBankPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex w-full items-center gap-3 sm:w-auto">
           {/* Search */}
-          <div className="relative">
+          <div className="relative flex-1 sm:flex-none">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input
-              className="w-64 pl-9"
+              className="w-full sm:w-64 pl-9"
               placeholder="Search papers…"
               value={paperSearch}
               onChange={(e) => setPaperSearch(e.target.value)}
@@ -623,7 +623,7 @@ export default function QuestionBankPage() {
           {!isLoading && papers.length > 0 && (
             <AlertDialog>
               <AlertDialogTrigger
-                className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-destructive/40 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
                 disabled={isClearing}
               >
                 <Trash2 className="h-4 w-4" />

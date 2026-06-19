@@ -1727,7 +1727,7 @@ export const TiptapEditor = ({
           onClose={() => setShowFindReplace(false)}
         />
       )}
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-transparent print:p-0">
+      <div className="flex-1 overflow-auto overscroll-contain custom-scrollbar bg-transparent print:p-0">
         <EditorContent editor={editor} className="h-full pb-32" />
       </div>
       {editor && <StatusBar editor={editor} />}
@@ -1747,6 +1747,17 @@ export const TiptapEditor = ({
           font-family: "Times New Roman", Times, serif;
           font-size: 12pt;
           line-height: 1.35;
+        }
+
+        /* On phones/tablets the A4 page (794px) is wider than the viewport.
+           Keep the page at its true print size (the pagination engine and
+           PDF/print rely on 794×1123) but left-align it so the whole page is
+           reachable by horizontal pan, and let native pinch-zoom fit it. */
+        @media (max-width: 1023px) {
+          .document-editor {
+            align-items: flex-start;
+            padding: 12px 12px 80px;
+          }
         }
 
         .document-editor .doc-page {

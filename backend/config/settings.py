@@ -160,6 +160,15 @@ REST_FRAMEWORK = {
     ],
 }
 
+# Upload size limits. nginx caps the request body at 100M
+# (client_max_body_size on api.hsatedu.in); these keep Django from being a
+# lower ceiling. For multipart file uploads these are not the active limiter
+# (file bytes are streamed and not counted against DATA_UPLOAD_MAX_MEMORY_SIZE),
+# but they are set explicitly so any future raw-body/JSON/base64 upload path is
+# not silently capped at Django's 2.5MB default.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600   # 100 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600   # 100 MB
+
 # AWS Cognito Configuration
 AWS_COGNITO_REGION = os.environ.get("AWS_COGNITO_REGION", "ap-south-1")
 AWS_COGNITO_USER_POOL_ID = os.environ.get("AWS_COGNITO_USER_POOL_ID", "ap-south-1_zHrjkaeQy")

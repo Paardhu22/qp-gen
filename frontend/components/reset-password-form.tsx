@@ -104,12 +104,12 @@ export function ResetPasswordForm({
   return (
     <div
       className={cn(
-        "flex min-h-svh items-center justify-center p-4",
+        "flex min-h-svh items-center justify-center p-4 px-safe py-safe",
         className,
       )}
       {...props}
     >
-      <div className="w-full max-w-md rounded-2xl border border-white/30 bg-white/30 p-8 shadow-xl backdrop-blur-md">
+      <div className="w-full max-w-md rounded-2xl border border-white/30 bg-white/30 p-6 sm:p-8 shadow-xl backdrop-blur-md">
         <div className="flex flex-col items-center gap-6">
           <div className="text-center">
             <h1 className="text-2xl font-semibold text-foreground">
