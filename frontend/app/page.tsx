@@ -4,9 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { Sora } from "next/font/google";
 import Grainient from "@/components/Grainient";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { getAccessToken } from "@/lib/token-storage";
-import GiftOverlay from "@/components/GiftOverlay";
 
 const sora = Sora({
   subsets: ["latin"],
@@ -16,19 +15,9 @@ const sora = Sora({
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const ctaRef = useRef<HTMLAnchorElement | null>(null);
-
   useEffect(() => {
     setIsAuthenticated(!!getAccessToken());
     setIsLoading(false);
-  }, []);
-
-  // Once the gift wrapping opens, guide the visitor straight to the CTA.
-  const handleGiftOpened = useCallback(() => {
-    requestAnimationFrame(() => {
-      ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-    window.setTimeout(() => ctaRef.current?.focus({ preventScroll: true }), 500);
   }, []);
 
   return (
@@ -121,9 +110,8 @@ export default function Home() {
               style={{ animationDelay: "440ms" }}
             >
               <Link
-                ref={ctaRef}
                 href={isAuthenticated ? "/dashboard" : "/login"}
-                className="inline-block scroll-mt-24 rounded-full bg-neutral-900 px-8 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800"
+                className="inline-block rounded-full bg-neutral-900 px-8 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800"
               >
                 Get started →
               </Link>
@@ -132,8 +120,6 @@ export default function Home() {
         </section>
       </div>
 
-      {/* Gift-wrap intro: the page arrives wrapped; cut the ribbon to unveil it. */}
-      <GiftOverlay onOpened={handleGiftOpened} />
     </main>
   );
 }
