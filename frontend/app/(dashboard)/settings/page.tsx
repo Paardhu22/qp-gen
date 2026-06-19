@@ -134,7 +134,7 @@ function ChangePasswordModal({
       />
 
       {/* Modal panel */}
-      <div className="relative z-10 w-full max-w-md mx-4 bg-background rounded-2xl border border-border shadow-2xl p-6">
+      <div className="relative z-10 w-full max-w-md mx-4 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-background rounded-2xl border border-border shadow-2xl p-5 sm:p-6">
         {/* Close button */}
         <button
           type="button"
@@ -358,7 +358,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="p-8 max-w-3xl mx-auto space-y-6 bg-background min-h-full">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto space-y-6 bg-background min-h-full">
       <div>
         <h2 className="text-3xl font-bold tracking-tight text-foreground">
           Settings
@@ -371,7 +371,7 @@ export default function SettingsPage() {
       {/* Row 1 — Account Details (full width) */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-lg text-foreground flex items-center gap-2">
                 <User className="h-5 w-5 text-indigo-500" />
@@ -384,7 +384,7 @@ export default function SettingsPage() {
             <Button
               variant="outline"
               onClick={() => setModalOpen(true)}
-              className="gap-2 text-sm border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700 dark:border-indigo-700 dark:text-indigo-400 dark:hover:bg-indigo-950"
+              className="gap-2 text-sm border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700 dark:border-indigo-700 dark:text-indigo-400 dark:hover:bg-indigo-950 w-full sm:w-auto"
             >
               <Key className="h-4 w-4" />
               Change Password
@@ -397,7 +397,7 @@ export default function SettingsPage() {
               Loading user profile…
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-x-12 gap-y-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4 text-sm">
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
                   Name

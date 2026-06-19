@@ -33,7 +33,7 @@ export default function Home() {
 
   return (
     <main
-      className={`${sora.className} relative min-h-screen overflow-hidden bg-neutral-950 text-neutral-900`}
+      className={`${sora.className} relative min-h-dvh overflow-hidden bg-neutral-950 text-neutral-900`}
     >
       <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
         <Grainient
@@ -63,10 +63,10 @@ export default function Home() {
         />
       </div>
 
-      <div className="relative z-10 flex min-h-screen flex-col">
-        <header className="flex flex-col gap-4 px-6 pt-6 sm:flex-row sm:items-center sm:justify-between sm:px-10">
+      <div className="relative z-10 flex min-h-dvh flex-col">
+        <header className="flex flex-row items-center justify-between gap-4 px-5 pt-6 px-safe pt-safe sm:px-10">
           <div
-            className="relative h-10 w-40 landing-fade"
+            className="relative h-9 w-32 shrink-0 sm:h-10 sm:w-40 landing-fade"
             style={{ animationDelay: "80ms" }}
           >
             <Image

@@ -892,8 +892,9 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
 
   return (
     <div className="flex flex-col border-b border-border bg-background flex-shrink-0">
-      {/* Primary Toolbar */}
-      <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 overflow-visible">
+      {/* Primary Toolbar — single horizontally-scrollable row on mobile,
+          wraps to multiple rows on desktop (lg+). */}
+      <div className="editor-toolbar-scroll flex flex-nowrap items-center gap-0.5 px-2 py-1.5 overflow-x-auto no-scrollbar lg:flex-wrap lg:overflow-visible">
         {/* Undo / Redo */}
         <ToolbarBtn
           onClick={() => editor.chain().focus().undo().run()}

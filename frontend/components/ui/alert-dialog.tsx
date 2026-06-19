@@ -85,8 +85,8 @@ function AlertDialogContent({ className, children, ...props }: React.ComponentPr
         aria-modal="true"
         data-slot="alert-dialog-content"
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2",
-          "grid gap-4 rounded-xl border bg-background p-6 shadow-lg",
+          "fixed left-1/2 top-1/2 z-50 w-full max-w-[calc(100%-2rem)] sm:max-w-md -translate-x-1/2 -translate-y-1/2",
+          "grid max-h-[calc(100dvh-2rem)] gap-4 overflow-y-auto overscroll-contain rounded-xl border bg-background p-5 sm:p-6 shadow-lg",
           className,
         )}
         onClick={(e) => e.stopPropagation()}

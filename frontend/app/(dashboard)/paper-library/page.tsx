@@ -255,7 +255,7 @@ export default function SavedQuestionsPage() {
   /* ---------------------------------------------------------------------- */
 
   return (
-    <div className="p-8 space-y-6 bg-background min-h-full">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 bg-background min-h-full">
       {/* ------------------------------------------------------------------ */}
       {/* Header                                                              */}
       {/* ------------------------------------------------------------------ */}
@@ -281,9 +281,9 @@ export default function SavedQuestionsPage() {
         </div>
 
         {/* Right — search + clear all */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex w-full items-center gap-2 sm:w-auto sm:shrink-0">
           {/* Search input */}
-          <div className="relative w-64">
+          <div className="relative flex-1 sm:w-64 sm:flex-none">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-9"
@@ -297,7 +297,7 @@ export default function SavedQuestionsPage() {
           {allQuestions.length > 0 && !isLoading && (
             <AlertDialog>
               <AlertDialogTrigger
-                className="inline-flex h-9 items-center justify-center rounded-md border border-destructive/40 bg-background px-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                className="inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-destructive/40 bg-background px-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                 disabled={isClearingQuestions}
               >
                 {isClearingQuestions ? "Clearing…" : "Clear All"}
@@ -331,16 +331,18 @@ export default function SavedQuestionsPage() {
       {/* Insert selected bar                                                 */}
       {/* ------------------------------------------------------------------ */}
       {selectedQuestionIds.size > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 dark:border-indigo-800 dark:bg-indigo-950/40">
-          <FileText className="h-4 w-4 text-indigo-500 shrink-0" />
-          <span className="text-sm text-indigo-700 dark:text-indigo-300 flex-1">
-            {selectedQuestionIds.size} question
-            {selectedQuestionIds.size !== 1 ? "s" : ""} selected
-          </span>
+        <div className="flex flex-col gap-3 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 dark:border-indigo-800 dark:bg-indigo-950/40 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3 flex-1">
+            <FileText className="h-4 w-4 text-indigo-500 shrink-0" />
+            <span className="text-sm text-indigo-700 dark:text-indigo-300">
+              {selectedQuestionIds.size} question
+              {selectedQuestionIds.size !== 1 ? "s" : ""} selected
+            </span>
+          </div>
           <button
             type="button"
             onClick={handleInsertSelectedQuestions}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors sm:w-auto"
           >
             <FileText className="h-3.5 w-3.5" />
             Insert Selected ({selectedQuestionIds.size}) into Editor

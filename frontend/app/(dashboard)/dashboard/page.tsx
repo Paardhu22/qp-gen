@@ -55,7 +55,7 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div className="p-8 space-y-10 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-8 sm:space-y-10 max-w-7xl mx-auto w-full">
       {/* Quick Start Actions */}
       <div className="space-y-4">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Quick Start</h3>

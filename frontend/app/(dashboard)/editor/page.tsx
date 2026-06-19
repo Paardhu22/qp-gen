@@ -19,7 +19,8 @@ import { Label } from "@/components/ui/label";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, PanelLeftOpen, Sparkles, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   savePaperAction,
   updatePaperAction,
@@ -117,6 +118,23 @@ export default function EditorPage() {
     }
     return SIDEBAR_DEFAULT;
   });
+
+  // Mobile (< lg): the generator panel is an off-canvas left drawer toggled
+  // from the editor status bar instead of an inline resizable sidebar.
+  const [genDrawerOpen, setGenDrawerOpen] = useState(false);
+  useEffect(() => {
+    if (!genDrawerOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setGenDrawerOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [genDrawerOpen]);
 
   const isDragging = useRef(false);
   const dragStartX = useRef(0);
@@ -706,24 +724,58 @@ export default function EditorPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-4.5rem)] w-full overflow-hidden bg-background">
-      {/* Left Panel: Generator Form */}
-      <div
-        className="flex-shrink-0 bg-background flex flex-col h-full overflow-hidden"
-        style={{ width: sidebarWidth }}
-      >
-        <GeneratorForm
-          uploadedDocs={uploadedDocs}
-          setUploadedDocs={setUploadedDocs}
-          hsatSources={hsatSources}
-          setHsatSources={setHsatSources}
+    <div className="flex h-full min-h-0 w-full overflow-hidden bg-background">
+      {/* Mobile backdrop for the generator drawer */}
+      {genDrawerOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
+          onClick={() => setGenDrawerOpen(false)}
+          aria-hidden="true"
         />
+      )}
+
+      {/* Left Panel: Generator Form — inline resizable sidebar on lg+,
+          off-canvas drawer below lg. The dynamic px width is applied via a
+          CSS var (`--sb-w`) so the `lg:` width utility wins without an inline
+          `width` clobbering the mobile `w-[88%]`. */}
+      <div
+        className={cn(
+          "bg-background flex flex-col overflow-hidden",
+          "fixed inset-y-0 left-0 z-50 w-[88%] max-w-sm shadow-2xl transition-transform duration-300 ease-out pt-safe pb-safe",
+          genDrawerOpen ? "translate-x-0" : "-translate-x-full",
+          "lg:static lg:z-auto lg:h-full lg:w-[var(--sb-w)] lg:max-w-none lg:flex-shrink-0 lg:translate-x-0 lg:shadow-none lg:pt-0 lg:pb-0",
+        )}
+        style={{ "--sb-w": `${sidebarWidth}px` } as React.CSSProperties}
+      >
+        {/* Mobile-only drawer header with close */}
+        <div className="flex items-center justify-between gap-2 border-b border-border px-4 h-14 shrink-0 lg:hidden">
+          <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Sparkles className="h-4 w-4 text-indigo-500" />
+            Generate &amp; Sources
+          </span>
+          <button
+            type="button"
+            onClick={() => setGenDrawerOpen(false)}
+            aria-label="Close generator panel"
+            className="inline-flex items-center justify-center h-10 w-10 -mr-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 min-h-0">
+          <GeneratorForm
+            uploadedDocs={uploadedDocs}
+            setUploadedDocs={setUploadedDocs}
+            hsatSources={hsatSources}
+            setHsatSources={setHsatSources}
+          />
+        </div>
       </div>
 
-      {/* Drag handle */}
+      {/* Drag handle — desktop only */}
       <div
         onMouseDown={onDragStart}
-        className="flex-shrink-0 w-px h-full cursor-col-resize group relative z-20 bg-border hover:bg-primary/50 transition-colors"
+        className="hidden lg:block flex-shrink-0 w-px h-full cursor-col-resize group relative z-20 bg-border hover:bg-primary/50 transition-colors"
         title="Drag to resize"
       >
         <div className="absolute inset-y-0 -left-2 -right-2 z-0" />
@@ -732,7 +784,17 @@ export default function EditorPage() {
 
       {/* Right Panel: Tiptap Editor */}
       <div className="flex-1 min-w-0 bg-muted/30 h-full flex flex-col overflow-hidden">
-        <div className="h-10 min-h-10 px-4 flex items-center border-b border-border bg-muted/50 text-[10px] uppercase tracking-wider font-medium text-muted-foreground flex-shrink-0">
+        <div className="h-10 min-h-10 px-2 sm:px-4 flex items-center gap-2 border-b border-border bg-muted/50 text-[10px] uppercase tracking-wider font-medium text-muted-foreground flex-shrink-0">
+          {/* Mobile: open the generator/sources drawer */}
+          <button
+            type="button"
+            onClick={() => setGenDrawerOpen(true)}
+            className="lg:hidden inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-semibold normal-case tracking-normal text-indigo-600 dark:text-indigo-400 hover:bg-accent"
+          >
+            <PanelLeftOpen className="h-3.5 w-3.5" />
+            Generate
+          </button>
+          <span className="truncate min-w-0">
           {paperLoading ? (
             <span className="inline-flex items-center gap-2">
               <span className="h-3 w-24 bg-muted rounded animate-pulse" />
@@ -749,6 +811,7 @@ export default function EditorPage() {
           ) : (
             "New Document"
           )}
+          </span>
         </div>
         <TiptapEditor
           initialContent={paperContent}
@@ -904,7 +967,7 @@ export default function EditorPage() {
         open={questionBankBrowserOpen}
         onOpenChange={setQuestionBankBrowserOpen}
       >
-        <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[700px] max-h-[85vh] flex flex-col">
+        <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[700px] max-h-[85dvh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Question Paper Browser</DialogTitle>
             <DialogDescription className="text-muted-foreground">
@@ -1067,7 +1130,7 @@ export default function EditorPage() {
               </p>
             </div>
           )}
-          <DialogFooter className="grid grid-cols-2 gap-2 sm:space-x-0">
+          <DialogFooter className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:space-x-0">
             <Button
               variant="outline"
               onClick={handleCreateNewPaper}
