@@ -26,7 +26,13 @@ import { useEditorStore, TrayItem } from "@/store/editor-store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { CheckCircle2, X, BookOpen, Undo2 } from "lucide-react";
+import {
+  BookOpen,
+  CheckCircle2,
+  Image as ImageIcon,
+  Undo2,
+  X,
+} from "lucide-react";
 
 function groupBySection(items: TrayItem[]) {
   const map = new Map<string, TrayItem[]>();
@@ -224,6 +230,12 @@ export function ReviewTray() {
                   const isSelected = selected.has(item.id);
                   const isFallback = item.sourceType === "curriculum_fallback";
                   const isInserted = item.inserted;
+                  // AI-drawn diagrams can be subtly wrong in ways a student
+                  // will notice, so they are flagged for a teacher's eye
+                  // before the paper goes out.
+                  const isSyntheticImage =
+                    item.sourceType === "synthetic_image" ||
+                    item.question?.metadata?.syntheticImage === true;
                   return (
                     <div
                       key={item.id}
@@ -289,6 +301,15 @@ export function ReviewTray() {
                               <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/40 dark:text-amber-300 border-none">
                                 <BookOpen className="h-3 w-3 mr-1" />
                                 Curriculum fallback
+                              </Badge>
+                            )}
+                            {isSyntheticImage && (
+                              <Badge
+                                className="bg-violet-100 text-violet-700 hover:bg-violet-100 dark:bg-violet-900/40 dark:text-violet-300 border-none"
+                                title="The diagram in this question was drawn by AI. Check it before using this paper in an exam."
+                              >
+                                <ImageIcon className="h-3 w-3 mr-1" />
+                                AI diagram — check it
                               </Badge>
                             )}
                           </div>
