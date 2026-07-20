@@ -233,7 +233,10 @@ def stream_paper_from_bank(
             getattr(assignment.slot, "section_title", "") or "Questions"
         )
         wire = _question_to_wire(
-            assignment.question, slot=assignment.slot, section_title=section_title
+            assignment.question,
+            slot=assignment.slot,
+            section_title=section_title,
+            or_choice=assignment.or_choice,
         )
         wire["metadata"]["fromBank"] = True
         if assignment.swapped_by_review:

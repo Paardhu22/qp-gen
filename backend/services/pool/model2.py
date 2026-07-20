@@ -80,6 +80,11 @@ class SlotAssignment:
     slot: Any
     question: PoolQuestion
     alternates: List[PoolQuestion] = field(default_factory=list)
+    #: The "OR" alternative for slots the blueprint marks `choice_required`.
+    #: CBSE papers offer an internal choice on several slots; the pool makes
+    #: this almost free, since a reserved alternate is by construction the same
+    #: type and mark value as the main question but on a different topic.
+    or_choice: Optional[PoolQuestion] = None
     #: True when the review stage moved this slot off the deterministic pick.
     swapped_by_review: bool = False
 
@@ -294,18 +299,37 @@ def build_candidates(
         assignments[position] = SlotAssignment(slot=slot, question=chosen)
 
     # ── Pass 2: alternates from the leftovers, reserved per slot ────────
-    if alternates > 0:
-        reserved: set[str] = set(used_ids)
-        for position in order:
-            assignment = assignments.get(position)
-            if assignment is None:
-                continue
-            spare = [q for q in eligible[position] if q.id not in reserved]
-            if not spare:
-                continue
-            picked = _rank(spare)[:alternates]
+    # Slots the blueprint marks `choice_required` consume one extra leftover
+    # as their OR alternative. Those are filled first, because an OR-bearing
+    # slot without its alternative is a structural defect in the paper, while
+    # a slot merely short of review alternates is not.
+    reserved: set[str] = set(used_ids)
+    positions_by_need = sorted(
+        (p for p in order if p in assignments),
+        key=lambda p: not bool(getattr(plan[p], "choice_required", False)),
+    )
+
+    for position in positions_by_need:
+        assignment = assignments[position]
+        needs_choice = bool(getattr(assignment.slot, "choice_required", False))
+        wanted = alternates + (1 if needs_choice else 0)
+        if wanted <= 0:
+            continue
+
+        spare = [q for q in eligible[position] if q.id not in reserved]
+        if not spare:
+            continue
+
+        picked = _rank(spare)[:wanted]
+        if needs_choice and picked:
+            # The OR alternative is held out of `alternates` so the review
+            # stage cannot swap the main question onto it and collapse the
+            # choice into a duplicate.
+            assignment.or_choice = picked[0]
+            assignment.alternates = picked[1:]
+        else:
             assignment.alternates = picked
-            reserved.update(q.id for q in picked)
+        reserved.update(q.id for q in picked)
 
     ordered = [assignments[p] for p in sorted(assignments)]
     return ordered, unfilled
