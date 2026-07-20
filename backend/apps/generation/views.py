@@ -4,9 +4,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.generation.models import GenerationHistory
-from apps.generation.serializers import AnswerKeySerializer, GenerationHistorySerializer, QuestionGenerationSerializer
-from services.generation_service import stream_generated_questions
+from apps.generation.serializers import (
+    AnswerKeySerializer,
+    GenerationHistorySerializer,
+    PaperFromBankSerializer,
+    QuestionGenerationSerializer,
+)
 from services.openai_service import generate_answer_key
+from services.pool.pipeline import stream_pool_questions
 
 
 class QuestionGenerationStreamView(APIView):
@@ -16,7 +21,7 @@ class QuestionGenerationStreamView(APIView):
         serializer = QuestionGenerationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        stream = stream_generated_questions(
+        stream = stream_pool_questions(
             user=request.user,
             pdf_source_ids=serializer.validated_data.get("pdfSourceIds") or [],
             topic=serializer.validated_data["topic"],
@@ -31,6 +36,60 @@ class QuestionGenerationStreamView(APIView):
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
+
+
+class PaperFromBankView(APIView):
+    """POST /api/generation/paper-from-bank
+
+    Assembles a paper from the user's saved questions. Model 1 never runs, so
+    a chapter that has been generated once costs a single Model 2 call to
+    re-paper — the reuse payoff of persisting the pool per-row.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from services.pool.from_bank import stream_paper_from_bank
+
+        serializer = PaperFromBankSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        stream = stream_paper_from_bank(
+            request.user,
+            subject=data.get("subject") or "",
+            class_num=int(data.get("class") or 10),
+            chapters=data.get("chapters") or [],
+            project_ids=data.get("projectIds") or [],
+            topic=data.get("topic") or "",
+            difficulty=data.get("difficulty") or "medium",
+            instructions=data.get("instructions") or "",
+            count=int(data.get("count", -1)),
+            count_variation=data.get("countVariation") or "cbse",
+            qp_type=data.get("qp_type") or "board",
+            deterministic=bool(data.get("deterministic")),
+            payload=request.data,
+        )
+
+        response = StreamingHttpResponse(stream, content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+
+class QuestionBankSummaryView(APIView):
+    """GET /api/generation/bank-summary
+
+    Per-chapter counts, so the "Create Paper from Saved Questions" picker can
+    show what is available before the teacher commits to a selection.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from services.pool.store import bank_summary
+
+        return Response({"chapters": bank_summary(user=request.user)})
 
 
 class AnswerKeyView(APIView):
