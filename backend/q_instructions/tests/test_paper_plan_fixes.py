@@ -44,12 +44,6 @@ from services.generation_router import (  # noqa: E402
     build_realized_general_instructions,
     paper_plan_section_order,
 )
-from services.generation_service import (  # noqa: E402
-    _coerce_question,
-    _content_references_missing_figure,
-    _figure_to_data_url,
-    _strip_figure_references,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -273,158 +267,12 @@ class RealizedHeaderFidelityTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# ISSUE 1 — type fidelity (slot type wins over LLM payload)
-# ---------------------------------------------------------------------------
-class _Slot:
-    """Minimal stand-in for QuestionGenerationSlot — _coerce_question only
-    reads a handful of attributes."""
-
-    def __init__(
-        self,
-        *,
-        legacy_type="MCQ",
-        question_type="MCQ",
-        marks=1,
-        section_title="Section A",
-        subject="Science",
-        stream="INTEGRATED",
-        difficulty="medium",
-        class_num=10,
-        index=1,
-        requires_image=False,
-        choice_required=False,
-        vi_required=False,
-    ):
-        self.legacy_type = legacy_type
-        self.question_type = question_type
-        self.marks = marks
-        self.section_title = section_title
-        self.subject = subject
-        self.stream = stream
-        self.difficulty = difficulty
-        self.class_num = class_num
-        self.index = index
-        self.requires_image = requires_image
-        self.choice_required = choice_required
-        self.vi_required = vi_required
-
-
-class TypeFidelityTests(unittest.TestCase):
-    def test_short_slot_rejects_mcq_payload_on_first_attempt(self):
-        slot = _Slot(legacy_type="SHORT", question_type="SHORT_ANSWER", marks=3)
-        raw = {
-            "question": {
-                "content": "Explain Ohm's law in your own words.",
-                "type": "MCQ",
-                "options": ["a", "b", "c", "d"],
-                "answer": "a",
-                "marks": 3,
-            }
-        }
-        with self.assertRaises(ValueError):
-            _coerce_question(raw, slot, source_chunks=[], is_retry=False)
-
-    def test_short_slot_strips_mcq_options_on_final_attempt(self):
-        slot = _Slot(legacy_type="SHORT", question_type="SHORT_ANSWER", marks=3)
-        raw = {
-            "question": {
-                "content": "Explain Ohm's law in your own words.",
-                "type": "MCQ",
-                "options": ["a", "b", "c", "d"],
-                "answer": "V = IR",
-                "marks": 3,
-            }
-        }
-        result = _coerce_question(raw, slot, source_chunks=[], is_retry=True)
-        self.assertEqual(result["options"], [])
-        self.assertEqual(result["type"], "SHORT")
-
-
-# ---------------------------------------------------------------------------
-# ISSUE 2 — figure pipeline (real SVG or text-self-contained, never fake)
-# ---------------------------------------------------------------------------
-class FigurePipelineTests(unittest.TestCase):
-    def test_content_references_missing_figure_detects_common_phrasings(self):
-        for phrase in [
-            "Observe the given figure and find x.",
-            "As shown in the diagram, AB = 4 cm.",
-            "Refer to the adjoining circuit.",
-            "In the figure below, ABC is a right triangle.",
-        ]:
-            self.assertTrue(
-                _content_references_missing_figure(phrase),
-                f"should flag: {phrase!r}",
-            )
-
-    def test_self_contained_text_is_not_flagged(self):
-        self.assertFalse(
-            _content_references_missing_figure(
-                "In right triangle ABC, right-angled at B, AB = 24 cm and BC = 7 cm. Find AC."
-            )
-        )
-
-    def test_strip_figure_references_drops_only_offending_sentence(self):
-        original = (
-            "Observe the figure above. In right triangle ABC, "
-            "right-angled at B, AB = 24 cm and BC = 7 cm. Find AC."
-        )
-        cleaned = _strip_figure_references(original)
-        self.assertNotIn("Observe the figure", cleaned)
-        self.assertIn("right triangle ABC", cleaned)
-
-    def test_valid_inline_svg_becomes_data_url(self):
-        svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
-            '<rect x="10" y="10" width="80" height="80" fill="none" stroke="black"/>'
-            "</svg>"
-        )
-        url = _figure_to_data_url({"type": "svg", "content": svg})
-        self.assertTrue(url.startswith("data:image/svg+xml;base64,"))
-
-    def test_svg_with_script_is_rejected(self):
-        bad_svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
-            "<script>alert(1)</script>"
-            "</svg>"
-        )
-        self.assertEqual(_figure_to_data_url({"type": "svg", "content": bad_svg}), "")
-
-    def test_oversized_svg_is_rejected(self):
-        big_svg = "<svg>" + ("x" * 20000) + "</svg>"
-        self.assertEqual(_figure_to_data_url({"type": "svg", "content": big_svg}), "")
-
-    def test_coerce_question_rejects_figure_reference_without_figure(self):
-        slot = _Slot(legacy_type="LONG", question_type="LONG_ANSWER", marks=5)
-        raw = {
-            "question": {
-                "content": "Observe the given figure and prove that triangle ABC is isosceles.",
-                "type": "LONG",
-                "answer": "Proof here.",
-                "marks": 5,
-            }
-        }
-        with self.assertRaises(ValueError):
-            _coerce_question(raw, slot, source_chunks=[], is_retry=False)
-
-    def test_coerce_question_accepts_figure_reference_with_inline_svg(self):
-        slot = _Slot(legacy_type="LONG", question_type="LONG_ANSWER", marks=5)
-        svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
-            '<polygon points="10,90 90,90 50,10" fill="none" stroke="black"/>'
-            "</svg>"
-        )
-        raw = {
-            "question": {
-                "content": "Observe the figure and find AC.",
-                "type": "LONG",
-                "answer": "AC = 25 cm.",
-                "marks": 5,
-                "figure": {"type": "svg", "content": svg},
-            }
-        }
-        result = _coerce_question(raw, slot, source_chunks=[], is_retry=False)
-        self.assertTrue(result["image_url"].startswith("data:image/svg+xml;base64,"))
-
+# The type-fidelity and inline-SVG figure tests that lived here exercised
+# the per-slot engine's _coerce_question and _figure_to_data_url. Both went
+# away with that engine: the pool enforces question type by MATCHING a
+# question to a slot (services/pool/schema.py::slot_accepts, covered in
+# services/pool/test_model2.py) rather than by overriding a returned type,
+# and figures are stored image URLs rather than model-drawn SVG markup.
 
 class AnswerScriptServiceTests(unittest.TestCase):
     """Regression tests for the answer_script_service 500 bug (syntax error)."""

@@ -131,6 +131,10 @@ _SPEC_SYSTEM_PROMPT = (
     "concepts present in the chapter.\n"
     "  • Refer to the figure as 'the given figure'.\n"
     "  • `answer` is what a marking scheme accepts; `explanation` is why.\n\n"
+    "Every figure-based question MUST also carry `vi_alternative`: a "
+    "self-contained, text-only version of the same question for visually "
+    "impaired students, testing the same concept for the same marks without "
+    "referring to any figure. CBSE requires this on picture and map questions.\n\n"
     "Return ONLY a JSON array. Each element:\n"
     "{\n"
     '  "topic": "<concept within the chapter>",\n'
@@ -142,7 +146,8 @@ _SPEC_SYSTEM_PROMPT = (
     '  "question": "<the question text>",\n'
     '  "options": ["<A>", "<B>", "<C>", "<D>"],\n'
     '  "answer": "<expected answer>",\n'
-    '  "explanation": "<why>"\n'
+    '  "explanation": "<why>",\n'
+    '  "vi_alternative": "<text-only version of the same question>"\n'
     "}\n"
     "Use `options` only when the question is multiple-choice; otherwise send []."
 )
@@ -160,7 +165,11 @@ _REUSE_SYSTEM_PROMPT = (
     "  • Refer to the figure as 'the given figure'.\n"
     "  • Skip any figure whose caption is too vague to build a fair question "
     "on — a bad question is worse than one fewer question.\n"
-    "  • `answer` is what a marking scheme accepts; `explanation` is why.\n\n"
+    "  • `answer` is what a marking scheme accepts; `explanation` is why.\n"
+    "  • Every question MUST carry `vi_alternative`: a self-contained, "
+    "text-only version testing the same concept for the same marks, with no "
+    "reference to any figure. CBSE requires this on picture and map "
+    "questions.\n\n"
     "Return ONLY a JSON array. Each element:\n"
     "{\n"
     '  "figure_number": <integer>,\n'
@@ -172,7 +181,8 @@ _REUSE_SYSTEM_PROMPT = (
     '  "question": "<the question text>",\n'
     '  "options": [],\n'
     '  "answer": "<expected answer>",\n'
-    '  "explanation": "<why>"\n'
+    '  "explanation": "<why>",\n'
+    '  "vi_alternative": "<text-only version of the same question>"\n'
     "}"
 )
 

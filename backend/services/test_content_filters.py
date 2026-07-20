@@ -38,23 +38,24 @@ class UnicodeMathSurvivalTests(TestCase):
             self.assertIn(symbol, cleaned, f"{symbol!r} was stripped by cleaning")
 
     def test_unicode_symbols_survive_sse_json_round_trip(self):
-        # The SSE layer is json.dumps (ensure_ascii=True → \uXXXX escapes)
-        # parsed back by the browser; emulate the full serialize→deserialize.
-        from services.generation_service import _sse_event
+        # The SSE layer is json.dumps parsed back by the browser; emulate the
+        # full serialize→deserialize.
+        from services.pool.pipeline import _sse
 
         passage = f"Q38 heights of tower: use √3 = 1.732 and {UNICODE_MATH}."
-        event = _sse_event({"question": {"content": clean_question_text(passage)}})
+        event = _sse({"question": {"content": clean_question_text(passage)}})
         payload = event.split("data: ", 1)[1].strip()
         decoded = json.loads(payload)
         for symbol in UNICODE_MATH.split():
             self.assertIn(symbol, decoded["question"]["content"])
 
     def test_unicode_symbols_survive_printable_assembly(self):
-        from services.generation_service import _printable_question_content
+        from services.pool.rendering import printable_content
 
         content = "Find √5 + π where θ = 45° and ∠A ≠ ∠B."
-        or_choice = {"content": "Find √3 − π where ∆ABC is right-angled."}
-        printable = _printable_question_content(content, or_choice, None)
+        printable = printable_content(
+            content, or_alternative="Find √3 − π where ∆ABC is right-angled."
+        )
         for symbol in ("√", "π", "θ", "∠", "≠", "∆", "°"):
             self.assertIn(symbol, printable)
 
@@ -226,23 +227,11 @@ class LabelOnlyCaptionTests(TestCase):
             )
         )
 
-    def test_text_only_svg_rejected_shape_svg_accepted(self):
-        from services.generation_service import _figure_to_data_url
-
-        text_only = (
-            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'>"
-            "<text x='10' y='20'>A</text><text x='50' y='90'>ΔB</text></svg>"
-        )
-        self.assertEqual(_figure_to_data_url(text_only), "")
-
-        with_shapes = (
-            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'>"
-            "<line x1='0' y1='0' x2='100' y2='100'/>"
-            "<text x='10' y='20'>A</text></svg>"
-        )
-        self.assertTrue(
-            _figure_to_data_url(with_shapes).startswith("data:image/svg+xml;base64,")
-        )
+    # The inline-SVG figure pipeline (_figure_to_data_url) went away with the
+    # per-slot engine — the pool attaches figures as stored image URLs rather
+    # than asking the model to draw SVG markup, so there is no SVG to validate.
+    # is_label_only_caption above still guards the ingestion side, which is
+    # where label-only residue actually originates.
 
 
 class ViIngestionTests(TestCase):
@@ -285,69 +274,72 @@ class ViIngestionTests(TestCase):
             self.assertNotIn("in lieu of the visual", chunk.content)
 
 
-class CoerceQuestionIntegrationTests(TestCase):
-    """End-to-end through _coerce_question: the exact s3b symptoms."""
+class PoolNormalisationIntegrationTests(TestCase):
+    """End-to-end through the pool normaliser: the exact s3b symptoms.
 
-    def _slot(self, **overrides):
-        class Slot:
-            index = 29
-            section_title = "Section C"
-            question_type = "SHORT_ANSWER"
-            legacy_type = "SHORT"
-            marks = 3
-            class_num = 10
-            subject = "Mathematics"
-            stream = "INTEGRATED"
-            difficulty = "medium"
-            choice_required = True
-            vi_required = False
-            requires_image = False
-            requires_figure = False
+    Ported from the per-slot engine's _coerce_question tests when that engine
+    was removed. The scrubbing choke point moved (Model 1 runs
+    clean_question_text over every stem) but the symptoms these guard against
+    are unchanged, so the coverage follows the behaviour rather than the
+    function that used to host it.
+    """
 
-        slot = Slot()
-        for key, value in overrides.items():
-            setattr(slot, key, value)
-        return slot
+    def _normalise(self, raw_text, **kwargs):
+        from services.pool.model1 import _normalise_batch
+        from services.pool.recipes import Batch, TypeQuota
 
-    def test_orphan_or_and_blueprint_leak_scrubbed_from_payload(self):
-        from services.generation_service import _coerce_question
-
+        batch = Batch("short", [TypeQuota("SHORT_ANSWER", 3, 1)])
         raw = {
-            "question": {
-                "content": (
-                    "Prove one of the following identities:\n"
-                    "OR\n"
-                    "(A) Prove \\(\\sin^2\\theta + \\cos^2\\theta = 1\\).\n"
-                    "OR\n"
-                    "(B) Prove \\(\\sec^2\\theta - \\tan^2\\theta = 1\\).\n"
-                    "Internal choice — answer either (A) or (B) as given in the question content."
-                ),
-                "or_choice": {"content": "OR\nProve \\(\\csc^2\\theta - \\cot^2\\theta = 1\\)."},
-                "answer": "Standard identity proof.",
-            }
+            "type": "SHORT_ANSWER",
+            "marks": 3,
+            "topic": "Trigonometric identities",
+            "blooms": "APPLY",
+            "difficulty": "medium",
+            "question": raw_text,
+            "answer": "Standard identity proof.",
+            "explanation": "Pythagorean identity.",
+            **kwargs,
         }
-        question = _coerce_question(raw, self._slot(), [], is_retry=False)
-        content = question["content"]
-        self.assertNotIn("Internal choice", content)
-        self.assertNotIn("answer either", content)
-        # No OR before the (A) alternative.
-        first_or = content.find("\nOR")
-        self.assertGreater(first_or, content.find("(A)"))
-        # The or_choice's leading orphan OR is gone.
-        self.assertFalse(question["or_choice"]["content"].startswith("OR"))
-
-    def test_vi_contamination_scrubbed_but_field_preserved(self):
-        from services.generation_service import _coerce_question
-
-        raw = {
-            "question": {
-                "content": ViLeakTests.VI_BLOCK,
-                "or_choice": {"content": "Alternative question text here."},
-                "answer": "42",
-            }
-        }
-        question = _coerce_question(
-            raw, self._slot(), [], is_retry=False, include_vi_alternatives=False
+        accepted, _invalid = _normalise_batch(
+            [raw], batch=batch, subject="Mathematics",
+            chapter_name="Trigonometry", pool_id="p1", difficulty="medium",
         )
-        self.assertNotIn("Visually Impaired", question["content"])
-        self.assertIsNone(question["vi_alternative"])
+        return accepted[0] if accepted else None
+
+    def test_blueprint_leakage_is_scrubbed_from_the_stem(self):
+        question = self._normalise(
+            "Prove \\(\\sin^2\\theta + \\cos^2\\theta = 1\\).\n"
+            "Internal choice — answer either (A) or (B) as given in the question content."
+        )
+        self.assertIsNotNone(question)
+        self.assertNotIn("Internal choice", question.question)
+        self.assertNotIn("answer either", question.question)
+
+    def test_orphan_or_is_removed_from_the_stem(self):
+        question = self._normalise(
+            "OR\nProve \\(\\csc^2\\theta - \\cot^2\\theta = 1\\)."
+        )
+        self.assertIsNotNone(question)
+        self.assertFalse(question.question.startswith("OR"))
+
+    def test_vi_contamination_is_scrubbed_from_the_stem(self):
+        question = self._normalise(ViLeakTests.VI_BLOCK + "\nProve the identity.")
+        self.assertIsNotNone(question)
+        self.assertNotIn("Visually Impaired", question.question)
+
+    def test_content_hash_tracks_the_cleaned_stem_not_the_raw_one(self):
+        # Otherwise a stem that only differs by leaked scaffolding would
+        # dedup as a distinct question and both copies would reach the bank.
+        from services.pool.schema import compute_content_hash
+
+        dirty = self._normalise(
+            "Prove \\(\\sin^2\\theta + \\cos^2\\theta = 1\\).\n"
+            "Internal choice — answer either (A) or (B) as given in the question content."
+        )
+        clean = self._normalise("Prove \\(\\sin^2\\theta + \\cos^2\\theta = 1\\).")
+
+        self.assertEqual(dirty.content_hash, clean.content_hash)
+        self.assertEqual(
+            dirty.content_hash,
+            compute_content_hash("Mathematics", "Trigonometry", clean.question),
+        )
