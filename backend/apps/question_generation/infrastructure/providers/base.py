@@ -16,6 +16,19 @@ class LLMRequest:
     response_format: Optional[Dict[str, str]] = None
     stream: bool = False
     stream_options: Optional[Dict[str, object]] = None
+    #: Completion-length cap. Previously the pipeline computed per-slot
+    #: budgets (see _slot_output_budget) but had nowhere to put them, so every
+    #: call silently ran at the provider default — which is exactly how a
+    #: 4-mark case study came out truncated mid-sentence. The provider
+    #: translates this to `max_tokens` or `max_completion_tokens` depending on
+    #: the model family.
+    max_output_tokens: Optional[int] = None
+    #: Attribution for ApiUsage rows. Without it every call is logged against
+    #: a null user and per-user cost is unknowable.
+    user: Optional[Any] = None
+    #: Labels the ApiUsage row so pool generation, image authoring and paper
+    #: assembly can be costed separately.
+    operation: str = "question_generation"
 
 
 @dataclass(frozen=True)

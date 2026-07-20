@@ -94,5 +94,74 @@ class Question(TimeStampedModel):
     source_pdf = models.CharField(max_length=255, null=True, blank=True, db_column="sourcePdf")
     difficulty = models.CharField(max_length=50, null=True, blank=True)
 
+    # ── Question Pool fields ────────────────────────────────────────────
+    # Model 1 emits a full pool (~80 questions) per chapter; every question
+    # is persisted as its own row (never one JSON blob) so the bank stays
+    # filterable/searchable and papers can later be assembled straight from
+    # saved questions without re-running Model 1.
+
+    #: Worked explanation for the answer. Distinct from `answer` — the answer
+    #: is what a marking scheme expects, the explanation is why.
+    explanation = models.TextField(null=True, blank=True)
+
+    #: Figure attached to this question. Stores an S3 KEY or a stable
+    #: /media/<path> URL, never a presigned URL (those expire) — resolve at
+    #: render time the same way Paper.s3_pdf_key does.
+    image_url = models.CharField(
+        max_length=2048, null=True, blank=True, db_column="imageUrl"
+    )
+
+    #: Direct owner FK. Questions were previously reachable only via
+    #: project.user, which forced a join for every bank query and made
+    #: per-user dedup awkward. Nullable + backfilled so the migration is safe
+    #: against the live Prisma-created table.
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        db_column="userId",
+        related_name="questions",
+    )
+
+    #: SHA256 of (subject|chapter|normalised question text). Lets a chapter be
+    #: regenerated without duplicating rows. Deliberately a plain index rather
+    #: than a UNIQUE constraint: the live table may already hold duplicates
+    #: from the pre-pool flow, and a unique index would fail to build against
+    #: them. Dedup is enforced in pool_store.persist_pool().
+    content_hash = models.CharField(
+        max_length=64, null=True, blank=True, db_column="contentHash"
+    )
+
+    #: Groups every question emitted by one Model 1 run, so a pool can be
+    #: re-assembled into a different paper later without re-generating.
+    pool_id = models.CharField(
+        max_length=32, null=True, blank=True, db_column="poolId"
+    )
+
+    #: Provenance: "pool" (Model 1), "synthetic_image" (image model), or
+    #: "curriculum_fallback". Drives the review-tray badge — a teacher should
+    #: vet AI-drawn figures before they reach a real exam.
+    source_type = models.CharField(
+        max_length=32, null=True, blank=True, db_column="sourceType"
+    )
+
+    #: Small per-question extras (image prompt, slot index, generation model).
+    #: Per-question detail only — the pool itself is rows, not a blob.
+    metadata = models.JSONField(default=dict, blank=True)
+
     class Meta:
         db_table = "Question"
+        indexes = [
+            # "Create Paper from Saved Questions" filters the bank by owner
+            # then narrows on subject/class — this index serves both.
+            models.Index(
+                fields=["user", "subject", "grade_class"],
+                name="question_user_subj_class_idx",
+            ),
+            # Dedup lookup on regeneration: one query per (user, hash) batch.
+            models.Index(
+                fields=["user", "content_hash"], name="question_user_hash_idx"
+            ),
+            models.Index(fields=["pool_id"], name="question_pool_idx"),
+        ]
