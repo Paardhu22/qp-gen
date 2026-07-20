@@ -254,6 +254,37 @@ export async function streamSse(
   }
 }
 
+export type BankChapter = {
+  projectId: string;
+  projectName: string;
+  subject: string | null;
+  gradeClass: string | null;
+  chapter: string | null;
+  count: number;
+};
+
+/** Per-chapter counts of what is already in the user's question bank. */
+export async function fetchBankSummary(): Promise<{ chapters: BankChapter[] }> {
+  return fetchJson<{ chapters: BankChapter[] }>(
+    "/api/generation/bank-summary",
+    { method: "GET" },
+  );
+}
+
+/**
+ * Assemble a paper from questions already saved in the bank.
+ *
+ * Skips Model 1 entirely — a chapter that has been generated once costs a
+ * single assembly call to re-paper, instead of re-reading the chapter and
+ * re-writing every question.
+ */
+export async function streamPaperFromBank(
+  payload: Record<string, any>,
+  onEvent: SseEventHandler,
+): Promise<void> {
+  return streamSse("/api/generation/paper-from-bank", payload, onEvent);
+}
+
 export async function fetchProjects<T>(
   options: FetchJsonOptions = {},
 ): Promise<T> {

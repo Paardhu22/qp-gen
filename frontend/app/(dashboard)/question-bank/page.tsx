@@ -22,6 +22,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { PaperFromBank } from "@/components/paper-from-bank";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -690,6 +691,10 @@ export default function QuestionBankPage() {
           </div>
         </div>
       )}
+
+      {/* Reuse path: build a new paper from questions already banked, without
+          re-uploading a chapter or re-generating its questions. */}
+      <PaperFromBank />
 
       {/* ── Paper list ───────────────────────────────────────────────────── */}
       {!isLoading && filteredPapers.length > 0 && (

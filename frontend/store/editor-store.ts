@@ -34,8 +34,22 @@ export interface TrayItem {
     or_choice?: any;
     vi_alternative?: string;
   };
-  /** "rag" | "curriculum_fallback" — see GenerationRouter docs. */
-  sourceType: "rag" | "curriculum_fallback" | "unknown";
+  /**
+   * Provenance of the question, used to badge it in the review tray.
+   *
+   * - "pool"            — written by Model 1 from the chapter
+   * - "chapter_figure"  — written about a figure extracted from the chapter
+   * - "synthetic_image" — uses an AI-drawn diagram; needs a teacher's eye
+   * - "rag" / "curriculum_fallback" — provenance from the pre-pool engine,
+   *   still present on questions saved before the refactor
+   */
+  sourceType:
+    | "pool"
+    | "chapter_figure"
+    | "synthetic_image"
+    | "rag"
+    | "curriculum_fallback"
+    | "unknown";
   /** Local timestamp (ms) the item entered the tray. */
   addedAt: number;
   /** Set true once the teacher inserts it; remains in the tray as "Inserted ✓" until cleared. */
