@@ -99,6 +99,7 @@ def _question_to_wire(
     slot,
     section_title: str,
     or_choice: Optional[PoolQuestion] = None,
+    include_vi_alternatives: bool = True,
 ) -> Dict[str, Any]:
     """Render a pool question in the shape the editor already consumes.
 
@@ -110,9 +111,18 @@ def _question_to_wire(
     two halves separately.
     """
     label = or_label_for(getattr(slot, "subject", "") or question.subject)
+
+    # VI text is printed only when the paper opts in AND the blueprint marks
+    # the slot as needing it. A VI block on a slot that never called for one
+    # just pads the paper.
+    vi_alternative = None
+    if include_vi_alternatives and getattr(slot, "vi_required", False):
+        vi_alternative = (question.vi_alternative or "").strip() or None
+
     content = printable_content(
         question.question,
         or_alternative=or_choice.question if or_choice else None,
+        vi_alternative=vi_alternative,
         or_label=label,
     )
 
@@ -141,6 +151,10 @@ def _question_to_wire(
             "image_url": question.image or "",
         },
     }
+
+    if vi_alternative:
+        wire["vi_alternative"] = vi_alternative
+        wire["metadata"]["vi_alternative"] = True
 
     if or_choice:
         wire["or_choice"] = {
@@ -254,7 +268,7 @@ def stream_pool_questions(
         should_use_new_engine,
         summarize_question_plan,
     )
-    from services.generation_service import _parse_gim_instructions
+    from services.pool.gim import _parse_gim_instructions
 
     payload = payload or {}
     hsat_source_ids = list(hsat_source_ids or [])
@@ -264,6 +278,16 @@ def stream_pool_questions(
         payload.get("qp_type") or payload.get("qpType") or ""
     ).strip().lower()
     is_gim = qp_type == "general_instructions"
+
+    # Per-paper VI toggle. Defaults to on, matching CBSE Sample Paper
+    # convention; accepts snake_case, camelCase, and the false-ish strings a
+    # form can send.
+    raw_vi_flag = payload.get(
+        "include_vi_alternatives", payload.get("includeViAlternatives", True)
+    )
+    include_vi_alternatives = bool(raw_vi_flag) and str(
+        raw_vi_flag
+    ).strip().lower() not in {"false", "0", "no", "off"}
 
     class_raw = payload.get(
         "class", payload.get("class_level", payload.get("gradeClass", "10"))
@@ -575,6 +599,7 @@ def stream_pool_questions(
             slot=assignment.slot,
             section_title=section_title,
             or_choice=assignment.or_choice,
+            include_vi_alternatives=include_vi_alternatives,
         )
         if assignment.swapped_by_review:
             wire["metadata"]["reviewSwapped"] = True

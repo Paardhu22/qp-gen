@@ -167,6 +167,7 @@ def _score_question(
     total_slots: int,
     difficulty_target: str,
     rng: random.Random,
+    vi_required: bool = False,
 ) -> float:
     """Higher is better. Every term pushes toward a well-spread paper."""
     score = 0.0
@@ -204,6 +205,12 @@ def _score_question(
     # keys, answer scripts), so prefer it, gently.
     if question.explanation.strip():
         score += 0.5
+
+    # CBSE requires a visually-impaired alternative on picture and map slots.
+    # Weighted heavily: a vi_required slot filled with a question that has no
+    # VI text is a compliance defect, not a stylistic one.
+    if vi_required:
+        score += 6.0 if (question.vi_alternative or "").strip() else -6.0
 
     # Tiny jitter breaks ties without making the result unreproducible in any
     # way that matters — the rng is seeded by the caller.
@@ -259,7 +266,9 @@ def build_candidates(
     unfilled: List[UnfilledSlot] = []
     total_slots = max(1, len(plan))
 
-    def _rank(candidates: List[PoolQuestion]) -> List[PoolQuestion]:
+    def _rank(
+        candidates: List[PoolQuestion], *, vi_required: bool = False
+    ) -> List[PoolQuestion]:
         return sorted(
             candidates,
             key=lambda q: _score_question(
@@ -271,6 +280,7 @@ def build_candidates(
                 total_slots=total_slots,
                 difficulty_target=difficulty,
                 rng=rng,
+                vi_required=vi_required,
             ),
             reverse=True,
         )
@@ -289,7 +299,9 @@ def build_candidates(
             unfilled.append(UnfilledSlot(slot=slot, reason=reason))
             continue
 
-        chosen = _rank(available)[0]
+        chosen = _rank(
+            available, vi_required=bool(getattr(slot, "vi_required", False))
+        )[0]
         used_ids.add(chosen.id)
         used_topics[(chosen.topic or "").strip().lower()] += 1
         used_blooms[chosen.blooms] += 1

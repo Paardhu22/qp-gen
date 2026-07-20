@@ -139,21 +139,34 @@ class TestSourceTypeStamping(unittest.TestCase):
     fallback" badge. Without this, teachers can't tell the two apart and
     can't be selective about ungrounded questions."""
 
-    def test_generation_service_stamps_source_type(self):
-        path = os.path.join(
-            os.path.dirname(__file__), '..', '..', 'services',
-            'generation_service.py',
+    def test_pool_pipeline_stamps_source_type(self):
+        """Provenance must reach the frontend both top-level and on metadata.
+
+        Rewritten from a source-text grep of the old generation_service into a
+        behavioural check against the pool wire format. Grepping source is
+        brittle — it passes for code that is never executed and breaks on any
+        harmless rewording — and it could not survive the engine swap.
+        """
+        from services.pool.pipeline import _question_to_wire
+        from services.pool.schema import PoolQuestion
+
+        class Slot:
+            index = 4
+            section_title = "Section A"
+            subject = "Science"
+            vi_required = False
+
+        question = PoolQuestion(
+            id="q1", subject="Science", chapter="Electricity", topic="Ohm",
+            type="MCQ", blooms="UNDERSTAND", difficulty="medium", marks=1,
+            question="What is resistance?", options=["a", "b", "c", "d"],
+            answer="a", source_type="synthetic_image",
         )
-        with open(path, encoding="utf-8") as f:
-            src = f.read()
-        # Top-level field on the question
-        self.assertIn('question["sourceType"] = source_type', src)
-        # Mirrored on metadata so existing metadata-consumers also see it
-        self.assertIn('question["metadata"]["sourceType"] = source_type', src)
-        # Both values appear
-        self.assertIn('"curriculum_fallback" if curriculum_fallback else "rag"', src)
-        # The streamed event payload also carries it for the frontend
-        self.assertIn('"sourceType": source_type', src)
+
+        wire = _question_to_wire(question, slot=Slot(), section_title="Section A")
+
+        self.assertEqual(wire["sourceType"], "synthetic_image")
+        self.assertEqual(wire["metadata"]["sourceType"], "synthetic_image")
 
 
 class TestPdfServiceImportShim(unittest.TestCase):

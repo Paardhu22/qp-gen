@@ -57,7 +57,7 @@ def stream_paper_from_bank(
         resolve_maths_basic,
         summarize_question_plan,
     )
-    from services.generation_service import _parse_gim_instructions
+    from services.pool.gim import _parse_gim_instructions
 
     payload = payload or {}
     started = time.monotonic()

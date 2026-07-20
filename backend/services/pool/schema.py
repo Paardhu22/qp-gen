@@ -22,6 +22,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
+from services.content_filters import clean_vi_alternative_text
 from utils.ids import generate_id
 
 # ── Canonical vocabularies ──────────────────────────────────────────────
@@ -184,6 +185,12 @@ class PoolQuestion:
     explanation: str = ""
     image: Optional[str] = None
 
+    #: Text-only restatement for visually impaired students, printed in lieu of
+    #: a figure-bearing question. CBSE requires it on map and picture slots
+    #: (the blueprint marks those `vi_required`), so it is part of the question
+    #: rather than a rendering concern.
+    vi_alternative: Optional[str] = None
+
     #: Non-spec fields the pipeline needs. Excluded from the wire payload sent
     #: to Model 2 so its prompt stays small.
     source_type: str = "pool"
@@ -240,7 +247,13 @@ class PoolQuestion:
             "content_hash": self.content_hash or None,
             "pool_id": self.pool_id or None,
             "source_type": self.source_type or None,
-            "metadata": self.metadata or {},
+            # VI text rides in metadata rather than its own column: it is
+            # present on a small minority of questions (map/picture slots) and
+            # a nullable column on the live table buys nothing over this.
+            "metadata": {
+                **(self.metadata or {}),
+                **({"viAlternative": self.vi_alternative} if self.vi_alternative else {}),
+            },
             "user": user,
             "project": project,
             "paper": paper,
@@ -268,6 +281,7 @@ class PoolQuestion:
             answer=row.answer or "",
             explanation=getattr(row, "explanation", "") or "",
             image=getattr(row, "image_url", None),
+            vi_alternative=(getattr(row, "metadata", {}) or {}).get("viAlternative"),
             source_type=getattr(row, "source_type", "pool") or "pool",
             content_hash=getattr(row, "content_hash", "") or "",
             pool_id=getattr(row, "pool_id", "") or "",
@@ -382,6 +396,11 @@ def normalize_pool_question(
     image = raw.get("image") or raw.get("image_url") or None
     image = str(image).strip() if image else None
 
+    vi_raw = raw.get("vi_alternative") or raw.get("viAlternative")
+    vi_alternative = (
+        clean_vi_alternative_text(str(vi_raw).strip()) or None
+    ) if vi_raw else None
+
     return PoolQuestion(
         id=str(raw.get("id") or "").strip() or generate_id(),
         subject=subject,
@@ -396,6 +415,7 @@ def normalize_pool_question(
         answer=str(raw.get("answer") or "").strip(),
         explanation=str(raw.get("explanation") or "").strip(),
         image=image,
+        vi_alternative=vi_alternative,
         source_type=source_type,
         content_hash=compute_content_hash(subject, chapter, text),
         pool_id=pool_id,
