@@ -247,6 +247,46 @@ PDF_IMAGE_CAPTION_CONCURRENCY = _int_env(
     "PDF_IMAGE_CAPTION_CONCURRENCY", 3, minimum=1, maximum=32
 )
 
+# ─── Question Pool architecture ────────────────────────────────────────────
+# Model 1 (pool generation) and Model 2 (paper assembly) both run on this
+# model. It is deliberately separate from OPENAI_MODEL: the pool pipeline is
+# tuned for a cheap, fast, high-throughput model, while OPENAI_MODEL still
+# backs answer-key and answer-script generation where quality matters more
+# than cost.
+POOL_MODEL = os.environ.get("POOL_MODEL", "gpt-4.1-mini")
+
+# Whole-chapter Markdown handed to Model 1. ~240k chars ≈ 60k tokens, far more
+# than any single CBSE chapter; the cap only exists to stop somebody feeding a
+# complete textbook through as one "chapter".
+CHAPTER_MD_MAX_CHARS = _int_env(
+    "CHAPTER_MD_MAX_CHARS", 240_000, minimum=10_000, maximum=2_000_000
+)
+
+# How image-bearing questions are produced:
+#   generate — synthesise new diagrams with OPENAI_IMAGE_MODEL (default)
+#   reuse    — write questions about figures extracted from the uploaded PDF
+#   hybrid   — reuse the chapter's own figures first, synthesise the remainder
+#
+# `generate` is the most expensive option by a wide margin (see
+# IMAGE_COST_USD_PER_IMAGE) and an AI-drawn circuit or ray diagram can be
+# subtly wrong, so every synthesised question is tagged for teacher review.
+# Switching to `hybrid` needs no code change.
+IMAGE_QUESTION_STRATEGY = os.environ.get("IMAGE_QUESTION_STRATEGY", "generate").strip().lower()
+
+# Hard cap on image questions per pool. This is the single biggest cost lever
+# in the pipeline: at the default strategy each one costs roughly 20× a text
+# question, so 8 images is around 90% of a generation's spend.
+IMAGE_QUESTIONS_PER_POOL = _int_env(
+    "IMAGE_QUESTIONS_PER_POOL", 8, minimum=0, maximum=40
+)
+
+OPENAI_IMAGE_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
+OPENAI_IMAGE_SIZE = os.environ.get("OPENAI_IMAGE_SIZE", "1024x1024")
+
+# Used only to report an estimated spend on the SSE `pool` event so the cost of
+# a generation is visible in the UI rather than discovered on the invoice.
+IMAGE_COST_USD_PER_IMAGE = float(os.environ.get("IMAGE_COST_USD_PER_IMAGE", "0.04"))
+
 # ---------------------------------------------------------------------------
 # Cache — Elasticache-ready (statelessness pass P3).
 #
