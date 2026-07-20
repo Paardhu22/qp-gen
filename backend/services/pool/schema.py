@@ -214,14 +214,22 @@ class PoolQuestion:
             "stem": stem[:160] + ("…" if len(stem) > 160 else ""),
         }
 
-    def to_model_kwargs(self, *, user, project, paper=None) -> Dict[str, Any]:
-        """Kwargs for constructing a `projects.Question` row."""
+    def to_model_kwargs(
+        self, *, user, project, paper=None, grade_class: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Kwargs for constructing a `projects.Question` row.
+
+        `grade_class` must be supplied by the caller — the pool contract has no
+        class field, but `load_bank` filters on it, so omitting it makes a
+        saved question invisible to "Create Paper from Saved Questions".
+        """
         return {
             "type": self.type,
             "content": self.question,
             "answer": self.answer or None,
             "options": self.options or [],
             "marks": self.marks,
+            "grade_class": grade_class,
             "bloom_taxonomy": self.blooms or None,
             "explanation": self.explanation or None,
             "image_url": self.image or None,

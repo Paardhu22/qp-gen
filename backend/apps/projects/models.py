@@ -1,7 +1,7 @@
 from django.db import models
-from django.contrib.postgres.fields import ArrayField
 
 from apps.accounts.models import User
+from apps.common.fields import PortableArrayField
 from apps.common.models import TimeStampedModel
 from utils.ids import generate_id
 
@@ -82,7 +82,10 @@ class Question(TimeStampedModel):
     type = models.CharField(max_length=50)
     content = models.TextField()
     answer = models.TextField(null=True, blank=True)
-    options = ArrayField(models.TextField(), default=list, blank=True)
+    # PortableArrayField, not ArrayField: identical `text[]` column on
+    # Postgres (and migration-invisible), but round-trips as JSON on SQLite so
+    # the auto-save path is testable. See apps/common/fields.py.
+    options = PortableArrayField(models.TextField(), default=list, blank=True)
     marks = models.IntegerField(default=1)
     bloom_taxonomy = models.CharField(max_length=50, null=True, blank=True, db_column="bloomTaxonomy")
     project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True, blank=True, db_column="projectId", related_name="questions")
