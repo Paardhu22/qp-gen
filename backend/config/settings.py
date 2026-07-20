@@ -345,7 +345,7 @@ REDIS_URL = os.environ.get("REDIS_URL", "").strip()
 CACHES = build_cache_config(REDIS_URL)
 
 # Database connection pooling for faster response times
-if "test" not in sys.argv:
+if "test" not in sys.argv and "sqlite" not in DATABASES["default"].get("ENGINE", ""):
     DATABASES["default"]["CONN_MAX_AGE"] = 600  # Keep connections alive for 10 minutes
     DATABASES["default"]["OPTIONS"] = {
         "connect_timeout": 10,

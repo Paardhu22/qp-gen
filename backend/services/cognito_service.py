@@ -66,7 +66,8 @@ class CognitoTokenValidator:
                 token,
                 public_key,
                 algorithms=["RS256"],
-                options={"verify_aud": False}
+                options={"verify_aud": False},
+                leeway=60
             )
 
             # Validate issuer
