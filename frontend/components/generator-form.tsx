@@ -22,10 +22,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useEditorStore } from "@/store/editor-store";
+import { useEditorStore, type TrayItem } from "@/store/editor-store";
 import { toast } from "sonner";
-import { BookOpen, FileCheck, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
-import { fetchForm, fetchJson, streamSse, saveQuestions } from "@/lib/api-client";
+import {
+  AlertCircle,
+  BookOpen,
+  CheckCircle2,
+  FileCheck,
+  Loader2,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { fetchForm, fetchJson, streamSse } from "@/lib/api-client";
 import { ReviewTray } from "@/components/review-tray";
 import {
   HsatSourcePicker,
@@ -53,6 +61,7 @@ const formSchema = z.object({
   // No .default() here so the inferred type stays `boolean` (not
   // `boolean | undefined`) — the default value is set in `defaultValues`.
   includeViAlternatives: z.boolean(),
+  contentScopePolicy: z.enum(["strict", "source_only"]),
 });
 
 interface UploadingDoc {
@@ -102,6 +111,7 @@ export const GeneratorForm = ({
       numberOfQuestions: "5",
       marks: "1",
       includeViAlternatives: true,
+      contentScopePolicy: "strict",
     },
   });
 
@@ -123,8 +133,16 @@ export const GeneratorForm = ({
   const setGeneralInstructions = useEditorStore(
     (s) => s.setGeneralInstructionsDraft,
   );
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
-  const [isSavingToBank, setIsSavingToBank] = useState(false);
+  // Saving is no longer a user action. The backend persists the entire
+  // generated question pool (~80 questions, not just the ~38 this paper uses)
+  // to the bank automatically and reports the outcome on the `saved` SSE
+  // event. These two pieces of state exist only to show what happened.
+  const [savedToBank, setSavedToBank] = useState<{
+    saved: number;
+    duplicatesSkipped: number;
+    projectName: string;
+  } | null>(null);
+  const [poolStatus, setPoolStatus] = useState<string>("");
   const [liveInsertedCount, setLiveInsertedCount] = useState(0);
   const liveInsertedSectionsRef = useRef<Set<string>>(new Set());
 
@@ -355,8 +373,8 @@ export const GeneratorForm = ({
   /** Stage a streamed question for review. Used when `insertionMode==="review"`. */
   const stageQuestionForReview = (sectionTitle: string, question: any) => {
     const sourceType =
-      (question?.sourceType as "rag" | "curriculum_fallback" | undefined) ||
-      (question?.metadata?.sourceType as "rag" | "curriculum_fallback" | undefined) ||
+      (question?.sourceType as TrayItem["sourceType"] | undefined) ||
+      (question?.metadata?.sourceType as TrayItem["sourceType"] | undefined) ||
       "unknown";
 
     pushToTray({
@@ -399,6 +417,8 @@ export const GeneratorForm = ({
       setIsGenerating(true);
       setGeneratedResult(null);
       setLiveInsertedCount(0);
+      setSavedToBank(null);
+      setPoolStatus("");
       liveInsertedSectionsRef.current = new Set();
 
       let generationError: string | null = null;
@@ -425,10 +445,36 @@ export const GeneratorForm = ({
           qp_type: values.qpType,
           mathLevel: values.mathLevel,
           include_vi_alternatives: values.includeViAlternatives,
+          contentScopePolicy: values.contentScopePolicy,
         },
         (event, data) => {
           if (event === "error") {
             generationError = data.error || "Generation failed";
+          } else if (event === "status") {
+            // Model 1 reads the whole chapter before any question exists, so
+            // without progress the panel would sit silent for 30-60s.
+            if (data.stage === "pool_progress") {
+              setPoolStatus(
+                `Writing questions… ${data.produced}/${data.target}`,
+              );
+            } else if (data.message) {
+              setPoolStatus(data.message);
+            }
+          } else if (event === "pool") {
+            setPoolStatus(
+              `Question pool ready — ${data.total} questions across ` +
+                `${Object.keys(data.byType || {}).length} types.`,
+            );
+          } else if (event === "saved") {
+            setSavedToBank({
+              saved: data.saved ?? 0,
+              duplicatesSkipped: data.duplicatesSkipped ?? 0,
+              projectName: data.projectName || "",
+            });
+          } else if (event === "notice") {
+            if (data.message) toast.info(data.message);
+          } else if (event === "warning") {
+            if (data.message) toast.warning(data.message);
           } else if (event === "plan") {
             const generalInstructions = data.generalInstructions || [];
             setGeneratedResult({ sections: [], generalInstructions });
@@ -540,47 +586,11 @@ export const GeneratorForm = ({
       toast.success("Inserted generated questions into the editor.");
     }
 
-    if (autoSaveEnabled && allQuestions.length > 0) {
-      setIsSavingToBank(true);
-      try {
-        const questionsPayload = allQuestions.map((q) => ({
-          type: q.type || "short",
-          content: q.content,
-          answer: q.answer || "",
-          options: q.options || [],
-          marks: Number(q.marks) || 1,
-          grade_class: q.metadata?.gradeClass || form.getValues().academicClass,
-          subject: q.metadata?.subject || form.getValues().subject,
-          inferred_topic: q.metadata?.inferredTopic || "Generated Topic",
-          inferred_chapter: q.metadata?.inferredChapter || "Generated Chapter",
-          source_pdf: q.metadata?.sourcePdf || "",
-          difficulty: q.metadata?.difficulty || form.getValues().difficulty,
-        }));
-        await saveQuestions({ questions: questionsPayload });
-        toast.success("Questions automatically saved to the Question Bank!");
-      } catch (err: any) {
-        toast.error(err.message || "Failed to auto-save questions.");
-      } finally {
-        setIsSavingToBank(false);
-      }
-    }
+    // Saving used to happen here, gated behind a checkbox, and only covered
+    // the questions this paper used. The backend now persists the entire
+    // pool during generation, so inserting into the editor is purely an
+    // editor action.
   };
-
-  const hasMultipleSources = uploadedDocs.length > 1;
-  const hasMultipleChapters = useMemo(() => {
-    if (!generatedResult) return false;
-    const chapters = new Set<string>();
-    (generatedResult.sections || []).forEach((s: any) => {
-      (s.questions || []).forEach((q: any) => {
-        if (q.metadata?.inferredChapter) {
-          chapters.add(q.metadata.inferredChapter);
-        }
-      });
-    });
-    return chapters.size > 1;
-  }, [generatedResult]);
-
-  const showAutoSave = hasMultipleSources || hasMultipleChapters;
 
   const hasAnyDocs =
     uploadedDocs.length > 0 ||
@@ -593,9 +603,7 @@ export const GeneratorForm = ({
         <h2 className="text-lg font-bold text-foreground mb-1">
           Question Generator
         </h2>
-        <p className="text-xs text-muted-foreground">
-          Questions are generated STRICTLY from your source material.
-        </p>
+        
       </div>
 
       {/* Hidden file input — triggered by the Add Source button */}
@@ -989,6 +997,36 @@ export const GeneratorForm = ({
             />
           )}
 
+          
+          <FormField
+            control={form.control}
+            name="contentScopePolicy"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-foreground">
+                  Generation Strictness
+                </FormLabel>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger className="w-full bg-background border-border text-foreground">
+                      <SelectValue placeholder="Select strictness" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground min-w-[var(--radix-select-trigger-width)]">
+                    <SelectItem value="strict">Standard Default (Allows Curriculum Fallback)</SelectItem>
+                    <SelectItem value="source_only">Strict to Source Material (Source Only)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-1 leading-snug">
+                  {field.value === "strict" 
+                    ? "If uploaded chapters lack coverage for certain blueprint topics, the AI will generate those questions from general CBSE curriculum knowledge."
+                    : "Questions are generated STRICTLY from your source material. Blueprint slots missing from your PDF will be skipped, which may result in a shorter paper."}
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
           {/* Cluster C: VI alternative toggle. CBSE Sample Papers append a
               Visually Impaired alternative under any visual question; the
               model faithfully reflects the source. The teacher can opt out
@@ -1076,6 +1114,15 @@ export const GeneratorForm = ({
                 ? "Analyzing & Generating..."
                 : "Generate Questions"}
             </Button>
+
+            {/* Model 1 reads the entire chapter before the first question
+                exists, so this is the only feedback during that window. */}
+            {isGenerating && poolStatus && (
+              <p className="mt-2 text-xs text-center text-muted-foreground flex items-center justify-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {poolStatus}
+              </p>
+            )}
           </div>
         </form>
       </Form>
@@ -1167,37 +1214,31 @@ export const GeneratorForm = ({
           <div className="mt-6 flex flex-col gap-2">
             {!isGenerating && (
               <>
-                {showAutoSave && (
-                  <div className="flex items-center gap-2 p-3 mb-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-100 dark:border-indigo-800/30">
-                    <input
-                      type="checkbox"
-                      id="autoSave"
-                      checked={autoSaveEnabled}
-                      onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-                      className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <label
-                      htmlFor="autoSave"
-                      className="text-sm font-medium text-indigo-900 dark:text-indigo-200 cursor-pointer"
-                    >
-                      Auto Save Questions by Chapter
-                    </label>
+                {savedToBank && savedToBank.saved > 0 && (
+                  <div className="flex items-start gap-2 p-3 mb-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-100 dark:border-emerald-800/30">
+                    <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <div className="text-sm text-emerald-900 dark:text-emerald-200">
+                      <p className="font-medium">
+                        {savedToBank.saved} question
+                        {savedToBank.saved === 1 ? "" : "s"} saved to your
+                        question bank
+                      </p>
+                      <p className="text-xs opacity-80 mt-0.5">
+                        {savedToBank.projectName}
+                        {savedToBank.duplicatesSkipped > 0 &&
+                          ` · ${savedToBank.duplicatesSkipped} already saved`}
+                      </p>
+                    </div>
                   </div>
                 )}
                 <Button
                   className="w-full bg-indigo-600 text-white hover:bg-indigo-700 font-semibold"
                   onClick={handleAddToEditor}
-                  disabled={isSavingToBank || liveInsertedCount > 0}
+                  disabled={liveInsertedCount > 0}
                 >
-                  {isSavingToBank ? (
-                    <span className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" /> Saving...
-                    </span>
-                  ) : liveInsertedCount > 0 ? (
-                    `Inserted ${liveInsertedCount} into Editor`
-                  ) : (
-                    "Insert All into Editor"
-                  )}
+                  {liveInsertedCount > 0
+                    ? `Inserted ${liveInsertedCount} into Editor`
+                    : "Insert All into Editor"}
                 </Button>
                 <Button
                   variant="ghost"
