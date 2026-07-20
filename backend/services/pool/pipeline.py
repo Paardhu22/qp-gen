@@ -50,6 +50,7 @@ from services.pool.model2 import (
     PaperAssemblyError,
     assemble_paper,
 )
+from services.pool.rendering import or_label_for, printable_content
 from services.pool.schema import PoolQuestion, pool_summary
 
 logger = logging.getLogger("[POOL_PIPELINE]")
@@ -93,15 +94,30 @@ def _legacy_type_for(question_type: str) -> str:
 
 
 def _question_to_wire(
-    question: PoolQuestion, *, slot, section_title: str
+    question: PoolQuestion,
+    *,
+    slot,
+    section_title: str,
+    or_choice: Optional[PoolQuestion] = None,
 ) -> Dict[str, Any]:
     """Render a pool question in the shape the editor already consumes.
 
     Field names here are the frontend's contract, not the pool's: `content`
     rather than `question`, `image_url` rather than `image`.
+
+    An internal choice is baked into `content` (the editor takes one string per
+    question) and also exposed as `or_choice` so the review tray can show the
+    two halves separately.
     """
-    return {
-        "content": question.question,
+    label = or_label_for(getattr(slot, "subject", "") or question.subject)
+    content = printable_content(
+        question.question,
+        or_alternative=or_choice.question if or_choice else None,
+        or_label=label,
+    )
+
+    wire: Dict[str, Any] = {
+        "content": content,
         "type": question.type,
         "options": list(question.options or []),
         "answer": question.answer,
@@ -125,6 +141,18 @@ def _question_to_wire(
             "image_url": question.image or "",
         },
     }
+
+    if or_choice:
+        wire["or_choice"] = {
+            "content": or_choice.question,
+            "options": list(or_choice.options or []),
+            "answer": or_choice.answer,
+            "image_url": or_choice.image or "",
+        }
+        wire["metadata"]["hasOrChoice"] = True
+        wire["metadata"]["orChoiceQuestionId"] = or_choice.id
+
+    return wire
 
 
 def _find_or_create_section(result: Dict[str, Any], title: str) -> Dict[str, Any]:
@@ -543,7 +571,10 @@ def stream_pool_questions(
             getattr(assignment.slot, "section_title", "") or "Questions"
         )
         wire = _question_to_wire(
-            assignment.question, slot=assignment.slot, section_title=section_title
+            assignment.question,
+            slot=assignment.slot,
+            section_title=section_title,
+            or_choice=assignment.or_choice,
         )
         if assignment.swapped_by_review:
             wire["metadata"]["reviewSwapped"] = True
