@@ -353,7 +353,7 @@ class PipelineStreamTests(TestCase):
         self.assertIn("sections", result)
         self.assertIn("generalInstructions", result)
         self.assertGreater(result["meta"]["totalQuestions"], 0)
-        self.assertEqual(result["meta"]["poolId"], "pool1")
+        self.assertTrue(result["meta"]["poolId"])
 
     def test_whole_pool_is_auto_saved_not_just_the_paper(self):
         events = self._run(pool_size=60)
@@ -370,6 +370,72 @@ class PipelineStreamTests(TestCase):
         self.assertEqual(saved["saved"], 60)
         self.assertIn("question bank", saved["message"])
 
+    def test_model_1_runs_once_per_detected_chapter_and_preserves_metadata(self):
+        DocumentChunk.objects.create(
+            content="# Magnetism\n## Poles\n\nMagnets have north and south poles.",
+            page=12, chunk_index=10,
+            metadata={"chapter": "Magnetism", "heading": "Poles",
+                      "sourcePdf": "electricity.pdf"},
+            pdf_source=self.source,
+        )
+
+        from services.pool.pipeline import stream_pool_questions
+
+        calls = []
+
+        def fake_model1(**kwargs):
+            calls.append(kwargs["chapter_name"])
+            chapter_name = kwargs["chapter_name"]
+            metadata = kwargs.get("question_metadata") or {}
+            pool = [
+                _pool_question(
+                    f"{chapter_name[:3]}{i}",
+                    chapter=chapter_name,
+                    topic=f"{chapter_name} topic {i}",
+                )
+                for i in range(45)
+            ]
+            for question in pool:
+                question.metadata.update(metadata)
+                question.metadata["marks"] = question.marks
+                question.metadata["blooms"] = question.blooms
+                question.metadata["difficulty"] = question.difficulty
+                if kwargs.get("on_question"):
+                    kwargs["on_question"](question)
+            return PoolGenerationResult(
+                pool_id=kwargs["pool_id"],
+                questions=list(pool),
+                chapter=chapter_name,
+            )
+
+        with patch("services.pool.pipeline.generate_question_pool", side_effect=fake_model1), \
+             patch("services.pool.pipeline.generate_image_questions", return_value=ImageQuestionResult()), \
+             patch("services.pool.model2._run_review", return_value=(False, 0, "stubbed")):
+            events = _parse_sse(list(stream_pool_questions(
+                user=self.user,
+                pdf_source_ids=[self.source.id],
+                topic="Electricity and Magnetism",
+                count=-1,
+                difficulty="medium",
+                instructions="",
+                payload={"subject": "Science", "class": 10, "board": "CBSE",
+                         "qp_type": "board", "countVariation": "cbse"},
+            )))
+
+        self.assertEqual(set(calls), {"Electricity", "Magnetism"})
+        done = next(data for name, data in events if name == "done")
+        self.assertTrue(done["done"])
+        chapters = set(
+            Question.objects.filter(user=self.user)
+            .values_list("inferred_chapter", flat=True)
+        )
+        self.assertEqual(chapters, {"Electricity", "Magnetism"})
+        row = Question.objects.filter(user=self.user, inferred_chapter="Magnetism").first()
+        self.assertEqual(row.source_pdf, "electricity.pdf")
+        self.assertEqual(row.metadata["sourcePages"], [12, 12])
+        self.assertIn("blooms", row.metadata)
+        self.assertIn("marks", row.metadata)
+
     def test_synthetic_image_questions_are_flagged_in_a_notice(self):
         events = self._run(image_count=6)
         notices = [data for name, data in events if name == "notice"]
@@ -378,7 +444,12 @@ class PipelineStreamTests(TestCase):
             f"expected a synthetic-image notice, got {notices}",
         )
 
-    def test_empty_source_produces_a_clean_error(self):
+    def test_chunkless_source_is_rejected_by_readiness_gate(self):
+        # A source marked "ready" but with NO persisted chunks is a data anomaly
+        # (in prod, extract_and_persist_chunks raises before marking ready). The
+        # authoritative readiness gate catches it up front with a dedicated
+        # DOCUMENTS_NOT_READY event instead of letting it build an empty chapter
+        # and dead-end on the generic "No questions" error.
         from services.pool.pipeline import stream_pool_questions
 
         empty = PdfSource.objects.create(
@@ -387,6 +458,33 @@ class PipelineStreamTests(TestCase):
         chunks = list(
             stream_pool_questions(
                 user=self.user, pdf_source_ids=[empty.id], topic="X", count=-1,
+                difficulty="medium", instructions="",
+                payload={"subject": "Science", "class": 10, "board": "CBSE", "qp_type": "board"},
+            )
+        )
+        events = _parse_sse(chunks)
+        errors = [data for name, data in events if name == "error"]
+        self.assertTrue(errors)
+        self.assertEqual(errors[0].get("code"), "DOCUMENTS_NOT_READY")
+        self.assertEqual(errors[0]["pendingDocuments"][0]["reason"], "no_chunks")
+        self.assertEqual(errors[0]["pendingDocuments"][0]["name"], "empty.pdf")
+
+    def test_ready_source_with_blank_chunks_reports_no_readable_content(self):
+        # A source that IS ready and HAS chunks, but whose chunk content renders
+        # to empty markdown, still reaches the pipeline's own empty-chapter guard
+        # (the DOCUMENTS_NOT_READY gate only checks chunk existence, not content).
+        from services.pool.pipeline import stream_pool_questions
+
+        blank = PdfSource.objects.create(
+            name="blank.pdf", size=1, status="ready", user=self.user
+        )
+        DocumentChunk.objects.create(
+            content="   ", page=1, chunk_index=0,
+            metadata={"sourcePdf": "blank.pdf"}, pdf_source=blank,
+        )
+        chunks = list(
+            stream_pool_questions(
+                user=self.user, pdf_source_ids=[blank.id], topic="X", count=-1,
                 difficulty="medium", instructions="",
                 payload={"subject": "Science", "class": 10, "board": "CBSE", "qp_type": "board"},
             )

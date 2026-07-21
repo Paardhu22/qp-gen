@@ -37,14 +37,19 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
 
 from apps.generation.models import GenerationHistory
-from services.chapter_markdown import build_chapter_markdown, infer_chapter_name
 from services.pool import store
-from services.pool.image_model import generate_image_questions, resolve_strategy
-from services.pool.model1 import generate_question_pool
+from services.pool.chapters import Chapter, build_chapters, split_chapter
+from services.pool.image_model import (
+    ImageQuestionResult,
+    generate_image_questions,
+    resolve_strategy,
+)
+from services.pool.model1 import PoolGenerationResult, generate_question_pool
 from services.pool.model2 import (
     AssembledPaper,
     PaperAssemblyError,
@@ -52,6 +57,7 @@ from services.pool.model2 import (
 )
 from services.pool.rendering import or_label_for, printable_content
 from services.pool.schema import PoolQuestion, pool_summary
+from utils.ids import generate_id
 
 logger = logging.getLogger("[POOL_PIPELINE]")
 
@@ -77,6 +83,21 @@ class _GimSlot:
     question_type: str
     legacy_type: str
     section_title: str
+
+
+@dataclass
+class _PoolGenerationUnit:
+    """One bounded Model 1 input.
+
+    `chapter` may be a whole detected chapter or one semantic section split
+    from an oversized chapter. `bank_chapter` is the parent chapter name used
+    for persistence/dedup so section splits merge back into one chapter pool.
+    """
+
+    chapter: Chapter
+    bank_chapter: str
+    target_total: int
+    image_count: int = 0
 
 
 def _legacy_type_for(question_type: str) -> str:
@@ -146,6 +167,7 @@ def _question_to_wire(
             "subject": question.subject,
             "inferredChapter": question.chapter,
             "inferredTopic": question.topic,
+            "marks": question.marks,
             "difficulty": question.difficulty,
             "blooms": question.blooms,
             "image_url": question.image or "",
@@ -316,52 +338,110 @@ def _build_variant_results(
 
 def _build_pool_streaming(
     *,
-    chapter,
+    units: Sequence[_PoolGenerationUnit],
     subject: str,
     subject_norm: str,
-    chapter_name: str,
     class_num: int,
     difficulty: str,
-    target_total: int,
+    pool_id: str,
     user,
 ) -> Iterable[Any]:
-    """Run Model 1 + the image stage on a worker thread, yielding progress.
+    """Run per-chapter Model 1 + image stages on workers, yielding progress.
 
-    Model 1 blocks until all four batches finish, but each batch emits
-    questions as it parses them. Running it on a thread and draining a queue
-    turns that into live progress instead of a 30-60s silence — which is what
-    the per-slot engine gave for free and what users would otherwise notice
-    losing.
+    Each unit is already bounded by `split_chapter`. Units run with bounded
+    chapter concurrency; inside each unit Model 1 still uses its process-wide
+    request semaphore, so chapter_count × batch_count can never fan out into
+    unbounded API streams.
     """
     progress: "queue.Queue[Any]" = queue.Queue()
     outcome: Dict[str, Any] = {}
 
+    def _metadata_for(unit: _PoolGenerationUnit) -> Dict[str, Any]:
+        metadata = unit.chapter.question_metadata()
+        metadata["chapterTitle"] = unit.bank_chapter
+        metadata["sourceDocument"] = metadata.get("sourcePdf")
+        if unit.chapter.title != unit.bank_chapter:
+            metadata["semanticSection"] = unit.chapter.title
+        for key in ("sectionIndex", "sectionCount"):
+            if key in unit.chapter.metadata:
+                metadata[key] = unit.chapter.metadata[key]
+        return metadata
+
+    def _run_unit(unit: _PoolGenerationUnit):
+        metadata = _metadata_for(unit)
+        result = generate_question_pool(
+            chapter=unit.chapter,
+            subject=subject,
+            subject_norm=subject_norm,
+            chapter_name=unit.bank_chapter,
+            class_num=class_num,
+            difficulty=difficulty,
+            target_total=unit.target_total,
+            user=user,
+            pool_id=pool_id,
+            question_metadata=metadata,
+            on_question=progress.put,
+        )
+
+        image_result = generate_image_questions(
+            chapter=unit.chapter,
+            subject=subject,
+            chapter_name=unit.bank_chapter,
+            class_num=class_num,
+            pool_id=pool_id,
+            difficulty=difficulty,
+            count=unit.image_count,
+            user=user,
+            question_metadata=metadata,
+            on_question=progress.put,
+        )
+        return unit, result, image_result
+
     def _worker():
         try:
-            result = generate_question_pool(
-                chapter=chapter,
-                subject=subject,
-                subject_norm=subject_norm,
-                chapter_name=chapter_name,
-                class_num=class_num,
-                difficulty=difficulty,
-                target_total=target_total,
-                user=user,
-                on_question=progress.put,
+            merged = PoolGenerationResult(
+                pool_id=pool_id, subject=subject, chapter="Unified Question Bank"
             )
-            outcome["pool"] = result
+            merged_images = ImageQuestionResult()
 
-            image_result = generate_image_questions(
-                chapter=chapter,
-                subject=subject,
-                chapter_name=chapter_name,
-                class_num=class_num,
-                pool_id=result.pool_id,
-                difficulty=difficulty,
-                user=user,
-                on_question=progress.put,
-            )
-            outcome["images"] = image_result
+            workers = max(1, int(getattr(settings, "POOL_CHAPTER_CONCURRENCY", 3)))
+            with ThreadPoolExecutor(max_workers=min(workers, max(1, len(units)))) as executor:
+                futures = {executor.submit(_run_unit, unit): unit for unit in units}
+                for future in as_completed(futures):
+                    unit = futures[future]
+                    try:
+                        unit, result, image_result = future.result()
+                    except Exception as exc:
+                        logger.error(
+                            "Pool unit failed for %r: %s",
+                            unit.bank_chapter,
+                            exc,
+                            exc_info=True,
+                        )
+                        merged.batch_failures.append(
+                            f"{unit.bank_chapter}: {type(exc).__name__}: {exc}"
+                        )
+                        continue
+                    merged.questions.extend(result.questions)
+                    merged.batch_failures.extend(
+                        f"{unit.bank_chapter}: {failure}"
+                        for failure in result.batch_failures
+                    )
+                    merged.duplicates_dropped += result.duplicates_dropped
+                    merged.invalid_dropped += result.invalid_dropped
+
+                    merged_images.questions.extend(image_result.questions)
+                    merged_images.generated_count += image_result.generated_count
+                    merged_images.reused_count += image_result.reused_count
+                    merged_images.cache_hits += image_result.cache_hits
+                    merged_images.failures.extend(
+                        f"{unit.bank_chapter}: {failure}"
+                        for failure in image_result.failures
+                    )
+                    merged_images.estimated_cost_usd += image_result.estimated_cost_usd
+
+            outcome["pool"] = merged
+            outcome["images"] = merged_images
         except Exception as exc:  # pragma: no cover - defensive
             logger.error("Pool worker crashed: %s", exc, exc_info=True)
             outcome["error"] = str(exc)
@@ -379,6 +459,136 @@ def _build_pool_streaming(
 
     thread.join(timeout=5)
     yield outcome
+
+
+def _unit_weight(chapter: Chapter) -> int:
+    return max(1, int(chapter.estimated_tokens or (chapter.char_count // 4) or 1))
+
+
+def _allocate_targets(
+    items: Sequence[Chapter],
+    *,
+    total: int,
+    min_each: int = 0,
+) -> List[int]:
+    """Weighted integer allocation with an optional floor per item."""
+    if not items:
+        return []
+    if total <= 0:
+        return [0 for _ in items]
+
+    floor = max(0, int(min_each or 0))
+    if floor and total <= floor * len(items):
+        return [floor for _ in items]
+
+    allocation = [floor for _ in items]
+    remaining = max(0, total - sum(allocation))
+    if remaining == 0:
+        return allocation
+
+    weights = [_unit_weight(item) for item in items]
+    total_weight = sum(weights) or len(items)
+    raw = [(remaining * weight) / total_weight for weight in weights]
+    whole = [int(value) for value in raw]
+    allocation = [base + extra for base, extra in zip(allocation, whole)]
+
+    leftover = total - sum(allocation)
+    order = sorted(
+        range(len(items)), key=lambda index: raw[index] - whole[index], reverse=True
+    )
+    for index in order[:leftover]:
+        allocation[index] += 1
+    return allocation
+
+
+def _build_generation_units(
+    chapters: Sequence[Chapter], *, target_total: int, image_total: int
+) -> List[_PoolGenerationUnit]:
+    """Split oversized chapters and assign text/image quotas to each unit."""
+    min_per_chapter = max(
+        1, int(getattr(settings, "POOL_MIN_QUESTIONS_PER_CHAPTER", 12))
+    )
+    chapter_targets = _allocate_targets(
+        chapters, total=target_total, min_each=min_per_chapter
+    )
+
+    units: List[_PoolGenerationUnit] = []
+    for chapter, chapter_target in zip(chapters, chapter_targets):
+        sections = split_chapter(chapter)
+        section_targets = _allocate_targets(
+            sections, total=chapter_target, min_each=1 if len(sections) > 1 else 0
+        )
+        for section, section_target in zip(sections, section_targets):
+            units.append(
+                _PoolGenerationUnit(
+                    chapter=section,
+                    bank_chapter=chapter.title,
+                    target_total=max(1, section_target),
+                )
+            )
+
+    image_targets = _allocate_targets(
+        [unit.chapter for unit in units], total=image_total, min_each=0
+    )
+    for unit, image_count in zip(units, image_targets):
+        unit.image_count = image_count
+    return units
+
+
+@dataclass
+class _PersistAggregate:
+    saved: int = 0
+    duplicates_skipped: int = 0
+    project_name: str = ""
+    project_id: str = ""
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.error
+
+
+def _persist_pool_by_chapter(
+    *,
+    user,
+    questions: Sequence[PoolQuestion],
+    subject: str,
+    class_num: int,
+) -> _PersistAggregate:
+    grouped: Dict[str, List[PoolQuestion]] = {}
+    for question in questions:
+        chapter = question.chapter or "Generated Chapter"
+        grouped.setdefault(chapter, []).append(question)
+
+    aggregate = _PersistAggregate()
+    project_names: List[str] = []
+    project_ids: List[str] = []
+
+    for chapter, chapter_questions in grouped.items():
+        result = store.persist_pool(
+            user=user,
+            questions=chapter_questions,
+            subject=subject,
+            chapter=chapter,
+            class_num=class_num,
+        )
+        aggregate.saved += result.saved
+        aggregate.duplicates_skipped += result.duplicates_skipped
+        if result.project_name:
+            project_names.append(result.project_name)
+        if result.project_id:
+            project_ids.append(result.project_id)
+        if not result.ok:
+            aggregate.error = result.error
+            break
+
+    if len(project_names) == 1:
+        aggregate.project_name = project_names[0]
+        aggregate.project_id = project_ids[0] if project_ids else ""
+    elif project_names:
+        aggregate.project_name = f"{len(project_names)} chapter projects"
+        aggregate.project_id = ",".join(project_ids)
+    return aggregate
 
 
 def stream_pool_questions(
@@ -409,6 +619,31 @@ def stream_pool_questions(
     payload = payload or {}
     hsat_source_ids = list(hsat_source_ids or [])
     started = time.monotonic()
+
+    # ── Authoritative source-readiness gate ─────────────────────────────────
+    # The async upload flow returns a PdfSource id before ingestion finishes, so
+    # readiness can no longer be assumed from "the client has an id". Validate
+    # here — ownership-scoped, ready-state, and persisted-chunk checks — BEFORE
+    # any blueprint / chapter work. A not-ready source would otherwise build an
+    # empty/thin chapter and dead-end on the generic "No questions could be
+    # generated" error; instead emit a dedicated DOCUMENTS_NOT_READY event with
+    # the offending documents. This is the source of truth; the frontend gate is
+    # only UX. (Skipped when no sources are supplied — e.g. instruction-only
+    # flows — so those keep their existing downstream handling.)
+    if pdf_source_ids or hsat_source_ids:
+        from services.source_readiness import (
+            build_not_ready_payload,
+            check_sources_ready,
+        )
+
+        pending_sources = check_sources_ready(
+            user=user,
+            pdf_source_ids=pdf_source_ids,
+            hsat_source_ids=hsat_source_ids,
+        )
+        if pending_sources:
+            yield _sse(build_not_ready_payload(pending_sources), event="error")
+            return
 
     qp_type = str(
         payload.get("qp_type") or payload.get("qpType") or ""
@@ -555,14 +790,14 @@ def stream_pool_questions(
 
     # ── Chapter source material ─────────────────────────────────────────
     yield _sse(
-        {"stage": "reading_chapter", "message": "Reading the chapter…"},
+        {"stage": "reading_chapters", "message": "Reading source chapters…"},
         event="status",
     )
 
-    chapter = build_chapter_markdown(
+    chapters = build_chapters(
         pdf_source_ids=pdf_source_ids, hsat_source_ids=hsat_source_ids
     )
-    if chapter.is_empty:
+    if not chapters:
         yield _sse(
             {
                 "error": "No readable content was found in the selected sources. "
@@ -572,7 +807,11 @@ def stream_pool_questions(
         )
         return
 
-    chapter_name = infer_chapter_name(chapter, fallback=topic or "Generated Chapter")
+    chapter_name = (
+        chapters[0].title
+        if len(chapters) == 1
+        else (topic or f"{len(chapters)} chapters")
+    )
 
     yield _sse(
         {
@@ -589,30 +828,50 @@ def stream_pool_questions(
 
     # ── Model 1 + image stage ───────────────────────────────────────────
     # The pool is sized to over-provision the blueprint so Model 2 has real
-    # choice; a 38-slot paper draws on ~84 questions.
+    # choice; a 38-slot paper draws on ~84 questions. That total is allocated
+    # across detected chapters instead of sending the whole upload to Model 1.
     target_total = max(len(plan) * 2, 40)
+    image_total = max(0, int(getattr(settings, "IMAGE_QUESTIONS_PER_POOL", 8)))
+    units = _build_generation_units(
+        chapters, target_total=target_total, image_total=image_total
+    )
+    max_prompt_tokens = max((unit.chapter.estimated_tokens for unit in units), default=0)
 
     yield _sse(
         {
             "stage": "generating_pool",
-            "message": f"Writing a pool of ~{target_total} questions from the chapter…",
+            "message": (
+                f"Writing a pool of ~{sum(unit.target_total for unit in units)} "
+                f"questions from {len(chapters)} chapter(s)…"
+            ),
             "chapter": chapter_name,
-            "chapterChars": chapter.char_count,
+            "chapters": [
+                {
+                    "number": chapter.number,
+                    "title": chapter.title,
+                    "sourcePages": chapter.question_metadata().get("sourcePages"),
+                    "sourcePdf": chapter.question_metadata().get("sourcePdf"),
+                    "estimatedTokens": chapter.estimated_tokens,
+                }
+                for chapter in chapters
+            ],
+            "generationUnits": len(units),
+            "maxPromptTokens": max_prompt_tokens,
         },
         event="status",
     )
 
     pool_questions: List[PoolQuestion] = []
     outcome: Dict[str, Any] = {}
+    pool_id = generate_id()
 
     for item in _build_pool_streaming(
-        chapter=chapter,
+        units=units,
         subject=subject_label,
         subject_norm=subject_norm,
-        chapter_name=chapter_name,
         class_num=class_num,
         difficulty=difficulty,
-        target_total=target_total,
+        pool_id=pool_id,
         user=user,
     ):
         if isinstance(item, PoolQuestion):
@@ -623,7 +882,7 @@ def stream_pool_questions(
                 {
                     "stage": "pool_progress",
                     "produced": len(pool_questions),
-                    "target": target_total,
+                    "target": sum(unit.target_total for unit in units),
                 },
                 event="status",
             )
@@ -646,13 +905,23 @@ def stream_pool_questions(
 
     pool_result = outcome.get("pool")
     image_result = outcome.get("images")
-    pool_id = getattr(pool_result, "pool_id", "") or ""
+    pool_id = getattr(pool_result, "pool_id", "") or pool_id
 
     summary_stats = pool_summary(pool_questions)
     yield _sse(
         {
             "poolId": pool_id,
             "chapter": chapter_name,
+            "chapters": [
+                {
+                    "number": chapter.number,
+                    "title": chapter.title,
+                    "sourcePages": chapter.question_metadata().get("sourcePages"),
+                    "sourcePdf": chapter.question_metadata().get("sourcePdf"),
+                }
+                for chapter in chapters
+            ],
+            "generationUnits": len(units),
             **summary_stats,
             "imageStrategy": resolve_strategy(),
             "imagesGenerated": getattr(image_result, "generated_count", 0),
@@ -669,11 +938,10 @@ def stream_pool_questions(
     # Runs before assembly so the bank keeps the WHOLE pool, not just the
     # questions this particular paper happened to use. That is what makes
     # "Create Paper from Saved Questions" worth having.
-    persist = store.persist_pool(
+    persist = _persist_pool_by_chapter(
         user=user,
         questions=pool_questions,
         subject=subject_label,
-        chapter=chapter_name,
         class_num=class_num,
     )
     if persist.ok:

@@ -554,7 +554,11 @@ def assemble_paper(
         )
 
     if use_review and assignments:
-        resolved_model = model or getattr(settings, "POOL_MODEL", settings.OPENAI_MODEL)
+        # Model 2 review runs on REVIEW_MODEL — an explicit knob, never inherited
+        # from OPENAI_MODEL (see config.settings).
+        resolved_model = model or getattr(
+            settings, "REVIEW_MODEL", getattr(settings, "POOL_MODEL", "gpt-4.1-mini")
+        )
         applied, swaps, reason = _run_review(
             assignments,
             subject=subject,
