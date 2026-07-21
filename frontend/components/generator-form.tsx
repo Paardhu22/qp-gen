@@ -121,7 +121,7 @@ export const GeneratorForm = ({
       countType: "cbse",
       numberOfQuestions: "5",
       marks: "1",
-      includeViAlternatives: true,
+      includeViAlternatives: false,
       contentScopePolicy: "strict",
       numberOfSets: "1",
     },
@@ -1238,42 +1238,6 @@ export const GeneratorForm = ({
                     : "Questions are generated STRICTLY from your source material. Blueprint slots missing from your PDF will be skipped, which may result in a shorter paper."}
                 </p>
                 <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          {/* Cluster C: VI alternative toggle. CBSE Sample Papers append a
-              Visually Impaired alternative under any visual question; the
-              model faithfully reflects the source. The teacher can opt out
-              without changing prompting (post-generation filter). */}
-          <FormField
-            control={form.control}
-            name="includeViAlternatives"
-            render={({ field }) => (
-              <FormItem className="flex items-start gap-3 rounded-md border border-border bg-background px-3 py-2.5">
-                <FormControl>
-                  <input
-                    id="includeViAlternatives"
-                    type="checkbox"
-                    checked={field.value}
-                    onChange={(e) => field.onChange(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 cursor-pointer rounded border-border accent-indigo-600"
-                  />
-                </FormControl>
-                <div className="flex-1 space-y-1">
-                  <label
-                    htmlFor="includeViAlternatives"
-                    className="cursor-pointer text-sm font-medium text-foreground"
-                  >
-                    Include Visually Impaired alternatives
-                  </label>
-                  <p className="text-[11px] text-zinc-500 dark:text-muted-foreground">
-                    CBSE Sample Papers attach a VI alternative to every visual
-                    question. Leave on to mirror that pattern; turn off to
-                    suppress the VI blocks in the generated paper without
-                    changing what the model retrieves from your sources.
-                  </p>
-                </div>
               </FormItem>
             )}
           />
