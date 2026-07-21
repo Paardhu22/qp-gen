@@ -583,6 +583,54 @@ export const GeneratorForm = ({
         (event, data) => {
           if (event === "error") {
             generationError = data.error || "Generation failed";
+            // Backend is the authoritative readiness gate. If it reports
+            // DOCUMENTS_NOT_READY, reconcile the local UI to match: drop any
+            // vanished sources and re-queue the not-ready ones for polling so
+            // the button re-gates and the source flips back to ready on its own.
+            if (data.code === "DOCUMENTS_NOT_READY") {
+              const pending: Array<{
+                id: string;
+                name?: string | null;
+                kind?: string;
+                reason?: string;
+              }> = Array.isArray(data.pendingDocuments)
+                ? data.pendingDocuments
+                : [];
+              const pdfPending = pending.filter((p) => p.kind === "pdf");
+              const dropIds = new Set(
+                pdfPending
+                  .filter((p) => p.reason === "not_found")
+                  .map((p) => p.id),
+              );
+              const requeueIds = new Set(
+                pdfPending
+                  .filter((p) => p.reason !== "not_found")
+                  .map((p) => p.id),
+              );
+              if (dropIds.size > 0 || requeueIds.size > 0) {
+                setUploadedDocs((prev) =>
+                  prev.filter(
+                    (d) => !dropIds.has(d.id) && !requeueIds.has(d.id),
+                  ),
+                );
+              }
+              if (requeueIds.size > 0) {
+                setUploadingDocs((prev) => {
+                  const known = new Set(
+                    prev.map((d) => d.pdfSourceId).filter(Boolean),
+                  );
+                  const requeued: UploadingDoc[] = pdfPending
+                    .filter((p) => requeueIds.has(p.id) && !known.has(p.id))
+                    .map((p) => ({
+                      tempId: `requeue-${p.id}`,
+                      name: p.name || "Document",
+                      status: "processing",
+                      pdfSourceId: p.id,
+                    }));
+                  return requeued.length > 0 ? [...prev, ...requeued] : prev;
+                });
+              }
+            }
           } else if (event === "status") {
             // Model 1 reads the whole chapter before any question exists, so
             // without progress the panel would sit silent for 30-60s.

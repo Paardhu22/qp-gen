@@ -229,39 +229,59 @@ if not OPENAI_API_KEY:
         "Get your key at https://platform.openai.com/api-keys"
     )
 # ─── Single source of truth for the model ──────────────────────────────────
-# The backend owns model selection; the frontend NEVER names a model. Every
-# text / vision / reasoning call resolves to OPENAI_MODEL (or POOL_MODEL /
-# OPENAI_VISION_MODEL below, which now default to the same value). Standardised
-# on gpt-4o-mini: one cheap, capable model for pool generation, Model 2 review,
-# answer-key, answer-script, vision captioning, GIM, and blueprint reasoning.
-# Only embeddings (OPENAI_EMBEDDING_MODEL) and image generation
-# (OPENAI_IMAGE_MODEL) use a different model, by necessity. Override via env to
-# move every call at once.
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+# ─── Explicit per-stage model configuration ────────────────────────────────
+# The backend owns model selection; the frontend NEVER names a model. Each
+# generation stage has its OWN explicit model so no stage silently inherits
+# another's env override. In particular, POOL_MODEL / REVIEW_MODEL /
+# ANSWER_MODEL do NOT fall back to OPENAI_MODEL — a deployment that set
+# `OPENAI_MODEL=gpt-4o` (a 30k-TPM model) must not drag Model 1's whole-chapter
+# request into that ceiling. Defaults are gpt-4.1-mini: a large-context, high-
+# TPM model that comfortably fits a per-chapter prompt.
+#
+#   POOL_MODEL      — Model 1 (pool generation) + image-spec proposal
+#   REVIEW_MODEL    — Model 2 (paper assembly review)
+#   ANSWER_MODEL    — answer-key + answer-script generation
+#   OPENAI_IMAGE_MODEL     — diagram image generation (gpt-image-1)
+#   OPENAI_EMBEDDING_MODEL — retrieval embeddings (text-embedding-3-small)
+#   OPENAI_MODEL    — legacy/blueprint fallback ONLY; nothing above inherits it.
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
 QG_NEW_ENGINE_ENABLED = os.environ.get("QG_NEW_ENGINE_ENABLED", "false").lower() == "true"
 OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-# Vision captioning during PDF ingestion. gpt-4o-mini accepts image inputs and
-# is metered far cheaper than gpt-4o; used with image detail="low" it stays well
-# inside TPM budgets for a full chapter's figure batch while still giving useful
-# retrieval captions. Defaults to OPENAI_MODEL so a single override moves it too.
-OPENAI_VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", OPENAI_MODEL)
-# Max concurrent vision-API caption requests — enforced PROCESS-WIDE by a
-# semaphore in services.openai_service, so parallel chapter ingestion does
-# not multiply it. 3 concurrent × ~1,130 tokens per caption call keeps
-# in-flight demand around 3,400 tokens against the 30,000 TPM gpt-4o
-# ceiling; the previous default of 8 (× 3 parallel chapters = 24 calls)
-# saturated TPM and produced 40+ caption failures per book ingest.
-PDF_IMAGE_CAPTION_CONCURRENCY = _int_env(
-    "PDF_IMAGE_CAPTION_CONCURRENCY", 3, minimum=1, maximum=32
-)
+# Retained for the (now-optional) vision-caption helper; ingestion no longer
+# calls it (no GPT calls during ingestion — see services.document_service).
+OPENAI_VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4.1-mini")
 
 # ─── Question Pool architecture ────────────────────────────────────────────
-# Model 1 (pool generation) and Model 2 (paper assembly) both run on this
-# model. It now defaults to OPENAI_MODEL so the whole system runs on one
-# standardised model (gpt-4o-mini); the separate knob is retained only so a
-# deployment can point the high-throughput pool stage at a different model
-# without touching the rest of the pipeline.
-POOL_MODEL = os.environ.get("POOL_MODEL", OPENAI_MODEL)
+# Model 1 (pool generation). Explicit default, independent of OPENAI_MODEL.
+POOL_MODEL = os.environ.get("POOL_MODEL", "gpt-4.1-mini")
+# Model 2 (paper assembly / review) and answer generation. Explicit defaults.
+REVIEW_MODEL = os.environ.get("REVIEW_MODEL", "gpt-4.1-mini")
+ANSWER_MODEL = os.environ.get("ANSWER_MODEL", "gpt-4.1-mini")
+
+# ─── Per-chapter Model 1 execution (TPM safety) ─────────────────────────────
+# Model 1 processes ONE chapter per request, never the whole upload. These
+# knobs bound how large a single prompt can get and how many run at once so the
+# organisation's tokens-per-minute ceiling is never exceeded.
+#
+#   POOL_CHAPTER_TOKEN_THRESHOLD — a detected chapter larger than this (input
+#     tokens) is split into semantic sections before generation. Keep it well
+#     under the smallest model's TPM so a single request always fits.
+#   POOL_MAX_CONCURRENCY — process-wide cap on concurrent Model 1 API requests
+#     (a semaphore in services.pool.model1). concurrency × threshold must stay
+#     under TPM.
+#   POOL_CHAPTER_CONCURRENCY — how many chapters generate in parallel.
+#   POOL_MIN_QUESTIONS_PER_CHAPTER — floor so a chapter's slice of the pool is
+#     still a usable spread of types when many chapters share one paper.
+POOL_CHAPTER_TOKEN_THRESHOLD = _int_env(
+    "POOL_CHAPTER_TOKEN_THRESHOLD", 20_000, minimum=4_000, maximum=100_000
+)
+POOL_MAX_CONCURRENCY = _int_env("POOL_MAX_CONCURRENCY", 4, minimum=1, maximum=16)
+POOL_CHAPTER_CONCURRENCY = _int_env(
+    "POOL_CHAPTER_CONCURRENCY", 3, minimum=1, maximum=16
+)
+POOL_MIN_QUESTIONS_PER_CHAPTER = _int_env(
+    "POOL_MIN_QUESTIONS_PER_CHAPTER", 12, minimum=1, maximum=200
+)
 
 # Whole-chapter Markdown handed to Model 1. ~240k chars ≈ 60k tokens, far more
 # than any single CBSE chapter; the cap only exists to stop somebody feeding a

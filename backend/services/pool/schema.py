@@ -230,6 +230,13 @@ class PoolQuestion:
         class field, but `load_bank` filters on it, so omitting it makes a
         saved question invisible to "Create Paper from Saved Questions".
         """
+        source_pdf = (self.metadata or {}).get("sourcePdf") or (
+            self.metadata or {}
+        ).get("sourceDocument")
+        if isinstance(source_pdf, list):
+            source_pdf = ", ".join(str(x) for x in source_pdf if str(x).strip())
+        source_pdf = str(source_pdf or "").strip()[:255] or None
+
         return {
             "type": self.type,
             "content": self.question,
@@ -243,6 +250,7 @@ class PoolQuestion:
             "subject": self.subject or None,
             "inferred_chapter": self.chapter or None,
             "inferred_topic": self.topic or None,
+            "source_pdf": source_pdf,
             "difficulty": self.difficulty or None,
             "content_hash": self.content_hash or None,
             "pool_id": self.pool_id or None,

@@ -60,6 +60,30 @@ _MAX_BATCH_ATTEMPTS = 3
 #: help since there are only four batches.
 _BATCH_CONCURRENCY = 4
 
+# ── Process-wide Model 1 request gate (TPM safety) ──────────────────────────
+# Chapters generate in parallel and each runs up to four batches, so without a
+# global cap the number of concurrent OpenAI requests would be
+# chapters × batches — easily enough to blow the org's tokens-per-minute
+# ceiling. This BoundedSemaphore caps TOTAL in-flight Model 1 requests
+# regardless of how many chapters/batches are running; combined with the
+# per-chapter token threshold it keeps concurrency × request-size under TPM.
+# Sized from settings.POOL_MAX_CONCURRENCY. Mirrors the caption gate pattern
+# in services.openai_service.
+_request_gate_lock = threading.Lock()
+_request_gate_instance: Optional["threading.BoundedSemaphore"] = None
+
+
+def _request_concurrency() -> int:
+    return max(1, int(getattr(settings, "POOL_MAX_CONCURRENCY", 4)))
+
+
+def _request_gate() -> "threading.BoundedSemaphore":
+    global _request_gate_instance
+    with _request_gate_lock:
+        if _request_gate_instance is None:
+            _request_gate_instance = threading.BoundedSemaphore(_request_concurrency())
+        return _request_gate_instance
+
 
 @dataclass
 class PoolGenerationResult:
@@ -183,6 +207,7 @@ def _normalise_batch(
     chapter_name: str,
     pool_id: str,
     difficulty: str,
+    question_metadata: Optional[Dict[str, Any]] = None,
 ) -> tuple[List[PoolQuestion], int]:
     """Coerce a batch's raw objects, dropping the unsalvageable ones."""
     accepted: List[PoolQuestion] = []
@@ -206,10 +231,23 @@ def _normalise_batch(
             logger.debug("Dropped a question from batch %s: %s", batch.name, exc)
             continue
 
+        question.metadata.update(
+            {
+                **(question_metadata or {}),
+                "chapterTitle": (question_metadata or {}).get(
+                    "chapterTitle", chapter_name
+                ),
+                "difficulty": question.difficulty,
+                "blooms": question.blooms,
+                "marks": question.marks,
+            }
+        )
+
         if question.marks not in allowed_marks and len(allowed_marks) == 1:
             # Single-shape batch — an off-by-one marks value is a formatting
             # slip, not a different question. Snap it.
             question.marks = next(iter(allowed_marks))
+            question.metadata["marks"] = question.marks
 
         # Route the stem through the same scrubber the legacy path used, so
         # figure-label residue and blueprint leakage never reach the bank.
@@ -240,6 +278,7 @@ def _run_batch(
     model: str,
     provider: OpenAIProvider,
     user=None,
+    question_metadata: Optional[Dict[str, Any]] = None,
     on_question: Optional[Callable[[PoolQuestion], None]] = None,
 ) -> tuple[List[PoolQuestion], int, Optional[str]]:
     """Execute one batch. Returns (questions, invalid_count, failure_reason)."""
@@ -261,11 +300,14 @@ def _run_batch(
         buffer_parts: List[str] = []
 
         try:
-            for delta in provider.stream_chat(request):
-                if not delta:
-                    continue
-                buffer_parts.append(delta)
-                raw_objects.extend(extractor.feed(delta))
+            # Hold a global request slot for the whole stream so total in-flight
+            # Model 1 calls stay under settings.POOL_MAX_CONCURRENCY (TPM safety).
+            with _request_gate():
+                for delta in provider.stream_chat(request):
+                    if not delta:
+                        continue
+                    buffer_parts.append(delta)
+                    raw_objects.extend(extractor.feed(delta))
         except Exception as exc:
             last_error = f"{type(exc).__name__}: {exc}"
             logger.warning(
@@ -298,6 +340,7 @@ def _run_batch(
             chapter_name=chapter_name,
             pool_id=pool_id,
             difficulty=difficulty,
+            question_metadata=question_metadata,
         )
 
         if not questions:
@@ -331,14 +374,18 @@ def generate_question_pool(
     target_total: int = 0,
     model: Optional[str] = None,
     user=None,
+    question_metadata: Optional[Dict[str, Any]] = None,
     on_question: Optional[Callable[[PoolQuestion], None]] = None,
+    pool_id: Optional[str] = None,
 ) -> PoolGenerationResult:
     """Read a chapter, return a deduplicated Question Pool.
 
     `on_question` is invoked as each question is normalised, from the batch's
     worker thread — callers pushing to an SSE stream must make it thread-safe.
+    `pool_id` lets a multi-chapter caller share one id across every chapter's
+    pool so the whole generation groups together; omitted → a fresh id.
     """
-    pool_id = generate_id()
+    pool_id = pool_id or generate_id()
     result = PoolGenerationResult(
         pool_id=pool_id, subject=subject, chapter=chapter_name
     )
@@ -383,6 +430,7 @@ def generate_question_pool(
             model=resolved_model,
             provider=provider,
             user=user,
+            question_metadata=question_metadata,
             on_question=None,  # emitted below, after the dedup gate
         )
 

@@ -434,7 +434,7 @@ def _generate_single_answer_llm_only(
         if extra_instruction:
             content = f"{content}\n\n{extra_instruction}"
         kwargs: Dict[str, Any] = dict(
-            model=settings.OPENAI_MODEL,
+            model=settings.ANSWER_MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": content},
@@ -447,7 +447,7 @@ def _generate_single_answer_llm_only(
         # (gpt-4o, gpt-4-turbo) returns BadRequestError, which is why
         # we gate on the model-name prefix. The settings default is
         # "gpt-5-mini", which always benefits.
-        model = settings.OPENAI_MODEL or ""
+        model = settings.ANSWER_MODEL or ""
         if model.startswith("gpt-5") or model.startswith("o1") or model.startswith("o3"):
             kwargs["reasoning_effort"] = "low"
         return client.chat.completions.create(**kwargs)
@@ -463,7 +463,7 @@ def _generate_single_answer_llm_only(
     try:
         completion = _request_completion()
         raw_text = (completion.choices[0].message.content or "").strip()
-        _record_usage(user, "answer_script", settings.OPENAI_MODEL, completion.usage)
+        _record_usage(user, "answer_script", settings.ANSWER_MODEL, completion.usage)
 
         if _completion_was_truncated(completion):
             logger.warning(
@@ -475,7 +475,7 @@ def _generate_single_answer_llm_only(
             )
             completion = _request_completion(token_budget=8000)
             raw_text = (completion.choices[0].message.content or "").strip()
-            _record_usage(user, "answer_script", settings.OPENAI_MODEL, completion.usage)
+            _record_usage(user, "answer_script", settings.ANSWER_MODEL, completion.usage)
 
         parsed = _parse_answer_payload(raw_text)
         if parsed is None:
@@ -488,7 +488,7 @@ def _generate_single_answer_llm_only(
                 token_budget=8000,
             )
             retry_text = (retry.choices[0].message.content or "").strip()
-            _record_usage(user, "answer_script", settings.OPENAI_MODEL, retry.usage)
+            _record_usage(user, "answer_script", settings.ANSWER_MODEL, retry.usage)
             parsed = _parse_answer_payload(retry_text)
 
         if parsed is None:
