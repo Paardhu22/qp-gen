@@ -11,7 +11,7 @@ from apps.documents.models import DocumentChunk, HsatSource, PdfSource
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.db import transaction
+from django.db import close_old_connections, transaction
 from docx import Document as DocxDocument
 
 from services.chunking_service import chunk_text
@@ -463,7 +463,43 @@ def _build_image_chunks(
     return chunks
 
 
-def process_pdf_upload(file, user) -> PdfSource:
+def _spawn_pdf_worker(
+    buffer: bytes, file_name: str, file_type: str, pdf_source: PdfSource, user
+) -> None:
+    """Run the heavy ingest (extract → caption → embed → write) off-request.
+
+    Mirrors ``hsat_service.ingest_hsat_book_async``: a daemon thread against the
+    Django ORM, guaranteeing the row never stays stuck in "processing" if the
+    worker crashes. The PdfSource row must already be COMMITTED before this is
+    called so the thread's own DB connection can see it.
+    """
+    source_id = pdf_source.id
+
+    def _worker() -> None:
+        try:
+            # Re-fetch inside the worker's connection so we mutate a row this
+            # thread owns, not the parent request's (soon-closed) instance.
+            src = PdfSource.objects.get(id=source_id)
+            _process_pdf_internal(buffer, file_name, file_type, src, user)
+            warnings = getattr(src, "warnings", []) or []
+            if warnings:
+                logger.info("PDF %s ingested with warnings: %s", source_id, warnings)
+        except Exception as exc:
+            logger.exception("Background PDF ingest failed for %s", source_id)
+            try:
+                PdfSource.objects.filter(id=source_id).update(
+                    status="error", error=f"{type(exc).__name__}: {exc}"
+                )
+            except Exception:
+                logger.exception("Could not write error status after PDF worker crash")
+        finally:
+            close_old_connections()
+
+    thread = threading.Thread(target=_worker, name=f"pdf-ingest-{source_id}", daemon=True)
+    thread.start()
+
+
+def process_pdf_upload(file, user, *, background: bool = False) -> PdfSource:
     """
     Upload and process a PDF/DOCX/TXT file into a PdfSource.
 
@@ -474,9 +510,12 @@ def process_pdf_upload(file, user) -> PdfSource:
     linked to the Question Bank or any Paper. Questions become persistent only
     when the user explicitly saves them.
 
-    Returns the PdfSource; non-persistent `.warnings` attribute carries
-    user-visible degradation notices (e.g. PyMuPDF unavailable → image
-    extraction off) that the API layer should surface.
+    ``background=False`` (default, used by tests) runs the whole ingest inside
+    the call and returns a *ready* source. ``background=True`` (used by the
+    upload API) returns immediately with a *processing* source and runs the
+    heavy stages on a daemon thread; the client polls the status endpoint until
+    ``ready``/``error``. Either way `.warnings` carries user-visible degradation
+    notices (only populated on the synchronous path).
     """
     file_type = file.content_type or "application/pdf"
     file_name = file.name
@@ -498,6 +537,33 @@ def process_pdf_upload(file, user) -> PdfSource:
     is_safe, av_error = _scan_with_av(buffer, file_name)
     if not is_safe:
         raise ValueError(f"Upload blocked: {av_error}")
+
+    if background:
+        # Fast path: create + persist the raw file, COMMIT, then hand the heavy
+        # ingest to a worker thread. The short atomic block ensures the row is
+        # committed (visible to the worker's connection) before the thread runs.
+        with transaction.atomic():
+            pdf_source = PdfSource.objects.create(
+                name=file_name,
+                size=len(buffer),
+                content_type=file_type,
+                status="processing",
+                user=user,
+                sha256=sha256_hash,
+                av_status="passed" if not getattr(settings, "CLAMAV_ENABLED", False) else "pending",
+            )
+            try:
+                stored_path = default_storage.save(
+                    f"uploads/{user.id}/pdfs/{pdf_source.id}/{file_name}", ContentFile(buffer)
+                )
+                pdf_source.url = _public_media_url(stored_path)
+                pdf_source.save(update_fields=["url"])
+            except Exception:
+                logger.exception("Failed to save original PDF to storage for %s", pdf_source.id)
+
+        _spawn_pdf_worker(buffer, file_name, file_type, pdf_source, user)
+        pdf_source.warnings = []  # type: ignore[attr-defined]
+        return pdf_source
 
     with transaction.atomic():
         pdf_source = PdfSource.objects.create(
