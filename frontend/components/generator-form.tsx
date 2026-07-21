@@ -71,8 +71,15 @@ const formSchema = z.object({
 interface UploadingDoc {
   tempId: string;
   name: string;
-  status: "uploading" | "error";
+  // "uploading": bytes in flight to the backend.
+  // "processing": backend accepted the file and is ingesting it (async); we
+  //   poll the status endpoint until it flips to ready/error.
+  // "error": upload or ingest failed.
+  status: "uploading" | "processing" | "error";
   error?: string;
+  /** PdfSource id once the upload POST returns; drives status polling. */
+  pdfSourceId?: string;
+  size?: number;
 }
 
 // Values accepted by the Subject / Class dropdowns below. HSAT sources
@@ -168,6 +175,10 @@ export const GeneratorForm = ({
   const setInsertionMode = useEditorStore((s) => s.setInsertionMode);
   const pushToTray = useEditorStore((s) => s.pushToTray);
   const setGeneratorContext = useEditorStore((s) => s.setGeneratorContext);
+  // Comparison Workspace — the primary review UI for multi-set output.
+  const setComparisonSets = useEditorStore((s) => s.setComparisonSets);
+  const clearComparisonSets = useEditorStore((s) => s.clearComparisonSets);
+  const setComparisonOpen = useEditorStore((s) => s.setComparisonOpen);
 
   // Keep generator-form selections mirrored to the store so the resume
   // modal / IndexedDB record can show truthful class/subject even before
@@ -217,26 +228,39 @@ export const GeneratorForm = ({
       newDocCount += 1;
 
       const tempId = `${Date.now()}-${Math.random()}`;
+      const fileSize = file.size;
       setUploadingDocs((prev) => [
         ...prev,
-        { tempId, name: file.name, status: "uploading" },
+        { tempId, name: file.name, status: "uploading", size: fileSize },
       ]);
 
       try {
         const formData = new FormData();
         formData.append("file", file);
 
-        const data = await fetchForm<{ pdfSourceId: string }>(
-          "/api/documents/upload",
-          formData,
-        );
+        const data = await fetchForm<{
+          pdfSourceId: string;
+          status?: string;
+        }>("/api/documents/upload", formData);
 
-        // Upload succeeded — move from uploading to uploaded
-        setUploadingDocs((prev) => prev.filter((d) => d.tempId !== tempId));
-        setUploadedDocs((prev) => [
-          ...prev,
-          { id: data.pdfSourceId, name: file.name, size: file.size },
-        ]);
+        if (data.status === "ready") {
+          // Deduped/cached source — already ingested. Promote immediately.
+          setUploadingDocs((prev) => prev.filter((d) => d.tempId !== tempId));
+          setUploadedDocs((prev) => [
+            ...prev,
+            { id: data.pdfSourceId, name: file.name, size: fileSize },
+          ]);
+        } else {
+          // Async ingest in progress — keep the row (spinner) and let the
+          // polling effect below promote it to uploadedDocs once ready.
+          setUploadingDocs((prev) =>
+            prev.map((d) =>
+              d.tempId === tempId
+                ? { ...d, status: "processing", pdfSourceId: data.pdfSourceId }
+                : d,
+            ),
+          );
+        }
       } catch (err: any) {
         setUploadingDocs((prev) =>
           prev.map((d) =>
@@ -343,6 +367,78 @@ export const GeneratorForm = ({
     setHsatSources((prev) => prev.filter((s) => s.id !== id));
   };
 
+  // ── Async PDF upload: poll ingest status until ready ──────────────────────
+  // The upload endpoint now returns immediately with status "processing"; the
+  // backend ingests (extract → caption → embed) on a worker thread. Poll the
+  // status endpoint and promote each source to `uploadedDocs` (the ready set)
+  // once it reports "ready", or surface the error. Mirrors the HSAT self-heal
+  // poll above. A ref feeds the interval the latest list so sources uploaded
+  // mid-poll are picked up without restarting the timer.
+  const uploadingDocsRef = useRef<UploadingDoc[]>(uploadingDocs);
+  uploadingDocsRef.current = uploadingDocs;
+  const hasProcessingUploads = uploadingDocs.some(
+    (d) => d.status === "processing" && d.pdfSourceId,
+  );
+  useEffect(() => {
+    if (!hasProcessingUploads) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      const targets = uploadingDocsRef.current.filter(
+        (d) => d.status === "processing" && d.pdfSourceId,
+      );
+      await Promise.all(
+        targets.map(async (doc) => {
+          try {
+            const st = await fetchJson<{
+              status: string;
+              error?: string | null;
+            }>(`/api/documents/${doc.pdfSourceId}/status`);
+            if (cancelled) return;
+            if (st.status === "ready") {
+              setUploadingDocs((prev) =>
+                prev.filter((d) => d.tempId !== doc.tempId),
+              );
+              setUploadedDocs((prev) =>
+                prev.some((d) => d.id === doc.pdfSourceId)
+                  ? prev
+                  : [
+                      ...prev,
+                      {
+                        id: doc.pdfSourceId!,
+                        name: doc.name,
+                        size: doc.size || 0,
+                      },
+                    ],
+              );
+            } else if (st.status === "error") {
+              setUploadingDocs((prev) =>
+                prev.map((d) =>
+                  d.tempId === doc.tempId
+                    ? {
+                        ...d,
+                        status: "error",
+                        error: st.error || "Processing failed",
+                      }
+                    : d,
+                ),
+              );
+            }
+          } catch {
+            // Transient — next tick retries.
+          }
+        }),
+      );
+    };
+
+    void poll();
+    const interval = setInterval(poll, 3_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [hasProcessingUploads, setUploadedDocs]);
+
   const appendQuestionToResult = (
     current: any,
     sectionTitle: string,
@@ -424,6 +520,17 @@ export const GeneratorForm = ({
       );
       return;
     }
+    // Async upload: a PDF still uploading/ingesting is not yet in `uploadedDocs`
+    // and would be silently excluded. Block with a toast until it's ready.
+    const stillIngesting = uploadingDocs.find(
+      (d) => d.status === "uploading" || d.status === "processing",
+    );
+    if (stillIngesting) {
+      toast.error(
+        `${stillIngesting.name} is still being processed. Wait for it to finish, then generate again.`,
+      );
+      return;
+    }
 
     if (values.qpType === "general_instructions" && !generalInstructions.trim()) {
       toast.error("Please describe what questions you want in the instructions box.");
@@ -438,6 +545,7 @@ export const GeneratorForm = ({
       setPoolStatus("");
       setVariantSets([]);
       setActiveSet("A");
+      clearComparisonSets();
       liveInsertedSectionsRef.current = new Set();
 
       let generationError: string | null = null;
@@ -658,8 +766,14 @@ export const GeneratorForm = ({
         : [],
     [generatedResult, variantSets],
   );
-  const activeSetResult =
-    allSets.find((s) => s.label === activeSet)?.result || generatedResult;
+  // Mirror the produced sets into the store so the Comparison Workspace (a
+  // full-screen overlay mounted by the editor page) can read them. Only while
+  // multi-set — the single-set path keeps the review tray / auto-insert UI.
+  useEffect(() => {
+    if (multiSetMode && allSets.length >= 2) {
+      setComparisonSets(allSets.map((s) => ({ label: s.label, result: s.result })));
+    }
+  }, [multiSetMode, allSets, setComparisonSets]);
 
   return (
     <div className="h-full flex flex-col p-4 bg-background text-muted-foreground overflow-y-auto custom-scrollbar">
@@ -723,7 +837,7 @@ export const GeneratorForm = ({
             <div key={doc.tempId}>
               <div className="flex items-center justify-between p-2 rounded-lg bg-muted/50 border border-border">
                 <div className="flex items-center gap-2 min-w-0">
-                  {doc.status === "uploading" ? (
+                  {doc.status !== "error" ? (
                     <Loader2 className="h-4 w-4 text-indigo-500 animate-spin flex-shrink-0" />
                   ) : (
                     <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
@@ -733,6 +847,11 @@ export const GeneratorForm = ({
                       {doc.name}
                     </span>
                     {doc.status === "uploading" && (
+                      <span className="text-[10px] text-indigo-400 dark:text-indigo-300">
+                        Uploading…
+                      </span>
+                    )}
+                    {doc.status === "processing" && (
                       <span className="text-[10px] text-indigo-400 dark:text-indigo-300">
                         Processing document, please wait…
                       </span>
@@ -753,7 +872,7 @@ export const GeneratorForm = ({
                   </button>
                 )}
               </div>
-              {doc.status === "uploading" && (
+              {doc.status !== "error" && (
                 <div className="mt-1 h-0.5 w-full rounded-full bg-muted-foreground/30 overflow-hidden">
                   <div
                     className="h-full bg-indigo-500 rounded-full animate-[loading-bar_1.4s_ease-in-out_infinite]"
@@ -1350,126 +1469,52 @@ export const GeneratorForm = ({
         </div>
       )}
 
-      {/* ── Multiple-set switcher ─────────────────────────────────────────
-          Set A (the master) plus derived sets. The teacher picks a set,
-          inserts it into the editor, exports it, then moves to the next. */}
+      {/* ── Multiple-set result → Comparison Workspace entry point ────────
+          The old inline set switcher (which could only insert a whole set and
+          contaminated the doc when inserting a second set) is replaced by the
+          Comparison Workspace: sets side by side with per-question / per-section
+          / per-set insertion that no longer collides. */}
       {multiSetMode && generatedResult && (
         <div className="mt-6 border-t border-border pt-6 animate-in fade-in duration-500">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-bold text-foreground">
-              Generated Sets
-            </h3>
+            <h3 className="text-lg font-bold text-foreground">Generated Sets</h3>
             <span className="text-[11px] text-muted-foreground">
               {allSets.length} sets
             </span>
           </div>
 
-          {/* Set tabs */}
-          <div className="flex gap-2 mb-4">
-            {allSets.map((s) => {
-              const meta = s.result?.meta || {};
-              return (
-                <button
-                  key={s.label}
-                  type="button"
-                  onClick={() => setActiveSet(s.label)}
-                  className={`flex-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
-                    activeSet === s.label
-                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-semibold"
-                      : "border-border text-muted-foreground hover:border-zinc-400"
-                  }`}
-                  title={
-                    s.label === "A"
-                      ? "Master paper"
-                      : `${meta.replacedCount ?? 0} question(s) replaced from Set A`
-                  }
-                >
-                  Set {s.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {activeSet !== "A" && (
-            <p className="text-[11px] text-muted-foreground mb-3">
-              {activeSetResult?.meta?.replacedCount ?? 0} question(s) replaced
-              from Set A · same marks &amp; blueprint · reshuffled within
-              sections.
-            </p>
+          {savedToBank && savedToBank.saved > 0 && (
+            <div className="flex items-start gap-2 p-3 mb-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-100 dark:border-emerald-800/30">
+              <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <div className="text-sm text-emerald-900 dark:text-emerald-200">
+                <p className="font-medium">
+                  {savedToBank.saved} question{savedToBank.saved === 1 ? "" : "s"}{" "}
+                  saved to your question bank
+                </p>
+                <p className="text-xs opacity-80 mt-0.5">
+                  {savedToBank.projectName}
+                </p>
+              </div>
+            </div>
           )}
 
-          <div className="space-y-6">
-            {activeSetResult?.sections?.map((section: any, sIdx: number) => (
-              <div key={sIdx} className="space-y-4">
-                <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
-                  {section.title}
-                </h4>
-                <div className="space-y-3">
-                  {section.questions?.map((q: any, qIdx: number) => (
-                    <div
-                      key={qIdx}
-                      className="p-3 bg-muted/50 border border-border rounded-xl space-y-2"
-                    >
-                      <div className="flex justify-between items-start gap-2">
-                        <p className="font-medium text-sm text-zinc-800 dark:text-zinc-100">
-                          {q.content}
-                        </p>
-                        <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-600 dark:text-zinc-400 font-mono">
-                          {q.marks}m
-                        </span>
-                      </div>
-                      {q.options && q.options.length > 0 && (
-                        <div className="grid grid-cols-2 gap-2 mt-2">
-                          {q.options.map((opt: string, oIdx: number) => (
-                            <div
-                              key={oIdx}
-                              className="text-[11px] text-muted-foreground dark:text-zinc-400 border border-border p-1.5 rounded bg-background/50"
-                            >
-                              {String.fromCharCode(65 + oIdx)}. {opt}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div className="mt-2 pt-2 border-t border-border">
-                        <p className="text-[10px] text-green-600 dark:text-green-500 font-medium truncate">
-                          Ans: {q.answer}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+          <p className="text-[11px] text-muted-foreground mb-3 leading-snug">
+            Review Sets {allSets.map((s) => s.label).join(", ")} side by side —
+            aligned by section and marks, with changed questions highlighted.
+            Insert any question, section, or whole set into your paper; sets no
+            longer collide in the editor.
+          </p>
 
-          <div className="mt-6 flex flex-col gap-2">
+          <div className="flex flex-col gap-2">
             {!isGenerating && (
               <>
-                {savedToBank && savedToBank.saved > 0 && (
-                  <div className="flex items-start gap-2 p-3 mb-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-100 dark:border-emerald-800/30">
-                    <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                    <div className="text-sm text-emerald-900 dark:text-emerald-200">
-                      <p className="font-medium">
-                        {savedToBank.saved} question
-                        {savedToBank.saved === 1 ? "" : "s"} saved to your
-                        question bank
-                      </p>
-                      <p className="text-xs opacity-80 mt-0.5">
-                        {savedToBank.projectName}
-                      </p>
-                    </div>
-                  </div>
-                )}
                 <Button
                   className="w-full bg-indigo-600 text-white hover:bg-indigo-700 font-semibold"
-                  onClick={() => handleAddToEditor(activeSetResult)}
+                  onClick={() => setComparisonOpen(true)}
+                  disabled={allSets.length < 2}
                 >
-                  Insert Set {activeSet} into Editor
+                  Open comparison workspace
                 </Button>
-                <p className="text-[11px] text-center text-muted-foreground">
-                  Insert a set, export it, then clear the editor before
-                  inserting the next set so each paper exports cleanly.
-                </p>
                 <Button
                   variant="ghost"
                   className="w-full text-zinc-400 dark:text-muted-foreground hover:text-zinc-600 dark:hover:text-zinc-300"
@@ -1478,6 +1523,7 @@ export const GeneratorForm = ({
                     setVariantSets([]);
                     setActiveSet("A");
                     setMultiSetMode(false);
+                    clearComparisonSets();
                   }}
                 >
                   Clear Results
