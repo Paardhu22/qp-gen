@@ -367,6 +367,7 @@ def _build_question(
     image_url: Optional[str],
     source_type: str,
     extra_metadata: Optional[Dict[str, Any]] = None,
+    question_metadata: Optional[Dict[str, Any]] = None,
 ) -> Optional[PoolQuestion]:
     payload = dict(raw)
     payload["type"] = payload.get("type") or "DIAGRAM"
@@ -384,7 +385,18 @@ def _build_question(
         logger.debug("Dropped an image question: %s", exc)
         return None
 
-    question.metadata.update(extra_metadata or {})
+    question.metadata.update(
+        {
+            **(question_metadata or {}),
+            **(extra_metadata or {}),
+            "chapterTitle": (question_metadata or {}).get(
+                "chapterTitle", chapter_name
+            ),
+            "difficulty": question.difficulty,
+            "blooms": question.blooms,
+            "marks": question.marks,
+        }
+    )
     return question
 
 
@@ -401,6 +413,7 @@ def _run_generate(
     model: str,
     user,
     result: ImageQuestionResult,
+    question_metadata: Optional[Dict[str, Any]],
     on_question: Optional[Callable[[PoolQuestion], None]],
 ) -> None:
     try:
@@ -444,6 +457,7 @@ def _run_generate(
                 difficulty=difficulty,
                 image_url=url,
                 source_type="synthetic_image",
+                question_metadata=question_metadata,
                 extra_metadata={
                     "imagePrompt": str(spec.get("diagram_prompt") or ""),
                     "imageModel": _image_model(),
@@ -482,6 +496,7 @@ def _run_reuse(
     model: str,
     user,
     result: ImageQuestionResult,
+    question_metadata: Optional[Dict[str, Any]],
     on_question: Optional[Callable[[PoolQuestion], None]],
 ) -> int:
     """Author questions about the chapter's own figures. Returns how many were made."""
@@ -519,6 +534,7 @@ def _run_reuse(
             difficulty=difficulty,
             image_url=figure.url,
             source_type="chapter_figure",
+            question_metadata=question_metadata,
             extra_metadata={
                 "figurePage": figure.page,
                 "figureCaption": figure.caption,
@@ -550,6 +566,7 @@ def generate_image_questions(
     strategy: Optional[str] = None,
     model: Optional[str] = None,
     user=None,
+    question_metadata: Optional[Dict[str, Any]] = None,
     on_question: Optional[Callable[[PoolQuestion], None]] = None,
 ) -> ImageQuestionResult:
     """Produce image-bearing questions and add them to the pool.
@@ -580,7 +597,8 @@ def generate_image_questions(
         chapter=chapter, subject=subject, chapter_name=chapter_name,
         class_num=class_num, difficulty=difficulty, pool_id=pool_id,
         provider=provider, model=resolved_model, user=user,
-        result=result, on_question=on_question,
+        result=result, question_metadata=question_metadata,
+        on_question=on_question,
     )
 
     try:

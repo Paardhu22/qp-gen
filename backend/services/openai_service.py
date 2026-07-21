@@ -108,8 +108,9 @@ def generate_answer_key(paper_content_html: str, user: Optional[User] = None) ->
         "Do not include markdown code block wrappers in your output, just return the raw HTML string."
     )
 
+    answer_model = getattr(settings, "ANSWER_MODEL", settings.OPENAI_MODEL)
     completion = client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
+        model=answer_model,
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": prompt},
@@ -117,7 +118,7 @@ def generate_answer_key(paper_content_html: str, user: Optional[User] = None) ->
     )
 
     content = completion.choices[0].message.content
-    _record_usage(user, "answer_key", settings.OPENAI_MODEL, completion.usage)
+    _record_usage(user, "answer_key", answer_model, completion.usage)
     return content or ""
 
 

@@ -35,7 +35,8 @@ def normalize_pages(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     # Patterns for structural elements
     list_pattern = re.compile(r'^(\d+[\.\)]|[a-zA-Z][\.\)]|[-•*])\s+')
     mcq_pattern = re.compile(r'^([A-D][\.\)]|[a-d][\.\)])\s+')
-    heading_pattern_1 = re.compile(r'^(#+\s+|Chapter\s+\d+|Unit\s+\d+|Module\s+\d+)', re.IGNORECASE)
+    chapter_heading = r'(Chapter|Unit|Module|Lesson|अध्याय|पाठ)\s*[:\-–—.)]?\s*(\d+|[IVXLCDM]+)\b'
+    heading_pattern_1 = re.compile(rf'^(#+\s+|{chapter_heading})', re.IGNORECASE)
     heading_pattern_2 = re.compile(r'^[A-Z0-9\s\-_:]{4,}$')
     
     for p in pages:
@@ -131,7 +132,10 @@ def build_semantic_chunks(pages: List[Dict[str, Any]], max_chunk_size: int = 900
     current_chunk_len = 0
     current_page = None
     
-    chapter_pattern = re.compile(r'^(Chapter|Unit|Module)\s+\d+.*', re.IGNORECASE)
+    chapter_pattern = re.compile(
+        r'^(Chapter|Unit|Module|Lesson|अध्याय|पाठ)\s*[:\-–—.)]?\s*(\d+|[IVXLCDM]+)\b.*',
+        re.IGNORECASE,
+    )
     # A bit more strict heading pattern
     heading_pattern_1 = re.compile(r'^(\d+\.\d+(\.\d+)?\s+.*)')
     heading_pattern_2 = re.compile(r'^[A-Z][A-Z0-9\s]{4,}$')
