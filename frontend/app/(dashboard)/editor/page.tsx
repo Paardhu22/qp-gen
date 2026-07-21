@@ -2,6 +2,7 @@
 
 import { GeneratorForm } from "@/components/generator-form";
 import { TiptapEditor } from "@/components/tiptap-editor";
+import { ComparisonWorkspace } from "@/components/comparison-workspace";
 import { useEditorStore } from "@/store/editor-store";
 import { type AppliedHsatSource } from "@/components/hsat-source-picker";
 import { fetchJson } from "@/lib/api-client";
@@ -725,6 +726,11 @@ export default function EditorPage() {
 
   return (
     <div className="flex h-full min-h-0 w-full overflow-hidden bg-background">
+      {/* Comparison Workspace — full-screen overlay for multi-set review.
+          Self-gates on store state (comparisonOpen && >=2 sets); inserts route
+          through the same store append plumbing as the editor below. */}
+      <ComparisonWorkspace />
+
       {/* Mobile backdrop for the generator drawer */}
       {genDrawerOpen && (
         <div
