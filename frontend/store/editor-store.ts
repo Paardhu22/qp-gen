@@ -13,6 +13,14 @@ export interface Question {
 export interface SectionToAppend {
   title: string;
   questions: Question[];
+  /**
+   * Optional set label ("A" | "B" | "C"). When present, the editor scopes the
+   * section-header dedupe by set and renders the header as "Set B · Section A"
+   * so questions from different sets can coexist in ONE document without
+   * merging under a shared "Section A" header. Absent (single-set / review-tray
+   * path) → today's exact behaviour is preserved.
+   */
+  setLabel?: string;
 }
 
 /**
@@ -57,6 +65,17 @@ export interface TrayItem {
 }
 
 export type InsertionMode = "review" | "auto";
+
+/**
+ * One produced paper set (A / B / C) held for the Comparison Workspace.
+ * `result` is the assembled-paper payload the SSE pipeline emits
+ * (`{ sections, generalInstructions, meta }`) — the same shape the generator
+ * preview and `handleAddToEditor` already consume.
+ */
+export interface ComparisonSet {
+  label: string;
+  result: any;
+}
 
 export type SaveState = "saving" | "saved" | "offline" | "failed";
 
@@ -103,6 +122,11 @@ interface EditorState {
   generalInstructionsDraft: string;
   /** Staging area for generated questions awaiting review. */
   generatedTray: TrayItem[];
+  /** All produced sets (A + derived B/C) from the latest multi-set generation.
+   *  Drives the Comparison Workspace. Empty = no multi-set result to compare. */
+  comparisonSets: ComparisonSet[];
+  /** Whether the full-screen Comparison Workspace overlay is open. */
+  comparisonOpen: boolean;
   /** Last metadata picked up from the generator form / loaded paper.
    *  Used to make the resume modal truthful and prefill Paper Details. */
   generatorContext: {
@@ -149,6 +173,10 @@ interface EditorState {
   removeSectionFromEditor: (req: Omit<QuestionRemovalRequest, "token">) => void;
   consumeQuestionRemovals: () => void;
   clearTray: () => void;
+
+  setComparisonSets: (sets: ComparisonSet[]) => void;
+  clearComparisonSets: () => void;
+  setComparisonOpen: (open: boolean) => void;
 }
 
 const initialGeneratorContext: EditorState["generatorContext"] = {
@@ -182,6 +210,8 @@ export const useEditorStore = create<EditorState>()(
       // ── Generator + tray + session context ──────────────────────────
       insertionMode: "review",
       generatedTray: [],
+      comparisonSets: [],
+      comparisonOpen: false,
       generatorContext: initialGeneratorContext,
       generalInstructionsDraft: "",
 
@@ -275,6 +305,11 @@ export const useEditorStore = create<EditorState>()(
       consumeQuestionRemovals: () => set({ questionRemovals: [] }),
 
       clearTray: () => set({ generatedTray: [] }),
+
+      setComparisonSets: (sets) => set({ comparisonSets: sets }),
+      clearComparisonSets: () =>
+        set({ comparisonSets: [], comparisonOpen: false }),
+      setComparisonOpen: (open) => set({ comparisonOpen: open }),
     }),
     {
       // The persistence key is namespaced so callers (auth signOut, account
@@ -299,6 +334,10 @@ export const useEditorStore = create<EditorState>()(
       partialize: (state) => ({
         insertionMode: state.insertionMode,
         generatedTray: state.generatedTray,
+        // The produced sets (assembled papers, not the TipTap doc) survive
+        // navigation so the Comparison Workspace can be reopened. `comparisonOpen`
+        // is transient UI and deliberately NOT persisted.
+        comparisonSets: state.comparisonSets,
         generatorContext: state.generatorContext,
         template: state.template,
         generalInstructionsDraft: state.generalInstructionsDraft,
@@ -328,6 +367,8 @@ export function resetEditorStoreForAccountSwitch(): void {
   // copy. Then drop the persisted blob so a hard refresh stays clean.
   useEditorStore.setState({
     generatedTray: [],
+    comparisonSets: [],
+    comparisonOpen: false,
     questionsToAppend: [],
     sectionsToAppend: [],
     instructionsToAppend: null,
