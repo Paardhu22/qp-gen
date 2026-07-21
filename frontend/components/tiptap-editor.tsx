@@ -1572,6 +1572,19 @@ export const TiptapEditor = ({
     // same section in multiple passes; without this check, every pass adds
     // a fresh "Section A" header in front of its questions and breaks the
     // realized header count.
+    //
+    // Multi-set (Comparison Workspace): a section carries an optional
+    // `setLabel`. The header is rendered as "Set B · Section A" and the dedupe
+    // is scoped by that rendered text, so questions from different sets coexist
+    // in ONE document without merging under a shared "Section A" header — the
+    // regression that forced "clear the editor before inserting the next set".
+    // Sections with no setLabel keep the bare-title behaviour exactly.
+    const displayTitle = (section: (typeof sections)[number]) => {
+      const bare = String(section.title || "").trim();
+      const label = String(section.setLabel || "").trim();
+      return label ? `Set ${label} · ${bare}` : bare;
+    };
+
     const existingSectionTitles = new Set<string>();
     editor.state.doc.descendants((node: any) => {
       if (node.type.name === "sectionBlock") {
@@ -1582,7 +1595,7 @@ export const TiptapEditor = ({
 
     const contentToInsert: any[] = [];
     sections.forEach((section) => {
-      const sectionTitle = String(section.title || "").trim();
+      const sectionTitle = displayTitle(section);
       if (sectionTitle && !existingSectionTitles.has(sectionTitle)) {
         contentToInsert.push({
           type: "sectionBlock",
