@@ -27,6 +27,9 @@ class QuestionGenerationSerializer(serializers.Serializer):
     count_variation = serializers.CharField(required=False, allow_blank=True, default="")
     qp_type = serializers.CharField(required=False, allow_blank=True, default="board")
     qpType = serializers.CharField(required=False, allow_blank=True, default="")
+    #: 1 (Set A only), 2 (A, B) or 3 (A, B, C). Set A is the master; extra sets
+    #: are derived from the same pool without a second Model 1 run.
+    sets = serializers.IntegerField(min_value=1, max_value=3, required=False, default=1)
 
     def validate(self, attrs):
         """At least one of pdfSourceIds / hsatSourceIds must be non-empty."""
@@ -70,3 +73,5 @@ class PaperFromBankSerializer(serializers.Serializer):
     #: Skips Model 2's review call, so the same bank + blueprint always yields
     #: the identical paper. Useful when two teachers must set the same paper.
     deterministic = serializers.BooleanField(required=False, default=False)
+    #: 1, 2 or 3 sets. Set A is assembled from the bank; B and C are derived.
+    sets = serializers.IntegerField(min_value=1, max_value=3, required=False, default=1)
