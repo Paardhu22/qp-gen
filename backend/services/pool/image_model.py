@@ -109,6 +109,11 @@ def _image_size() -> str:
     return str(getattr(settings, "OPENAI_IMAGE_SIZE", "1024x1024"))
 
 
+def _image_quality() -> str:
+    """Cheapest suitable quality tier (settings.OPENAI_IMAGE_QUALITY, default 'low')."""
+    return str(getattr(settings, "OPENAI_IMAGE_QUALITY", "low")).strip().lower()
+
+
 # ── Stage 1: propose specs ──────────────────────────────────────────────
 
 
@@ -297,12 +302,19 @@ def _generate_diagram(prompt: str, *, user=None) -> tuple[Optional[str], bool, O
 
     try:
         client = get_openai_client()
-        response = client.images.generate(
-            model=_image_model(),
-            prompt=prompt,
-            size=_image_size(),
-            n=1,
-        )
+        generate_kwargs: Dict[str, Any] = {
+            "model": _image_model(),
+            "prompt": prompt,
+            "size": _image_size(),
+            "n": 1,
+        }
+        # gpt-image-1 exposes a low|medium|high quality tier; "low" is the
+        # cheapest and stays legible for schematic diagrams. dall-e models use a
+        # different vocabulary (standard|hd), so only pass quality for
+        # gpt-image-1 to avoid a BadRequestError on other image models.
+        if _image_model().startswith("gpt-image"):
+            generate_kwargs["quality"] = _image_quality()
+        response = client.images.generate(**generate_kwargs)
     except Exception as exc:
         return None, False, f"{type(exc).__name__}: {exc}"
 

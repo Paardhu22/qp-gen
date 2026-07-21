@@ -62,13 +62,24 @@ const formSchema = z.object({
   // `boolean | undefined`) — the default value is set in `defaultValues`.
   includeViAlternatives: z.boolean(),
   contentScopePolicy: z.enum(["strict", "source_only"]),
+  // Number of parallel paper sets to produce. "1" = Set A only; "2" adds
+  // Set B; "3" adds Set C. The pool and Model 1 run once regardless — B and C
+  // are derived from Set A by substituting alternatives already in the pool.
+  numberOfSets: z.enum(["1", "2", "3"]),
 });
 
 interface UploadingDoc {
   tempId: string;
   name: string;
-  status: "uploading" | "error";
+  // "uploading": bytes in flight to the backend.
+  // "processing": backend accepted the file and is ingesting it (async); we
+  //   poll the status endpoint until it flips to ready/error.
+  // "error": upload or ingest failed.
+  status: "uploading" | "processing" | "error";
   error?: string;
+  /** PdfSource id once the upload POST returns; drives status polling. */
+  pdfSourceId?: string;
+  size?: number;
 }
 
 // Values accepted by the Subject / Class dropdowns below. HSAT sources
@@ -112,6 +123,7 @@ export const GeneratorForm = ({
       marks: "1",
       includeViAlternatives: true,
       contentScopePolicy: "strict",
+      numberOfSets: "1",
     },
   });
 
@@ -146,11 +158,27 @@ export const GeneratorForm = ({
   const [liveInsertedCount, setLiveInsertedCount] = useState(0);
   const liveInsertedSectionsRef = useRef<Set<string>>(new Set());
 
+  // Multiple sets (A/B/C). `variantSets` holds only the DERIVED sets (B, C)
+  // streamed on `set` events; Set A stays in `generatedResult` so the single-
+  // set path is untouched. `activeSet` drives the preview switcher.
+  const [variantSets, setVariantSets] = useState<
+    { label: string; result: any }[]
+  >([]);
+  const [activeSet, setActiveSet] = useState<string>("A");
+  // True for the duration of a multi-set generation. Kept separate from
+  // `variantSets.length` so the switcher still owns the UI (and Set A stays
+  // reachable) even if the backend could not derive B/C for this pool.
+  const [multiSetMode, setMultiSetMode] = useState(false);
+
   // ── ISSUE 2: insertion mode (review vs auto) ───────────────────────
   const insertionMode = useEditorStore((s) => s.insertionMode);
   const setInsertionMode = useEditorStore((s) => s.setInsertionMode);
   const pushToTray = useEditorStore((s) => s.pushToTray);
   const setGeneratorContext = useEditorStore((s) => s.setGeneratorContext);
+  // Comparison Workspace — the primary review UI for multi-set output.
+  const setComparisonSets = useEditorStore((s) => s.setComparisonSets);
+  const clearComparisonSets = useEditorStore((s) => s.clearComparisonSets);
+  const setComparisonOpen = useEditorStore((s) => s.setComparisonOpen);
 
   // Keep generator-form selections mirrored to the store so the resume
   // modal / IndexedDB record can show truthful class/subject even before
@@ -200,26 +228,39 @@ export const GeneratorForm = ({
       newDocCount += 1;
 
       const tempId = `${Date.now()}-${Math.random()}`;
+      const fileSize = file.size;
       setUploadingDocs((prev) => [
         ...prev,
-        { tempId, name: file.name, status: "uploading" },
+        { tempId, name: file.name, status: "uploading", size: fileSize },
       ]);
 
       try {
         const formData = new FormData();
         formData.append("file", file);
 
-        const data = await fetchForm<{ pdfSourceId: string }>(
-          "/api/documents/upload",
-          formData,
-        );
+        const data = await fetchForm<{
+          pdfSourceId: string;
+          status?: string;
+        }>("/api/documents/upload", formData);
 
-        // Upload succeeded — move from uploading to uploaded
-        setUploadingDocs((prev) => prev.filter((d) => d.tempId !== tempId));
-        setUploadedDocs((prev) => [
-          ...prev,
-          { id: data.pdfSourceId, name: file.name, size: file.size },
-        ]);
+        if (data.status === "ready") {
+          // Deduped/cached source — already ingested. Promote immediately.
+          setUploadingDocs((prev) => prev.filter((d) => d.tempId !== tempId));
+          setUploadedDocs((prev) => [
+            ...prev,
+            { id: data.pdfSourceId, name: file.name, size: fileSize },
+          ]);
+        } else {
+          // Async ingest in progress — keep the row (spinner) and let the
+          // polling effect below promote it to uploadedDocs once ready.
+          setUploadingDocs((prev) =>
+            prev.map((d) =>
+              d.tempId === tempId
+                ? { ...d, status: "processing", pdfSourceId: data.pdfSourceId }
+                : d,
+            ),
+          );
+        }
       } catch (err: any) {
         setUploadingDocs((prev) =>
           prev.map((d) =>
@@ -326,6 +367,78 @@ export const GeneratorForm = ({
     setHsatSources((prev) => prev.filter((s) => s.id !== id));
   };
 
+  // ── Async PDF upload: poll ingest status until ready ──────────────────────
+  // The upload endpoint now returns immediately with status "processing"; the
+  // backend ingests (extract → caption → embed) on a worker thread. Poll the
+  // status endpoint and promote each source to `uploadedDocs` (the ready set)
+  // once it reports "ready", or surface the error. Mirrors the HSAT self-heal
+  // poll above. A ref feeds the interval the latest list so sources uploaded
+  // mid-poll are picked up without restarting the timer.
+  const uploadingDocsRef = useRef<UploadingDoc[]>(uploadingDocs);
+  uploadingDocsRef.current = uploadingDocs;
+  const hasProcessingUploads = uploadingDocs.some(
+    (d) => d.status === "processing" && d.pdfSourceId,
+  );
+  useEffect(() => {
+    if (!hasProcessingUploads) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      const targets = uploadingDocsRef.current.filter(
+        (d) => d.status === "processing" && d.pdfSourceId,
+      );
+      await Promise.all(
+        targets.map(async (doc) => {
+          try {
+            const st = await fetchJson<{
+              status: string;
+              error?: string | null;
+            }>(`/api/documents/${doc.pdfSourceId}/status`);
+            if (cancelled) return;
+            if (st.status === "ready") {
+              setUploadingDocs((prev) =>
+                prev.filter((d) => d.tempId !== doc.tempId),
+              );
+              setUploadedDocs((prev) =>
+                prev.some((d) => d.id === doc.pdfSourceId)
+                  ? prev
+                  : [
+                      ...prev,
+                      {
+                        id: doc.pdfSourceId!,
+                        name: doc.name,
+                        size: doc.size || 0,
+                      },
+                    ],
+              );
+            } else if (st.status === "error") {
+              setUploadingDocs((prev) =>
+                prev.map((d) =>
+                  d.tempId === doc.tempId
+                    ? {
+                        ...d,
+                        status: "error",
+                        error: st.error || "Processing failed",
+                      }
+                    : d,
+                ),
+              );
+            }
+          } catch {
+            // Transient — next tick retries.
+          }
+        }),
+      );
+    };
+
+    void poll();
+    const interval = setInterval(poll, 3_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [hasProcessingUploads, setUploadedDocs]);
+
   const appendQuestionToResult = (
     current: any,
     sectionTitle: string,
@@ -407,6 +520,17 @@ export const GeneratorForm = ({
       );
       return;
     }
+    // Async upload: a PDF still uploading/ingesting is not yet in `uploadedDocs`
+    // and would be silently excluded. Block with a toast until it's ready.
+    const stillIngesting = uploadingDocs.find(
+      (d) => d.status === "uploading" || d.status === "processing",
+    );
+    if (stillIngesting) {
+      toast.error(
+        `${stillIngesting.name} is still being processed. Wait for it to finish, then generate again.`,
+      );
+      return;
+    }
 
     if (values.qpType === "general_instructions" && !generalInstructions.trim()) {
       toast.error("Please describe what questions you want in the instructions box.");
@@ -419,11 +543,19 @@ export const GeneratorForm = ({
       setLiveInsertedCount(0);
       setSavedToBank(null);
       setPoolStatus("");
+      setVariantSets([]);
+      setActiveSet("A");
+      clearComparisonSets();
       liveInsertedSectionsRef.current = new Set();
 
       let generationError: string | null = null;
 
       const isGIM = values.qpType === "general_instructions";
+      // Multiple sets route through the results switcher rather than live
+      // auto-insert: stacking three sets into the editor as they stream would
+      // mix them. Set A is inserted from the switcher just like B and C.
+      const isMultiSet = values.numberOfSets !== "1";
+      setMultiSetMode(isMultiSet);
 
       await streamSse(
         "/api/generation/questions/stream",
@@ -446,6 +578,7 @@ export const GeneratorForm = ({
           mathLevel: values.mathLevel,
           include_vi_alternatives: values.includeViAlternatives,
           contentScopePolicy: values.contentScopePolicy,
+          sets: parseInt(values.numberOfSets, 10),
         },
         (event, data) => {
           if (event === "error") {
@@ -485,6 +618,7 @@ export const GeneratorForm = ({
             // planned 38-question header in front of a 0-question paper
             // would mislead.
             if (
+              !isMultiSet &&
               insertionMode === "auto" &&
               Array.isArray(generalInstructions) &&
               generalInstructions.length > 0
@@ -495,11 +629,22 @@ export const GeneratorForm = ({
             setGeneratedResult((current: any) =>
               appendQuestionToResult(current, data.section, data.question),
             );
-            if (insertionMode === "auto") {
+            // Multi-set: build the Set A preview only; insertion happens from
+            // the switcher so sets stay separate.
+            if (isMultiSet) {
+              // preview only
+            } else if (insertionMode === "auto") {
               appendQuestionToEditor(data.section, data.question);
             } else {
               stageQuestionForReview(data.section, data.question);
             }
+          } else if (event === "set") {
+            // A derived set (B or C). Collect it for the switcher; Set A stays
+            // in `generatedResult`.
+            setVariantSets((prev) => [
+              ...prev.filter((s) => s.label !== data.label),
+              { label: data.label, result: data.result },
+            ]);
           } else if (event === "update" || event === "message") {
             setGeneratedResult(data);
           } else if (event === "done" && data.result) {
@@ -522,19 +667,23 @@ export const GeneratorForm = ({
     }
   };
 
-  const handleAddToEditor = async () => {
-    if (!generatedResult) return;
-    if (liveInsertedCount > 0) {
+  const handleAddToEditor = async (resultOverride?: any) => {
+    // When a specific set is inserted from the switcher, `resultOverride` is
+    // that set's result and the live-insert guard does not apply (multi-set
+    // never live-inserts).
+    const result = resultOverride ?? generatedResult;
+    const setLabel: string | undefined = result?.meta?.setLabel;
+    if (!result) return;
+    if (!resultOverride && liveInsertedCount > 0) {
       toast.success(`${liveInsertedCount} generated question(s) already inserted into the editor.`);
       return;
     }
 
-    const hasSections =
-      generatedResult.sections && generatedResult.sections.length > 0;
+    const hasSections = result.sections && result.sections.length > 0;
 
     let allQuestions: any[] = [];
     if (hasSections) {
-      const sections = generatedResult.sections.map((section: any) => {
+      const sections = result.sections.map((section: any) => {
         section.questions.forEach((q: any) => {
           allQuestions.push({
             content: q.content,
@@ -547,6 +696,8 @@ export const GeneratorForm = ({
           });
         });
         return {
+          // Tag the first section's title with the set label so a document
+          // holding a specific set is self-identifying once exported.
           title: section.title,
           questions: section.questions.map((q: any) => ({
             content: q.content,
@@ -558,20 +709,28 @@ export const GeneratorForm = ({
           })),
         };
       });
+      if (setLabel) {
+        // A "Set B" heading line so a stacked/exported document names its set.
+        useEditorStore.getState().appendInstructions([`Set ${setLabel}`]);
+      }
       useEditorStore.getState().appendSections(sections);
       // Bug 5: surface backend `meta.footerNotes` (curriculum-fallback
       // disclosure) as instruction lines at the bottom of the doc so the
       // teacher and the rendered PDF both show which questions came from
       // curriculum knowledge instead of the uploaded sources.
-      const footerNotes: string[] = Array.isArray(generatedResult?.meta?.footerNotes)
-        ? generatedResult.meta.footerNotes
+      const footerNotes: string[] = Array.isArray(result?.meta?.footerNotes)
+        ? result.meta.footerNotes
         : [];
       if (footerNotes.length > 0) {
         useEditorStore.getState().appendInstructions(footerNotes);
       }
-      toast.success("Inserted generated sections into the editor.");
+      toast.success(
+        setLabel
+          ? `Inserted Set ${setLabel} into the editor.`
+          : "Inserted generated sections into the editor.",
+      );
     } else {
-      (generatedResult.questions || []).forEach((q: any) => {
+      (result.questions || []).forEach((q: any) => {
         allQuestions.push({
           content: q.content,
           type: q.type,
@@ -596,6 +755,25 @@ export const GeneratorForm = ({
     uploadedDocs.length > 0 ||
     uploadingDocs.length > 0 ||
     hsatSources.length > 0;
+
+  // All produced sets in order: Set A (the master, in `generatedResult`)
+  // followed by the derived sets. Drives the multi-set switcher; empty of
+  // variants means the single-set UI shows instead.
+  const allSets = useMemo(
+    () =>
+      generatedResult
+        ? [{ label: "A", result: generatedResult }, ...variantSets]
+        : [],
+    [generatedResult, variantSets],
+  );
+  // Mirror the produced sets into the store so the Comparison Workspace (a
+  // full-screen overlay mounted by the editor page) can read them. Only while
+  // multi-set — the single-set path keeps the review tray / auto-insert UI.
+  useEffect(() => {
+    if (multiSetMode && allSets.length >= 2) {
+      setComparisonSets(allSets.map((s) => ({ label: s.label, result: s.result })));
+    }
+  }, [multiSetMode, allSets, setComparisonSets]);
 
   return (
     <div className="h-full flex flex-col p-4 bg-background text-muted-foreground overflow-y-auto custom-scrollbar">
@@ -659,7 +837,7 @@ export const GeneratorForm = ({
             <div key={doc.tempId}>
               <div className="flex items-center justify-between p-2 rounded-lg bg-muted/50 border border-border">
                 <div className="flex items-center gap-2 min-w-0">
-                  {doc.status === "uploading" ? (
+                  {doc.status !== "error" ? (
                     <Loader2 className="h-4 w-4 text-indigo-500 animate-spin flex-shrink-0" />
                   ) : (
                     <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
@@ -669,6 +847,11 @@ export const GeneratorForm = ({
                       {doc.name}
                     </span>
                     {doc.status === "uploading" && (
+                      <span className="text-[10px] text-indigo-400 dark:text-indigo-300">
+                        Uploading…
+                      </span>
+                    )}
+                    {doc.status === "processing" && (
                       <span className="text-[10px] text-indigo-400 dark:text-indigo-300">
                         Processing document, please wait…
                       </span>
@@ -689,7 +872,7 @@ export const GeneratorForm = ({
                   </button>
                 )}
               </div>
-              {doc.status === "uploading" && (
+              {doc.status !== "error" && (
                 <div className="mt-1 h-0.5 w-full rounded-full bg-muted-foreground/30 overflow-hidden">
                   <div
                     className="h-full bg-indigo-500 rounded-full animate-[loading-bar_1.4s_ease-in-out_infinite]"
@@ -940,6 +1123,38 @@ export const GeneratorForm = ({
             )}
           />
 
+          {/* Number of Sets — the pool is generated once; Sets B/C are derived
+              from Set A by swapping in alternative questions from the pool. */}
+          <FormField
+            control={form.control}
+            name="numberOfSets"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-foreground">
+                  Number of Sets
+                </FormLabel>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger className="w-full bg-background border-border text-foreground">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground min-w-[var(--radix-select-trigger-width)]">
+                    <SelectItem value="1">1 Set (default)</SelectItem>
+                    <SelectItem value="2">2 Sets (A, B)</SelectItem>
+                    <SelectItem value="3">3 Sets (A, B, C)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-1 leading-snug">
+                  {field.value === "1"
+                    ? "A single paper (Set A)."
+                    : `Set A plus ${field.value === "2" ? "one variant (Set B)" : "two variants (Sets B & C)"}. Each variant keeps ~70% of Set A, swaps ~30% for parallel questions from the same pool, and reshuffles within sections. MCQs stay the same across all sets.`}
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
           {/* Count Variation — only in Board Mode */}
           {currentQpType === "board" && (
             <FormField
@@ -1158,10 +1373,11 @@ export const GeneratorForm = ({
         </div>
       </div>
 
-      {/* Review tray — pending generated questions awaiting the teacher's call. */}
-      {insertionMode === "review" && <ReviewTray />}
+      {/* Review tray — pending generated questions awaiting the teacher's call.
+          Suppressed for multi-set: those route through the set switcher. */}
+      {insertionMode === "review" && !multiSetMode && <ReviewTray />}
 
-      {generatedResult && insertionMode === "auto" && (
+      {generatedResult && insertionMode === "auto" && !multiSetMode && (
         <div className="mt-6 border-t border-border pt-6 animate-in fade-in duration-500">
           <h3 className="text-lg font-bold text-foreground mb-4 flex items-center gap-2">
             Generated Output
@@ -1233,7 +1449,7 @@ export const GeneratorForm = ({
                 )}
                 <Button
                   className="w-full bg-indigo-600 text-white hover:bg-indigo-700 font-semibold"
-                  onClick={handleAddToEditor}
+                  onClick={() => handleAddToEditor()}
                   disabled={liveInsertedCount > 0}
                 >
                   {liveInsertedCount > 0
@@ -1244,6 +1460,71 @@ export const GeneratorForm = ({
                   variant="ghost"
                   className="w-full text-zinc-400 dark:text-muted-foreground hover:text-zinc-600 dark:hover:text-zinc-300"
                   onClick={() => setGeneratedResult(null)}
+                >
+                  Clear Results
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Multiple-set result → Comparison Workspace entry point ────────
+          The old inline set switcher (which could only insert a whole set and
+          contaminated the doc when inserting a second set) is replaced by the
+          Comparison Workspace: sets side by side with per-question / per-section
+          / per-set insertion that no longer collides. */}
+      {multiSetMode && generatedResult && (
+        <div className="mt-6 border-t border-border pt-6 animate-in fade-in duration-500">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-bold text-foreground">Generated Sets</h3>
+            <span className="text-[11px] text-muted-foreground">
+              {allSets.length} sets
+            </span>
+          </div>
+
+          {savedToBank && savedToBank.saved > 0 && (
+            <div className="flex items-start gap-2 p-3 mb-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-100 dark:border-emerald-800/30">
+              <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <div className="text-sm text-emerald-900 dark:text-emerald-200">
+                <p className="font-medium">
+                  {savedToBank.saved} question{savedToBank.saved === 1 ? "" : "s"}{" "}
+                  saved to your question bank
+                </p>
+                <p className="text-xs opacity-80 mt-0.5">
+                  {savedToBank.projectName}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <p className="text-[11px] text-muted-foreground mb-3 leading-snug">
+            Review Sets {allSets.map((s) => s.label).join(", ")} side by side —
+            aligned by section and marks, with changed questions highlighted.
+            Insert any question, section, or whole set into your paper; sets no
+            longer collide in the editor.
+          </p>
+
+          <div className="flex flex-col gap-2">
+            {!isGenerating && (
+              <>
+                <Button
+                  className="w-full bg-indigo-600 text-white hover:bg-indigo-700 font-semibold"
+                  onClick={() => setComparisonOpen(true)}
+                  disabled={allSets.length < 2}
+                >
+                  Open comparison workspace
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full text-zinc-400 dark:text-muted-foreground hover:text-zinc-600 dark:hover:text-zinc-300"
+                  onClick={() => {
+                    setGeneratedResult(null);
+                    setVariantSets([]);
+                    setActiveSet("A");
+                    setMultiSetMode(false);
+                    clearComparisonSets();
+                  }}
                 >
                   Clear Results
                 </Button>

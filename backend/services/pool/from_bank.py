@@ -20,10 +20,12 @@ from apps.generation.models import GenerationHistory
 from services.pool import store
 from services.pool.model2 import PaperAssemblyError, assemble_paper
 from services.pool.pipeline import (
+    _build_variant_results,
     _find_or_create_section,
     _GimSlot,
     _legacy_type_for,
     _question_to_wire,
+    _resolve_num_sets,
     _sse,
 )
 
@@ -63,6 +65,7 @@ def stream_paper_from_bank(
     started = time.monotonic()
     subject_norm = normalize_subject(subject)
     is_gim = str(qp_type or "").strip().lower() == "general_instructions"
+    num_sets = _resolve_num_sets(payload)
 
     # ── Load the bank ───────────────────────────────────────────────────
     yield _sse(
@@ -189,6 +192,7 @@ def stream_paper_from_bank(
             "generalInstructions": general_instructions,
             "fromBank": True,
             "bankSize": len(pool),
+            "sets": num_sets,
         },
         event="plan",
     )
@@ -308,6 +312,35 @@ def stream_paper_from_bank(
             event="notice",
         )
 
+    # ── Additional sets (B, C) ──────────────────────────────────────────
+    variant_sets: List[Dict[str, Any]] = []
+    if num_sets > 1:
+        try:
+            variant_sets = _build_variant_results(
+                master_assignments=paper.assignments,
+                pool=pool,
+                num_variants=num_sets - 1,
+                section_order=[s.get("title", "") for s in result["sections"]],
+                general_instructions=result["generalInstructions"],
+                include_vi_alternatives=True,
+                base_meta=result["meta"],
+            )
+        except Exception as exc:
+            logger.warning("Set variant generation failed: %s", exc, exc_info=True)
+            variant_sets = []
+
+        for entry in variant_sets:
+            yield _sse(
+                {
+                    "label": entry["label"],
+                    "setIndex": entry["setIndex"],
+                    "totalSets": num_sets,
+                    "replacedCount": entry["replacedCount"],
+                    "result": entry["result"],
+                },
+                event="set",
+            )
+
     try:
         GenerationHistory.objects.create(
             prompt=json.dumps(
@@ -334,8 +367,23 @@ def stream_paper_from_bank(
         logger.warning("Could not persist generation history: %s", exc)
 
     logger.info(
-        "Paper from bank: %d questions from %d saved in %.2fs (Model 1 skipped)",
+        "Paper from bank: %d questions from %d saved in %.2fs (Model 1 skipped, "
+        "%d set(s))",
         paper.total_questions, len(pool), time.monotonic() - started,
+        len(variant_sets) + 1,
     )
 
-    yield _sse({"done": True, "result": result}, event="done")
+    done_payload: Dict[str, Any] = {"done": True, "result": result}
+    if variant_sets:
+        done_payload["sets"] = [
+            {"label": "A", "setIndex": 0, "result": result},
+            *(
+                {
+                    "label": e["label"],
+                    "setIndex": e["setIndex"],
+                    "result": e["result"],
+                }
+                for e in variant_sets
+            ),
+        ]
+    yield _sse(done_payload, event="done")

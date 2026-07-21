@@ -228,15 +228,23 @@ if not OPENAI_API_KEY:
         "OPENAI_API_KEY is required. Add it to backend/.env and restart the server.\n"
         "Get your key at https://platform.openai.com/api-keys"
     )
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
+# ─── Single source of truth for the model ──────────────────────────────────
+# The backend owns model selection; the frontend NEVER names a model. Every
+# text / vision / reasoning call resolves to OPENAI_MODEL (or POOL_MODEL /
+# OPENAI_VISION_MODEL below, which now default to the same value). Standardised
+# on gpt-4o-mini: one cheap, capable model for pool generation, Model 2 review,
+# answer-key, answer-script, vision captioning, GIM, and blueprint reasoning.
+# Only embeddings (OPENAI_EMBEDDING_MODEL) and image generation
+# (OPENAI_IMAGE_MODEL) use a different model, by necessity. Override via env to
+# move every call at once.
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 QG_NEW_ENGINE_ENABLED = os.environ.get("QG_NEW_ENGINE_ENABLED", "false").lower() == "true"
 OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-# Vision captioning during PDF ingestion runs against this model instead of the
-# main generation model. gpt-4o is used with image detail="low", which OpenAI
-# meters at 85 image tokens before text/output tokens; that keeps the
-# trignometry.pdf 22-image caption batch inside a typical paid Tier 1 gpt-4o
-# budget while still giving useful retrieval captions.
-OPENAI_VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4o")
+# Vision captioning during PDF ingestion. gpt-4o-mini accepts image inputs and
+# is metered far cheaper than gpt-4o; used with image detail="low" it stays well
+# inside TPM budgets for a full chapter's figure batch while still giving useful
+# retrieval captions. Defaults to OPENAI_MODEL so a single override moves it too.
+OPENAI_VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", OPENAI_MODEL)
 # Max concurrent vision-API caption requests — enforced PROCESS-WIDE by a
 # semaphore in services.openai_service, so parallel chapter ingestion does
 # not multiply it. 3 concurrent × ~1,130 tokens per caption call keeps
@@ -249,11 +257,11 @@ PDF_IMAGE_CAPTION_CONCURRENCY = _int_env(
 
 # ─── Question Pool architecture ────────────────────────────────────────────
 # Model 1 (pool generation) and Model 2 (paper assembly) both run on this
-# model. It is deliberately separate from OPENAI_MODEL: the pool pipeline is
-# tuned for a cheap, fast, high-throughput model, while OPENAI_MODEL still
-# backs answer-key and answer-script generation where quality matters more
-# than cost.
-POOL_MODEL = os.environ.get("POOL_MODEL", "gpt-4.1-mini")
+# model. It now defaults to OPENAI_MODEL so the whole system runs on one
+# standardised model (gpt-4o-mini); the separate knob is retained only so a
+# deployment can point the high-throughput pool stage at a different model
+# without touching the rest of the pipeline.
+POOL_MODEL = os.environ.get("POOL_MODEL", OPENAI_MODEL)
 
 # Whole-chapter Markdown handed to Model 1. ~240k chars ≈ 60k tokens, far more
 # than any single CBSE chapter; the cap only exists to stop somebody feeding a
@@ -282,6 +290,11 @@ IMAGE_QUESTIONS_PER_POOL = _int_env(
 
 OPENAI_IMAGE_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
 OPENAI_IMAGE_SIZE = os.environ.get("OPENAI_IMAGE_SIZE", "1024x1024")
+# Cheapest suitable quality tier for educational diagrams. gpt-image-1 accepts
+# low|medium|high; "low" is ~4-8x cheaper than "high" and remains legible for
+# schematic figures (ray diagrams, circuits). Bump to "medium" via env if a
+# subject needs finer detail.
+OPENAI_IMAGE_QUALITY = os.environ.get("OPENAI_IMAGE_QUALITY", "low").strip().lower()
 
 # Used only to report an estimated spend on the SSE `pool` event so the cost of
 # a generation is visible in the UI rather than discovered on the invoice.

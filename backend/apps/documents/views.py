@@ -18,9 +18,13 @@ class DocumentUploadView(APIView):
         serializer.is_valid(raise_exception=True)
 
         try:
+            # background=True returns as soon as the row + raw file are saved;
+            # extraction / captioning / embedding run on a worker thread and the
+            # client polls DocumentStatusView until status flips to ready/error.
             pdf_source = process_pdf_upload(
                 file=serializer.validated_data["file"],
                 user=request.user,
+                background=True,
             )
         except ValueError as exc:
             return Response({"error": str(exc)}, status=400)
@@ -32,11 +36,47 @@ class DocumentUploadView(APIView):
             return Response({"error": f"Internal server error: {exc}"}, status=500)
 
         # Return "pdfSourceId" to match the new architecture.
-        # `warnings` surfaces non-fatal degradations (e.g. PyMuPDF missing →
-        # text-only extraction) so the UI can show them instead of failing
-        # silently.
+        # `status` is "ready" for a deduped/cached source, otherwise "processing"
+        # — the client polls the status endpoint. `warnings` surfaces non-fatal
+        # degradations (e.g. PyMuPDF missing → text-only extraction).
         warnings = getattr(pdf_source, "warnings", []) or []
-        return Response({"pdfSourceId": pdf_source.id, "warnings": warnings})
+        return Response(
+            {
+                "pdfSourceId": pdf_source.id,
+                "status": pdf_source.status,
+                "warnings": warnings,
+            }
+        )
+
+
+class DocumentStatusView(APIView):
+    """Poll target for the async upload flow: report a PdfSource's ingest state.
+
+    Returns {status, chunk_count, error}. Scoped to the requesting user so one
+    user can't probe another's sources.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, source_id):
+        from apps.documents.models import DocumentChunk, PdfSource
+
+        source = PdfSource.objects.filter(id=source_id, user=request.user).first()
+        if source is None:
+            return Response({"error": "Not found"}, status=404)
+
+        # PdfSource has no chunk_count column (only HsatSource does); count the
+        # chunks written so far so the UI can show live ingest progress.
+        chunk_count = DocumentChunk.objects.filter(pdf_source=source).count()
+
+        return Response(
+            {
+                "id": source.id,
+                "status": source.status,
+                "chunk_count": chunk_count,
+                "error": source.error or None,
+            }
+        )
 
 
 # Presigned upload flow: generate a presigned POST for direct-to-S3 uploads

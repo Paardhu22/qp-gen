@@ -178,6 +178,142 @@ def _find_or_create_section(result: Dict[str, Any], title: str) -> Dict[str, Any
     return section
 
 
+def _resolve_num_sets(payload: dict) -> int:
+    """Clamp the requested set count to the supported 1–3 range.
+
+    Accepts `sets`, `numberOfSets`, or `setCount` (snake/camel from the form).
+    Anything unparseable falls back to a single set — the default that keeps
+    behaviour identical to a build that never heard of multiple sets.
+    """
+    raw = payload.get(
+        "sets", payload.get("numberOfSets", payload.get("setCount", 1))
+    )
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 1
+    return max(1, min(3, value))
+
+
+def _render_variant_result(
+    variant,
+    *,
+    section_order: List[str],
+    general_instructions: List[Any],
+    include_vi_alternatives: bool,
+    base_meta: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Render a derived set into the same `result` shape Set A emits.
+
+    `variant.assignments` are already in display order (shuffled within their
+    sections), so they are rendered in list order and NOT re-sorted by slot
+    index — that would undo the shuffle the variant exists to introduce. The
+    section order is realigned to the master's so every set opens with the
+    same sections in the same sequence.
+    """
+    result: Dict[str, Any] = {
+        "sections": [],
+        "generalInstructions": list(general_instructions or []),
+        "meta": {},
+    }
+
+    for assignment in variant.assignments:
+        section_title = str(
+            getattr(assignment.slot, "section_title", "") or "Questions"
+        )
+        wire = _question_to_wire(
+            assignment.question,
+            slot=assignment.slot,
+            section_title=section_title,
+            or_choice=assignment.or_choice,
+            include_vi_alternatives=include_vi_alternatives,
+        )
+        wire["metadata"]["setLabel"] = variant.label
+        _find_or_create_section(result, section_title)["questions"].append(wire)
+
+    if section_order:
+        position = {title: i for i, title in enumerate(section_order)}
+        result["sections"].sort(
+            key=lambda s: position.get(s.get("title", ""), len(position))
+        )
+
+    total_questions = sum(len(s["questions"]) for s in result["sections"])
+    total_marks = sum(
+        int(w.get("marks", 0) or 0)
+        for s in result["sections"]
+        for w in s["questions"]
+    )
+    synthetic_count = sum(
+        1
+        for a in variant.assignments
+        if a.question.source_type == "synthetic_image"
+    )
+
+    carried = {
+        k: v
+        for k, v in (base_meta or {}).items()
+        if k in ("poolId", "chapter", "poolSize", "fromBank", "bankSize")
+    }
+    footer_notes: List[str] = []
+    if synthetic_count:
+        footer_notes.append(
+            "‡ Questions marked with a double dagger use an AI-generated "
+            "diagram. Review the figure before using this paper in an exam."
+        )
+    result["meta"] = {
+        **carried,
+        "setLabel": variant.label,
+        "isVariant": True,
+        "totalQuestions": total_questions,
+        "totalMarks": total_marks,
+        "replacedCount": variant.replaced_count,
+        "retainedCount": variant.retained_count,
+        "fixedCount": variant.fixed_count,
+        "syntheticImageCount": synthetic_count,
+        "footerNotes": footer_notes,
+    }
+    return result
+
+
+def _build_variant_results(
+    *,
+    master_assignments: Sequence[Any],
+    pool: Sequence[PoolQuestion],
+    num_variants: int,
+    section_order: List[str],
+    general_instructions: List[Any],
+    include_vi_alternatives: bool,
+    base_meta: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Derive and render the extra sets (B, C) from an assembled master.
+
+    Returns one entry per variant: `{"label", "setIndex", "result",
+    "replacedCount"}`. Never raises — variant generation is best-effort and
+    must never jeopardise Set A, which the caller has already delivered.
+    """
+    from services.pool.set_variants import derive_variants
+
+    variants = derive_variants(master_assignments, pool, num_variants=num_variants)
+    out: List[Dict[str, Any]] = []
+    for i, variant in enumerate(variants):
+        result = _render_variant_result(
+            variant,
+            section_order=section_order,
+            general_instructions=general_instructions,
+            include_vi_alternatives=include_vi_alternatives,
+            base_meta=base_meta,
+        )
+        out.append(
+            {
+                "label": variant.label,
+                "setIndex": i + 1,
+                "result": result,
+                "replacedCount": variant.replaced_count,
+            }
+        )
+    return out
+
+
 def _build_pool_streaming(
     *,
     chapter,
@@ -288,6 +424,11 @@ def stream_pool_questions(
     include_vi_alternatives = bool(raw_vi_flag) and str(
         raw_vi_flag
     ).strip().lower() not in {"false", "0", "no", "off"}
+
+    # How many parallel sets to emit. Set A is always produced; 2 adds Set B,
+    # 3 adds Set C. The pool and Model 1 run once regardless — B and C are
+    # derived from A's selection, never freshly generated.
+    num_sets = _resolve_num_sets(payload)
 
     class_raw = payload.get(
         "class", payload.get("class_level", payload.get("gradeClass", "10"))
@@ -441,6 +582,7 @@ def stream_pool_questions(
             "blueprint": master_blueprint,
             "summary": summary,
             "generalInstructions": general_instructions,
+            "sets": num_sets,
         },
         event="plan",
     )
@@ -695,6 +837,37 @@ def stream_pool_questions(
     if image_result and image_result.failures:
         logger.warning("Image stage reported failures: %s", image_result.failures)
 
+    # ── Additional sets (B, C) ──────────────────────────────────────────
+    # Derived from Set A's selection and the same pool — no new questions,
+    # no second Model 1 run. Best-effort: a failure here leaves Set A intact.
+    variant_sets: List[Dict[str, Any]] = []
+    if num_sets > 1:
+        try:
+            variant_sets = _build_variant_results(
+                master_assignments=paper.assignments,
+                pool=pool_questions,
+                num_variants=num_sets - 1,
+                section_order=[s.get("title", "") for s in result["sections"]],
+                general_instructions=result["generalInstructions"],
+                include_vi_alternatives=include_vi_alternatives,
+                base_meta=result["meta"],
+            )
+        except Exception as exc:
+            logger.warning("Set variant generation failed: %s", exc, exc_info=True)
+            variant_sets = []
+
+        for entry in variant_sets:
+            yield _sse(
+                {
+                    "label": entry["label"],
+                    "setIndex": entry["setIndex"],
+                    "totalSets": num_sets,
+                    "replacedCount": entry["replacedCount"],
+                    "result": entry["result"],
+                },
+                event="set",
+            )
+
     try:
         GenerationHistory.objects.create(
             prompt=json.dumps(
@@ -721,6 +894,7 @@ def stream_pool_questions(
                 "reviewSwaps": paper.review_swaps,
                 "imageStrategy": resolve_strategy(),
                 "syntheticImageCount": synthetic_count,
+                "numberOfSets": num_sets,
             },
             result=result,
             user=user,
@@ -729,8 +903,25 @@ def stream_pool_questions(
         logger.warning("Could not persist generation history: %s", exc)
 
     logger.info(
-        "Pool pipeline complete: pool=%s %d questions from a pool of %d in %.1fs",
-        pool_id, paper.total_questions, len(pool_questions), time.monotonic() - started,
+        "Pool pipeline complete: pool=%s %d questions from a pool of %d in %.1fs "
+        "(%d set(s))",
+        pool_id, paper.total_questions, len(pool_questions),
+        time.monotonic() - started, len(variant_sets) + 1,
     )
 
-    yield _sse({"done": True, "result": result}, event="done")
+    done_payload: Dict[str, Any] = {"done": True, "result": result}
+    if variant_sets:
+        # Set A first, then the derived sets — a single place a consumer can
+        # read every set from, with Set A's `result` still the default.
+        done_payload["sets"] = [
+            {"label": "A", "setIndex": 0, "result": result},
+            *(
+                {
+                    "label": e["label"],
+                    "setIndex": e["setIndex"],
+                    "result": e["result"],
+                }
+                for e in variant_sets
+            ),
+        ]
+    yield _sse(done_payload, event="done")
