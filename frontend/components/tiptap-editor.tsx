@@ -415,6 +415,55 @@ function normalizeInitialContent(rawContent: string | undefined) {
     if (parsed?.document?.type === "doc") {
       return ensurePageDocument(parsed.document);
     }
+    
+    // Convert raw generator result (e.g. Set B / C) into TipTap JSON directly
+    if (parsed && Array.isArray(parsed.sections)) {
+      const pageContent: any[] = [];
+      parsed.sections.forEach((section: any) => {
+        const title = String(section.title || "").trim();
+        if (title) {
+          pageContent.push({
+            type: "sectionBlock",
+            content: [{ type: "text", text: title }],
+          });
+        }
+        (section.questions || []).forEach((q: any) => {
+          const questionContent: any[] = buildQuestionContentNodes(q.content);
+          const figureNode = buildFigureNode(q.image_url);
+          if (figureNode) {
+            questionContent.push(figureNode);
+          }
+          if (q.type !== "TF" && q.options && q.options.length > 0) {
+            questionContent.push({
+              type: "orderedList",
+              content: q.options.map((opt: string) => ({
+                type: "listItem",
+                content: [{ type: "paragraph", content: buildInlineRun(opt) }],
+              })),
+            });
+          }
+          pageContent.push({
+            type: "questionBlock",
+            attrs: {
+              marks: q.marks || 1,
+              questionType: q.type || (q.options && q.options.length > 0 ? "MCQ" : "SHORT"),
+            },
+            content: questionContent,
+          });
+        });
+      });
+      if (pageContent.length === 0) pageContent.push({ type: "paragraph" });
+      return {
+        type: "doc",
+        content: [
+          {
+            type: "page",
+            attrs: { pageId: createPageId() },
+            content: pageContent,
+          }
+        ]
+      };
+    }
   } catch {
     // Fall through to HTML handling.
   }
@@ -1391,11 +1440,14 @@ export const TiptapEditor = ({
       let liveDocument: LiveEditorDocument | null = null;
 
       try {
-        liveDocument = currentPaperId
-          ? await getLiveDocument(
-              getLiveDocumentId(currentUserId, currentPaperId),
-            )
-          : null;
+        if (currentPaperId) {
+          liveDocument = await getLiveDocument(getLiveDocumentId(currentUserId, currentPaperId));
+          // Fallback to old format (e.g., current_A -> current, paper123_A -> paper123)
+          if (!liveDocument && currentPaperId.endsWith("_A")) {
+             const fallbackId = currentPaperId.replace(/_A$/, "");
+             liveDocument = await getLiveDocument(getLiveDocumentId(currentUserId, fallbackId));
+          }
+        }
       } catch (error) {
         console.error("Failed to load live editor state:", error);
       }
@@ -1403,8 +1455,10 @@ export const TiptapEditor = ({
       if (
         liveDocument &&
         (currentPaperId === "current" ||
+          currentPaperId?.endsWith("_A") ||
           !currentPaperId ||
-          liveDocument.paperId === currentPaperId) &&
+          liveDocument.paperId === currentPaperId ||
+          liveDocument.paperId === currentPaperId.replace(/_A$/, "")) &&
         (!currentPaperId || liveDocument.updatedAt >= serverUpdatedTime)
       ) {
         contentToLoad = ensurePageDocument(liveDocument.editorJSON);
