@@ -179,6 +179,7 @@ export const GeneratorForm = ({
   const setComparisonSets = useEditorStore((s) => s.setComparisonSets);
   const clearComparisonSets = useEditorStore((s) => s.clearComparisonSets);
   const setComparisonOpen = useEditorStore((s) => s.setComparisonOpen);
+  const comparisonSets = useEditorStore((s) => s.comparisonSets);
 
   // Keep generator-form selections mirrored to the store so the resume
   // modal / IndexedDB record can show truthful class/subject even before
@@ -635,7 +636,9 @@ export const GeneratorForm = ({
             // Model 1 reads the whole chapter before any question exists, so
             // without progress the panel would sit silent for 30-60s.
             if (data.stage === "pool_progress") {
-              setPoolStatus("Writing questions…");
+              setPoolStatus(
+                `Writing questions… ${data.produced}/${data.target}`,
+              );
             } else if (data.message) {
               setPoolStatus(data.message);
             }
@@ -1484,12 +1487,12 @@ export const GeneratorForm = ({
           contaminated the doc when inserting a second set) is replaced by the
           Comparison Workspace: sets side by side with per-question / per-section
           / per-set insertion that no longer collides. */}
-      {multiSetMode && generatedResult && (
+      {((multiSetMode && generatedResult) || (comparisonSets && comparisonSets.length > 1)) && (
         <div className="mt-6 border-t border-border pt-6 animate-in fade-in duration-500">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-bold text-foreground">Generated Sets</h3>
             <span className="text-[11px] text-muted-foreground">
-              {allSets.length} sets
+              {allSets.length > 0 ? allSets.length : comparisonSets.length} sets
             </span>
           </div>
 
@@ -1521,7 +1524,7 @@ export const GeneratorForm = ({
                 <Button
                   className="w-full bg-indigo-600 text-white hover:bg-indigo-700 font-semibold"
                   onClick={() => setComparisonOpen(true)}
-                  disabled={allSets.length < 2}
+                  disabled={allSets.length > 0 ? allSets.length < 2 : comparisonSets.length < 2}
                 >
                   Open comparison workspace
                 </Button>

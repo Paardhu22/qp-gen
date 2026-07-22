@@ -19,7 +19,6 @@ class Project(TimeStampedModel):
 class Paper(TimeStampedModel):
     id = models.CharField(primary_key=True, max_length=32, default=generate_id, editable=False)
     title = models.CharField(max_length=255)
-    content = models.TextField()
     project = models.ForeignKey(Project, on_delete=models.CASCADE, db_column="projectId", related_name="papers")
     user = models.ForeignKey(User, on_delete=models.CASCADE, db_column="userId", related_name="papers")
     # Stores the ID of the generated answer script paper (if any).
@@ -30,8 +29,30 @@ class Paper(TimeStampedModel):
         blank=True,
         db_column="answerScriptId",
     )
-    # S3 keys for exported files — only the key is stored, never a presigned URL.
-    # Mint fresh presigned URLs at use time via GET /api/storage/export-url/.
+    # New aggregate root fields
+    subject = models.CharField(max_length=255, null=True, blank=True)
+    grade_class = models.CharField(max_length=100, null=True, blank=True, db_column="gradeClass")
+    board = models.CharField(max_length=100, null=True, blank=True)
+    instructions = models.TextField(null=True, blank=True)
+    blueprint = models.JSONField(null=True, blank=True)
+    question_pool_id = models.CharField(
+        max_length=32, null=True, blank=True, db_column="questionPoolId"
+    )
+
+    class Meta:
+        db_table = "Paper"
+
+
+class PaperSet(TimeStampedModel):
+    id = models.CharField(primary_key=True, max_length=32, default=generate_id, editable=False)
+    paper = models.ForeignKey(Paper, on_delete=models.CASCADE, db_column="paperId", related_name="sets")
+    label = models.CharField(max_length=255)
+    order = models.IntegerField(default=1)
+    content = models.TextField()
+    answers = models.TextField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    
+    # S3 exports for this specific set
     s3_pdf_key = models.CharField(
         max_length=1024,
         null=True,
@@ -44,10 +65,6 @@ class Paper(TimeStampedModel):
         blank=True,
         db_column="s3DocxKey",
     )
-    # Dual-write mirror of `content` at paper-content/{userId}/{paperId}.json.
-    # The DB `content` column REMAINS the source of truth; reads only consult
-    # S3 when settings.PAPER_CONTENT_SOURCE == "s3" (with DB fallback). All
-    # reads/writes go through services/paper_content_service.py.
     s3_content_key = models.CharField(
         max_length=1024,
         null=True,
@@ -56,10 +73,8 @@ class Paper(TimeStampedModel):
     )
 
     class Meta:
-        db_table = "Paper"
-
-
-
+        db_table = "PaperSet"
+        ordering = ["order"]
 class ExportRecord(TimeStampedModel):
     """Tracks question_bank exports that are not tied to a specific Paper."""
 

@@ -64,12 +64,19 @@ type ParsedPaper = Paper & { classLabel: string; subjectLabel: string };
 // ---------------------------------------------------------------------------
 
 function parsePaper(paper: Paper): ParsedPaper {
-  const cleaned = (paper.projectName || "").trim();
-  const parts = cleaned.split(/\s*[—–\-]\s*/).filter(Boolean);
+  // Use native fields if available; fallback to parsing projectName
+  let c = (paper as any).gradeClass || "";
+  let s = (paper as any).subject || "";
+  if (!c && !s && paper.projectName) {
+    const cleaned = paper.projectName.trim();
+    const parts = cleaned.split(/\s*[—–\-]\s*/).filter(Boolean);
+    c = parts[0]?.trim() || "—";
+    s = parts[1]?.trim() || "—";
+  }
   return {
     ...paper,
-    classLabel: parts[0]?.trim() || "—",
-    subjectLabel: parts[1]?.trim() || "—",
+    classLabel: c || "—",
+    subjectLabel: s || "—",
   };
 }
 

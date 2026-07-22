@@ -86,6 +86,10 @@ export default function EditorPage() {
     (state) => state.setQuestionBankBrowserOpen,
   );
   const appendQuestions = useEditorStore((state) => state.appendQuestions);
+  const comparisonSets = useEditorStore((state) => state.comparisonSets);
+
+  const [activeSetTab, setActiveSetTab] = useState("A");
+  const [loadedSets, setLoadedSets] = useState<any[]>([]);
 
   const [browserSearchQuery, setBrowserSearchQuery] = useState("");
   const [browserQuestions, setBrowserQuestions] = useState<any[]>([]);
@@ -473,6 +477,7 @@ export default function EditorPage() {
         setPaperSubject(paper.subject || "");
         setPaperUpdatedAt(paper.updatedAt || null);
         setCurrentPaperId(paper.id);
+        setLoadedSets(paper.sets || []);
         setPaperError(null);
 
         // Fetch applied HSAT sources for this paper
@@ -596,6 +601,48 @@ export default function EditorPage() {
         // Older shape — fall through with raw stringified content.
       }
 
+      let setsPayload: any[] = [];
+      const { comparisonSets } = useEditorStore.getState();
+      const activeSets = comparisonSets && comparisonSets.length > 0 ? comparisonSets : loadedSets;
+
+      if (activeSets && activeSets.length > 0) {
+        setsPayload = await Promise.all(activeSets.map(async (s, idx) => {
+          const labelNormalized = s.label.replace("Set ", "");
+          let setContent = "";
+          
+          if (labelNormalized === activeSetTab) {
+             setContent = contentToSave;
+          } else {
+             const draftId = getLiveDocumentId(sessionData?.user?.id || "", currentPaperId ? `${currentPaperId}_${labelNormalized}` : `current_${labelNormalized}`);
+             const draft = await getLiveDocument(draftId);
+             if (draft && draft.editorJSON) {
+               setContent = JSON.stringify(draft.editorJSON);
+             } else {
+               setContent = typeof s.result !== "undefined" ? 
+                  (typeof s.result === "string" ? s.result : JSON.stringify(s.result)) : 
+                  s.content;
+             }
+          }
+          
+          return {
+            label: `Set ${labelNormalized}`,
+            order: idx + 1,
+            content: setContent,
+            answers: "",
+            metadata: s.result?.meta || s.metadata || {},
+          };
+        }));
+      } else {
+        // Just the single set from the editor
+        setsPayload = [{
+          label: "Set A",
+          order: 1,
+          content: contentToSave,
+          answers: "",
+          metadata: {}
+        }];
+      }
+
       const payload = {
         class: trimmedClass,
         subject: trimmedSubject,
@@ -603,6 +650,7 @@ export default function EditorPage() {
         content: contentToSave,
         questionRefs: [], // Can implement question refs extracting later if needed
         hsatSourceIds: hsatSources.map((s) => s.id),
+        sets: setsPayload,
       };
 
       // "current" is a sentinel for an unsaved local draft; treat it as null
@@ -819,9 +867,48 @@ export default function EditorPage() {
           )}
           </span>
         </div>
+        
+        {(() => {
+          const activeSets = comparisonSets.length > 0 ? comparisonSets : loadedSets;
+          if (activeSets.length > 1) {
+            return (
+              <div className="flex items-center gap-2 px-2 bg-muted/20 border-b border-border overflow-x-auto custom-scrollbar flex-shrink-0">
+                {activeSets.map(set => {
+                  const labelNormalized = set.label.replace("Set ", "");
+                  return (
+                    <button
+                      key={labelNormalized}
+                      onClick={() => setActiveSetTab(labelNormalized)}
+                      className={cn(
+                        "px-4 py-2 text-[13px] font-semibold border-b-2 transition-colors",
+                        activeSetTab === labelNormalized ? "border-indigo-600 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                      )}
+                    >
+                      Set {labelNormalized}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          }
+          return null;
+        })()}
+
         <TiptapEditor
-          initialContent={paperContent}
-          paperId={currentPaperId}
+          key={activeSetTab}
+          initialContent={(() => {
+            const activeSets = comparisonSets.length > 0 ? comparisonSets : loadedSets;
+            if (activeSets.length > 0 && activeSetTab !== "A") {
+              const activeSet = activeSets.find((s: any) => s.label.replace("Set ", "") === activeSetTab);
+              if (activeSet) {
+                return typeof activeSet.result !== "undefined"
+                  ? (typeof activeSet.result === "string" ? activeSet.result : JSON.stringify(activeSet.result))
+                  : activeSet.content;
+              }
+            }
+            return paperContent;
+          })()}
+          paperId={currentPaperId ? `${currentPaperId}_${activeSetTab}` : `current_${activeSetTab}`}
           serverUpdatedAt={paperUpdatedAt}
           paperMetadata={{
             examName: paperExamName,
