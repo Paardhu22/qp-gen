@@ -13,7 +13,7 @@ from apps.projects.serializers import (
     PaperListSerializer,
     PaperDetailSerializer,
 )
-from services.paper_content_service import read_paper_content
+
 from services.project_service import (
     list_projects_for_user,
     save_questions_to_project,
@@ -100,7 +100,13 @@ class PaperListView(APIView):
             user=request.user,
             project_name=serializer.validated_data["projectName"],
             title=serializer.validated_data["title"],
-            content=serializer.validated_data["content"],
+            subject=serializer.validated_data.get("subject", ""),
+            grade_class=serializer.validated_data.get("gradeClass", ""),
+            board=serializer.validated_data.get("board", ""),
+            instructions=serializer.validated_data.get("instructions", ""),
+            blueprint=serializer.validated_data.get("blueprint"),
+            question_pool_id=serializer.validated_data.get("questionPoolId", ""),
+            sets=serializer.validated_data.get("sets", []),
             questions=serializer.validated_data.get("questions", []),
             hsat_source_ids=serializer.validated_data.get("hsatSourceIds"),
         )
@@ -125,11 +131,7 @@ class PaperDetailView(APIView):
         except Exception as exc:
             raise Http404("Paper not found") from exc
 
-        # P2: resolve content through the single accessor. With the default
-        # PAPER_CONTENT_SOURCE="db" this is the DB column unchanged; "s3"
-        # tries the mirror first with DB fallback. Instance-only assignment —
-        # nothing is written back.
-        paper.content = read_paper_content(paper)
+        # Dual-write sync removed from here, frontend will access sets via standard serializers
         data = PaperDetailSerializer(paper).data
         cache.set(cache_key, data, timeout=30)
         return Response(data)
@@ -142,7 +144,13 @@ class PaperDetailView(APIView):
                 user=request.user,
                 project_name=serializer.validated_data["projectName"],
                 title=serializer.validated_data["title"],
-                content=serializer.validated_data["content"],
+                subject=serializer.validated_data.get("subject", ""),
+                grade_class=serializer.validated_data.get("gradeClass", ""),
+                board=serializer.validated_data.get("board", ""),
+                instructions=serializer.validated_data.get("instructions", ""),
+                blueprint=serializer.validated_data.get("blueprint"),
+                question_pool_id=serializer.validated_data.get("questionPoolId", ""),
+                sets=serializer.validated_data.get("sets", []),
                 questions=serializer.validated_data.get("questions", []),
                 paper_id=paper_id,
                 hsat_source_ids=serializer.validated_data.get("hsatSourceIds"),
