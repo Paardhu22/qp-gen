@@ -60,13 +60,20 @@ class PaperVariant:
     retained_count: int = 0
 
 
-def _matches(candidate: PoolQuestion, original: PoolQuestion) -> bool:
+def _matches(
+    candidate: PoolQuestion, original: PoolQuestion, *, require_topic: bool = True
+) -> bool:
     """Is `candidate` a valid parallel replacement for `original`?
 
-    Every dimension the spec names must match. Marks and type decide whether
-    the question can fill the same slot at all; subject/chapter/topic/
-    difficulty/bloom keep the replacement pedagogically equivalent rather than
-    merely structurally valid.
+    Marks and type decide whether the question can fill the same slot at all;
+    subject/chapter/difficulty/bloom keep the replacement pedagogically
+    equivalent rather than merely structurally valid. `topic` is included
+    when `require_topic` is set, but it is Model 1's free-text label for
+    "the specific concept within the chapter" — two genuinely parallel
+    questions on the same chapter rarely land on the exact same wording for
+    it, so callers try a topic-strict pass first and fall back to
+    chapter-level matching (see `_find_replacement`) rather than treating a
+    topic mismatch as disqualifying on its own.
     """
     if int(candidate.marks) != int(original.marks):
         return False
@@ -80,11 +87,13 @@ def _matches(candidate: PoolQuestion, original: PoolQuestion) -> bool:
     def _norm(value: str) -> str:
         return str(value or "").strip().lower()
 
-    return (
-        _norm(candidate.subject) == _norm(original.subject)
-        and _norm(candidate.chapter) == _norm(original.chapter)
-        and _norm(candidate.topic) == _norm(original.topic)
-    )
+    if _norm(candidate.subject) != _norm(original.subject):
+        return False
+    if _norm(candidate.chapter) != _norm(original.chapter):
+        return False
+    if require_topic and _norm(candidate.topic) != _norm(original.topic):
+        return False
+    return True
 
 
 def _find_replacement(
@@ -94,14 +103,26 @@ def _find_replacement(
     rng: random.Random,
 ) -> Optional[PoolQuestion]:
     """Pick an unused pool question that parallels `original`, or None."""
-    candidates = [
-        q
-        for q in pool
-        if q.id not in used_ids
-        and q.id != original.id
-        and str(q.question or "").strip()
-        and _matches(q, original)
-    ]
+
+    def _candidates(*, require_topic: bool) -> List[PoolQuestion]:
+        return [
+            q
+            for q in pool
+            if q.id not in used_ids
+            and q.id != original.id
+            and str(q.question or "").strip()
+            and _matches(q, original, require_topic=require_topic)
+        ]
+
+    candidates = _candidates(require_topic=True)
+    if not candidates:
+        # No exact-topic parallel — fall back to same subject/chapter/type/
+        # marks/difficulty/bloom without requiring Model 1's free-text topic
+        # label to match verbatim. Without this fallback almost every slot
+        # has zero candidates in practice (topics are LLM-phrased per
+        # question), so "swap ~30%" silently degrades to "swap ~0%" and every
+        # derived set reads as an exact copy of the master.
+        candidates = _candidates(require_topic=False)
     if not candidates:
         return None
     # Sort for determinism, then let the seeded rng pick — so Set B and Set C,

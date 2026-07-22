@@ -121,6 +121,39 @@ class ReplacementRulesTests(TestCase):
                                  replace_fraction=1.0)
         self.assertEqual(_ids(variant.assignments), ["parallel"])
 
+    def test_falls_back_to_chapter_when_topics_differ(self):
+        # Model 1 writes a fresh free-text "topic" per question, so two
+        # genuinely parallel questions on the same chapter almost never share
+        # the exact topic string. Real replacement must still happen instead
+        # of silently keeping the original everywhere.
+        master = [_assign(_q("orig", marks=5, topic="Balancing equations",
+                             blooms="ANALYZE", difficulty="hard"), 1)]
+        pool = [
+            master[0].question,
+            _q("alt", marks=5, topic="Types of chemical reactions",
+               blooms="ANALYZE", difficulty="hard"),
+        ]
+        variant = derive_variant(master, pool, label="B", seed=3,
+                                 replace_fraction=1.0)
+        self.assertEqual(_ids(variant.assignments), ["alt"])
+        self.assertEqual(variant.replaced_count, 1)
+
+    def test_prefers_exact_topic_match_over_fallback(self):
+        # When a true (same-topic) parallel exists, it must win even though
+        # a chapter-level-only alternative is also available in the pool.
+        master = [_assign(_q("orig", marks=5, topic="acids",
+                             blooms="ANALYZE", difficulty="hard"), 1)]
+        pool = [
+            master[0].question,
+            _q("same_chapter_only", marks=5, topic="bases",
+               blooms="ANALYZE", difficulty="hard"),
+            _q("true_parallel", marks=5, topic="acids",
+               blooms="ANALYZE", difficulty="hard"),
+        ]
+        variant = derive_variant(master, pool, label="B", seed=3,
+                                 replace_fraction=1.0)
+        self.assertEqual(_ids(variant.assignments), ["true_parallel"])
+
     def test_retains_original_when_no_parallel_exists(self):
         master = [_assign(_q("orig", marks=5, topic="unique"), 1)]
         pool = [master[0].question]  # nothing to swap to
