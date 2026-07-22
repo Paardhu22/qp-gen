@@ -30,6 +30,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -67,9 +68,20 @@ _VALID_STRATEGIES = {STRATEGY_GENERATE, STRATEGY_REUSE, STRATEGY_HYBRID}
 #: is never billed twice — across pools, chapters, or users.
 _DIAGRAM_PREFIX = "generated_diagrams"
 
-#: gpt-image-1 calls are slow (10-20s). Run a few in parallel, but not so many
-#: that a single generation saturates the image rate limit.
-_IMAGE_CONCURRENCY = 3
+_image_gate: Optional[threading.BoundedSemaphore] = None
+_image_gate_lock = threading.Lock()
+
+
+def _image_concurrency() -> int:
+    return max(1, int(getattr(settings, "OPENAI_IMAGE_CONCURRENCY", 1)))
+
+
+def _get_image_gate() -> threading.BoundedSemaphore:
+    global _image_gate
+    with _image_gate_lock:
+        if _image_gate is None:
+            _image_gate = threading.BoundedSemaphore(_image_concurrency())
+        return _image_gate
 
 
 @dataclass
@@ -314,7 +326,8 @@ def _generate_diagram(prompt: str, *, user=None) -> tuple[Optional[str], bool, O
         # gpt-image-1 to avoid a BadRequestError on other image models.
         if _image_model().startswith("gpt-image"):
             generate_kwargs["quality"] = _image_quality()
-        response = client.images.generate(**generate_kwargs)
+        with _get_image_gate():
+            response = client.images.generate(**generate_kwargs)
     except Exception as exc:
         return None, False, f"{type(exc).__name__}: {exc}"
 
@@ -436,7 +449,7 @@ def _run_generate(
         url, cached, error = _generate_diagram(prompt, user=user)
         return spec, url, cached, error
 
-    with ThreadPoolExecutor(max_workers=_IMAGE_CONCURRENCY) as executor:
+    with ThreadPoolExecutor(max_workers=_image_concurrency()) as executor:
         futures = [executor.submit(_draw, spec) for spec in specs]
         for future in as_completed(futures):
             try:

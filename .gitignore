@@ -53,6 +53,7 @@ backend/.venv/
 backend/media/
 backend/*.sqlite3
 backend/*.sqlite3-journal
+backend/*.sqlite3.bak
 
 /lib/generated/prisma
 
