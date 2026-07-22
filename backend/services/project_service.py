@@ -3,7 +3,6 @@ from typing import List, Optional
 from django.db import transaction
 
 from apps.projects.models import Project, Question, Paper
-from services.paper_content_service import dual_write_paper_content
 
 
 def list_projects_for_user(user) -> List[Project]:
@@ -67,34 +66,74 @@ def save_paper_to_project(
     user,
     project_name: str,
     title: str,
-    content: str,
+    subject: str = "",
+    grade_class: str = "",
+    board: str = "",
+    instructions: str = "",
+    blueprint: Optional[dict] = None,
+    question_pool_id: str = "",
+    sets: Optional[List[dict]] = None,
     questions: Optional[List[dict]] = None,
     paper_id: Optional[str] = None,
     hsat_source_ids: Optional[List[str]] = None,
 ) -> Paper:
-    """Create or update a Paper and persist its questions."""
+    """Create or update a Paper and persist its Sets and questions."""
+    from apps.projects.models import PaperSet
+    
     if questions is None:
         questions = []
+    if sets is None:
+        sets = []
 
     with transaction.atomic():
         project, _ = Project.objects.get_or_create(name=project_name, user=user)
 
         if paper_id:
-            # Update existing paper (raises Paper.DoesNotExist if not found/owned)
+            # Update existing paper
             paper = Paper.objects.get(id=paper_id, user=user)
             paper.title = title
-            paper.content = content
+            paper.subject = subject
+            paper.grade_class = grade_class
+            paper.board = board
+            paper.instructions = instructions
+            paper.blueprint = blueprint
+            paper.question_pool_id = question_pool_id
             paper.project = project
             paper.save()
-            # Replace questions: delete old paper-linked questions then re-create
+            
+            # Replace sets
+            paper.sets.all().delete()
+            # Replace questions
             paper.questions.all().delete()
         else:
             paper = Paper.objects.create(
                 title=title,
-                content=content,
+                subject=subject,
+                grade_class=grade_class,
+                board=board,
+                instructions=instructions,
+                blueprint=blueprint,
+                question_pool_id=question_pool_id,
                 project=project,
                 user=user,
             )
+
+        # Create Paper Sets
+        set_objects = []
+        for set_data in sets:
+            set_objects.append(
+                PaperSet(
+                    paper=paper,
+                    label=set_data.get("label", "Set"),
+                    order=set_data.get("order", 1),
+                    content=set_data.get("content", ""),
+                    answers=set_data.get("answers", ""),
+                    metadata=set_data.get("metadata", {}),
+                )
+            )
+        
+        if set_objects:
+            PaperSet.objects.bulk_create(set_objects)
 
         if questions:
             question_objects = [
@@ -119,10 +158,8 @@ def save_paper_to_project(
             for hsat_id in hsat_source_ids:
                 PaperHsatSource.objects.get_or_create(paper=paper, hsat_source_id=hsat_id)
 
-    # P2 dual-write: mirror the committed content to S3 AFTER the atomic
-    # block, so a slow or failed S3 call can never roll back or delay the
-    # authoritative DB save. Covers both the create and update branches.
-    # Never raises; failures are logged and retried by the backfill command.
-    dual_write_paper_content(paper)
+    from services.paper_content_service import dual_write_set_content
+    for paper_set in paper.sets.all():
+        dual_write_set_content(paper_set)
 
     return paper
