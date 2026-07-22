@@ -501,6 +501,81 @@ def _allocate_targets(
     return allocation
 
 
+def _image_weight(chapter: Chapter) -> int:
+    return max(1, len(getattr(chapter, "figures", []) or []))
+
+
+def _allocate_image_targets(
+    units: Sequence["_PoolGenerationUnit"], *, total: int
+) -> List[int]:
+    """Prefer units that actually carry textbook figures for image questions."""
+    if not units:
+        return []
+    if total <= 0:
+        return [0 for _ in units]
+
+    allocation = [0 for _ in units]
+    order = sorted(
+        range(len(units)),
+        key=lambda index: (
+            _image_weight(units[index].chapter),
+            _unit_weight(units[index].chapter),
+        ),
+        reverse=True,
+    )
+    for offset in range(total):
+        allocation[order[offset % len(order)]] += 1
+    return allocation
+
+
+def _plan_image_slots(plan: Sequence[Any]) -> int:
+    return sum(
+        1
+        for slot in plan
+        if str(getattr(slot, "question_type", "") or "").upper() == "DIAGRAM"
+    )
+
+
+def _contextual_image_total(
+    *,
+    plan: Sequence[Any],
+    chapters: Sequence[Chapter],
+    subject_norm: str,
+    configured_cap: int,
+) -> int:
+    """Pick a small, subject-aware image budget for the pool.
+
+    Explicit DIAGRAM slots are honoured first. Otherwise image questions are
+    supplemental, so they should help the final paper without dominating cost
+    or hammering the image API.
+    """
+    cap = max(0, int(configured_cap or 0))
+    if cap <= 0 or not plan:
+        return 0
+
+    diagram_slots = _plan_image_slots(plan)
+    if diagram_slots:
+        return min(cap, diagram_slots)
+
+    subject = (subject_norm or "").strip().lower()
+    if subject in {"english", "hindi", "telugu", "sanskrit"}:
+        return 0
+
+    available_figures = sum(
+        len(getattr(chapter, "figures", []) or []) for chapter in chapters
+    )
+    if subject in {"science", "mathematics", "maths", "math"}:
+        desired = max(1, min(3, len(plan) // 12))
+    elif subject == "social science":
+        desired = 1 if available_figures else 0
+    else:
+        desired = 1 if available_figures else 0
+
+    if available_figures:
+        desired = min(desired, available_figures)
+    return min(cap, desired)
+
+
 def _build_generation_units(
     chapters: Sequence[Chapter], *, target_total: int, image_total: int
 ) -> List[_PoolGenerationUnit]:
@@ -527,9 +602,7 @@ def _build_generation_units(
                 )
             )
 
-    image_targets = _allocate_targets(
-        [unit.chapter for unit in units], total=image_total, min_each=0
-    )
+    image_targets = _allocate_image_targets(units, total=image_total)
     for unit, image_count in zip(units, image_targets):
         unit.image_count = image_count
     return units
@@ -831,7 +904,13 @@ def stream_pool_questions(
     # choice; a 38-slot paper draws on ~84 questions. That total is allocated
     # across detected chapters instead of sending the whole upload to Model 1.
     target_total = max(len(plan) * 2, 40)
-    image_total = max(0, int(getattr(settings, "IMAGE_QUESTIONS_PER_POOL", 8)))
+    configured_image_cap = max(0, int(getattr(settings, "IMAGE_QUESTIONS_PER_POOL", 8)))
+    image_total = _contextual_image_total(
+        plan=plan,
+        chapters=chapters,
+        subject_norm=subject_norm,
+        configured_cap=configured_image_cap,
+    )
     units = _build_generation_units(
         chapters, target_total=target_total, image_total=image_total
     )
@@ -840,10 +919,7 @@ def stream_pool_questions(
     yield _sse(
         {
             "stage": "generating_pool",
-            "message": (
-                f"Writing a pool of ~{sum(unit.target_total for unit in units)} "
-                f"questions from {len(chapters)} chapter(s)…"
-            ),
+            "message": "Writing a pool of questions…",
             "chapter": chapter_name,
             "chapters": [
                 {

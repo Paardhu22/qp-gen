@@ -14,7 +14,9 @@ from django.test import TestCase
 from apps.accounts.models import User
 from apps.documents.models import DocumentChunk, PdfSource
 from apps.projects.models import Project, Question
+from services.chapter_markdown import Figure
 from services.pool import store
+from services.pool.chapters import Chapter
 from services.pool.model1 import PoolGenerationResult
 from services.pool.image_model import ImageQuestionResult
 from services.pool.schema import PoolQuestion, compute_content_hash
@@ -61,6 +63,128 @@ _POOL_SHAPES = [
     ("LONG_ANSWER", 5),
     ("CASE_STUDY", 4),
 ]
+
+
+class ImageBudgetTests(TestCase):
+    def test_science_gets_a_small_contextual_image_budget(self):
+        from services.pool.pipeline import _contextual_image_total
+
+        plan = [
+            FakeSlot(i, 1, "MCQ", "MCQ")
+            for i in range(1, 39)
+        ]
+        chapters = [
+            Chapter(
+                number=1,
+                title="Light",
+                markdown="light",
+                figures=[
+                    Figure(url="/m/f1.png", caption="ray diagram"),
+                    Figure(url="/m/f2.png", caption="lens diagram"),
+                    Figure(url="/m/f3.png", caption="mirror diagram"),
+                ],
+                char_count=1200,
+            )
+        ]
+
+        self.assertEqual(
+            _contextual_image_total(
+                plan=plan,
+                chapters=chapters,
+                subject_norm="science",
+                configured_cap=8,
+            ),
+            3,
+        )
+
+    def test_social_science_uses_only_one_supporting_image_by_default(self):
+        from services.pool.pipeline import _contextual_image_total
+
+        plan = [FakeSlot(i, 1, "MCQ", "MCQ") for i in range(1, 39)]
+        chapters = [
+            Chapter(
+                number=1,
+                title="French Revolution",
+                markdown="history",
+                figures=[Figure(url="/m/f1.png", caption="political cartoon")],
+                char_count=1000,
+            )
+        ]
+
+        self.assertEqual(
+            _contextual_image_total(
+                plan=plan,
+                chapters=chapters,
+                subject_norm="social science",
+                configured_cap=8,
+            ),
+            1,
+        )
+
+    def test_language_papers_do_not_get_supplemental_image_questions(self):
+        from services.pool.pipeline import _contextual_image_total
+
+        plan = [FakeSlot(i, 2, "SHORT_ANSWER", "SHORT") for i in range(1, 11)]
+        chapters = [
+            Chapter(
+                number=1,
+                title="Poem",
+                markdown="poem",
+                figures=[Figure(url="/m/f1.png", caption="illustration")],
+                char_count=800,
+            )
+        ]
+
+        self.assertEqual(
+            _contextual_image_total(
+                plan=plan,
+                chapters=chapters,
+                subject_norm="english",
+                configured_cap=8,
+            ),
+            0,
+        )
+
+    def test_explicit_diagram_slots_are_honoured_up_to_the_configured_cap(self):
+        from services.pool.pipeline import _contextual_image_total
+
+        plan = [
+            FakeSlot(1, 3, "DIAGRAM", "DIAGRAM"),
+            FakeSlot(2, 3, "DIAGRAM", "DIAGRAM"),
+            FakeSlot(3, 2, "SHORT_ANSWER", "SHORT"),
+        ]
+
+        self.assertEqual(
+            _contextual_image_total(
+                plan=plan,
+                chapters=[],
+                subject_norm="science",
+                configured_cap=1,
+            ),
+            1,
+        )
+
+    def test_image_slots_prefer_figure_rich_chapters_but_can_repeat(self):
+        from services.pool.pipeline import _build_generation_units
+
+        chapters = [
+            Chapter(number=1, title="No Figures", markdown="text", char_count=1000),
+            Chapter(
+                number=2,
+                title="Figures",
+                markdown="text",
+                figures=[
+                    Figure(url="/m/f1.png", caption="figure 1"),
+                    Figure(url="/m/f2.png", caption="figure 2"),
+                ],
+                char_count=1000,
+            ),
+        ]
+
+        units = _build_generation_units(chapters, target_total=12, image_total=3)
+        figure_unit = next(unit for unit in units if unit.bank_chapter == "Figures")
+
+        self.assertGreaterEqual(figure_unit.image_count, 2)
 
 
 def _realistic_pool(size, **overrides):

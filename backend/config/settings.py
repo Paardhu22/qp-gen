@@ -291,22 +291,24 @@ CHAPTER_MD_MAX_CHARS = _int_env(
 )
 
 # How image-bearing questions are produced:
-#   generate — synthesise new diagrams with OPENAI_IMAGE_MODEL (default)
+#   generate — synthesise new diagrams with OPENAI_IMAGE_MODEL
 #   reuse    — write questions about figures extracted from the uploaded PDF
-#   hybrid   — reuse the chapter's own figures first, synthesise the remainder
+#   hybrid   — reuse the chapter's own figures first, synthesise the remainder (default)
 #
 # `generate` is the most expensive option by a wide margin (see
 # IMAGE_COST_USD_PER_IMAGE) and an AI-drawn circuit or ray diagram can be
 # subtly wrong, so every synthesised question is tagged for teacher review.
-# Switching to `hybrid` needs no code change.
-IMAGE_QUESTION_STRATEGY = os.environ.get("IMAGE_QUESTION_STRATEGY", "generate").strip().lower()
+# `hybrid` keeps images available where they help without forcing every image
+# question through the image-generation endpoint.
+IMAGE_QUESTION_STRATEGY = os.environ.get("IMAGE_QUESTION_STRATEGY", "hybrid").strip().lower()
 
-# Hard cap on image questions per pool. This is the single biggest cost lever
-# in the pipeline: at the default strategy each one costs roughly 20× a text
-# question, so 8 images is around 90% of a generation's spend.
+# Hard upper cap on image questions per pool. The pipeline still computes a
+# smaller contextual budget from the paper/subject so images appear only where
+# they are useful.
 IMAGE_QUESTIONS_PER_POOL = _int_env(
     "IMAGE_QUESTIONS_PER_POOL", 8, minimum=0, maximum=40
 )
+OPENAI_IMAGE_CONCURRENCY = _int_env("OPENAI_IMAGE_CONCURRENCY", 1, minimum=1, maximum=4)
 
 OPENAI_IMAGE_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
 OPENAI_IMAGE_SIZE = os.environ.get("OPENAI_IMAGE_SIZE", "1024x1024")

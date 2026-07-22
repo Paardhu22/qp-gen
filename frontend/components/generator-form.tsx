@@ -635,9 +635,7 @@ export const GeneratorForm = ({
             // Model 1 reads the whole chapter before any question exists, so
             // without progress the panel would sit silent for 30-60s.
             if (data.stage === "pool_progress") {
-              setPoolStatus(
-                `Writing questions… ${data.produced}/${data.target}`,
-              );
+              setPoolStatus("Writing questions…");
             } else if (data.message) {
               setPoolStatus(data.message);
             }
