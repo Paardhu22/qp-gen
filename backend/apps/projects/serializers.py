@@ -1,13 +1,27 @@
 from rest_framework import serializers
 
-from apps.projects.models import Project, Question, Paper, PaperSet
+from apps.projects.models import Project, Question, Paper, PaperSet, QuestionFamily, QuestionType
+
+
+class QuestionFamilySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QuestionFamily
+        fields = "__all__"
+
+
+class QuestionTypeSerializer(serializers.ModelSerializer):
+    family = QuestionFamilySerializer(read_only=True)
+
+    class Meta:
+        model = QuestionType
+        fields = "__all__"
 
 
 class QuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Question
-        fields = ["id", "type", "content", "answer", "options", "marks", "bloom_taxonomy", "grade_class", "subject", "inferred_topic", "inferred_chapter", "source_pdf", "difficulty"]
-        read_only_fields = ["id"]
+        fields = ["id", "type", "content", "answer", "options", "marks", "bloom_taxonomy", "grade_class", "subject", "inferred_topic", "inferred_chapter", "source_pdf", "difficulty", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class ProjectSerializer(serializers.ModelSerializer):
