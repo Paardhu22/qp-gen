@@ -12,7 +12,10 @@ from apps.projects.serializers import (
     SavePaperSerializer,
     PaperListSerializer,
     PaperDetailSerializer,
+    QuestionTypeSerializer,
 )
+
+from apps.projects.models import QuestionType
 
 from services.project_service import (
     list_projects_for_user,
@@ -200,10 +203,10 @@ class ClearAllQuestionsView(APIView):
 
     def delete(self, request):
         from apps.projects.models import Question
-        deleted_count, _ = Question.objects.filter(project__user=request.user).delete()
+        Question.objects.filter(project__user=request.user).delete()
         cache.delete(f"user_projects_full:{request.user.id}")
         cache.delete(f"user_projects_summary:{request.user.id}")
-        return Response({"deleted": deleted_count})
+        return Response({"success": True})
 
 
 class ClearAllPapersView(APIView):
@@ -211,8 +214,24 @@ class ClearAllPapersView(APIView):
     permission_classes = [IsAuthenticated]
 
     def delete(self, request):
-        deleted_count, _ = Paper.objects.filter(user=request.user).delete()
+        from apps.projects.models import Paper
+        Paper.objects.filter(user=request.user).delete()
         cache.delete(f"user_papers:{request.user.id}")
         cache.delete(f"user_projects_full:{request.user.id}")
         cache.delete(f"user_projects_summary:{request.user.id}")
-        return Response({"deleted": deleted_count})
+        return Response({"success": True})
+
+
+class QuestionTypeListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        cache_key = "all_question_types"
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+
+        types = QuestionType.objects.select_related("family").all()
+        data = QuestionTypeSerializer(types, many=True).data
+        cache.set(cache_key, data, timeout=3600)  # cache for 1 hour since it rarely changes
+        return Response(data)
