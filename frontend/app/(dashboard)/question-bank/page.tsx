@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchPapers,
   deletePaper,
@@ -18,11 +18,15 @@ import {
   Key,
   RefreshCcw,
   FileDown,
+  Printer,
   X,
   AlertTriangle,
+  ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  ChevronsUpDown,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { PaperFromBank } from "@/components/paper-from-bank";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,88 +52,144 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
+type PaperSet = {
+  id: string;
+  label: string;
+  order?: number;
+};
+
 type Paper = {
   id: string;
   title: string;
   projectName?: string;
-  answerScriptId?: string | null;   // DB-stored link to the answer script paper
+  subject?: string | null;
+  gradeClass?: string | null;
+  board?: string | null;
+  answerScriptId?: string | null;
   created_at?: string;
   updated_at?: string;
+  sets?: PaperSet[];
 };
 
-type ParsedPaper = Paper & { classLabel: string; subjectLabel: string };
+type NormalizedSet = { id: string; label: string };
+
+type ParsedPaper = Paper & {
+  classLabel: string;
+  subjectLabel: string;
+  boardLabel: string;
+  setList: NormalizedSet[];
+};
+
+type SortKey = "title" | "class" | "subject" | "board" | "sets" | "updated";
+
+type SortState = {
+  sortKey: SortKey;
+  sortDir: "asc" | "desc";
+  onToggle: (col: SortKey) => void;
+};
+
+// Module-scope so it is never redefined during render (react-hooks/static-components).
+function SortHeader({
+  label,
+  col,
+  sort,
+  className,
+  align = "left",
+}: {
+  label: string;
+  col: SortKey;
+  sort: SortState;
+  className?: string;
+  align?: "left" | "right" | "center";
+}) {
+  const active = sort.sortKey === col;
+  return (
+    <th
+      className={cn(
+        "select-none px-3 py-2 font-semibold text-muted-foreground",
+        align === "right" && "text-right",
+        align === "center" && "text-center",
+        className,
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => sort.onToggle(col)}
+        className={cn(
+          "inline-flex items-center gap-1 hover:text-foreground transition-colors",
+          active && "text-foreground",
+          align === "right" && "flex-row-reverse",
+        )}
+      >
+        {label}
+        {active ? (
+          sort.sortDir === "asc" ? (
+            <ArrowUp className="h-3 w-3" />
+          ) : (
+            <ArrowDown className="h-3 w-3" />
+          )
+        ) : (
+          <ChevronsUpDown className="h-3 w-3 opacity-40" />
+        )}
+      </button>
+    </th>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+function normalizeSetLabel(label: string, index: number): string {
+  const trailing = (label || "").trim().match(/([A-Za-z])$/);
+  if (trailing) return trailing[1].toUpperCase();
+  return String.fromCharCode(65 + index); // A, B, C…
+}
+
+/** Legacy single-content papers have no PaperSet rows — treat them as Set A. */
+function paperSetList(paper: Paper): NormalizedSet[] {
+  const sets = paper.sets ?? [];
+  if (sets.length === 0) return [{ id: `${paper.id}-A`, label: "A" }];
+  return [...sets]
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((s, i) => ({ id: s.id, label: normalizeSetLabel(s.label, i) }));
+}
+
 function parsePaper(paper: Paper): ParsedPaper {
-  // Use native fields if available; fallback to parsing projectName
-  let c = (paper as any).gradeClass || "";
-  let s = (paper as any).subject || "";
+  let c = (paper.gradeClass || "").trim();
+  let s = (paper.subject || "").trim();
   if (!c && !s && paper.projectName) {
-    const cleaned = paper.projectName.trim();
-    const parts = cleaned.split(/\s*[—–\-]\s*/).filter(Boolean);
-    c = parts[0]?.trim() || "—";
-    s = parts[1]?.trim() || "—";
+    const parts = paper.projectName.trim().split(/\s*[—–\-]\s*/).filter(Boolean);
+    c = parts[0]?.trim() || "";
+    s = parts[1]?.trim() || "";
   }
   return {
     ...paper,
     classLabel: c || "—",
     subjectLabel: s || "—",
+    boardLabel: (paper.board || "").trim() || "—",
+    setList: paperSetList(paper),
   };
 }
 
-function formatDate(value?: string): string {
+function formatDateTime(value?: string): string {
   if (!value) return "—";
-  return new Date(value).toLocaleDateString(undefined, {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
 }
 
-function formatTime(value?: string): string {
-  if (!value) return "";
-  return new Date(value).toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function dateBucketLabel(value?: string): string {
-  if (!value) return "Undated";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "Undated";
-  const startOfDay = (x: Date) =>
-    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const today = startOfDay(new Date());
-  const that = startOfDay(d);
-  const diffDays = Math.round((today - that) / 86400000);
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  return d.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-    year: today - that > 365 * 86400000 ? "numeric" : undefined,
-  });
-}
-
-function bucketSortKey(value?: string): number {
-  if (!value) return 0;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return 0;
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-}
-
-/** Answer scripts are stored as separate papers; exclude them from the main list */
+/** Answer scripts are stored as separate papers; exclude them from the list. */
 function isAnswerScriptPaper(paper: Paper): boolean {
   return /answer[\s\-_]*key|answer[\s\-_]*script/i.test(paper.title ?? "");
 }
 
 // ---------------------------------------------------------------------------
-// Actions Modal
+// Actions Modal (paper-level actions)
 // ---------------------------------------------------------------------------
 
 interface ActionsModalProps {
@@ -276,7 +336,6 @@ function ActionsModal({
         className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex shrink-0 items-start justify-between px-5 py-4 border-b border-border">
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold text-foreground">Actions</h2>
@@ -293,7 +352,6 @@ function ActionsModal({
           </button>
         </div>
 
-        {/* Generation error banner */}
         {generationError && !isGenerating && (
           <div className="flex items-start gap-2 mx-4 mt-3 px-3 py-2.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg">
             <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0 mt-0.5" />
@@ -303,7 +361,6 @@ function ActionsModal({
           </div>
         )}
 
-        {/* Action list */}
         <div className="py-2 flex-1 overflow-y-auto overscroll-contain">
           {actions.map((action) => (
             <div key={action.id}>
@@ -313,8 +370,6 @@ function ActionsModal({
                 onClick={() => {
                   if (!action.disabled) {
                     action.onClick();
-                    // Close the modal after click unless it's the generate action
-                    // (so the user can see the loading state inline)
                     if (action.id !== "generate") onClose();
                   }
                 }}
@@ -369,7 +424,6 @@ function ActionsModal({
           ))}
         </div>
 
-        {/* Footer */}
         <div className="px-5 py-3 border-t border-border flex justify-end shrink-0">
           <button
             type="button"
@@ -388,28 +442,29 @@ function ActionsModal({
 // Page
 // ---------------------------------------------------------------------------
 
-export default function QuestionBankPage() {
+export default function QuestionPaperPage() {
   const router = useRouter();
   const { data: sessionData } = useSession();
 
   const [papers, setPapers] = useState<Paper[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [paperSearch, setPaperSearch] = useState("");
+  const [search, setSearch] = useState("");
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [isClearing, setIsClearing] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
-  // Which paper's actions modal is open
   const [activeActionsPaperId, setActiveActionsPaperId] = useState<
     string | null
   >(null);
-
-  // Per-paper generation loading / error state (in-flight only — not persisted)
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
   const [generationErrors, setGenerationErrors] = useState<
     Record<string, string>
   >({});
 
-  // ---- fetch on mount ----
+  const [sortKey, setSortKey] = useState<SortKey>("updated");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  // ---- fetch ----
   const loadPapers = () => {
     setIsLoading(true);
     fetchPapers<Paper[]>()
@@ -428,82 +483,97 @@ export default function QuestionBankPage() {
     [papers],
   );
 
-  // Only show question papers in the list (answer scripts are accessed via Actions)
   const questionPapers = useMemo(
     () => parsedPapers.filter((p) => !isAnswerScriptPaper(p)),
     [parsedPapers],
   );
 
-  const filteredPapers = useMemo<ParsedPaper[]>(() => {
-    const term = paperSearch.trim().toLowerCase();
+  const filtered = useMemo<ParsedPaper[]>(() => {
+    const term = search.trim().toLowerCase();
     if (!term) return questionPapers;
     return questionPapers.filter((p) => {
-      const haystack = [p.title, p.projectName, p.classLabel, p.subjectLabel]
+      const haystack = [
+        p.title,
+        p.projectName,
+        p.classLabel,
+        p.subjectLabel,
+        p.boardLabel,
+      ]
         .filter((v): v is string => typeof v === "string" && v.length > 0)
         .join(" · ")
         .toLowerCase();
       return haystack.includes(term);
     });
-  }, [questionPapers, paperSearch]);
+  }, [questionPapers, search]);
 
-  // Group by date bucket
-  const groupedPapers = useMemo(() => {
-    const buckets = new Map<
-      string,
-      { label: string; sortKey: number; papers: ParsedPaper[] }
-    >();
-    for (const paper of filteredPapers) {
-      const stamp = paper.updated_at ?? paper.created_at;
-      const label = dateBucketLabel(stamp);
-      const sortKey = bucketSortKey(stamp);
-      if (!buckets.has(label)) {
-        buckets.set(label, { label, sortKey, papers: [] });
+  const sorted = useMemo<ParsedPaper[]>(() => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    const val = (p: ParsedPaper): string | number => {
+      switch (sortKey) {
+        case "title":
+          return p.title?.toLowerCase() ?? "";
+        case "class":
+          return p.classLabel.toLowerCase();
+        case "subject":
+          return p.subjectLabel.toLowerCase();
+        case "board":
+          return p.boardLabel.toLowerCase();
+        case "sets":
+          return p.setList.length;
+        case "updated":
+          return new Date(p.updated_at ?? p.created_at ?? 0).getTime();
       }
-      buckets.get(label)!.papers.push(paper);
-    }
-    const groups = Array.from(buckets.values()).sort(
-      (a, b) => b.sortKey - a.sortKey,
-    );
-    for (const group of groups) {
-      group.papers.sort((a, b) => {
-        const av = new Date(a.updated_at ?? a.created_at ?? 0).getTime();
-        const bv = new Date(b.updated_at ?? b.created_at ?? 0).getTime();
-        return bv - av;
-      });
-    }
-    return groups;
-  }, [filteredPapers]);
+    };
+    return [...filtered].sort((a, b) => {
+      const av = val(a);
+      const bv = val(b);
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+  }, [filtered, sortKey, sortDir]);
 
   // ---- actions ----
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setSortDir(key === "updated" || key === "sets" ? "desc" : "asc");
+    }
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   async function deletePaperById(id: string) {
     setDeletingIds((prev) => new Set(prev).add(id));
     const paperToDelete = papers.find((p) => p.id === id);
     const asId = paperToDelete?.answerScriptId;
-
     try {
       await deletePaper(id);
-
-      // Also delete the linked answer script stored in the DB
       if (asId) {
         try {
           await deletePaper(asId);
         } catch {
-          // non-fatal — answer script might have already been deleted
+          /* non-fatal */
         }
       }
-
-      setPapers((prev) =>
-        prev.filter((p) => p.id !== id && p.id !== asId),
-      );
-
+      setPapers((prev) => prev.filter((p) => p.id !== id && p.id !== asId));
       const userId = sessionData?.user?.id;
       if (userId) {
         await deleteLiveDocument(getLiveDocumentId(userId, id)).catch(() => {});
         if (asId) {
-          await deleteLiveDocument(getLiveDocumentId(userId, asId)).catch(() => {});
+          await deleteLiveDocument(getLiveDocumentId(userId, asId)).catch(
+            () => {},
+          );
         }
       }
-
       toast.success("Paper deleted.");
     } catch {
       toast.error("Failed to delete paper.");
@@ -522,10 +592,7 @@ export default function QuestionBankPage() {
       description: paper?.answerScriptId
         ? "The linked answer script will also be deleted."
         : undefined,
-      action: {
-        label: "Delete",
-        onClick: () => deletePaperById(id),
-      },
+      action: { label: "Delete", onClick: () => deletePaperById(id) },
     });
     setActiveActionsPaperId(null);
   }
@@ -535,12 +602,8 @@ export default function QuestionBankPage() {
     try {
       await fetchJson("/api/projects/papers/clear", { method: "DELETE" });
       setPapers([]);
-
       const userId = sessionData?.user?.id;
-      if (userId) {
-        await clearLiveDocumentsForUser(userId).catch(() => {});
-      }
-
+      if (userId) await clearLiveDocumentsForUser(userId).catch(() => {});
       toast.success("All papers cleared.");
     } catch {
       toast.error("Failed to clear papers.");
@@ -550,21 +613,14 @@ export default function QuestionBankPage() {
   }
 
   async function handleGenerateAnswerScript(paperId: string) {
-    // Clear any previous error for this paper
     setGenerationErrors((prev) => {
       const next = { ...prev };
       delete next[paperId];
       return next;
     });
-
     setGeneratingIds((prev) => new Set(prev).add(paperId));
-
     try {
       const result = await generateAnswerScript(paperId);
-
-      // The backend has already saved answerScriptId on the paper row.
-      // Update local state so the UI reflects the new link immediately
-      // without needing a full refetch.
       setPapers((prev) =>
         prev.map((p) =>
           p.id === paperId
@@ -572,7 +628,6 @@ export default function QuestionBankPage() {
             : p,
         ),
       );
-
       toast.success("Answer script generated and saved!");
     } catch (err: any) {
       const errorMessage =
@@ -588,222 +643,290 @@ export default function QuestionBankPage() {
     }
   }
 
-  // ---- render helpers ----
+  // Per-set actions all route through the editor, which honours ?set= and
+  // ?action= (see editor/page.tsx). Preview opens the set; Export/Print run
+  // the existing client-side pipeline against that set's rendered A4 page.
+  const openSet = (
+    paperId: string,
+    label: string,
+    action?: "export-pdf" | "print",
+  ) => {
+    const params = new URLSearchParams({ paperId, set: label });
+    if (action) params.set("action", action);
+    router.push(`/editor?${params.toString()}`);
+  };
+
   const activePaper = activeActionsPaperId
     ? (parsedPapers.find((p) => p.id === activeActionsPaperId) ?? null)
     : null;
+
+  const sortState = { sortKey, sortDir, onToggle: toggleSort };
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 bg-background min-h-full">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold leading-tight">Question Paper</h1>
-            {!isLoading && questionPapers.length > 0 && (
-              <span className="inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold dark:bg-indigo-950 dark:text-indigo-400">
-                {questionPapers.length}
-              </span>
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      {/* ── Header + toolbar ──────────────────────────────────────────── */}
+      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <BookOpen className="h-5 w-5 text-indigo-500" />
+            <h1 className="text-lg font-semibold tracking-tight">
+              Question Paper
+            </h1>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+              {isLoading ? "…" : questionPapers.length}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-8 w-56 pl-8 text-sm"
+                placeholder="Search papers…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            {!isLoading && papers.length > 0 && (
+              <AlertDialog>
+                <AlertDialogTrigger
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-destructive/40 bg-background px-2.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                  disabled={isClearing}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {isClearing ? "Clearing…" : "Clear all"}
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Clear all saved papers?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete every saved paper and its
+                      generated answer scripts. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={handleClearAll}
+                    >
+                      Yes, clear all
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
           </div>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Browse and open your saved exam papers in the editor.
-          </p>
-        </div>
-
-        <div className="flex w-full items-center gap-3 sm:w-auto">
-          {/* Search */}
-          <div className="relative flex-1 sm:flex-none">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input
-              className="w-full sm:w-64 pl-9"
-              placeholder="Search papers…"
-              value={paperSearch}
-              onChange={(e) => setPaperSearch(e.target.value)}
-            />
-          </div>
-
-          {/* Clear All */}
-          {!isLoading && papers.length > 0 && (
-            <AlertDialog>
-              <AlertDialogTrigger
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-destructive/40 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-                disabled={isClearing}
-              >
-                <Trash2 className="h-4 w-4" />
-                Clear All
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Clear all saved papers?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently delete every saved paper and its
-                    generated answer scripts. This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    onClick={handleClearAll}
-                  >
-                    Yes, clear all
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
         </div>
       </div>
 
-      {/* ── Loading skeletons ─────────────────────────────────────────────── */}
-      {isLoading && (
-        <div className="flex flex-col divide-y divide-border rounded-xl border bg-card">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div
-              key={i}
-              className="animate-pulse flex items-center gap-4 px-5 py-4"
-            >
-              <div className="h-9 w-9 rounded-lg bg-muted/60 shrink-0" />
-              <div className="flex-1 space-y-2">
-                <div className="h-4 w-1/2 rounded bg-muted/60" />
-                <div className="h-3 w-3/4 rounded bg-muted/40" />
-              </div>
-              <div className="h-8 w-24 rounded-lg bg-muted/40 shrink-0" />
-              <div className="h-8 w-8 rounded-lg bg-muted/40 shrink-0" />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Empty state ───────────────────────────────────────────────────── */}
-      {!isLoading && questionPapers.length === 0 && (
-        <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed py-20 text-center">
-          <BookOpen className="h-10 w-10 opacity-30" />
-          <div>
-            <p className="font-semibold text-foreground">
-              {paperSearch.trim()
+      {/* ── Table ─────────────────────────────────────────────────────── */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        {isLoading ? (
+          <div className="space-y-px p-4">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="h-10 animate-pulse rounded bg-muted/40" />
+            ))}
+          </div>
+        ) : sorted.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+            <BookOpen className="h-10 w-10 opacity-30" />
+            <p className="text-sm font-medium">
+              {search.trim()
                 ? "No papers match your search."
                 : "No saved papers yet."}
             </p>
-            {!paperSearch.trim() && (
-              <p className="text-sm text-muted-foreground mt-1">
-                Save a paper from the Editor to see it here.
+            {!search.trim() && (
+              <p className="max-w-xs text-xs text-muted-foreground">
+                Save a paper from the Editor, or assemble one from the Build
+                Paper workspace.
               </p>
             )}
           </div>
-        </div>
-      )}
+        ) : (
+          <table className="w-full border-collapse text-sm">
+            <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
+              <tr className="border-b border-border text-left text-xs">
+                <th className="w-8 px-2 py-2" />
+                <SortHeader label="Title" col="title" sort={sortState} className="min-w-[16rem]" />
+                <SortHeader label="Class" col="class" sort={sortState} />
+                <SortHeader label="Subject" col="subject" sort={sortState} />
+                <SortHeader label="Board" col="board" sort={sortState} />
+                <SortHeader label="Sets" col="sets" sort={sortState} />
+                <SortHeader label="Last Updated" col="updated" sort={sortState} align="right" />
+                <th className="px-3 py-2 text-right font-semibold text-muted-foreground">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((paper) => {
+                const isDeleting = deletingIds.has(paper.id);
+                const isGenerating = generatingIds.has(paper.id);
+                const hasAnswerScript = Boolean(paper.answerScriptId);
+                const isExpanded = expandedIds.has(paper.id);
+                const stamp = paper.updated_at ?? paper.created_at;
 
-      {/* Reuse path: build a new paper from questions already banked, without
-          re-uploading a chapter or re-generating its questions. */}
-      <PaperFromBank />
-
-      {/* ── Paper list ───────────────────────────────────────────────────── */}
-      {!isLoading && filteredPapers.length > 0 && (
-        <div className="space-y-8">
-          {groupedPapers.map((group) => (
-            <section key={group.label} className="space-y-3">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {group.label}
-              </h2>
-
-              <div className="flex flex-col divide-y divide-border rounded-xl border border-border bg-card">
-                {group.papers.map((paper) => {
-                  const isDeleting = deletingIds.has(paper.id);
-                  const isGenerating = generatingIds.has(paper.id);
-                  const hasAnswerScript = Boolean(paper.answerScriptId);
-                  const stamp = paper.updated_at ?? paper.created_at;
-
-                  return (
-                    <article
-                      key={paper.id}
+                return (
+                  <Fragment key={paper.id}>
+                    <tr
                       className={cn(
-                        "group flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:gap-6 transition-colors",
-                        isDeleting && "opacity-50 pointer-events-none",
+                        "group border-b border-border/60 transition-colors hover:bg-muted/40",
+                        isExpanded && "bg-muted/30",
+                        isDeleting && "pointer-events-none opacity-40",
                       )}
                     >
-                      {/* Left: icon + text (clickable to open) */}
-                      <div
-                        className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() =>
-                          router.push(`/editor?paperId=${paper.id}`)
-                        }
-                      >
-                        <div className="p-2 rounded-lg bg-indigo-500/10 shrink-0">
-                          <FileText className="h-5 w-5 text-indigo-500" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-base font-semibold text-foreground truncate leading-snug">
-                            {paper.title}
-                          </p>
-                          <div className="flex items-center flex-wrap text-xs text-muted-foreground mt-0.5">
-                            <span className="font-medium text-foreground">
-                              {paper.classLabel}
-                            </span>
-                            <span className="mx-1.5 opacity-50">|</span>
-                            <span className="font-medium text-foreground">
-                              {paper.subjectLabel}
-                            </span>
-                            <span className="mx-1.5 opacity-50">|</span>
-                            {formatDate(stamp)}
-                            {formatTime(stamp) && (
-                              <>
-                                <span className="mx-1.5 opacity-50">|</span>
-                                {formatTime(stamp)}
-                              </>
+                      {/* Expand toggle */}
+                      <td className="px-2 py-2 align-middle">
+                        <button
+                          type="button"
+                          aria-label={isExpanded ? "Collapse" : "Expand sets"}
+                          onClick={() => toggleExpand(paper.id)}
+                          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                        >
+                          <ChevronRight
+                            className={cn(
+                              "h-4 w-4 transition-transform",
+                              isExpanded && "rotate-90",
                             )}
-                          </div>
-                          {/* Answer script status badge */}
+                          />
+                        </button>
+                      </td>
+
+                      {/* Title (opens editor) */}
+                      <td className="px-3 py-2 align-middle">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(`/editor?paperId=${paper.id}`)
+                          }
+                          className="flex items-center gap-2 text-left"
+                        >
+                          <FileText className="h-4 w-4 shrink-0 text-indigo-500" />
+                          <span className="font-medium text-foreground hover:underline">
+                            {paper.title}
+                          </span>
                           {hasAnswerScript && !isGenerating && (
-                            <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded px-1.5 py-0.5">
+                            <span
+                              title="Answer script ready"
+                              className="inline-flex items-center gap-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+                            >
                               <Key className="h-2.5 w-2.5" />
-                              Answer Script Ready
+                              Key
                             </span>
                           )}
                           {isGenerating && (
-                            <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-1.5 py-0.5">
+                            <span className="inline-flex items-center gap-0.5 rounded border border-amber-500/30 bg-amber-500/10 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
                               <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                              Generating Answer Script…
+                              Gen…
                             </span>
                           )}
-                        </div>
-                      </div>
+                        </button>
+                      </td>
 
-                      {/* Right: Actions + Delete */}
-                      <div className="flex items-center gap-2 shrink-0">
+                      <td className="px-3 py-2 align-middle whitespace-nowrap text-muted-foreground">
+                        {paper.classLabel}
+                      </td>
+                      <td className="px-3 py-2 align-middle whitespace-nowrap text-muted-foreground">
+                        {paper.subjectLabel}
+                      </td>
+                      <td className="px-3 py-2 align-middle whitespace-nowrap text-muted-foreground">
+                        {paper.boardLabel}
+                      </td>
+
+                      {/* Sets — inline badges */}
+                      <td className="px-3 py-2 align-middle">
+                        <div className="flex items-center gap-1">
+                          {paper.setList.map((s) => (
+                            <span
+                              key={s.id}
+                              className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-indigo-500/30 bg-indigo-500/10 px-1.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400"
+                            >
+                              {s.label}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+
+                      <td className="px-3 py-2 text-right align-middle whitespace-nowrap tabular-nums text-muted-foreground">
+                        {formatDateTime(stamp)}
+                      </td>
+
+                      {/* Actions (paper-level) */}
+                      <td className="px-3 py-2 text-right align-middle">
                         <button
                           type="button"
                           onClick={() => setActiveActionsPaperId(paper.id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-all"
+                          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40"
                         >
                           <MoreHorizontal className="h-3.5 w-3.5" />
                           Actions
                         </button>
+                      </td>
+                    </tr>
 
-                        <button
-                          type="button"
-                          aria-label="Delete paper"
-                          onClick={() => handleDeletePaper(paper.id)}
-                          className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
+                    {/* Expanded per-set rows */}
+                    {isExpanded && (
+                      <tr className="border-b border-border/60 bg-muted/20">
+                        <td />
+                        <td colSpan={7} className="px-3 py-2">
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              {paper.setList.length} set
+                              {paper.setList.length === 1 ? "" : "s"} — each with
+                              independent preview / export / print
+                            </span>
+                            {paper.setList.map((s) => (
+                              <div
+                                key={s.id}
+                                className="flex items-center gap-3 rounded-md border border-border bg-background px-3 py-1.5"
+                              >
+                                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-indigo-500/30 bg-indigo-500/10 px-1.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
+                                  {s.label}
+                                </span>
+                                <span className="text-xs font-medium text-foreground">
+                                  Set {s.label}
+                                </span>
+                                <div className="ml-auto flex items-center gap-1">
+                                  <SetActionButton
+                                    icon={<Eye className="h-3.5 w-3.5" />}
+                                    label="Preview"
+                                    onClick={() => openSet(paper.id, s.label)}
+                                  />
+                                  <SetActionButton
+                                    icon={<FileDown className="h-3.5 w-3.5" />}
+                                    label="Export"
+                                    onClick={() =>
+                                      openSet(paper.id, s.label, "export-pdf")
+                                    }
+                                  />
+                                  <SetActionButton
+                                    icon={<Printer className="h-3.5 w-3.5" />}
+                                    label="Print"
+                                    onClick={() =>
+                                      openSet(paper.id, s.label, "print")
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
 
-      {/* ── Actions Modal ─────────────────────────────────────────────────── */}
+      {/* ── Actions Modal ─────────────────────────────────────────────── */}
       {activePaper && (
         <ActionsModal
           paper={activePaper}
@@ -811,38 +934,50 @@ export default function QuestionBankPage() {
           isGenerating={generatingIds.has(activePaper.id)}
           generationError={generationErrors[activePaper.id]}
           onClose={() => setActiveActionsPaperId(null)}
-          onViewPaper={() => {
-            router.push(`/editor?paperId=${activePaper.id}`);
-          }}
-          onGenerateAnswerScript={() => {
-            handleGenerateAnswerScript(activePaper.id);
-            // Keep modal open — user sees live loading badge on the row
-          }}
+          onViewPaper={() => router.push(`/editor?paperId=${activePaper.id}`)}
+          onGenerateAnswerScript={() =>
+            handleGenerateAnswerScript(activePaper.id)
+          }
           onViewAnswerScript={() => {
-            if (activePaper.answerScriptId) {
+            if (activePaper.answerScriptId)
               router.push(`/editor?paperId=${activePaper.answerScriptId}`);
-            }
           }}
-          onExportPDF={() => {
-            router.push(
-              `/editor?paperId=${activePaper.id}&action=export-pdf`,
-            );
-          }}
-          onExportWord={() => {
-            router.push(
-              `/editor?paperId=${activePaper.id}&action=export-docx`,
-            );
-          }}
+          onExportPDF={() =>
+            router.push(`/editor?paperId=${activePaper.id}&action=export-pdf`)
+          }
+          onExportWord={() =>
+            router.push(`/editor?paperId=${activePaper.id}&action=export-docx`)
+          }
           onExportAnswerScriptPDF={() => {
-            if (activePaper.answerScriptId) {
+            if (activePaper.answerScriptId)
               router.push(
                 `/editor?paperId=${activePaper.answerScriptId}&action=export-pdf&exportType=answer_script`,
               );
-            }
           }}
           onDelete={() => handleDeletePaper(activePaper.id)}
         />
       )}
     </div>
+  );
+}
+
+function SetActionButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
