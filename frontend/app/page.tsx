@@ -2,15 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Sora } from "next/font/google";
 import Grainient from "@/components/Grainient";
 import { useEffect, useState } from "react";
 import { getAccessToken } from "@/lib/token-storage";
-
-const sora = Sora({
-  subsets: ["latin"],
-  weight: ["400", "600"],
-});
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -22,7 +16,7 @@ export default function Home() {
 
   return (
     <main
-      className={`${sora.className} relative min-h-dvh overflow-hidden bg-neutral-950 text-neutral-900`}
+      className="relative min-h-dvh overflow-hidden bg-neutral-950 text-neutral-900"
     >
       <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
         <Grainient

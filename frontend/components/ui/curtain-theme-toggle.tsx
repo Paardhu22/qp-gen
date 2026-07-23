@@ -233,7 +233,7 @@ export function ThemeToggle({
     alignItems: "center",
     justifyContent: "space-between",
     padding: isAppBar ? "0 24px" : "0",
-    fontFamily: "system-ui, -apple-system, sans-serif",
+    fontFamily: "var(--font-sans, system-ui, -apple-system, sans-serif)",
   };
 
   const btnScale = pressed ? 0.96 : hovered ? 1.1 : 1;
