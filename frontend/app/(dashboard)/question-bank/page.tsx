@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   fetchPapers,
+  fetchPaper,
   deletePaper,
   fetchJson,
   generateAnswerScript,
@@ -13,16 +14,22 @@ import {
   Search,
   Trash2,
   Loader2,
-  MoreHorizontal,
   Eye,
   Key,
   RefreshCcw,
   FileDown,
-  X,
   AlertTriangle,
+  ArrowLeft,
+  Pencil,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { PaperFromBank } from "@/components/paper-from-bank";
+import { PaperPreview } from "@/components/paper-preview";
+import {
+  computePaperBreakdown,
+  questionTypeLabel,
+  type PaperBreakdown,
+} from "@/lib/paper-breakdown";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,7 +59,7 @@ type Paper = {
   id: string;
   title: string;
   projectName?: string;
-  answerScriptId?: string | null;   // DB-stored link to the answer script paper
+  answerScriptId?: string | null; // DB-stored link to the answer script paper
   created_at?: string;
   updated_at?: string;
 };
@@ -129,16 +136,15 @@ function isAnswerScriptPaper(paper: Paper): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Actions Modal
+// Split view — breakdown (left) + preview (right)
 // ---------------------------------------------------------------------------
 
-interface ActionsModalProps {
+interface PaperDetailSplitProps {
   paper: ParsedPaper;
-  answerScriptId: string | null;
   isGenerating: boolean;
   generationError?: string;
-  onClose: () => void;
-  onViewPaper: () => void;
+  onBack: () => void;
+  onOpenEditor: () => void;
   onGenerateAnswerScript: () => void;
   onViewAnswerScript: () => void;
   onExportPDF: () => void;
@@ -147,237 +153,312 @@ interface ActionsModalProps {
   onDelete: () => void;
 }
 
-function ActionsModal({
+function StatTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2.5">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="text-xl font-semibold leading-tight text-foreground">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function PaperDetailSplit({
   paper,
-  answerScriptId,
   isGenerating,
   generationError,
-  onClose,
-  onViewPaper,
+  onBack,
+  onOpenEditor,
   onGenerateAnswerScript,
   onViewAnswerScript,
   onExportPDF,
   onExportWord,
   onExportAnswerScriptPDF,
   onDelete,
-}: ActionsModalProps) {
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const hasAnswerScript = Boolean(answerScriptId);
+}: PaperDetailSplitProps) {
+  const hasAnswerScript = Boolean(paper.answerScriptId);
 
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) onClose();
-  };
+  // Preview can show the question paper or (if generated) its answer script.
+  const [previewTarget, setPreviewTarget] = useState<"paper" | "answer">("paper");
 
+  // Content caches keyed by the paper we fetch (question paper + answer script).
+  const [paperContent, setPaperContent] = useState<string | undefined>(undefined);
+  const [answerContent, setAnswerContent] = useState<string | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Load the question paper's content when the selected paper changes.
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    setPreviewTarget("paper");
+    setAnswerContent(undefined);
+    fetchPaper<{ content?: string }>(paper.id)
+      .then((data) => {
+        if (!cancelled) setPaperContent(data?.content ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Failed to load paper content.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
     };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [paper.id]);
 
-  type ActionItem = {
-    id: string;
-    icon: React.ReactNode;
-    label: string;
-    sublabel?: string;
-    disabled?: boolean;
-    danger?: boolean;
-    loading?: boolean;
-    onClick: () => void;
-    dividerAfter?: boolean;
-  };
+  // Lazily load the answer script content the first time it's previewed.
+  useEffect(() => {
+    if (previewTarget !== "answer" || !paper.answerScriptId) return;
+    if (answerContent !== undefined) return;
+    let cancelled = false;
+    fetchPaper<{ content?: string }>(paper.answerScriptId)
+      .then((data) => {
+        if (!cancelled) setAnswerContent(data?.content ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) toast.error("Failed to load answer script.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewTarget, paper.answerScriptId, answerContent]);
 
-  const actions: ActionItem[] = [
-    {
-      id: "view",
-      icon: <Eye className="h-4 w-4" />,
-      label: "View Question Paper",
-      sublabel: "Open in editor",
-      onClick: onViewPaper,
-    },
-    {
-      id: "generate",
-      icon: isGenerating ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : hasAnswerScript ? (
-        <RefreshCcw className="h-4 w-4" />
-      ) : (
-        <Key className="h-4 w-4" />
-      ),
-      label: hasAnswerScript
-        ? "Regenerate Answer Script"
-        : "Generate Answer Script",
-      sublabel: isGenerating
-        ? "Generating, please wait…"
-        : hasAnswerScript
-        ? "Override existing answer script with a new one"
-        : "AI-generate an answer key for this paper",
-      disabled: isGenerating,
-      loading: isGenerating,
-      onClick: onGenerateAnswerScript,
-      dividerAfter: true,
-    },
-    {
-      id: "view-answer",
-      icon: <Eye className="h-4 w-4" />,
-      label: "View Answer Script",
-      sublabel: hasAnswerScript
-        ? "Open generated answer key"
-        : "Generate answer script first",
-      disabled: !hasAnswerScript || isGenerating,
-      onClick: onViewAnswerScript,
-      dividerAfter: true,
-    },
-    {
-      id: "export-pdf",
-      icon: <FileDown className="h-4 w-4" />,
-      label: "Export as PDF",
-      sublabel: "Download question paper as PDF",
-      onClick: onExportPDF,
-    },
-    {
-      id: "export-word",
-      icon: <FileDown className="h-4 w-4" />,
-      label: "Export as Word Document",
-      sublabel: "Download question paper as .docx",
-      onClick: onExportWord,
-    },
-    {
-      id: "export-answer-pdf",
-      icon: <FileDown className="h-4 w-4" />,
-      label: "Export Answer Script as PDF",
-      sublabel: hasAnswerScript
-        ? "Download answer key as PDF"
-        : "Generate answer script first",
-      disabled: !hasAnswerScript || isGenerating,
-      onClick: onExportAnswerScriptPDF,
-      dividerAfter: true,
-    },
-    {
-      id: "delete",
-      icon: <Trash2 className="h-4 w-4" />,
-      label: "Delete Paper",
-      sublabel: hasAnswerScript
-        ? "Also removes the linked answer script"
-        : undefined,
-      danger: true,
-      onClick: onDelete,
-    },
-  ];
+  // The breakdown always describes the QUESTION paper, not the answer script.
+  const breakdown: PaperBreakdown = useMemo(
+    () => computePaperBreakdown(paperContent),
+    [paperContent],
+  );
+
+  const previewContent = previewTarget === "answer" ? answerContent : paperContent;
+
+  const typeEntries = Object.entries(breakdown.typeDistribution).sort(
+    (a, b) => b[1] - a[1],
+  );
 
   return (
-    <div
-      ref={overlayRef}
-      onClick={handleBackdropClick}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-    >
-      <div
-        className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex shrink-0 items-start justify-between px-5 py-4 border-b border-border">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold text-foreground">Actions</h2>
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">
-              {paper.title}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="ml-3 p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
-          >
-            <X className="h-4 w-4" />
-          </button>
+    <div className="flex h-full flex-col bg-background">
+      {/* Top bar */}
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3 sm:px-6">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-base font-semibold leading-tight text-foreground">
+            {paper.title}
+          </h1>
+          <p className="truncate text-xs text-muted-foreground">
+            {paper.classLabel} · {paper.subjectLabel}
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={onOpenEditor}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          <Pencil className="h-4 w-4" />
+          Open in editor
+        </button>
+      </div>
 
-        {/* Generation error banner */}
-        {generationError && !isGenerating && (
-          <div className="flex items-start gap-2 mx-4 mt-3 px-3 py-2.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg">
-            <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0 mt-0.5" />
-            <p className="text-xs text-red-600 dark:text-red-400">
-              {generationError}
-            </p>
-          </div>
-        )}
+      {/* Body: breakdown (left) + preview (right) */}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {/* Left — breakdown */}
+        <aside className="w-full shrink-0 space-y-5 overflow-y-auto border-b border-border p-4 sm:p-5 lg:w-[38%] lg:max-w-md lg:border-b-0 lg:border-r">
+          {generationError && !isGenerating && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+              <p className="text-xs text-destructive">{generationError}</p>
+            </div>
+          )}
 
-        {/* Action list */}
-        <div className="py-2 flex-1 overflow-y-auto overscroll-contain">
-          {actions.map((action) => (
-            <div key={action.id}>
+          {/* At-a-glance */}
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Overview
+            </h2>
+            <div className="grid grid-cols-2 gap-2">
+              <StatTile label="Questions" value={breakdown.totalQuestions} />
+              <StatTile label="Total marks" value={breakdown.totalMarks} />
+              <StatTile label="Sections" value={breakdown.sectionCount} />
+              <StatTile
+                label="Updated"
+                value={formatDate(paper.updated_at ?? paper.created_at)}
+              />
+            </div>
+          </section>
+
+          {/* Section breakdown */}
+          {breakdown.sections.length > 0 && (
+            <section className="space-y-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Sections
+              </h2>
+              <div className="divide-y divide-border rounded-lg border border-border">
+                {breakdown.sections.map((s, i) => (
+                  <div
+                    key={`${s.title}-${i}`}
+                    className="flex items-center justify-between gap-3 px-3 py-2"
+                  >
+                    <span className="min-w-0 truncate text-sm font-medium text-foreground">
+                      {s.title}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {s.questionCount} Q · {s.marks} m
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Question type distribution */}
+          {typeEntries.length > 0 && (
+            <section className="space-y-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Question types
+              </h2>
+              <div className="flex flex-wrap gap-1.5">
+                {typeEntries.map(([code, count]) => (
+                  <span
+                    key={code}
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs text-foreground"
+                  >
+                    {questionTypeLabel(code)}
+                    <span className="font-semibold text-muted-foreground">{count}</span>
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Answer script */}
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Answer script
+            </h2>
+            {hasAnswerScript ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-full border border-success/30 bg-success/10 px-2.5 py-1 text-xs font-medium text-success">
+                  <Key className="h-3 w-3" />
+                  Ready
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPreviewTarget((t) => (t === "answer" ? "paper" : "answer"))
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  {previewTarget === "answer" ? "Show question paper" : "Preview answer script"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onGenerateAnswerScript}
+                  disabled={isGenerating}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  {isGenerating ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCcw className="h-3.5 w-3.5" />
+                  )}
+                  Regenerate
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
-                disabled={action.disabled}
-                onClick={() => {
-                  if (!action.disabled) {
-                    action.onClick();
-                    // Close the modal after click unless it's the generate action
-                    // (so the user can see the loading state inline)
-                    if (action.id !== "generate") onClose();
-                  }
-                }}
-                className={cn(
-                  "w-full flex items-center gap-3.5 px-5 py-3 text-left transition-colors",
-                  "disabled:opacity-40 disabled:cursor-not-allowed",
-                  action.danger
-                    ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:hover:bg-transparent"
-                    : "text-foreground hover:bg-accent disabled:hover:bg-transparent",
-                  action.loading && "cursor-wait",
-                )}
+                onClick={onGenerateAnswerScript}
+                disabled={isGenerating}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
-                <span
-                  className={cn(
-                    "shrink-0",
-                    action.danger
-                      ? "text-red-500"
-                      : action.disabled
-                      ? "text-muted-foreground/50"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  {action.icon}
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span
-                    className={cn(
-                      "block text-sm font-medium leading-snug",
-                      action.danger && "text-red-500",
-                    )}
-                  >
-                    {action.label}
-                  </span>
-                  {action.sublabel && (
-                    <span
-                      className={cn(
-                        "block text-[11px] leading-tight mt-0.5",
-                        action.danger
-                          ? "text-red-400/80"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      {action.sublabel}
-                    </span>
-                  )}
-                </span>
+                {isGenerating ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Key className="h-3.5 w-3.5" />
+                )}
+                {isGenerating ? "Generating…" : "Generate answer script"}
               </button>
-              {action.dividerAfter && (
-                <div className="mx-5 border-t border-border/60" />
-              )}
-            </div>
-          ))}
-        </div>
+            )}
+          </section>
 
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-border flex justify-end shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 text-sm font-medium rounded-lg border border-border bg-background hover:bg-accent text-foreground transition-colors"
-          >
-            Close
-          </button>
+          {/* Actions */}
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Actions
+            </h2>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={onExportPDF}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+              >
+                <FileDown className="h-3.5 w-3.5" />
+                Export PDF
+              </button>
+              <button
+                type="button"
+                onClick={onExportWord}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+              >
+                <FileDown className="h-3.5 w-3.5" />
+                Export Word
+              </button>
+              <button
+                type="button"
+                onClick={onExportAnswerScriptPDF}
+                disabled={!hasAnswerScript || isGenerating}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-40"
+              >
+                <FileDown className="h-3.5 w-3.5" />
+                Answer PDF
+              </button>
+              <button
+                type="button"
+                onClick={onViewAnswerScript}
+                disabled={!hasAnswerScript || isGenerating}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-40"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit answers
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-destructive/40 px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete paper
+            </button>
+          </section>
+        </aside>
+
+        {/* Right — preview */}
+        <div className="relative min-h-0 flex-1">
+          {loading ? (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : loadError ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {loadError}
+            </div>
+          ) : (
+            <PaperPreview key={previewTarget} content={previewContent} />
+          )}
         </div>
       </div>
     </div>
@@ -398,10 +479,8 @@ export default function QuestionBankPage() {
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [isClearing, setIsClearing] = useState(false);
 
-  // Which paper's actions modal is open
-  const [activeActionsPaperId, setActiveActionsPaperId] = useState<
-    string | null
-  >(null);
+  // Which paper's split preview is open
+  const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
 
   // Per-paper generation loading / error state (in-flight only — not persisted)
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
@@ -428,7 +507,7 @@ export default function QuestionBankPage() {
     [papers],
   );
 
-  // Only show question papers in the list (answer scripts are accessed via Actions)
+  // Only show question papers in the list (answer scripts are accessed via the split view)
   const questionPapers = useMemo(
     () => parsedPapers.filter((p) => !isAnswerScriptPaper(p)),
     [parsedPapers],
@@ -492,15 +571,18 @@ export default function QuestionBankPage() {
         }
       }
 
-      setPapers((prev) =>
-        prev.filter((p) => p.id !== id && p.id !== asId),
-      );
+      setPapers((prev) => prev.filter((p) => p.id !== id && p.id !== asId));
+
+      // If the deleted paper was open in the split view, return to the list.
+      setSelectedPaperId((cur) => (cur === id ? null : cur));
 
       const userId = sessionData?.user?.id;
       if (userId) {
         await deleteLiveDocument(getLiveDocumentId(userId, id)).catch(() => {});
         if (asId) {
-          await deleteLiveDocument(getLiveDocumentId(userId, asId)).catch(() => {});
+          await deleteLiveDocument(getLiveDocumentId(userId, asId)).catch(
+            () => {},
+          );
         }
       }
 
@@ -527,7 +609,6 @@ export default function QuestionBankPage() {
         onClick: () => deletePaperById(id),
       },
     });
-    setActiveActionsPaperId(null);
   }
 
   async function handleClearAll() {
@@ -535,6 +616,7 @@ export default function QuestionBankPage() {
     try {
       await fetchJson("/api/projects/papers/clear", { method: "DELETE" });
       setPapers([]);
+      setSelectedPaperId(null);
 
       const userId = sessionData?.user?.id;
       if (userId) {
@@ -563,8 +645,6 @@ export default function QuestionBankPage() {
       const result = await generateAnswerScript(paperId);
 
       // The backend has already saved answerScriptId on the paper row.
-      // Update local state so the UI reflects the new link immediately
-      // without needing a full refetch.
       setPapers((prev) =>
         prev.map((p) =>
           p.id === paperId
@@ -588,14 +668,51 @@ export default function QuestionBankPage() {
     }
   }
 
-  // ---- render helpers ----
-  const activePaper = activeActionsPaperId
-    ? (parsedPapers.find((p) => p.id === activeActionsPaperId) ?? null)
+  // ---- render ----
+  const selectedPaper = selectedPaperId
+    ? (parsedPapers.find((p) => p.id === selectedPaperId) ?? null)
     : null;
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  // Split preview replaces the list once a paper is selected.
+  if (selectedPaper) {
+    return (
+      <div className="h-full min-h-0 bg-background">
+        <PaperDetailSplit
+          paper={selectedPaper}
+          isGenerating={generatingIds.has(selectedPaper.id)}
+          generationError={generationErrors[selectedPaper.id]}
+          onBack={() => setSelectedPaperId(null)}
+          onOpenEditor={() =>
+            router.push(`/editor?paperId=${selectedPaper.id}`)
+          }
+          onGenerateAnswerScript={() =>
+            handleGenerateAnswerScript(selectedPaper.id)
+          }
+          onViewAnswerScript={() => {
+            if (selectedPaper.answerScriptId) {
+              router.push(`/editor?paperId=${selectedPaper.answerScriptId}`);
+            }
+          }}
+          onExportPDF={() =>
+            router.push(`/editor?paperId=${selectedPaper.id}&action=export-pdf`)
+          }
+          onExportWord={() =>
+            router.push(
+              `/editor?paperId=${selectedPaper.id}&action=export-docx`,
+            )
+          }
+          onExportAnswerScriptPDF={() => {
+            if (selectedPaper.answerScriptId) {
+              router.push(
+                `/editor?paperId=${selectedPaper.answerScriptId}&action=export-pdf&exportType=answer_script`,
+              );
+            }
+          }}
+          onDelete={() => handleDeletePaper(selectedPaper.id)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 bg-background min-h-full">
@@ -605,13 +722,13 @@ export default function QuestionBankPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold leading-tight">Question Paper</h1>
             {!isLoading && questionPapers.length > 0 && (
-              <span className="inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-primary/10 text-primary text-xs font-bold dark:bg-primary dark:text-primary">
+              <span className="inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-primary/10 text-primary text-xs font-bold">
                 {questionPapers.length}
               </span>
             )}
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Browse and open your saved exam papers in the editor.
+            Browse, preview, and open your saved exam papers.
           </p>
         </div>
 
@@ -674,7 +791,6 @@ export default function QuestionBankPage() {
                 <div className="h-3 w-3/4 rounded bg-muted/40" />
               </div>
               <div className="h-8 w-24 rounded-lg bg-muted/40 shrink-0" />
-              <div className="h-8 w-8 rounded-lg bg-muted/40 shrink-0" />
             </div>
           ))}
         </div>
@@ -727,12 +843,10 @@ export default function QuestionBankPage() {
                         isDeleting && "opacity-50 pointer-events-none",
                       )}
                     >
-                      {/* Left: icon + text (clickable to open) */}
+                      {/* Left: icon + text (clickable to open preview) */}
                       <div
                         className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() =>
-                          router.push(`/editor?paperId=${paper.id}`)
-                        }
+                        onClick={() => setSelectedPaperId(paper.id)}
                       >
                         <div className="p-2 rounded-lg bg-primary/10 shrink-0">
                           <FileText className="h-5 w-5 text-primary" />
@@ -760,13 +874,13 @@ export default function QuestionBankPage() {
                           </div>
                           {/* Answer script status badge */}
                           {hasAnswerScript && !isGenerating && (
-                            <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded px-1.5 py-0.5">
+                            <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-success bg-success/10 border border-success/30 rounded px-1.5 py-0.5">
                               <Key className="h-2.5 w-2.5" />
                               Answer Script Ready
                             </span>
                           )}
                           {isGenerating && (
-                            <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-1.5 py-0.5">
+                            <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-warning bg-warning/10 border border-warning/30 rounded px-1.5 py-0.5">
                               <Loader2 className="h-2.5 w-2.5 animate-spin" />
                               Generating Answer Script…
                             </span>
@@ -774,22 +888,22 @@ export default function QuestionBankPage() {
                         </div>
                       </div>
 
-                      {/* Right: Actions + Delete */}
+                      {/* Right: Preview + Delete */}
                       <div className="flex items-center gap-2 shrink-0">
                         <button
                           type="button"
-                          onClick={() => setActiveActionsPaperId(paper.id)}
+                          onClick={() => setSelectedPaperId(paper.id)}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40 transition-all"
                         >
-                          <MoreHorizontal className="h-3.5 w-3.5" />
-                          Actions
+                          <Eye className="h-3.5 w-3.5" />
+                          Preview
                         </button>
 
                         <button
                           type="button"
                           aria-label="Delete paper"
                           onClick={() => handleDeletePaper(paper.id)}
-                          className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -801,47 +915,6 @@ export default function QuestionBankPage() {
             </section>
           ))}
         </div>
-      )}
-
-      {/* ── Actions Modal ─────────────────────────────────────────────────── */}
-      {activePaper && (
-        <ActionsModal
-          paper={activePaper}
-          answerScriptId={activePaper.answerScriptId ?? null}
-          isGenerating={generatingIds.has(activePaper.id)}
-          generationError={generationErrors[activePaper.id]}
-          onClose={() => setActiveActionsPaperId(null)}
-          onViewPaper={() => {
-            router.push(`/editor?paperId=${activePaper.id}`);
-          }}
-          onGenerateAnswerScript={() => {
-            handleGenerateAnswerScript(activePaper.id);
-            // Keep modal open — user sees live loading badge on the row
-          }}
-          onViewAnswerScript={() => {
-            if (activePaper.answerScriptId) {
-              router.push(`/editor?paperId=${activePaper.answerScriptId}`);
-            }
-          }}
-          onExportPDF={() => {
-            router.push(
-              `/editor?paperId=${activePaper.id}&action=export-pdf`,
-            );
-          }}
-          onExportWord={() => {
-            router.push(
-              `/editor?paperId=${activePaper.id}&action=export-docx`,
-            );
-          }}
-          onExportAnswerScriptPDF={() => {
-            if (activePaper.answerScriptId) {
-              router.push(
-                `/editor?paperId=${activePaper.answerScriptId}&action=export-pdf&exportType=answer_script`,
-              );
-            }
-          }}
-          onDelete={() => handleDeletePaper(activePaper.id)}
-        />
       )}
     </div>
   );
