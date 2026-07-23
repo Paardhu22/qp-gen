@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   fetchPapers,
-  fetchPaper,
   deletePaper,
   fetchJson,
   generateAnswerScript,
 } from "@/lib/api-client";
+// getPaperAction unwraps the paper's `sets[]` array to the Set A content the
+// preview needs (the pool refactor moved content out of a top-level field).
+import { getPaperAction } from "@/actions/savePaper";
 import {
   BookOpen,
   FileText,
@@ -197,7 +199,7 @@ function PaperDetailSplit({
     setLoadError(null);
     setPreviewTarget("paper");
     setAnswerContent(undefined);
-    fetchPaper<{ content?: string }>(paper.id)
+    getPaperAction(paper.id)
       .then((data) => {
         if (!cancelled) setPaperContent(data?.content ?? "");
       })
@@ -217,7 +219,7 @@ function PaperDetailSplit({
     if (previewTarget !== "answer" || !paper.answerScriptId) return;
     if (answerContent !== undefined) return;
     let cancelled = false;
-    fetchPaper<{ content?: string }>(paper.answerScriptId)
+    getPaperAction(paper.answerScriptId)
       .then((data) => {
         if (!cancelled) setAnswerContent(data?.content ?? "");
       })
