@@ -4,11 +4,20 @@ import "../styles/editor.css";
 import "katex/dist/katex.min.css";
 import { Providers } from "@/components/providers";
 import { Toaster } from "sonner";
-import { Sora } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 
-const sora = Sora({
+// Registered as CSS variables (not just `.className`) so the Tailwind
+// `--font-sans` / `--font-mono` / `--font-heading` tokens in globals.css
+// resolve to a real font instead of the browser default. See globals.css
+// `@theme inline`.
+const geistSans = Geist({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-geist-sans",
+});
+
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
 });
 
 export const metadata: Metadata = {
@@ -35,8 +44,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${sora.className} bg-background text-foreground`}>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable}`}
+    >
+      <body className="font-sans bg-background text-foreground">
         <Providers>{children}</Providers>
         <Toaster position="top-right" richColors theme="system" />
       </body>
