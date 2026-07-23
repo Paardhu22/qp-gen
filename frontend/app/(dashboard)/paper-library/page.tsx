@@ -269,7 +269,7 @@ export default function SavedQuestionsPage() {
       })
       .catch(() => {
         if (!cancelled)
-          toast.error("Failed to load saved questions. Please refresh.");
+          toast.error("Failed to load question bank. Please refresh.");
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -303,10 +303,15 @@ export default function SavedQuestionsPage() {
     () => distinct(allQuestions.map((q) => q.type)),
     [allQuestions],
   );
-  const chapterOptions = useMemo(
-    () => distinct(allQuestions.map((q) => q.chapterLabel)),
-    [allQuestions],
-  );
+  const chapterOptions = useMemo(() => {
+    if (fClass === ALL || fSubject === ALL) {
+      return [];
+    }
+    const filtered = allQuestions.filter(
+      (q) => q.classLabel === fClass && q.subjectLabel === fSubject
+    );
+    return distinct(filtered.map((q) => q.chapterLabel));
+  }, [allQuestions, fClass, fSubject]);
   const difficultyOptions = useMemo(
     () => distinct(allQuestions.map((q) => q.difficulty)),
     [allQuestions],
@@ -315,6 +320,12 @@ export default function SavedQuestionsPage() {
     () => distinct(allQuestions.map((q) => q.bloom_taxonomy)),
     [allQuestions],
   );
+
+  useEffect(() => {
+    if (fChapter !== ALL && !chapterOptions.includes(fChapter)) {
+      setFChapter(ALL);
+    }
+  }, [chapterOptions, fChapter]);
 
   const filtered = useMemo<SavedQuestion[]>(() => {
     const term = search.trim().toLowerCase();
@@ -495,7 +506,7 @@ export default function SavedQuestionsPage() {
       await fetchJson("/api/projects/questions/clear", { method: "DELETE" });
       setProjects([]);
       setSelectedIds(new Set());
-      toast.success("All saved questions cleared.");
+      toast.success("Question bank cleared.");
     } catch {
       toast.error("Failed to clear questions. Please try again.");
     } finally {
@@ -531,7 +542,7 @@ export default function SavedQuestionsPage() {
           <div className="flex items-center gap-2.5">
             <ListChecks className="h-5 w-5 text-indigo-500" />
             <h1 className="text-lg font-semibold tracking-tight">
-              Saved Questions
+              Question Bank
             </h1>
             <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
               {isLoading ? "…" : allQuestions.length}
@@ -560,10 +571,10 @@ export default function SavedQuestionsPage() {
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>
-                      Clear all saved questions?
+                      Clear question bank?
                     </AlertDialogTitle>
                     <AlertDialogDescription>
-                      This will permanently delete every saved question. This
+                      This will permanently delete every question in the bank. This
                       action cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
@@ -603,12 +614,14 @@ export default function SavedQuestionsPage() {
             options={typeOptions}
             mapOption={(val) => typeMap.get(val) || val}
           />
-          <FilterSelect
-            label="Chapter"
-            value={fChapter}
-            onChange={setFChapter}
-            options={chapterOptions}
-          />
+          {fClass !== ALL && fSubject !== ALL && (
+            <FilterSelect
+              label="Chapter"
+              value={fChapter}
+              onChange={setFChapter}
+              options={chapterOptions}
+            />
+          )}
           <FilterSelect
             label="Difficulty"
             value={fDifficulty}
@@ -678,7 +691,7 @@ export default function SavedQuestionsPage() {
             <p className="text-sm font-medium">
               {activeFilterCount > 0
                 ? "No questions match your filters."
-                : "No saved questions yet."}
+                : "Question bank is empty."}
             </p>
             {activeFilterCount > 0 ? (
               <button

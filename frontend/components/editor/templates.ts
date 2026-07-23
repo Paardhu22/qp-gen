@@ -2,7 +2,7 @@ export const templates = {
   cbse: `
     <div data-type="paper-header-block">
       <h1>COMPUTER APPLICATIONS - CODE 165</h1>
-      <h2>SAMPLE QUESTION PAPER (THEORY)</h2>
+      <h2>SAMPLE PAPER (THEORY)</h2>
       <p>CLASS X (2025-26)</p>
       <table>
         <tbody>

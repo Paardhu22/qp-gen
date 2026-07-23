@@ -78,7 +78,7 @@ export default function EditorPage() {
   const [questionSubject, setQuestionSubject] = useState("");
   const [questionTopic, setQuestionTopic] = useState("");
 
-  // Question Paper Browser state
+  // Question Bank Browser state
   const questionBankBrowserOpen = useEditorStore(
     (state) => state.questionBankBrowserOpen,
   );
@@ -265,7 +265,7 @@ export default function EditorPage() {
     | "answer_script"
     | "question_bank";
 
-  // Deep-link to a specific set (A/B/C) from the Question Paper page's per-set
+  // Deep-link to a specific set (A/B/C) from the Papers page's per-set
   // Preview / Export / Print actions. Only re-applies on an actual navigation
   // (searchParams identity change), so it never fights a manual tab click.
   const setParam = searchParams.get("set");
@@ -500,13 +500,13 @@ export default function EditorPage() {
       };
     }
 
-    if (paperId === "current") {
+    if (paperId && paperId.startsWith("current")) {
       const loadLocalDraft = async () => {
         const userId = sessionData?.user?.id;
         if (!userId) return;
         try {
           const draft = await getLiveDocument(
-            getLiveDocumentId(userId, "current"),
+            getLiveDocumentId(userId, paperId),
           );
           if (draft && active) {
             setPaperContent(
@@ -517,7 +517,7 @@ export default function EditorPage() {
             setPaperClass(draft.metadata?.className || "");
             setPaperSubject(draft.metadata?.subject || "");
             setPaperUpdatedAt(new Date(draft.updatedAt).toISOString());
-            setCurrentPaperId("current");
+            setCurrentPaperId(paperId);
             setPaperError(null);
             setHsatSources(draft.metadata?.hsatSources || []);
             setUploadedDocs(draft.metadata?.uploadedDocs || []);
@@ -528,7 +528,7 @@ export default function EditorPage() {
             setPaperClass("");
             setPaperSubject("");
             setPaperUpdatedAt(null);
-            setCurrentPaperId("current");
+            setCurrentPaperId(paperId);
             setPaperError(null);
             setHsatSources([]);
             setUploadedDocs([]);
@@ -788,7 +788,7 @@ export default function EditorPage() {
       const res = await saveQuestionsToBank(payload);
       setSaveQuestionModalOpen(false);
       toast.success(
-        `Saved ${res.count} question(s) to the Question Paper successfully!`,
+        `Saved ${res.count} question(s) to the Paper successfully!`,
       );
 
       // Reset form
@@ -1082,9 +1082,9 @@ export default function EditorPage() {
       >
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Save to Question Paper</DialogTitle>
+            <DialogTitle>Save to Paper</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Save {questionsToSave.length} question(s) to the Question Paper
+              Save {questionsToSave.length} question(s) to the Paper
               collection.
             </DialogDescription>
           </DialogHeader>
@@ -1139,16 +1139,16 @@ export default function EditorPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* Question Paper Browser Modal */}
+      {/* Question Bank Browser Modal */}
       <Dialog
         open={questionBankBrowserOpen}
         onOpenChange={setQuestionBankBrowserOpen}
       >
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[700px] max-h-[85dvh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Question Paper Browser</DialogTitle>
+            <DialogTitle>Question Bank</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Search and select saved questions to add to your current paper.
+              Search and select questions from the bank to add to your current paper.
             </DialogDescription>
           </DialogHeader>
           <div className="flex-shrink-0 py-2">

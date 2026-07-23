@@ -11,7 +11,7 @@ import { GripVertical, Trash, Plus } from "lucide-react";
 // QuestionBlock - Enhanced from QuestionItem
 // ==========================================
 
-const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
+const QuestionComponent = ({ node, updateAttributes, deleteNode, editor }: any) => {
   // C — OR-branch labels ("31(A)") have no trailing dot; standalone
   // questions ("31.") do. subLabel wins when set.
   const subLabel = node.attrs.subLabel;
@@ -22,14 +22,16 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
     : "";
   return (
     <NodeViewWrapper className="question-block group">
-      <div
-        data-drag-handle
-        contentEditable={false}
-        className="block-drag-handle"
-        title="Drag to reorder"
-      >
-        <GripVertical className="w-3.5 h-3.5" />
-      </div>
+      {editor?.isEditable && (
+        <div
+          data-drag-handle
+          contentEditable={false}
+          className="block-drag-handle"
+          title="Drag to reorder"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
+      )}
       <div className="question-row">
         <div
           className="question-cell question-no"
@@ -46,34 +48,40 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode }: any) => {
           contentEditable={false}
           style={{ cursor: "default" }}
         >
-          <input
-            type="number"
-            min={0}
-            step={1}
-            value={Number(node.attrs.marks ?? 1)}
-            onChange={(event) => {
-              const nextValue = Number(event.target.value);
-              updateAttributes({
-                marks: Number.isNaN(nextValue) ? 1 : nextValue,
-              });
-            }}
-            className="question-marks-input"
-            title="Marks for this question"
-            onMouseDown={(e) => e.stopPropagation()}
-          />
+          {editor?.isEditable ? (
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={Number(node.attrs.marks ?? 1)}
+              onChange={(event) => {
+                const nextValue = Number(event.target.value);
+                updateAttributes({
+                  marks: Number.isNaN(nextValue) ? 1 : nextValue,
+                });
+              }}
+              className="question-marks-input"
+              title="Marks for this question"
+              onMouseDown={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <span className="question-marks-input-readonly">{node.attrs.marks ?? 1}</span>
+          )}
           <span className="question-marks-label">M</span>
         </div>
       </div>
-      <div className="question-controls" contentEditable={false}>
-        <button
-          onClick={deleteNode}
-          onMouseDown={(e) => e.preventDefault()}
-          className="question-delete"
-          title="Delete question"
-        >
-          <Trash className="w-3 h-3" />
-        </button>
-      </div>
+      {editor?.isEditable && (
+        <div className="question-controls" contentEditable={false}>
+          <button
+            onClick={deleteNode}
+            onMouseDown={(e) => e.preventDefault()}
+            className="question-delete"
+            title="Delete question"
+          >
+            <Trash className="w-3 h-3" />
+          </button>
+        </div>
+      )}
     </NodeViewWrapper>
   );
 };
@@ -214,14 +222,16 @@ const GroupedQuestionComponent = ({ node, updateAttributes, deleteNode, editor, 
       className="question-block grouped-question-block group"
       data-label-style={labelStyle}
     >
-      <div
-        data-drag-handle
-        contentEditable={false}
-        className="block-drag-handle"
-        title="Drag to reorder"
-      >
-        <GripVertical className="w-3.5 h-3.5" />
-      </div>
+      {editor?.isEditable && (
+        <div
+          data-drag-handle
+          contentEditable={false}
+          className="block-drag-handle"
+          title="Drag to reorder"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
+      )}
       <div className="question-row">
         <div
           className="question-cell question-no"
@@ -238,63 +248,69 @@ const GroupedQuestionComponent = ({ node, updateAttributes, deleteNode, editor, 
           contentEditable={false}
           style={{ cursor: "default" }}
         >
-          <input
-            type="number"
-            min={0}
-            step={1}
-            value={Number(node.attrs.marks ?? 1)}
-            onChange={(event) => {
-              const nextValue = Number(event.target.value);
-              updateAttributes({
-                marks: Number.isNaN(nextValue) ? 1 : nextValue,
-              });
-            }}
-            className="question-marks-input"
-            title="Marks for this question"
-            onMouseDown={(e) => e.stopPropagation()}
-          />
+          {editor?.isEditable ? (
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={Number(node.attrs.marks ?? 1)}
+              onChange={(event) => {
+                const nextValue = Number(event.target.value);
+                updateAttributes({
+                  marks: Number.isNaN(nextValue) ? 1 : nextValue,
+                });
+              }}
+              className="question-marks-input"
+              title="Marks for this question"
+              onMouseDown={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <span className="question-marks-input-readonly">{node.attrs.marks ?? 1}</span>
+          )}
           <span className="question-marks-label">M</span>
         </div>
       </div>
-      <div className="question-controls" contentEditable={false}>
-        {/* Sub-label style picker */}
-        <div
-          className="question-label-style-picker"
-          title="Sub-question label style"
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          <select
-            value={labelStyle}
-            onChange={(e) =>
-              updateAttributes({ labelStyle: e.target.value as LabelStyle })
-            }
-            className="question-label-style-select"
-            onMouseDown={(e) => e.stopPropagation()}
+      {editor?.isEditable && (
+        <div className="question-controls" contentEditable={false}>
+          {/* Sub-label style picker */}
+          <div
+            className="question-label-style-picker"
+            title="Sub-question label style"
+            onMouseDown={(e) => e.preventDefault()}
           >
-            {LABEL_STYLE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            <select
+              value={labelStyle}
+              onChange={(e) =>
+                updateAttributes({ labelStyle: e.target.value as LabelStyle })
+              }
+              className="question-label-style-select"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              {LABEL_STYLE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={handleAddSubQuestion}
+            onMouseDown={(e) => e.preventDefault()}
+            className="question-add-sub"
+            title="Add sub-question"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+          <button
+            onClick={deleteNode}
+            onMouseDown={(e) => e.preventDefault()}
+            className="question-delete"
+            title="Delete question"
+          >
+            <Trash className="w-3 h-3" />
+          </button>
         </div>
-        <button
-          onClick={handleAddSubQuestion}
-          onMouseDown={(e) => e.preventDefault()}
-          className="question-add-sub"
-          title="Add sub-question"
-        >
-          <Plus className="w-3 h-3" />
-        </button>
-        <button
-          onClick={deleteNode}
-          onMouseDown={(e) => e.preventDefault()}
-          className="question-delete"
-          title="Delete question"
-        >
-          <Trash className="w-3 h-3" />
-        </button>
-      </div>
+      )}
     </NodeViewWrapper>
   );
 };
@@ -366,20 +382,22 @@ export const GroupedQuestionBlock = Node.create({
 // SectionBlock - Enhanced from SectionHeader
 // ==========================================
 
-const SectionComponent = ({ node, deleteNode }: any) => {
+const SectionComponent = ({ node, deleteNode, editor }: any) => {
   const summaryText = node.attrs?.summaryText || "";
   const instructions = node.attrs?.instructions || "";
 
   return (
     <NodeViewWrapper className="section-block group">
-      <div
-        data-drag-handle
-        contentEditable={false}
-        className="block-drag-handle"
-        title="Drag to reorder"
-      >
-        <GripVertical className="w-3.5 h-3.5" />
-      </div>
+      {editor?.isEditable && (
+        <div
+          data-drag-handle
+          contentEditable={false}
+          className="block-drag-handle"
+          title="Drag to reorder"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
+      )}
       <div className="section-header">
         <div className="section-title">
           <NodeViewContent />
@@ -395,15 +413,17 @@ const SectionComponent = ({ node, deleteNode }: any) => {
           {instructions}
         </div>
       ) : null}
-      <div className="section-controls" contentEditable={false}>
-        <button
-          onClick={deleteNode}
-          className="section-delete"
-          title="Delete Section"
-        >
-          <Trash className="w-3 h-3" />
-        </button>
-      </div>
+      {editor?.isEditable && (
+        <div className="section-controls" contentEditable={false}>
+          <button
+            onClick={deleteNode}
+            className="section-delete"
+            title="Delete Section"
+          >
+            <Trash className="w-3 h-3" />
+          </button>
+        </div>
+      )}
     </NodeViewWrapper>
   );
 };
@@ -465,19 +485,21 @@ export const SectionBlock = Node.create({
 // InstructionBlock
 // ==========================================
 
-const InstructionComponent = ({ node, deleteNode }: any) => {
+const InstructionComponent = ({ node, deleteNode, editor }: any) => {
   const summaryItems = node.attrs?.summaryItems || [];
 
   return (
     <NodeViewWrapper className="instruction-block group">
-      <div
-        data-drag-handle
-        contentEditable={false}
-        className="block-drag-handle"
-        title="Drag to reorder"
-      >
-        <GripVertical className="w-3.5 h-3.5" />
-      </div>
+      {editor?.isEditable && (
+        <div
+          data-drag-handle
+          contentEditable={false}
+          className="block-drag-handle"
+          title="Drag to reorder"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
+      )}
       <div className="instruction-header" contentEditable={false}>
         General Instructions
       </div>
@@ -491,15 +513,17 @@ const InstructionComponent = ({ node, deleteNode }: any) => {
       <div className="instruction-content editable-container">
         <NodeViewContent />
       </div>
-      <div className="instruction-controls" contentEditable={false}>
-        <button
-          onClick={deleteNode}
-          className="instruction-delete"
-          title="Delete Instructions"
-        >
-          <Trash className="w-3 h-3" />
-        </button>
-      </div>
+      {editor?.isEditable && (
+        <div className="instruction-controls" contentEditable={false}>
+          <button
+            onClick={deleteNode}
+            className="instruction-delete"
+            title="Delete Instructions"
+          >
+            <Trash className="w-3 h-3" />
+          </button>
+        </div>
+      )}
     </NodeViewWrapper>
   );
 };
@@ -563,33 +587,37 @@ export const InstructionBlock = Node.create({
 // QuestionGroupBlock (OR / Choice questions)
 // ==========================================
 
-const QuestionGroupComponent = ({ node, deleteNode }: any) => {
+const QuestionGroupComponent = ({ node, deleteNode, editor }: any) => {
   // C — Board-paper OR groups are rendered as bare branches
   // ("31(A) … OR 31(B) …"). The parent number lives on each branch's
   // subLabel (via updateQuestionNumbers); no "Answer any ONE of the
   // following:" header is shown.
   return (
     <NodeViewWrapper className="question-group group">
-      <div
-        data-drag-handle
-        contentEditable={false}
-        className="block-drag-handle"
-        title="Drag to reorder"
-      >
-        <GripVertical className="w-3.5 h-3.5" />
-      </div>
+      {editor?.isEditable && (
+        <div
+          data-drag-handle
+          contentEditable={false}
+          className="block-drag-handle"
+          title="Drag to reorder"
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
+      )}
       <div className="question-group-content editable-container">
         <NodeViewContent />
       </div>
-      <div className="question-group-controls" contentEditable={false}>
-        <button
-          onClick={deleteNode}
-          className="question-group-delete"
-          title="Delete Group"
-        >
-          <Trash className="w-3 h-3" />
-        </button>
-      </div>
+      {editor?.isEditable && (
+        <div className="question-group-controls" contentEditable={false}>
+          <button
+            onClick={deleteNode}
+            className="question-group-delete"
+            title="Delete Group"
+          >
+            <Trash className="w-3 h-3" />
+          </button>
+        </div>
+      )}
     </NodeViewWrapper>
   );
 };

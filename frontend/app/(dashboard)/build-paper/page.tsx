@@ -151,7 +151,7 @@ export default function BuildPaperPage() {
     );
 
     setIsBuilding(true);
-    setStatus("Loading your saved questions…");
+    setStatus("Loading your question bank…");
 
     const sections: any[] = [];
     let instructions: string[] = [];
@@ -223,7 +223,7 @@ export default function BuildPaperPage() {
       toast.success(
         `Built a ${count}-question paper${
           numSets > 1 ? ` (${numSets} sets)` : ""
-        } from your saved questions.`,
+        } from your question bank.`,
       );
       router.push("/editor");
     } catch (error: any) {
@@ -244,7 +244,7 @@ export default function BuildPaperPage() {
             <div className="flex items-center gap-2.5">
               <Wand2 className="h-5 w-5 text-indigo-500" />
               <h1 className="text-lg font-semibold tracking-tight">
-                Build Paper
+                Builder
               </h1>
               <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                 {isLoading ? "…" : `${chapters.length} chapters`}

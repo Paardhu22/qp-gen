@@ -922,167 +922,7 @@ export const TiptapEditor = ({
   const editor = useEditor(
     {
       immediatelyRender: false,
-      extensions: [
-        PaginatedDocument,
-        PageNode,
-        PaginationEngine,
-        StarterKit.configure({
-          document: false,
-          heading: {
-            levels: [1, 2, 3, 4, 5, 6],
-          },
-          dropcursor: false,
-          gapcursor: false,
-          hardBreak: false,
-          underline: false,
-          // Disable the built-in OrderedList so we can add our own version
-          // without the auto-transform input rule (typing "1." at a line start
-          // must NOT convert to an ordered list — it breaks English paragraph
-          // questions that legitimately begin "1. Explain...").
-          orderedList: false,
-        }),
-        // OrderedList without the "1. " → list auto-transform input rule.
-        // List toolbar buttons and keyboard shortcut (Mod-Shift-7) still work.
-        OrderedList.extend({ addInputRules() { return []; } }),
-        Typography,
-        Underline,
-        Superscript,
-        Subscript,
-        Highlight.configure({
-          multicolor: true,
-        }),
-        TextStyle,
-        Color,
-        FontFamily,
-        FontSize,
-        LineHeight,
-        IndentExtension,
-        TextAlign.configure({
-          types: [
-            "heading",
-            "paragraph",
-            "questionBlock",
-            "groupedQuestionBlock",
-            "sectionBlock",
-            "instructionBlock",
-          ],
-        }),
-        // ImageResize extends @tiptap/extension-image — do NOT also register
-        // the base Image extension, or the two will conflict on the 'image' node name.
-        ImageResize.configure({
-          inline: true,
-          allowBase64: true,
-        }),
-        // Block-level draggable image with resize + alignment controls
-        FloatImage,
-        // Issue 2 — placeholders are ProseMirror decorations, never real
-        // text nodes. New blocks inserted by the toolbar are EMPTY; the
-        // greyed prompt shown to the user comes from this extension and
-        // disappears on first keystroke. `includeChildren: true` is what
-        // lets us decorate paragraphs *inside* custom block nodes such as
-        // questionBlock / groupedQuestionBlock (defaults to false). Using
-        // `showOnlyCurrent: false` is what lets us light up every empty
-        // option / sub-question simultaneously, not just the focused one.
-        Placeholder.configure({
-          includeChildren: true,
-          showOnlyCurrent: false,
-          placeholder: ({ editor, node, pos }) => {
-            try {
-              const $pos = editor.state.doc.resolve(pos);
-              let isInsideList = false;
-              for (let depth = $pos.depth; depth >= 0; depth--) {
-                const ancestor = $pos.node(depth);
-                const name = ancestor.type.name;
-                if (name === "listItem") {
-                  isInsideList = true;
-                }
-                if (name === "questionBlock") {
-                  const qType = (ancestor.attrs?.questionType || "")
-                    .toString()
-                    .toUpperCase();
-                  if (qType === "MCQ") {
-                    return isInsideList
-                      ? "Option…"
-                      : "Enter MCQ stem here…";
-                  }
-                  if (qType === "ASSERTION_REASON") {
-                    if (isInsideList) return "Option…";
-                    // D — Differentiate Assertion (A) vs Reason (R)
-                    // by the empty paragraph's index inside the
-                    // questionBlock. The toolbar emits two empty
-                    // paragraphs followed by the canonical option
-                    // list, so paragraph #0 is the assertion body and
-                    // paragraph #1 is the reason body. `$pos.index(d)`
-                    // returns the index of the child at depth d+1 in
-                    // its parent at depth d — i.e. where this empty
-                    // paragraph sits in the questionBlock.
-                    const childIndex = $pos.index(depth);
-                    if (childIndex === 0) return "Assertion (A) …";
-                    if (childIndex === 1) return "Reason (R) …";
-                    return "Statement…";
-                  }
-                  return isInsideList
-                    ? "Sub-item…"
-                    : "Enter question here…";
-                }
-                if (name === "groupedQuestionBlock") {
-                  return isInsideList
-                    ? "Sub-question…"
-                    : "Main question statement…";
-                }
-                if (name === "questionGroupBlock") {
-                  return "Option statement…";
-                }
-                if (name === "sectionBlock") {
-                  return "SECTION TITLE";
-                }
-                if (name === "instructionBlock") {
-                  return "Instruction…";
-                }
-                if (name === "paperHeaderBlock") {
-                  if (ancestor.type.name === "paperHeaderBlock") {
-                    // Headings & paragraphs inside the header — give a
-                    // generic prompt that doesn't tie to a specific slot.
-                    return "Header line…";
-                  }
-                }
-              }
-            } catch {
-              // fall through to the default
-            }
-            return "Start writing your exam paper…";
-          },
-        }),
-        Table.configure({
-          resizable: true,
-          allowTableNodeSelection: true,
-        }),
-        TableRow,
-        TableHeader,
-        TableCell,
-        // Custom exam nodes
-        QuestionBlock,
-        SectionBlock,
-        InstructionBlock,
-        QuestionGroupBlock,
-        GroupedQuestionBlock,
-        OrGroupInvariant,
-        PaperHeaderBlockExt,
-        MathBlock,
-        InlineMath,
-        // Utilities
-        CharacterCount,
-        Focus.configure({
-          className: "has-focus",
-          mode: "deepest",
-        }),
-        Dropcursor.configure({
-          color: "#000000",
-          width: 2,
-        }),
-        Gapcursor,
-        HardBreak,
-      ],
+      extensions: getTiptapExtensions(),
       content: createEmptyDocument(),
       editorProps: {
         attributes: {
@@ -1799,1256 +1639,177 @@ export const TiptapEditor = ({
       </div>
       {editor && <StatusBar editor={editor} />}
 
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-        /* ===== Document Layout ===== */
-        .document-editor {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 24px;
-          padding: 28px 0 96px;
-          background: transparent;
-          color: #000000;
-          font-family: "Times New Roman", Times, serif;
-          font-size: 12pt;
-          line-height: 1.35;
-        }
-
-        /* On phones/tablets the A4 page (794px) is wider than the viewport.
-           Keep the page at its true print size (the pagination engine and
-           PDF/print rely on 794×1123) but left-align it so the whole page is
-           reachable by horizontal pan, and let native pinch-zoom fit it. */
-        @media (max-width: 1023px) {
-          .document-editor {
-            align-items: flex-start;
-            padding: 12px 12px 80px;
-          }
-        }
-
-        .document-editor .doc-page {
-          width: 794px;
-          min-height: 1123px;
-          height: 1123px;
-          background: #ffffff;
-          border: 1px solid #000000;
-          overflow: hidden;
-          box-sizing: border-box;
-          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-        }
-
-        .document-editor .doc-page-inner {
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .document-editor .doc-page-content {
-          flex: 1;
-          padding: 48px 56px 56px;
-          box-sizing: border-box;
-          min-height: 0;
-          height: 100%;
-          overflow: hidden;
-        }
-
-        .document-editor .doc-page-header,
-        .document-editor .doc-page-footer {
-          flex-shrink: 0;
-          min-height: 0;
-        }
-
-        .document-editor img,
-        .ProseMirror img {
-          max-width: 100%;
-          height: auto;
-        }
-
-        .ProseMirror p img,
-        .ProseMirror li img {
-          display: inline-block;
-          vertical-align: middle;
-          max-height: 220px;
-        }
-
-        .ProseMirror {
-          color: #000000 !important;
-          caret-color: #000000 !important;
-          padding: 0 !important;
-          min-height: 0;
-          background: transparent !important;
-        }
-
-        .ProseMirror p {
-          margin: 0 0 6px;
-        }
-
-        .ProseMirror h1,
-        .ProseMirror h2,
-        .ProseMirror h3,
-        .ProseMirror h4 {
-          margin: 0 0 6px;
-          font-weight: 700;
-        }
-
-        .ProseMirror h1 {
-          font-size: 16pt;
-        }
-
-        .ProseMirror h2 {
-          font-size: 13pt;
-        }
-
-        .ProseMirror h3 {
-          font-size: 12pt;
-        }
-
-        /* ===== Paper Header ===== */
-        .paper-header-block {
-          margin-bottom: 8px;
-        }
-
-        .paper-header-shell {
-          display: grid;
-          grid-template-columns: 96px 1fr 24px;
-          column-gap: 12px;
-          align-items: start;
-        }
-
-        .paper-header-logo-area {
-          width: 88px;
-          height: 88px;
-          border: none;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-        }
-
-        .paper-header-logo-area.is-empty {
-          border: 1px dashed #bbb;
-          color: #888;
-        }
-
-        @media print {
-          .paper-header-logo-area.is-empty {
-            border: none;
-          }
-        }
-
-        .logo-placeholder {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 4px;
-          color: #000000;
-        }
-
-        .logo-remove-btn {
-          border: 1px solid #000000;
-          border-radius: 999px;
-          padding: 2px;
-          background: #ffffff;
-          opacity: 0;
-          transition: opacity 0.2s ease;
-        }
-
-        .paper-header-logo-area.has-logo:hover .logo-remove-btn {
-          opacity: 1;
-        }
-
-        .paper-header-content {
-          text-align: center;
-        }
-
-        .paper-header-content h1 {
-          font-size: 16pt;
-          font-weight: 700;
-          text-transform: uppercase;
-          margin: 0 0 4px;
-        }
-
-        .paper-header-content h2 {
-          font-size: 13pt;
-          font-weight: 700;
-          text-transform: uppercase;
-          margin: 0 0 4px;
-        }
-
-        .paper-header-content h3 {
-          font-size: 12pt;
-          font-weight: 700;
-          text-transform: uppercase;
-          margin: 0 0 4px;
-        }
-
-        .paper-header-content p {
-          margin: 2px 0;
-          font-size: 11pt;
-        }
-
-        .paper-header-block table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-top: 6px;
-          border: none !important;
-        }
-
-        .paper-header-block td,
-        .paper-header-block th {
-          border: none !important;
-          padding: 2px 0;
-          font-size: 11pt;
-        }
-
-        .paper-header-block td:last-child,
-        .paper-header-block th:last-child {
-          text-align: right;
-        }
-
-        /* Cluster C.2 — paper header Date field */
-        .paper-header-date-row {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          margin-top: 6px;
-          font-size: 11pt;
-          color: #000000;
-        }
-        .paper-header-date-label {
-          font-weight: 600;
-        }
-        /* G — single date representation. A formatted span is shown
-           on top of an invisible native date input; the input still
-           opens the picker on click but does not render its own
-           date string, so the teacher never sees two dates. */
-        .paper-header-date-picker-wrap {
-          position: relative;
-          display: inline-flex;
-          align-items: baseline;
-          cursor: pointer;
-        }
-        .paper-header-date-input {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          padding: 0;
-          margin: 0;
-          border: 0;
-          opacity: 0;
-          color: transparent;
-          background: transparent;
-          cursor: pointer;
-        }
-        .paper-header-date-input::-webkit-calendar-picker-indicator {
-          opacity: 0;
-          cursor: pointer;
-        }
-        .paper-header-date-display {
-          font-weight: 500;
-          font-size: 11pt;
-          color: #000000;
-          padding: 1px 4px;
-          border-bottom: 1px dashed #c4c4c8;
-        }
-        .paper-header-actions {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          align-items: flex-end;
-        }
-        .paper-header-action {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-        }
-        .paper-header-action.is-active {
-          background: #18181b;
-          color: #ffffff;
-        }
-
-        .paper-header-delete {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          opacity: 0;
-          transition: opacity 0.2s ease;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .paper-header-block:hover .paper-header-delete {
-          opacity: 1;
-        }
-
-        /* ===== Section Block ===== */
-        .section-block {
-          position: relative;
-          margin: 10px 0 2px;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .section-header {
-          display: block;
-          text-align: center;
-          padding: 2px 0;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          font-size: 10pt;
-        }
-
-        .section-title {
-          display: inline;
-        }
-
-        .section-summary {
-          display: inline;
-          margin-left: 8px;
-          text-transform: none;
-          letter-spacing: 0;
-          font-size: 10pt;
-        }
-
-        .section-instructions {
-          margin-top: 4px;
-          font-size: 10pt;
-        }
-
-        .section-table-header {
-          display: grid;
-          grid-template-columns: 56px 1fr 56px;
-          border: 1px solid #000000;
-          background: #ffffff;
-          margin: 4px 0;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .section-table-cell {
-          padding: 5px 6px;
-          font-size: 10pt;
-          font-weight: 700;
-          text-transform: uppercase;
-          text-align: center;
-        }
-
-        .section-table-cell + .section-table-cell {
-          border-left: 1px solid #000000;
-        }
-
-        .section-table-cell:nth-child(2) {
-          text-align: left;
-        }
-
-        .section-controls {
-          position: absolute;
-          right: -6px;
-          top: -6px;
-          opacity: 0;
-          transition: opacity 0.2s ease;
-        }
-
-        .section-block:hover .section-controls {
-          opacity: 1;
-        }
-
-        .section-delete {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        /* ===== Drag Handles ===== */
-        /*
-         * .block-drag-handle sits in the left margin of the page (inside the
-         * 56 px left padding of .doc-page-content so it is never clipped by
-         * overflow:hidden).  It is absolutely positioned relative to the
-         * block's own NodeViewWrapper which already has position:relative.
-         */
-        .block-drag-handle {
-          position: absolute;
-          left: -22px;
-          top: 50%;
-          transform: translateY(-50%);
-          width: 18px;
-          height: 26px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          opacity: 0;
-          transition: opacity 0.15s ease;
-          cursor: grab;
-          color: #999;
-          border-radius: 3px;
-          user-select: none;
-          z-index: 10;
-        }
-
-        /* Reveal on hover of the parent block */
-        .question-block:hover > .block-drag-handle,
-        .section-block:hover > .block-drag-handle,
-        .instruction-block:hover > .block-drag-handle,
-        .question-group:hover > .block-drag-handle {
-          opacity: 1;
-        }
-
-        .block-drag-handle:hover {
-          color: #333;
-          background: rgba(0, 0, 0, 0.07);
-        }
-
-        .block-drag-handle:active {
-          cursor: grabbing;
-          color: #000;
-          background: rgba(0, 0, 0, 0.12);
-        }
-
-        /* ===== Question Block ===== */
-        .question-block {
-          position: relative;
-          margin: 4px 0;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .question-row {
-          display: grid;
-          grid-template-columns: 56px 1fr 72px;
-          border: 1px solid #000000;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .question-cell {
-          padding: 6px 8px;
-        }
-
-        .question-cell + .question-cell {
-          border-left: 1px solid #000000;
-        }
-
-        .question-no {
-          text-align: center;
-          font-weight: 700;
-          white-space: nowrap;
-        }
-
-        .question-body {
-          line-height: 1.35;
-        }
-
-        .question-marks {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          white-space: nowrap;
-        }
-
-        .question-marks-input {
-          width: 44px;
-          min-width: 44px;
-          border: none;
-          text-align: center;
-          font-family: inherit;
-          font-size: 11pt;
-          background: transparent;
-          padding: 0 2px;
-          margin: 0;
-          outline: none;
-          color: #000000;
-          -moz-appearance: textfield;
-          appearance: textfield;
-        }
-
-        .question-marks-input::-webkit-inner-spin-button,
-        .question-marks-input::-webkit-outer-spin-button {
-          -webkit-appearance: none;
-          margin: 0;
-        }
-
-        .question-marks-label {
-          font-size: 10pt;
-          margin-left: 2px;
-        }
-
-        .question-controls {
-          /* Cluster B.3 — push the hover-popup column further to the right
-             of the question block and give it a bigger inter-button gap so
-             the add-subquestion "+" no longer visually collides with the
-             marks-edit input that sits flush with the block's right edge.
-             The earlier -28px placement put the "+" within ~4px of the M
-             label in grouped-OR / grouped-questions layouts. */
-          position: absolute;
-          right: -44px;
-          top: 4px;
-          opacity: 0;
-          transition: opacity 0.2s ease;
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          padding-left: 4px;
-        }
-
-        .question-block:hover .question-controls {
-          opacity: 1;
-        }
-
-        .question-delete {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .question-add-sub {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        /* ===== MCQ Options ===== */
-        .question-body ul,
-        .question-body ol {
-          margin: 4px 0 0;
-          padding: 0;
-          list-style: none;
-          counter-reset: option;
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-          column-gap: 12px;
-          row-gap: 2px;
-        }
-
-        .question-body ul li,
-        .question-body ol li {
-          display: flex;
-          gap: 6px;
-          min-width: 0;
-        }
-
-        .question-body ul li::before,
-        .question-body ol li::before {
-          counter-increment: option;
-          content: "(" counter(option, upper-alpha) ") ";
-          font-weight: 700;
-          flex-shrink: 0;
-        }
-
-        .question-body ul li p,
-        .question-body ol li p {
-          margin: 0;
-        }
-
-        /* ===== Grouped Question (a, b, ...) ===== */
-        .grouped-question-block .question-body ul,
-        .grouped-question-block .question-body ol {
-          margin: 6px 0 0;
-          padding: 0;
-          list-style: none;
-          display: block;
-          grid-template-columns: none;
-          column-gap: 0;
-          row-gap: 0;
-        }
-
-        .grouped-question-block .question-body ol {
-          counter-reset: subq;
-        }
-
-        .grouped-question-block .question-body ol li,
-        .grouped-question-block .question-body ul li {
-          display: flex;
-          align-items: flex-start;
-          gap: 4px;
-          margin: 2px 0;
-        }
-
-        /* default (alpha): (a) (b) (c) */
-        .grouped-question-block .question-body ol li::before,
-        .grouped-question-block[data-label-style="alpha"] .question-body ol li::before {
-          counter-increment: subq;
-          content: "(" counter(subq, lower-alpha) ") ";
-          font-weight: 700;
-          min-width: 22px;
-          display: inline-flex;
-          justify-content: flex-start;
-        }
-
-        /* numeric: 1. 2. 3. */
-        .grouped-question-block[data-label-style="numeric"] .question-body ol li::before {
-          counter-increment: subq;
-          content: counter(subq, decimal) ". ";
-          font-weight: 700;
-          min-width: 22px;
-          display: inline-flex;
-          justify-content: flex-start;
-        }
-
-        /* roman: (i) (ii) (iii) */
-        .grouped-question-block[data-label-style="roman"] .question-body ol li::before {
-          counter-increment: subq;
-          content: "(" counter(subq, lower-roman) ") ";
-          font-weight: 700;
-          min-width: 28px;
-          display: inline-flex;
-          justify-content: flex-start;
-        }
-
-        .grouped-question-block .question-body ul li::before {
-          content: "- ";
-          font-weight: 700;
-          min-width: 18px;
-          display: inline-flex;
-          justify-content: flex-start;
-        }
-
-        .grouped-question-block .question-body ol li > p,
-        .grouped-question-block .question-body ul li > p {
-          margin: 0;
-        }
-
-        /* Label style picker */
-        .question-label-style-picker {
-          display: flex;
-          align-items: center;
-        }
-
-        .question-label-style-select {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 4px;
-          padding: 1px 2px;
-          font-size: 9pt;
-          height: 20px;
-          cursor: pointer;
-          outline: none;
-        }
-
-        /* ===== Instruction Block ===== */
-        .instruction-block {
-          position: relative;
-          margin: 10px 0;
-          padding: 8px 10px;
-          border: 1px solid #000000;
-          background: #ffffff;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .instruction-header {
-          font-weight: 700;
-          text-transform: uppercase;
-          font-size: 10pt;
-          margin-bottom: 4px;
-        }
-
-        .instruction-list {
-          margin: 0 0 4px 18px;
-          padding: 0;
-        }
-
-        .instruction-content p {
-          margin: 0 0 4px;
-        }
-
-        .instruction-controls {
-          position: absolute;
-          right: -6px;
-          top: -6px;
-          opacity: 0;
-          transition: opacity 0.2s ease;
-        }
-
-        .instruction-block:hover .instruction-controls {
-          opacity: 1;
-        }
-
-        .instruction-delete {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        /* ===== Question Group (OR) ===== */
-        /*
-         * Group wrapper for OR / choice questions. No borders added here;
-         * each individual question inside has its own .question-row border.
-         */
-        .question-group {
-          position: relative;
-          margin: 4px 0;
-          padding: 0;
-          background: #ffffff;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .question-group-header {
-          display: flex;
-          align-items: baseline;
-          gap: 8px;
-          padding: 1px 0;
-        }
-
-        .question-group-number {
-          font-weight: 700;
-          font-size: 11pt;
-          flex-shrink: 0;
-        }
-
-        .question-group-label-text {
-          font-weight: 700;
-          font-size: 10pt;
-          letter-spacing: 0.04em;
-          text-transform: uppercase;
-          flex: 1;
-        }
-
-        .question-group-label {
-          text-align: center;
-          font-weight: 700;
-          font-size: 10pt;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-
-        .question-group-content {
-          margin-top: 2px;
-        }
-
-        /* Issue 4 — the OR separator between branches of an "answer any one"
-           group is rendered as a CSS pseudo-element, NOT as a paragraph
-           sibling. This is the single source of truth for the OR label: it
-           cannot be deleted by drag-reorder, copied past, or split, because
-           it is not part of the document tree at all. The OrGroupInvariant
-           extension strips legacy "OR" paragraph children on first load so
-           older papers do not show the label twice. The combinator pairs
-           cover all four orderings of questionBlock / groupedQuestionBlock
-           siblings; the inner-doc selectors apply in the editor while the
-           data-attribute selectors apply to the serialised renderHTML
-           output used by exports and previews. */
-        .question-group-content > [data-type="question-block"] + [data-type="question-block"]::before,
-        .question-group-content > [data-type="grouped-question-block"] + [data-type="grouped-question-block"]::before,
-        .question-group-content > [data-type="question-block"] + [data-type="grouped-question-block"]::before,
-        .question-group-content > [data-type="grouped-question-block"] + [data-type="question-block"]::before,
-        [data-type="question-group"] > [data-type="question-block"] + [data-type="question-block"]::before,
-        [data-type="question-group"] > [data-type="grouped-question-block"] + [data-type="grouped-question-block"]::before,
-        [data-type="question-group"] > [data-type="question-block"] + [data-type="grouped-question-block"]::before,
-        [data-type="question-group"] > [data-type="grouped-question-block"] + [data-type="question-block"]::before {
-          content: "OR";
-          display: block;
-          text-align: center;
-          font-weight: 700;
-          font-size: 11pt;
-          color: #000;
-          margin: 8px 0;
-          letter-spacing: 0.05em;
-        }
-
-        .question-group-controls {
-          position: absolute;
-          right: -6px;
-          top: -6px;
-          opacity: 0;
-          transition: opacity 0.2s ease;
-        }
-
-        .question-group:hover .question-group-controls {
-          opacity: 1;
-        }
-
-        .question-group-delete {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        /* ===== Math ===== */
-        .math-block {
-          border: 1px solid #000000;
-          margin: 6px 0;
-          padding: 6px;
-          text-align: center;
-          background: #ffffff;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .math-block-display {
-          cursor: pointer;
-        }
-
-        .math-block-empty {
-          color: #000000;
-          font-style: italic;
-        }
-
-        .math-block-editor {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .math-block-input {
-          width: 100%;
-          border: 1px solid #000000;
-          padding: 4px;
-          font-family: "Courier New", monospace;
-          font-size: 10pt;
-          resize: vertical;
-          min-height: 60px;
-          outline: none;
-        }
-
-        .math-block-hint {
-          font-size: 9pt;
-          color: #000000;
-          text-align: left;
-        }
-
-        .inline-math {
-          display: inline-block;
-          margin: 0 2px;
-        }
-
-        .inline-math-display {
-          cursor: pointer;
-          border-bottom: 1px dotted #000000;
-          padding: 0 2px;
-        }
-
-        .inline-math-empty {
-          color: #000000;
-          font-style: italic;
-        }
-
-        .inline-math-editor {
-          display: inline-flex;
-          align-items: center;
-          border: 1px solid #000000;
-          padding: 0 2px;
-          background: #ffffff;
-        }
-
-        .inline-math-input {
-          border: none;
-          outline: none;
-          font-family: "Courier New", monospace;
-          font-size: 10pt;
-          width: 100px;
-          background: transparent;
-        }
-
-        /* ===== Drawing Block ===== */
-        .drawing-block {
-          position: relative;
-          border: 1px solid #000000;
-          padding: 6px;
-          margin: 6px 0;
-          background: #ffffff;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .drawing-toolbar {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          border-bottom: 1px solid #000000;
-          padding-bottom: 6px;
-          margin-bottom: 6px;
-        }
-
-        .drawing-tool {
-          border: 1px solid #000000;
-          background: #ffffff;
-          padding: 2px;
-          border-radius: 2px;
-        }
-
-        .drawing-tool.is-active {
-          background: #000000;
-          color: #ffffff;
-        }
-
-        .drawing-divider {
-          width: 1px;
-          height: 16px;
-          background: #000000;
-        }
-
-        .drawing-color {
-          width: 24px;
-          height: 24px;
-          padding: 0;
-          border: 1px solid #000000;
-          background: #ffffff;
-        }
-
-        .drawing-clear {
-          margin-left: auto;
-          font-size: 9pt;
-          color: #000000;
-        }
-
-        .drawing-canvas {
-          display: flex;
-          justify-content: center;
-          border: 1px solid #000000;
-          background: #ffffff;
-        }
-
-        .drawing-surface {
-          cursor: crosshair;
-          background: #ffffff;
-        }
-
-        .drawing-delete {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        /* ===== Float Image Block ===== */
-        .float-image-wrapper {
-          margin: 8px 0;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .float-image-img {
-          display: block;
-          width: 100%;
-          height: auto;
-          border: 1px solid #000000;
-        }
-
-        /* Alignment + delete toolbar — sits above the image */
-        .float-image-controls {
-          position: absolute;
-          top: -28px;
-          left: 50%;
-          transform: translateX(-50%);
-          display: flex;
-          align-items: center;
-          gap: 2px;
-          padding: 3px 5px;
-          background: #ffffff;
-          border: 1px solid #000000;
-          opacity: 0;
-          transition: opacity 0.15s;
-          z-index: 20;
-          white-space: nowrap;
-          pointer-events: none;
-        }
-
-        .float-image-wrapper:hover .float-image-controls,
-        .float-image-container.is-selected .float-image-controls {
-          opacity: 1;
-          pointer-events: auto;
-        }
-
-        .float-img-btn {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          padding: 2px;
-          border-radius: 2px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          height: 18px;
-          width: 18px;
-        }
-
-        .float-img-btn.active {
-          background: #000000;
-          color: #ffffff;
-        }
-
-        .float-img-divider {
-          display: inline-block;
-          width: 1px;
-          height: 14px;
-          background: #000000;
-          flex-shrink: 0;
-          align-self: center;
-          margin: 0 2px;
-        }
-
-        /* Resize handle — bottom-right corner triangle */
-        .float-image-resize-handle {
-          position: absolute;
-          bottom: 0;
-          right: 0;
-          width: 0;
-          height: 0;
-          border-style: solid;
-          border-width: 0 0 14px 14px;
-          border-color: transparent transparent #000000 transparent;
-          cursor: nwse-resize;
-          opacity: 0;
-          transition: opacity 0.15s;
-        }
-
-        .float-image-wrapper:hover .float-image-resize-handle,
-        .float-image-container.is-selected .float-image-resize-handle,
-        .float-image-container.is-resizing .float-image-resize-handle {
-          opacity: 1;
-        }
-
-        /* ===== Page Break ===== */
-        .ProseMirror [data-type="page-break"] {
-          display: none !important;
-          page-break-after: always;
-          break-after: page;
-        }
-
-        /* ===== Focus Styles ===== */
-        .has-focus {
-          outline: 1px solid #000000;
-          outline-offset: 0;
-          box-shadow: none;
-        }
-
-        /* ===== Table Styles ===== */
-        .ProseMirror table {
-          border-collapse: separate;
-          border-spacing: 0;
-          width: 100%;
-          margin: 8px 0;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .ProseMirror table td,
-        .ProseMirror table th {
-          border-top: 1px solid #000000;
-          border-right: 1px solid #000000;
-          border-bottom: 0;
-          border-left: 0;
-          padding: 4px 6px;
-          vertical-align: top;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .ProseMirror table th {
-          font-weight: 700;
-          background: #ffffff;
-        }
-
-        .ProseMirror table tr td:first-child,
-        .ProseMirror table tr th:first-child {
-          border-left: 1px solid #000000;
-        }
-
-        .ProseMirror table {
-          border-bottom: 1px solid #000000;
-        }
-
-        .ProseMirror table tr {
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        /* ===== List Styles ===== */
-        .ProseMirror ul,
-        .ProseMirror ol {
-          margin: 0 0 6px 18px;
-          padding: 0;
-        }
-
-        .ProseMirror ul ul,
-        .ProseMirror ol ol {
-          margin-bottom: 0;
-        }
-
-        /* ===== Placeholder =====
-           Issue 2 — empty-node placeholders live in ProseMirror decorations
-           applied by @tiptap/extension-placeholder. The decoration sets
-           .is-empty and a data-placeholder attribute on every empty
-           text block. The rule below renders that attribute as a ghost
-           line via ::before; the host paragraph stays empty so saves /
-           exports contain no placeholder bleed-through.
-
-           The legacy :first-child filter only covered the top-level
-           empty document; insertion through custom block nodes
-           (questionBlock, groupedQuestionBlock, instructionBlock, …) now
-           triggers the same affordance because we removed that selector
-           and added [data-placeholder]. */
-        .ProseMirror .is-empty[data-placeholder]::before {
-          content: attr(data-placeholder);
-          float: left;
-          color: #71717a;
-          pointer-events: none;
-          height: 0;
-          font-style: italic;
-        }
-        .ProseMirror .is-editor-empty:first-child::before {
-          content: attr(data-placeholder);
-          float: left;
-          color: #71717a;
-          pointer-events: none;
-          height: 0;
-          font-style: italic;
-        }
-
-        /* ===== Horizontal Rule ===== */
-        .ProseMirror hr {
-          border: none;
-          border-top: 1px solid #000000;
-          margin: 10px 0;
-        }
-
-        /* ===== Print Styles ===== */
-        @media print {
-          @page {
-            size: A4;
-            margin: 12mm;
-          }
-
-          body * {
-            visibility: hidden;
-          }
-
-          #tiptap-paper-container,
-          #tiptap-paper-container * {
-            visibility: visible;
-          }
-
-          #tiptap-paper-container {
-            position: static;
-            width: 100%;
-            margin: 0 !important;
-            padding: 0 !important;
-            color: #000000 !important;
-            background: #ffffff !important;
-            border: none !important;
-            box-shadow: none !important;
-            max-width: none !important;
-          }
-
-          .document-editor {
-            gap: 0;
-            padding: 0;
-            background: #ffffff !important;
-            color: #000000 !important;
-          }
-
-          .document-editor *, .ProseMirror * {
-            color: #000000 !important;
-          }
-
-          .doc-page {
-            width: 210mm;
-            min-height: 297mm;
-            height: 297mm;
-            margin: 0 !important;
-            border: none !important;
-            box-shadow: none !important;
-            overflow: visible !important;
-            page-break-after: always;
-            break-after: page;
-            background: #ffffff !important;
-          }
-
-          .doc-page-content {
-            padding: 15mm 16mm !important;
-            min-height: auto !important;
-            height: auto !important;
-            overflow: visible !important;
-          }
-
-          .question-controls,
-          .section-controls,
-          .instruction-controls,
-          .question-group-controls,
-          .block-drag-handle,
-          .paper-header-delete,
-          .logo-remove-btn,
-          .drawing-delete,
-          .float-image-hide-in-pdf {
-            display: none !important;
-          }
-
-          .paper-header-logo-area.is-empty {
-            display: none;
-          }
-
-          #tiptap-paper-container [data-type="page-break"] {
-            display: none !important;
-          }
-
-          .custom-scrollbar {
-            overflow: visible !important;
-          }
-        }
-      `,
-        }}
-      />
     </div>
   );
 };
 
 export const DocumentEditor = TiptapEditor;
+
+
+export function getTiptapExtensions(isEditable = true) {
+  const exts = [
+        PaginatedDocument,
+        PageNode,
+        PaginationEngine,
+        StarterKit.configure({
+          document: false,
+          heading: {
+            levels: [1, 2, 3, 4, 5, 6],
+          },
+          dropcursor: false,
+          gapcursor: false,
+          hardBreak: false,
+          underline: false,
+          // Disable the built-in OrderedList so we can add our own version
+          // without the auto-transform input rule (typing "1." at a line start
+          // must NOT convert to an ordered list — it breaks English paragraph
+          // questions that legitimately begin "1. Explain...").
+          orderedList: false,
+        }),
+        // OrderedList without the "1. " → list auto-transform input rule.
+        // List toolbar buttons and keyboard shortcut (Mod-Shift-7) still work.
+        OrderedList.extend({ addInputRules() { return []; } }),
+        Typography,
+        Underline,
+        Superscript,
+        Subscript,
+        Highlight.configure({
+          multicolor: true,
+        }),
+        TextStyle,
+        Color,
+        FontFamily,
+        FontSize,
+        LineHeight,
+        IndentExtension,
+        TextAlign.configure({
+          types: [
+            "heading",
+            "paragraph",
+            "questionBlock",
+            "groupedQuestionBlock",
+            "sectionBlock",
+            "instructionBlock",
+          ],
+        }),
+        // ImageResize extends @tiptap/extension-image — do NOT also register
+        // the base Image extension, or the two will conflict on the 'image' node name.
+        ImageResize.configure({
+          inline: true,
+          allowBase64: true,
+        }),
+        // Block-level draggable image with resize + alignment controls
+        FloatImage,
+        // Issue 2 — placeholders are ProseMirror decorations, never real
+        // text nodes. New blocks inserted by the toolbar are EMPTY; the
+        // greyed prompt shown to the user comes from this extension and
+        // disappears on first keystroke. `includeChildren: true` is what
+        // lets us decorate paragraphs *inside* custom block nodes such as
+        // questionBlock / groupedQuestionBlock (defaults to false). Using
+        // `showOnlyCurrent: false` is what lets us light up every empty
+        // option / sub-question simultaneously, not just the focused one.
+        Placeholder.configure({
+          includeChildren: true,
+          showOnlyCurrent: false,
+          placeholder: ({ editor, node, pos }) => {
+            try {
+              const $pos = editor.state.doc.resolve(pos);
+              let isInsideList = false;
+              for (let depth = $pos.depth; depth >= 0; depth--) {
+                const ancestor = $pos.node(depth);
+                const name = ancestor.type.name;
+                if (name === "listItem") {
+                  isInsideList = true;
+                }
+                if (name === "questionBlock") {
+                  const qType = (ancestor.attrs?.questionType || "")
+                    .toString()
+                    .toUpperCase();
+                  if (qType === "MCQ") {
+                    return isInsideList
+                      ? "Option…"
+                      : "Enter MCQ stem here…";
+                  }
+                  if (qType === "ASSERTION_REASON") {
+                    if (isInsideList) return "Option…";
+                    // D — Differentiate Assertion (A) vs Reason (R)
+                    // by the empty paragraph's index inside the
+                    // questionBlock. The toolbar emits two empty
+                    // paragraphs followed by the canonical option
+                    // list, so paragraph #0 is the assertion body and
+                    // paragraph #1 is the reason body. `$pos.index(d)`
+                    // returns the index of the child at depth d+1 in
+                    // its parent at depth d — i.e. where this empty
+                    // paragraph sits in the questionBlock.
+                    const childIndex = $pos.index(depth);
+                    if (childIndex === 0) return "Assertion (A) …";
+                    if (childIndex === 1) return "Reason (R) …";
+                    return "Statement…";
+                  }
+                  return isInsideList
+                    ? "Sub-item…"
+                    : "Enter question here…";
+                }
+                if (name === "groupedQuestionBlock") {
+                  return isInsideList
+                    ? "Sub-question…"
+                    : "Main question statement…";
+                }
+                if (name === "questionGroupBlock") {
+                  return "Option statement…";
+                }
+                if (name === "sectionBlock") {
+                  return "SECTION TITLE";
+                }
+                if (name === "instructionBlock") {
+                  return "Instruction…";
+                }
+                if (name === "paperHeaderBlock") {
+                  if (ancestor.type.name === "paperHeaderBlock") {
+                    // Headings & paragraphs inside the header — give a
+                    // generic prompt that doesn't tie to a specific slot.
+                    return "Header line…";
+                  }
+                }
+              }
+            } catch {
+              // fall through to the default
+            }
+            return "Start writing your exam paper…";
+          },
+        }),
+        Table.configure({
+          resizable: true,
+          allowTableNodeSelection: true,
+        }),
+        TableRow,
+        TableHeader,
+        TableCell,
+        // Custom exam nodes
+        QuestionBlock,
+        SectionBlock,
+        InstructionBlock,
+        QuestionGroupBlock,
+        GroupedQuestionBlock,
+        OrGroupInvariant,
+        PaperHeaderBlockExt,
+        MathBlock,
+        InlineMath,
+        // Utilities
+        CharacterCount,
+        Focus.configure({
+          className: "has-focus",
+          mode: "deepest",
+        }),
+        Dropcursor.configure({
+          color: "#000000",
+          width: 2,
+        }),
+        Gapcursor,
+        HardBreak,
+      ];
+  if (!isEditable) {
+    return exts.filter(e => e.name !== "placeholder");
+  }
+  return exts;
+}

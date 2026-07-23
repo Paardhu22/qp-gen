@@ -27,7 +27,7 @@ function formatPaperDate(iso: string): string {
   }
 }
 
-const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
+const PaperHeaderComponent = ({ node, updateAttributes, deleteNode, editor }: any) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const showDate = Boolean(node.attrs.showDate);
@@ -90,29 +90,33 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
                 unoptimized
                 className="max-h-24 w-full object-contain"
               />
-              <button
-                type="button"
-                className="opacity-0 group-hover:opacity-100 hover:bg-accent rounded p-0.5"
-                onClick={removeLogo}
-              >
-                <X className="w-3 h-3 text-muted-foreground" />
-              </button>
+              {editor?.isEditable && (
+                <button
+                  type="button"
+                  className="opacity-0 group-hover:opacity-100 hover:bg-accent rounded p-0.5"
+                  onClick={removeLogo}
+                >
+                  <X className="w-3 h-3 text-muted-foreground" />
+                </button>
+              )}
             </div>
-          ) : (
+          ) : editor?.isEditable ? (
             <div className="logo-placeholder print:hidden">
               <ImageIcon className="w-6 h-6" />
               <span className="text-[10px] uppercase font-bold tracking-wider">
                 Logo
               </span>
             </div>
+          ) : null}
+          {editor?.isEditable && (
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept="image/*"
+              onChange={handleFileChange}
+            />
           )}
-          <input
-            type="file"
-            ref={fileInputRef}
-            className="hidden"
-            accept="image/*"
-            onChange={handleFileChange}
-          />
         </div>
 
         {/* Details Area.
@@ -136,39 +140,43 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode }: any) => {
                 <span className="paper-header-date-display">
                   {formatPaperDate(dateValue || dateInputValue) || "—"}
                 </span>
-                <input
-                  type="date"
-                  value={dateValue || dateInputValue}
-                  onChange={handleDateChange}
-                  className="paper-header-date-input"
-                  aria-label="Paper date"
-                />
+                {editor?.isEditable && (
+                  <input
+                    type="date"
+                    value={dateValue || dateInputValue}
+                    onChange={handleDateChange}
+                    className="paper-header-date-input"
+                    aria-label="Paper date"
+                  />
+                )}
               </span>
             </div>
           )}
         </div>
 
-        <div
-          className="paper-header-actions print:hidden"
-          contentEditable={false}
-        >
-          <button
-            type="button"
-            onClick={handleToggleDate}
-            className={`paper-header-action ${showDate ? "is-active" : ""}`}
-            title={showDate ? "Remove date field" : "Add date field"}
+        {editor?.isEditable && (
+          <div
+            className="paper-header-actions print:hidden"
+            contentEditable={false}
           >
-            <Calendar className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={deleteNode}
-            className="paper-header-delete"
-            title="Remove Header"
-          >
-            <Trash className="w-3 h-3" />
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={handleToggleDate}
+              className={`paper-header-action ${showDate ? "is-active" : ""}`}
+              title={showDate ? "Remove date field" : "Add date field"}
+            >
+              <Calendar className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              onClick={deleteNode}
+              className="paper-header-delete"
+              title="Remove Header"
+            >
+              <Trash className="w-3 h-3" />
+            </button>
+          </div>
+        )}
       </div>
     </NodeViewWrapper>
   );

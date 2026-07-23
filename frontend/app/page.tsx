@@ -97,7 +97,7 @@ export default function Home() {
             >
               HSAT
             </p>
-            <h1 className="landing-title">question papers made easier</h1>
+            <h1 className="landing-title">papers made easier</h1>
             <p
               className="landing-subtitle landing-fade mx-auto mt-6"
               style={{ animationDelay: "360ms" }}
