@@ -125,6 +125,11 @@ export function PaperPreview({ content }: { content: string | undefined }) {
       content: doc ?? { type: "doc", content: [{ type: "page", content: [{ type: "paragraph" }] }] },
       editorProps: {
         attributes: {
+          // The editor's paper styling (white page, question/marks layout) is
+          // keyed to this ID in globals.css — the preview must carry it to
+          // render identically. Safe: the real editor is never mounted on the
+          // same page as this preview.
+          id: "tiptap-paper-container",
           class: "document-editor focus:outline-none text-black",
         },
       },
@@ -147,7 +152,9 @@ export function PaperPreview({ content }: { content: string | undefined }) {
 
   return (
     <div className="paper-preview-scroll h-full overflow-auto bg-muted/40 p-4 sm:p-6">
-      <div className="mx-auto max-w-[820px]">
+      {/* White paper sheet, like the editor — keeps black document text
+          readable regardless of app theme. */}
+      <div className="mx-auto max-w-[820px] rounded-md bg-white text-black shadow-sm ring-1 ring-black/5 p-6 sm:p-10">
         <EditorContent editor={editor} />
       </div>
     </div>

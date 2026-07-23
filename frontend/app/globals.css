@@ -282,36 +282,6 @@ html[data-auth-page] *.dark {
         @apply font-sans;
     }
 
-    /* Read-only paper preview (Question Bank split view): strip the editor's
-       per-node editing chrome — drag handles, delete/add controls, and the
-       marks number-stepper — so it reads as a clean document. */
-    .paper-preview-scroll .block-drag-handle,
-    .paper-preview-scroll .question-controls,
-    .paper-preview-scroll .question-add-sub,
-    .paper-preview-scroll .section-controls,
-    .paper-preview-scroll .instruction-controls,
-    .paper-preview-scroll .question-group-controls {
-        display: none !important;
-    }
-    .paper-preview-scroll .question-marks-input {
-        appearance: none;
-        -webkit-appearance: none;
-        -moz-appearance: textfield;
-        border: none !important;
-        background: transparent !important;
-        box-shadow: none !important;
-        pointer-events: none;
-        width: auto !important;
-        min-width: 0 !important;
-        text-align: right;
-    }
-    .paper-preview-scroll .question-marks-input::-webkit-inner-spin-button,
-    .paper-preview-scroll .question-marks-input::-webkit-outer-spin-button {
-        -webkit-appearance: none;
-        display: none;
-        margin: 0;
-    }
-
     /* Pointer cursor on every interactive element, site-wide */
     button,
     [role="button"],
@@ -384,6 +354,38 @@ html[data-auth-page] *.dark {
 }
 .block-drag-handle:active {
     cursor: grabbing !important;
+}
+
+/* Read-only paper preview (Question Bank split view): strip the editor's
+   per-node editing chrome — drag handles, delete/add controls, and the marks
+   number-stepper — so it reads as a clean document. Kept UNLAYERED (like the
+   rules above) so it is actually emitted and outranks the node styles. Scoped
+   to .paper-preview-scroll so the real editor is untouched. */
+.paper-preview-scroll .block-drag-handle,
+.paper-preview-scroll .question-controls,
+.paper-preview-scroll .question-add-sub,
+.paper-preview-scroll .section-controls,
+.paper-preview-scroll .instruction-controls,
+.paper-preview-scroll .question-group-controls {
+    display: none !important;
+}
+.paper-preview-scroll .question-marks-input {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: textfield;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    pointer-events: none;
+    width: auto !important;
+    min-width: 0 !important;
+    text-align: right;
+}
+.paper-preview-scroll .question-marks-input::-webkit-inner-spin-button,
+.paper-preview-scroll .question-marks-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    display: none;
+    margin: 0;
 }
 
 /* Make the blinking text caret always visible on the light paper (#fcfbf9)
