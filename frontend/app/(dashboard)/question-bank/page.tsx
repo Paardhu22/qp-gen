@@ -605,7 +605,7 @@ export default function QuestionBankPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold leading-tight">Question Paper</h1>
             {!isLoading && questionPapers.length > 0 && (
-              <span className="inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold dark:bg-indigo-950 dark:text-indigo-400">
+              <span className="inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-primary/10 text-primary text-xs font-bold dark:bg-primary dark:text-primary">
                 {questionPapers.length}
               </span>
             )}
@@ -734,8 +734,8 @@ export default function QuestionBankPage() {
                           router.push(`/editor?paperId=${paper.id}`)
                         }
                       >
-                        <div className="p-2 rounded-lg bg-indigo-500/10 shrink-0">
-                          <FileText className="h-5 w-5 text-indigo-500" />
+                        <div className="p-2 rounded-lg bg-primary/10 shrink-0">
+                          <FileText className="h-5 w-5 text-primary" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="text-base font-semibold text-foreground truncate leading-snug">

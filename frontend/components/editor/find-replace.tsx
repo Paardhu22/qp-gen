@@ -231,7 +231,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
           onChange={(e) => setSearchTerm(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Find in document…"
-          className="flex-1 h-7 bg-muted/50 border border-border rounded px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-indigo-400/60"
+          className="flex-1 h-7 bg-muted/50 border border-border rounded px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/60"
         />
         <span className="text-[10px] text-muted-foreground min-w-[44px] text-center font-mono tabular-nums">
           {matchCount > 0 ? `${currentMatch} / ${matchCount}` : "0 / 0"}
@@ -256,7 +256,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
           onClick={() => setShowReplace(!showReplace)}
           className={cn(
             "h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors",
-            showReplace && "text-indigo-600 bg-indigo-50 dark:text-indigo-400 dark:bg-indigo-900/30"
+            showReplace && "text-primary bg-primary/10 dark:text-primary dark:bg-primary/30"
           )}
           title="Toggle Replace"
         >
@@ -284,7 +284,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
             onChange={(e) => setReplaceTerm(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Replace with…"
-            className="flex-1 h-7 bg-muted/50 border border-border rounded px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-indigo-400/60"
+            className="flex-1 h-7 bg-muted/50 border border-border rounded px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/60"
           />
           <button
             onClick={replaceOne}

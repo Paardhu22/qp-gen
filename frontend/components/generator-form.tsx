@@ -855,7 +855,7 @@ export const GeneratorForm = ({
               variant="ghost"
               size="sm"
               onClick={handleAddSourceClick}
-              className="h-7 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+              className="h-7 text-xs text-primary dark:text-primary hover:text-primary dark:hover:text-primary hover:bg-primary/10 dark:hover:bg-primary/10"
             >
               <Plus className="h-3 w-3 mr-1" />
               Add Source
@@ -865,7 +865,7 @@ export const GeneratorForm = ({
               variant="ghost"
               size="sm"
               onClick={() => setIsHsatPickerOpen(true)}
-              className="h-7 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+              className="h-7 text-xs text-primary dark:text-primary hover:text-primary dark:hover:text-primary hover:bg-primary/10 dark:hover:bg-primary/10"
             >
               <BookOpen className="h-3 w-3 mr-1" />
               Apply Source from HSAT
@@ -887,7 +887,7 @@ export const GeneratorForm = ({
               <div className="flex items-center justify-between p-2 rounded-lg bg-muted/50 border border-border">
                 <div className="flex items-center gap-2 min-w-0">
                   {doc.status !== "error" ? (
-                    <Loader2 className="h-4 w-4 text-indigo-500 animate-spin flex-shrink-0" />
+                    <Loader2 className="h-4 w-4 text-primary animate-spin flex-shrink-0" />
                   ) : (
                     <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
                   )}
@@ -896,12 +896,12 @@ export const GeneratorForm = ({
                       {doc.name}
                     </span>
                     {doc.status === "uploading" && (
-                      <span className="text-[10px] text-indigo-400 dark:text-indigo-300">
+                      <span className="text-[10px] text-primary dark:text-primary">
                         Uploading…
                       </span>
                     )}
                     {doc.status === "processing" && (
-                      <span className="text-[10px] text-indigo-400 dark:text-indigo-300">
+                      <span className="text-[10px] text-primary dark:text-primary">
                         Processing document, please wait…
                       </span>
                     )}
@@ -924,7 +924,7 @@ export const GeneratorForm = ({
               {doc.status !== "error" && (
                 <div className="mt-1 h-0.5 w-full rounded-full bg-muted-foreground/30 overflow-hidden">
                   <div
-                    className="h-full bg-indigo-500 rounded-full animate-[loading-bar_1.4s_ease-in-out_infinite]"
+                    className="h-full bg-primary rounded-full animate-[loading-bar_1.4s_ease-in-out_infinite]"
                     style={{ width: "60%" }}
                   />
                 </div>
@@ -961,19 +961,19 @@ export const GeneratorForm = ({
             return (
               <div
                 key={source.id}
-                className="flex items-center justify-between p-2 rounded-lg bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 group"
+                className="flex items-center justify-between p-2 rounded-lg bg-primary/40 dark:bg-primary/20 border border-primary/30 dark:border-primary/40 group"
               >
                 <div className="flex items-center gap-2 min-w-0">
                   {isPreparing ? (
-                    <Loader2 className="h-4 w-4 text-indigo-500 animate-spin flex-shrink-0" />
+                    <Loader2 className="h-4 w-4 text-primary animate-spin flex-shrink-0" />
                   ) : isError ? (
                     <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
                   ) : (
-                    <BookOpen className="h-4 w-4 text-indigo-500 flex-shrink-0" />
+                    <BookOpen className="h-4 w-4 text-primary flex-shrink-0" />
                   )}
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-primary dark:text-primary">
                         HSAT
                       </span>
                       <span className="text-xs text-foreground truncate">
@@ -1308,9 +1308,9 @@ export const GeneratorForm = ({
                   ? "Describe exactly what you want.\nExample: 5 MCQs, 3 short answers of 2 marks each, 2 long answers."
                   : "e.g. Section A: 4 short answer questions (2 marks each)\nSection B: 4 long answer questions (5 marks each)"
               }
-              className={`bg-background border-border text-foreground placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-indigo-500 ${
+              className={`bg-background border-border text-foreground placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-primary ${
                 currentQpType === "general_instructions"
-                  ? "min-h-[120px] border-indigo-300 dark:border-indigo-700 ring-1 ring-indigo-200 dark:ring-indigo-800/50"
+                  ? "min-h-[120px] border-primary/30 dark:border-primary ring-1 ring-primary/40 dark:ring-primary/50"
                   : "min-h-[90px]"
               }`}
               value={generalInstructions}
@@ -1336,7 +1336,7 @@ export const GeneratorForm = ({
                 isGenerating ||
                 (uploadedDocs.length === 0 && hsatSources.length === 0)
               }
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg gap-2"
+              className="w-full bg-primary hover:bg-primary/90 text-white shadow-lg gap-2"
             >
               {isGenerating
                 ? "Analyzing & Generating..."
@@ -1366,7 +1366,7 @@ export const GeneratorForm = ({
             onClick={() => setInsertionMode("review")}
             className={`flex-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
               insertionMode === "review"
-                ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-medium"
+                ? "border-primary bg-primary/10 dark:bg-primary/10 text-primary dark:text-primary font-medium"
                 : "border-border text-muted-foreground hover:border-zinc-400"
             }`}
           >
@@ -1377,7 +1377,7 @@ export const GeneratorForm = ({
             onClick={() => setInsertionMode("auto")}
             className={`flex-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
               insertionMode === "auto"
-                ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-medium"
+                ? "border-primary bg-primary/10 dark:bg-primary/10 text-primary dark:text-primary font-medium"
                 : "border-border text-muted-foreground hover:border-zinc-400"
             }`}
           >
@@ -1399,7 +1399,7 @@ export const GeneratorForm = ({
           <div className="space-y-6">
             {generatedResult.sections?.map((section: any, sIdx: number) => (
               <div key={sIdx} className="space-y-4">
-                <h4 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                <h4 className="text-sm font-semibold text-primary dark:text-primary uppercase tracking-wider">
                   {section.title}
                 </h4>
                 <div className="space-y-3">
@@ -1461,7 +1461,7 @@ export const GeneratorForm = ({
                   </div>
                 )}
                 <Button
-                  className="w-full bg-indigo-600 text-white hover:bg-indigo-700 font-semibold"
+                  className="w-full bg-primary text-white hover:bg-primary/90 font-semibold"
                   onClick={() => handleAddToEditor()}
                   disabled={liveInsertedCount > 0}
                 >
@@ -1522,7 +1522,7 @@ export const GeneratorForm = ({
             {!isGenerating && (
               <>
                 <Button
-                  className="w-full bg-indigo-600 text-white hover:bg-indigo-700 font-semibold"
+                  className="w-full bg-primary text-white hover:bg-primary/90 font-semibold"
                   onClick={() => setComparisonOpen(true)}
                   disabled={allSets.length > 0 ? allSets.length < 2 : comparisonSets.length < 2}
                 >

@@ -192,7 +192,7 @@ const ColorPicker: React.FC<{
                 }}
                 className={cn(
                   "h-6 w-6 rounded border border-border hover:scale-110 transition-transform",
-                  currentColor === color && "ring-2 ring-indigo-500",
+                  currentColor === color && "ring-2 ring-primary",
                 )}
                 style={{ backgroundColor: color }}
               />
@@ -373,7 +373,7 @@ const MathPicker: React.FC<{
                 onInsertBlock("E = mc^2");
                 setOpen(false);
               }}
-              className="w-full text-left text-[11px] text-indigo-400 hover:text-indigo-300 px-2 py-1.5 rounded hover:bg-indigo-500/10 transition-colors"
+              className="w-full text-left text-[11px] text-primary hover:text-primary px-2 py-1.5 rounded hover:bg-primary/10 transition-colors"
             >
               + Custom Math Block
             </button>
@@ -464,8 +464,8 @@ const InsertBlockDropdown: React.FC<InsertBlockDropdownProps> = ({
     },
     {
       label: "Section",
-      color: "text-indigo-500",
-      hoverBg: "hover:bg-indigo-500/10",
+      color: "text-primary",
+      hoverBg: "hover:bg-primary/10",
       action: () => {
         let sectionCount = 0;
         editor.state.doc.descendants((node: any) => {
@@ -1307,7 +1307,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 text-[10px] px-3 font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:text-indigo-300 dark:hover:bg-indigo-950/30"
+            className="h-7 text-[10px] px-3 font-medium text-primary hover:text-primary hover:bg-primary/10 dark:text-primary dark:hover:text-primary dark:hover:bg-primary/30"
             onClick={() => {
               const confirm = window.confirm(
                 "Are you sure you want to start a new paper? Any unsaved changes in the editor will be discarded."
@@ -1336,7 +1336,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-[10px] px-3 font-medium text-indigo-600 border-indigo-200 hover:bg-indigo-50 dark:text-indigo-400 dark:border-indigo-900/50 dark:hover:bg-indigo-950/30 dark:hover:text-indigo-300"
+            className="h-7 text-[10px] px-3 font-medium text-primary border-primary/30 hover:bg-primary/10 dark:text-primary dark:border-primary/50 dark:hover:bg-primary/30 dark:hover:text-primary"
             onClick={() => {
               const store = useEditorStore.getState();
               const questions: any[] = [];
@@ -1425,19 +1425,19 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
         <div className="ml-auto flex items-center gap-3 text-[10px] text-muted-foreground">
           <button
             onClick={handleExportPDF}
-            className="hover:text-indigo-400 flex items-center gap-1 transition-colors"
+            className="hover:text-primary flex items-center gap-1 transition-colors"
           >
             <FileDown className="h-3 w-3" /> PDF
           </button>
           <button
             onClick={handleExportDocx}
-            className="hover:text-indigo-400 flex items-center gap-1 transition-colors"
+            className="hover:text-primary flex items-center gap-1 transition-colors"
           >
             <FileDown className="h-3 w-3" /> DOCX
           </button>
           <button
             onClick={() => window.print()}
-            className="hover:text-indigo-400 flex items-center gap-1 transition-colors"
+            className="hover:text-primary flex items-center gap-1 transition-colors"
           >
             <Printer className="h-3 w-3" /> Print
           </button>

@@ -262,14 +262,14 @@ export default function SavedQuestionsPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         {/* Left — icon + title + subtitle */}
         <div className="flex items-start gap-3">
-          <ListChecks className="mt-1 h-7 w-7 shrink-0 text-indigo-500" />
+          <ListChecks className="mt-1 h-7 w-7 shrink-0 text-primary" />
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold tracking-tight">
                 Saved Questions
               </h1>
               {!isLoading && allQuestions.length > 0 && (
-                <span className="inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-indigo-100 text-indigo-600 text-xs font-bold dark:bg-indigo-950 dark:text-indigo-400">
+                <span className="inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-primary/10 text-primary text-xs font-bold dark:bg-primary dark:text-primary">
                   {allQuestions.length}
                 </span>
               )}
@@ -331,10 +331,10 @@ export default function SavedQuestionsPage() {
       {/* Insert selected bar                                                 */}
       {/* ------------------------------------------------------------------ */}
       {selectedQuestionIds.size > 0 && (
-        <div className="flex flex-col gap-3 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 dark:border-indigo-800 dark:bg-indigo-950/40 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-3 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2.5 dark:border-primary dark:bg-primary/40 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3 flex-1">
-            <FileText className="h-4 w-4 text-indigo-500 shrink-0" />
-            <span className="text-sm text-indigo-700 dark:text-indigo-300">
+            <FileText className="h-4 w-4 text-primary shrink-0" />
+            <span className="text-sm text-primary dark:text-primary">
               {selectedQuestionIds.size} question
               {selectedQuestionIds.size !== 1 ? "s" : ""} selected
             </span>
@@ -342,7 +342,7 @@ export default function SavedQuestionsPage() {
           <button
             type="button"
             onClick={handleInsertSelectedQuestions}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors sm:w-auto"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary/90 transition-colors sm:w-auto"
           >
             <FileText className="h-3.5 w-3.5" />
             Insert Selected ({selectedQuestionIds.size}) into Editor
@@ -405,7 +405,7 @@ export default function SavedQuestionsPage() {
                 <div className="flex items-center justify-between gap-2">
                   <Badge
                     variant="outline"
-                    className="border-indigo-300 text-indigo-600 dark:border-indigo-700 dark:text-indigo-400 uppercase text-[10px] tracking-wide px-1.5 py-0"
+                    className="border-primary/30 text-primary dark:border-primary dark:text-primary uppercase text-[10px] tracking-wide px-1.5 py-0"
                   >
                     {question.type}
                   </Badge>

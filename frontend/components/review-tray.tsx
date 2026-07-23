@@ -175,7 +175,7 @@ export function ReviewTray() {
           size="sm"
           onClick={insertSelected}
           disabled={selected.size === 0}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white h-8"
+          className="bg-primary hover:bg-primary/90 text-white h-8"
         >
           Insert selected ({selected.size})
         </Button>
@@ -208,7 +208,7 @@ export function ReviewTray() {
           return (
             <div key={title} className="space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                <h4 className="text-xs font-semibold text-primary dark:text-primary uppercase tracking-wider">
                   {title}{" "}
                   <span className="text-zinc-400 normal-case font-normal">
                     ({sectionPendingCount} pending · {items.length - sectionPendingCount} inserted)
@@ -219,7 +219,7 @@ export function ReviewTray() {
                   variant="ghost"
                   onClick={() => insertSection(title)}
                   disabled={sectionPendingCount === 0}
-                  className="h-7 text-xs text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+                  className="h-7 text-xs text-primary hover:bg-primary/10 dark:hover:bg-primary/10"
                 >
                   Insert section
                 </Button>
@@ -243,7 +243,7 @@ export function ReviewTray() {
                         isInserted
                           ? "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/20 opacity-90"
                           : isSelected
-                            ? "border-indigo-500 bg-indigo-50/60 dark:bg-indigo-500/10"
+                            ? "border-primary bg-primary/60 dark:bg-primary/10"
                             : "border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40"
                       }`}
                     >
@@ -259,7 +259,7 @@ export function ReviewTray() {
                         ) : (
                           <input
                             type="checkbox"
-                            className="mt-1 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                            className="mt-1 rounded border-zinc-300 text-primary focus:ring-primary"
                             checked={isSelected}
                             onChange={() => toggleSelect(item.id)}
                           />
@@ -377,7 +377,7 @@ export function ReviewTray() {
         <div className="mt-4 text-xs text-zinc-500 italic">
           All generated questions are in the paper.{" "}
           <button
-            className="underline text-indigo-600 hover:text-indigo-700"
+            className="underline text-primary hover:text-primary"
             onClick={() => {
               clearTray();
               toast.message("Cleared the review tray.");

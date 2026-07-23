@@ -220,7 +220,7 @@ export function PaperFromBank({ className }: Props) {
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <div className="flex items-center gap-2">
-            <BookMarked className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            <BookMarked className="h-4 w-4 text-primary dark:text-primary" />
             <h2 className="text-sm font-semibold">
               Create from saved questions
             </h2>
@@ -252,7 +252,7 @@ export function PaperFromBank({ className }: Props) {
               className={cn(
                 "w-full flex items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
                 isSelected
-                  ? "border-indigo-500 bg-indigo-50/60 dark:bg-indigo-500/10"
+                  ? "border-primary bg-primary/60 dark:bg-primary/10"
                   : "border-border hover:bg-muted/50",
               )}
             >
@@ -260,7 +260,7 @@ export function PaperFromBank({ className }: Props) {
                 className={cn(
                   "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border",
                   isSelected
-                    ? "bg-indigo-600 border-indigo-600 text-white"
+                    ? "bg-primary border-primary text-white"
                     : "border-muted-foreground/40",
                 )}
               >
@@ -309,7 +309,7 @@ export function PaperFromBank({ className }: Props) {
         <Button
           onClick={handleBuild}
           disabled={isBuilding || selectedRows.length === 0 || isMixed}
-          className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+          className="flex-1 bg-primary hover:bg-primary/90 text-white gap-2"
         >
           {isBuilding ? (
             <>

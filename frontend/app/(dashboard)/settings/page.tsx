@@ -150,7 +150,7 @@ function ChangePasswordModal({
             className={cn(
               "flex items-center justify-center h-7 w-7 rounded-full text-xs font-bold transition-colors",
               step === "verify"
-                ? "bg-indigo-600 text-white"
+                ? "bg-primary text-white"
                 : "bg-green-500 text-white",
             )}
           >
@@ -161,7 +161,7 @@ function ChangePasswordModal({
             className={cn(
               "flex items-center justify-center h-7 w-7 rounded-full text-xs font-bold transition-colors",
               step === "new-password"
-                ? "bg-indigo-600 text-white"
+                ? "bg-primary text-white"
                 : "bg-muted text-muted-foreground",
             )}
           >
@@ -208,7 +208,7 @@ function ChangePasswordModal({
               <Button
                 type="submit"
                 disabled={isVerifying}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold gap-2"
+                className="w-full bg-primary hover:bg-primary/90 text-white font-semibold gap-2"
               >
                 {isVerifying ? (
                   "Verifying…"
@@ -323,7 +323,7 @@ function ChangePasswordModal({
                     (!!newPassword && newPassword === currentPassword) ||
                     (!!confirmPassword && confirmPassword !== newPassword)
                   }
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
+                  className="flex-1 bg-primary hover:bg-primary/90 text-white font-semibold"
                 >
                   {isSaving ? "Saving…" : "Save Password"}
                 </Button>
@@ -374,7 +374,7 @@ export default function SettingsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-lg text-foreground flex items-center gap-2">
-                <User className="h-5 w-5 text-indigo-500" />
+                <User className="h-5 w-5 text-primary" />
                 Account Details
               </CardTitle>
               <CardDescription className="text-muted-foreground mt-1">
@@ -384,7 +384,7 @@ export default function SettingsPage() {
             <Button
               variant="outline"
               onClick={() => setModalOpen(true)}
-              className="gap-2 text-sm border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700 dark:border-indigo-700 dark:text-indigo-400 dark:hover:bg-indigo-950 w-full sm:w-auto"
+              className="gap-2 text-sm border-primary/30 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary dark:text-primary dark:hover:bg-primary/90 w-full sm:w-auto"
             >
               <Key className="h-4 w-4" />
               Change Password
@@ -425,7 +425,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-lg text-foreground flex items-center gap-2">
-                <Cpu className="h-5 w-5 text-indigo-500" />
+                <Cpu className="h-5 w-5 text-primary" />
                 API Token Usage
               </CardTitle>
               <CardDescription className="text-muted-foreground mt-1">
@@ -474,7 +474,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-lg text-foreground flex items-center gap-2">
-                <Paintbrush className="h-5 w-5 text-indigo-500" />
+                <Paintbrush className="h-5 w-5 text-primary" />
                 Appearance
               </CardTitle>
               <CardDescription className="text-muted-foreground mt-1">

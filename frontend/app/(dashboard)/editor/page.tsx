@@ -804,7 +804,7 @@ export default function EditorPage() {
         {/* Mobile-only drawer header with close */}
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 h-14 shrink-0 lg:hidden">
           <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <Sparkles className="h-4 w-4 text-indigo-500" />
+            <Sparkles className="h-4 w-4 text-primary" />
             Generate &amp; Sources
           </span>
           <button
@@ -843,7 +843,7 @@ export default function EditorPage() {
           <button
             type="button"
             onClick={() => setGenDrawerOpen(true)}
-            className="lg:hidden inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-semibold normal-case tracking-normal text-indigo-600 dark:text-indigo-400 hover:bg-accent"
+            className="lg:hidden inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-semibold normal-case tracking-normal text-primary dark:text-primary hover:bg-accent"
           >
             <PanelLeftOpen className="h-3.5 w-3.5" />
             Generate
@@ -881,7 +881,7 @@ export default function EditorPage() {
                       onClick={() => setActiveSetTab(labelNormalized)}
                       className={cn(
                         "px-4 py-2 text-[13px] font-semibold border-b-2 transition-colors",
-                        activeSetTab === labelNormalized ? "border-indigo-600 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                        activeSetTab === labelNormalized ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
                       )}
                     >
                       Set {labelNormalized}
@@ -981,7 +981,7 @@ export default function EditorPage() {
             <Button
               disabled={isSaving}
               onClick={handleSavePaper}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white w-full gap-2"
+              className="bg-primary hover:bg-primary/90 text-white w-full gap-2"
             >
               {isSaving ? "Updating..." : "Update Details"}
             </Button>
@@ -1048,7 +1048,7 @@ export default function EditorPage() {
             <Button
               disabled={isSaving}
               onClick={handleSaveQuestions}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white w-full gap-2"
+              className="bg-primary hover:bg-primary/90 text-white w-full gap-2"
             >
               {isSaving ? "Saving..." : "Save Questions"}
             </Button>
@@ -1087,7 +1087,7 @@ export default function EditorPage() {
                       <div className="flex gap-2">
                         <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded"></div>
                         <div className="h-4 w-16 bg-zinc-200 dark:bg-zinc-800 rounded"></div>
-                        <div className="h-4 w-20 bg-indigo-100 dark:bg-indigo-900/30 rounded"></div>
+                        <div className="h-4 w-20 bg-primary/10 dark:bg-primary/30 rounded"></div>
                       </div>
                       <div className="h-4 w-10 bg-zinc-200 dark:bg-zinc-800 rounded"></div>
                     </div>
@@ -1109,7 +1109,7 @@ export default function EditorPage() {
                     onClick={() => toggleQuestionSelection(q.id)}
                     className={`p-3 border rounded-md cursor-pointer transition-colors ${
                       isSelected
-                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10"
+                        ? "border-primary bg-primary/10 dark:bg-primary/10"
                         : "border-border hover:border-zinc-400"
                     }`}
                   >
@@ -1121,7 +1121,7 @@ export default function EditorPage() {
                         <span className="bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
                           {q.subject}
                         </span>
-                        <span className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 px-2 py-0.5 rounded">
+                        <span className="bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary px-2 py-0.5 rounded">
                           {q.topic}
                         </span>
                       </div>
@@ -1233,7 +1233,7 @@ export default function EditorPage() {
             </Button>
             <Button
               onClick={handleContinueEditing}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white w-full"
+              className="bg-primary hover:bg-primary/90 text-white w-full"
             >
               Continue Editing
             </Button>
