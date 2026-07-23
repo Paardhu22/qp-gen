@@ -42,6 +42,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/lib/auth-client";
+import { TiptapViewer } from "@/components/tiptap-viewer";
 import {
   deleteLiveDocument,
   clearLiveDocumentsForUser,
@@ -56,6 +57,8 @@ type PaperSet = {
   id: string;
   label: string;
   order?: number;
+  content?: string;
+  answers?: string;
 };
 
 type Paper = {
@@ -252,7 +255,7 @@ function ActionsModal({
     {
       id: "view",
       icon: <Eye className="h-4 w-4" />,
-      label: "View Question Paper",
+      label: "View Paper",
       sublabel: "Open in editor",
       onClick: onViewPaper,
     },
@@ -293,14 +296,14 @@ function ActionsModal({
       id: "export-pdf",
       icon: <FileDown className="h-4 w-4" />,
       label: "Export as PDF",
-      sublabel: "Download question paper as PDF",
+      sublabel: "Download paper as PDF",
       onClick: onExportPDF,
     },
     {
       id: "export-word",
       icon: <FileDown className="h-4 w-4" />,
       label: "Export as Word Document",
-      sublabel: "Download question paper as .docx",
+      sublabel: "Download paper as .docx",
       onClick: onExportWord,
     },
     {
@@ -452,6 +455,10 @@ export default function QuestionPaperPage() {
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [isClearing, setIsClearing] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
+  const [fullPaperLoading, setFullPaperLoading] = useState(false);
+  const [fullPaper, setFullPaper] = useState<Paper | null>(null);
+  const [activeSetLabel, setActiveSetLabel] = useState<string | null>(null);
 
   const [activeActionsPaperId, setActiveActionsPaperId] = useState<
     string | null
@@ -662,6 +669,42 @@ export default function QuestionPaperPage() {
 
   const sortState = { sortKey, sortDir, onToggle: toggleSort };
 
+  const selectedPaper = parsedPapers.find((p) => p.id === selectedPaperId) || null;
+  
+  // Fetch full paper details when selection changes
+  useEffect(() => {
+    if (!selectedPaperId) {
+      setFullPaper(null);
+      return;
+    }
+    
+    setFullPaperLoading(true);
+    fetchJson<Paper>(`/api/projects/papers/${selectedPaperId}/`, { method: "GET" })
+      .then(data => {
+        setFullPaper(data);
+      })
+      .catch(err => {
+        toast.error("Failed to load paper details.");
+      })
+      .finally(() => {
+        setFullPaperLoading(false);
+      });
+  }, [selectedPaperId]);
+
+  // Set the default active set when selecting a new paper
+  useEffect(() => {
+    if (selectedPaper && (!activeSetLabel || !selectedPaper.setList.find(s => s.label === activeSetLabel))) {
+      setActiveSetLabel(selectedPaper.setList[0]?.label || null);
+    }
+  }, [selectedPaper, activeSetLabel]);
+
+  // Find the content for the currently active set
+  const activeSetContent = useMemo(() => {
+    if (!fullPaper || !fullPaper.sets) return null;
+    const set = fullPaper.sets.find((s, i) => s.label === activeSetLabel || normalizeSetLabel(s.label, i) === activeSetLabel);
+    return set?.content || null;
+  }, [fullPaper, activeSetLabel]);
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -674,7 +717,7 @@ export default function QuestionPaperPage() {
           <div className="flex items-center gap-2.5">
             <BookOpen className="h-5 w-5 text-indigo-500" />
             <h1 className="text-lg font-semibold tracking-tight">
-              Question Paper
+              Papers
             </h1>
             <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
               {isLoading ? "…" : questionPapers.length}
@@ -724,206 +767,163 @@ export default function QuestionPaperPage() {
         </div>
       </div>
 
-      {/* ── Table ─────────────────────────────────────────────────────── */}
-      <div className="min-h-0 flex-1 overflow-auto">
-        {isLoading ? (
-          <div className="space-y-px p-4">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <div key={i} className="h-10 animate-pulse rounded bg-muted/40" />
-            ))}
-          </div>
-        ) : sorted.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-            <BookOpen className="h-10 w-10 opacity-30" />
-            <p className="text-sm font-medium">
-              {search.trim()
-                ? "No papers match your search."
-                : "No saved papers yet."}
-            </p>
-            {!search.trim() && (
-              <p className="max-w-xs text-xs text-muted-foreground">
-                Save a paper from the Editor, or assemble one from the Build
-                Paper workspace.
+      {/* ── Split Layout ─────────────────────────────────────────────────────── */}
+      <div className="flex flex-1 min-h-0">
+        {/* Left Pane: List View (30%) */}
+        <div className="w-[30%] min-w-[300px] border-r border-border flex flex-col overflow-y-auto">
+          {isLoading ? (
+            <div className="space-y-px p-4">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={i} className="h-16 animate-pulse rounded bg-muted/40 mb-2" />
+              ))}
+            </div>
+          ) : sorted.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-12 text-center px-4">
+              <BookOpen className="h-8 w-8 opacity-30" />
+              <p className="text-sm font-medium">
+                {search.trim() ? "No papers match your search." : "No saved papers yet."}
               </p>
-            )}
-          </div>
-        ) : (
-          <table className="w-full border-collapse text-sm">
-            <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
-              <tr className="border-b border-border text-left text-xs">
-                <th className="w-8 px-2 py-2" />
-                <SortHeader label="Title" col="title" sort={sortState} className="min-w-[16rem]" />
-                <SortHeader label="Class" col="class" sort={sortState} />
-                <SortHeader label="Subject" col="subject" sort={sortState} />
-                <SortHeader label="Board" col="board" sort={sortState} />
-                <SortHeader label="Sets" col="sets" sort={sortState} />
-                <SortHeader label="Last Updated" col="updated" sort={sortState} align="right" />
-                <th className="px-3 py-2 text-right font-semibold text-muted-foreground">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+            </div>
+          ) : (
+            <div className="flex flex-col divide-y divide-border/60">
               {sorted.map((paper) => {
                 const isDeleting = deletingIds.has(paper.id);
                 const isGenerating = generatingIds.has(paper.id);
                 const hasAnswerScript = Boolean(paper.answerScriptId);
-                const isExpanded = expandedIds.has(paper.id);
                 const stamp = paper.updated_at ?? paper.created_at;
+                const isSelected = selectedPaperId === paper.id;
 
                 return (
-                  <Fragment key={paper.id}>
-                    <tr
-                      className={cn(
-                        "group border-b border-border/60 transition-colors hover:bg-muted/40",
-                        isExpanded && "bg-muted/30",
-                        isDeleting && "pointer-events-none opacity-40",
-                      )}
-                    >
-                      {/* Expand toggle */}
-                      <td className="px-2 py-2 align-middle">
-                        <button
-                          type="button"
-                          aria-label={isExpanded ? "Collapse" : "Expand sets"}
-                          onClick={() => toggleExpand(paper.id)}
-                          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                        >
-                          <ChevronRight
-                            className={cn(
-                              "h-4 w-4 transition-transform",
-                              isExpanded && "rotate-90",
-                            )}
-                          />
-                        </button>
-                      </td>
-
-                      {/* Title (opens editor) */}
-                      <td className="px-3 py-2 align-middle">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            router.push(`/editor?paperId=${paper.id}`)
-                          }
-                          className="flex items-center gap-2 text-left"
-                        >
-                          <FileText className="h-4 w-4 shrink-0 text-indigo-500" />
-                          <span className="font-medium text-foreground hover:underline">
-                            {paper.title}
-                          </span>
-                          {hasAnswerScript && !isGenerating && (
-                            <span
-                              title="Answer script ready"
-                              className="inline-flex items-center gap-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
-                            >
-                              <Key className="h-2.5 w-2.5" />
-                              Key
-                            </span>
-                          )}
-                          {isGenerating && (
-                            <span className="inline-flex items-center gap-0.5 rounded border border-amber-500/30 bg-amber-500/10 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                              Gen…
-                            </span>
-                          )}
-                        </button>
-                      </td>
-
-                      <td className="px-3 py-2 align-middle whitespace-nowrap text-muted-foreground">
-                        {paper.classLabel}
-                      </td>
-                      <td className="px-3 py-2 align-middle whitespace-nowrap text-muted-foreground">
-                        {paper.subjectLabel}
-                      </td>
-                      <td className="px-3 py-2 align-middle whitespace-nowrap text-muted-foreground">
-                        {paper.boardLabel}
-                      </td>
-
-                      {/* Sets — inline badges */}
-                      <td className="px-3 py-2 align-middle">
-                        <div className="flex items-center gap-1">
-                          {paper.setList.map((s) => (
-                            <span
-                              key={s.id}
-                              className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-indigo-500/30 bg-indigo-500/10 px-1.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400"
-                            >
-                              {s.label}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-
-                      <td className="px-3 py-2 text-right align-middle whitespace-nowrap tabular-nums text-muted-foreground">
-                        {formatDateTime(stamp)}
-                      </td>
-
-                      {/* Actions (paper-level) */}
-                      <td className="px-3 py-2 text-right align-middle">
-                        <button
-                          type="button"
-                          onClick={() => setActiveActionsPaperId(paper.id)}
-                          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium text-foreground hover:bg-accent hover:border-primary/40"
-                        >
-                          <MoreHorizontal className="h-3.5 w-3.5" />
-                          Actions
-                        </button>
-                      </td>
-                    </tr>
-
-                    {/* Expanded per-set rows */}
-                    {isExpanded && (
-                      <tr className="border-b border-border/60 bg-muted/20">
-                        <td />
-                        <td colSpan={7} className="px-3 py-2">
-                          <div className="flex flex-col gap-1.5">
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              {paper.setList.length} set
-                              {paper.setList.length === 1 ? "" : "s"} — each with
-                              independent preview / export / print
-                            </span>
-                            {paper.setList.map((s) => (
-                              <div
-                                key={s.id}
-                                className="flex items-center gap-3 rounded-md border border-border bg-background px-3 py-1.5"
-                              >
-                                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-indigo-500/30 bg-indigo-500/10 px-1.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
-                                  {s.label}
-                                </span>
-                                <span className="text-xs font-medium text-foreground">
-                                  Set {s.label}
-                                </span>
-                                <div className="ml-auto flex items-center gap-1">
-                                  <SetActionButton
-                                    icon={<Eye className="h-3.5 w-3.5" />}
-                                    label="Preview"
-                                    onClick={() => openSet(paper.id, s.label)}
-                                  />
-                                  <SetActionButton
-                                    icon={<FileDown className="h-3.5 w-3.5" />}
-                                    label="Export"
-                                    onClick={() =>
-                                      openSet(paper.id, s.label, "export-pdf")
-                                    }
-                                  />
-                                  <SetActionButton
-                                    icon={<Printer className="h-3.5 w-3.5" />}
-                                    label="Print"
-                                    onClick={() =>
-                                      openSet(paper.id, s.label, "print")
-                                    }
-                                  />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
+                  <div
+                    key={paper.id}
+                    onClick={() => setSelectedPaperId(paper.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedPaperId(paper.id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    className={cn(
+                      "flex flex-col items-start gap-1 p-3 text-left transition-colors hover:bg-muted/40 cursor-pointer focus-visible:outline-none focus-visible:bg-muted/40",
+                      isSelected && "bg-muted/50 border-l-2 border-indigo-500",
+                      isDeleting && "pointer-events-none opacity-40"
                     )}
-                  </Fragment>
+                  >
+                    <div className="flex w-full justify-between items-start">
+                      <span className="font-semibold text-foreground line-clamp-1 break-all">
+                        {paper.title}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveActionsPaperId(paper.id);
+                        }}
+                        className="shrink-0 p-1 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                    </div>
+                    
+                    <div className="flex w-full items-center justify-between text-xs text-muted-foreground mt-1">
+                      <div className="flex gap-2">
+                        <span>{paper.classLabel}</span>
+                        <span>•</span>
+                        <span className="truncate">{paper.subjectLabel}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex w-full items-center justify-between text-[11px] text-muted-foreground mt-2">
+                      <div className="flex items-center gap-1">
+                        {paper.setList.slice(0, 3).map((s) => (
+                          <span
+                            key={s.id}
+                            className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-indigo-500/30 bg-indigo-500/10 px-1 font-semibold text-indigo-600 dark:text-indigo-400"
+                          >
+                            {s.label}
+                          </span>
+                        ))}
+                        {paper.setList.length > 3 && <span>+{paper.setList.length - 3}</span>}
+                      </div>
+                      <span className="tabular-nums whitespace-nowrap">{formatDateTime(stamp)}</span>
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
-        )}
+            </div>
+          )}
+        </div>
+
+        {/* Right Pane: Viewer (70%) */}
+        <div className="w-[70%] flex flex-col bg-muted/10 relative overflow-hidden">
+          {!selectedPaper ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground">
+              <FileText className="h-12 w-12 opacity-20 mb-4" />
+              <p>Select a paper to preview</p>
+            </div>
+          ) : (
+            <div className="flex flex-col h-full w-full">
+              {/* Viewer Header */}
+              <div className="shrink-0 flex items-center justify-between border-b border-border bg-background px-4 py-3">
+                <div className="flex items-center gap-4">
+                  <h2 className="text-base font-semibold truncate max-w-sm" title={selectedPaper.title}>
+                    {selectedPaper.title}
+                  </h2>
+                  
+                  {/* Set Selector */}
+                  {selectedPaper.setList.length > 1 && (
+                    <div className="flex items-center gap-1 bg-muted/50 rounded-md p-1">
+                      {selectedPaper.setList.map(s => (
+                        <button
+                          key={s.id}
+                          onClick={() => setActiveSetLabel(s.label)}
+                          className={cn(
+                            "px-2.5 py-1 text-xs font-medium rounded-sm transition-colors",
+                            activeSetLabel === s.label 
+                              ? "bg-background text-foreground shadow-sm" 
+                              : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          Set {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                       const params = new URLSearchParams({ paperId: selectedPaper.id });
+                       if (activeSetLabel) params.set("set", activeSetLabel);
+                       router.push(`/editor?${params.toString()}`);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 transition-colors"
+                  >
+                    Edit Paper
+                  </button>
+                </div>
+              </div>
+              
+              {/* Viewer Content */}
+              <div className="flex-1 overflow-hidden bg-muted/30">
+                {fullPaperLoading ? (
+                  <div className="flex h-full items-center justify-center text-muted-foreground">
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  </div>
+                ) : activeSetContent ? (
+                  <TiptapViewer content={activeSetContent} />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-muted-foreground">
+                    <p>No content available for this set.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Actions Modal ─────────────────────────────────────────────── */}

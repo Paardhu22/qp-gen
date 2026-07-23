@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "../styles/editor.css";
 import "katex/dist/katex.min.css";
 import { Providers } from "@/components/providers";
 import { Toaster } from "sonner";
@@ -11,8 +12,8 @@ const sora = Sora({
 });
 
 export const metadata: Metadata = {
-  title: "Paper Gen -  Question Paper Generator",
-  description: "Question Paper Generator SaaS",
+  title: "Paper Gen -  Paper Generator",
+  description: "Paper Generator SaaS",
 };
 
 // `viewport-fit=cover` lets the app paint into the iOS/Android safe areas so our
