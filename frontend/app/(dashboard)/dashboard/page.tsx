@@ -63,13 +63,13 @@ export default function DashboardPage() {
           {/* Create New Paper card */}
           <Link
             href="/editor?new=true"
-            className="group relative block overflow-hidden rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-gradient-to-br from-indigo-50/50 to-white dark:from-indigo-950/20 dark:to-zinc-950 p-6 shadow-sm hover:shadow-md transition-all duration-300 hover:border-indigo-400 dark:hover:border-indigo-500"
+            className="group relative block overflow-hidden rounded-xl border border-primary/30 dark:border-primary/60 bg-gradient-to-br from-primary/50 to-white dark:from-primary/20 dark:to-zinc-950 p-6 shadow-sm hover:shadow-md transition-all duration-300 hover:border-primary dark:hover:border-primary"
           >
             <div className="flex items-start justify-between">
-              <div className="p-3 rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/20 group-hover:scale-110 transition-transform">
+              <div className="p-3 rounded-lg bg-primary text-white shadow-md shadow-primary/20 group-hover:scale-110 transition-transform">
                 <Plus className="h-6 w-6" />
               </div>
-              <ArrowRight className="h-5 w-5 text-muted-foreground group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
+              <ArrowRight className="h-5 w-5 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
             </div>
             <div className="mt-6 space-y-2">
               <h4 className="text-xl font-bold text-foreground">Create New Exam Paper</h4>
@@ -104,7 +104,7 @@ export default function DashboardPage() {
       <div className="space-y-4">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Overview & Stats</h3>
         <div className="grid gap-4 md:grid-cols-3">
-          <Card className="bg-card border-border/80 relative overflow-hidden group hover:border-indigo-500/30 transition-all duration-300">
+          <Card className="bg-card border-border/80 relative overflow-hidden group hover:border-primary/30 transition-all duration-300">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Total Papers</CardTitle>
             </CardHeader>
@@ -118,7 +118,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border/80 relative overflow-hidden group hover:border-indigo-500/30 transition-all duration-300">
+          <Card className="bg-card border-border/80 relative overflow-hidden group hover:border-primary/30 transition-all duration-300">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Active Projects</CardTitle>
             </CardHeader>
@@ -132,7 +132,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border/80 relative overflow-hidden group hover:border-indigo-500/30 transition-all duration-300">
+          <Card className="bg-card border-border/80 relative overflow-hidden group hover:border-primary/30 transition-all duration-300">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Generations</CardTitle>
             </CardHeader>
@@ -153,7 +153,7 @@ export default function DashboardPage() {
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Recent Papers</h3>
-            <Link href="/question-bank" className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">
+            <Link href="/question-bank" className="text-xs font-semibold text-primary dark:text-primary hover:underline">
               View All
             </Link>
           </div>
@@ -167,10 +167,10 @@ export default function DashboardPage() {
                 <Link
                   key={paper.id}
                   href={`/editor?paperId=${paper.id}`}
-                  className="block bg-card hover:bg-muted/30 border border-border/80 rounded-xl p-5 hover:border-indigo-500/30 hover:shadow-sm transition-all duration-300 space-y-3"
+                  className="block bg-card hover:bg-muted/30 border border-border/80 rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all duration-300 space-y-3"
                 >
-                  <div className="p-2 rounded-lg bg-indigo-500/10 w-fit">
-                    <FileText className="h-4 w-4 text-indigo-500" />
+                  <div className="p-2 rounded-lg bg-primary/10 w-fit">
+                    <FileText className="h-4 w-4 text-primary" />
                   </div>
                   <div className="space-y-1">
                     <h4 className="font-bold text-foreground text-sm line-clamp-1">{paper.title}</h4>
@@ -178,7 +178,7 @@ export default function DashboardPage() {
                       {className} · {subjectName}
                     </p>
                   </div>
-                  <div className="text-[10px] text-indigo-500 font-semibold group-hover:underline">
+                  <div className="text-[10px] text-primary font-semibold group-hover:underline">
                     Edit Paper →
                   </div>
                 </Link>

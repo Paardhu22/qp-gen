@@ -16,9 +16,6 @@ export const metadata: Metadata = {
   description: "Paper Generator SaaS",
 };
 
-// `viewport-fit=cover` lets the app paint into the iOS/Android safe areas so our
-// `env(safe-area-inset-*)` padding can reclaim them. We deliberately allow zoom
-// (no maximumScale / userScalable lock) to keep pinch-zoom accessibility.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,

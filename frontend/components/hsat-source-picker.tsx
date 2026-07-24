@@ -455,7 +455,7 @@ export function HsatSourcePicker({
     }
     if (entry.status === "processing" || entry.status === "pending") {
       return (
-        <span className="inline-flex items-center gap-1 text-indigo-500 dark:text-indigo-400">
+        <span className="inline-flex items-center gap-1 text-primary dark:text-primary">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Preparing — first use only
         </span>
@@ -493,7 +493,7 @@ export function HsatSourcePicker({
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
-            <BookOpen className="h-4 w-4 text-indigo-500" />
+            <BookOpen className="h-4 w-4 text-primary" />
             {step === "select"
               ? "Apply Source from HSAT"
               : `Chapters — ${book}`}
@@ -614,7 +614,7 @@ export function HsatSourcePicker({
                     <button
                       type="button"
                       onClick={selectAllChapters}
-                      className="text-indigo-500 hover:text-indigo-400"
+                      className="text-primary hover:text-primary"
                     >
                       Select all
                     </button>
@@ -640,7 +640,7 @@ export function HsatSourcePicker({
                           type="checkbox"
                           checked={checked}
                           onChange={() => toggleChapter(c.s3_key)}
-                          className="h-3.5 w-3.5 accent-indigo-500"
+                          className="h-3.5 w-3.5 accent-primary"
                           disabled={isWorking}
                         />
                         <span className="flex-1 truncate">{c.label}</span>
@@ -652,7 +652,7 @@ export function HsatSourcePicker({
                         )}
                         {(c.status === "processing" ||
                           c.status === "pending") && (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500 flex-shrink-0" />
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary flex-shrink-0" />
                         )}
                       </label>
                     );

@@ -223,7 +223,7 @@ export function ComparisonWorkspace() {
       {/* ── Top bar ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div className="flex items-center gap-2 min-w-0">
-          <Columns3 className="h-5 w-5 text-indigo-500 shrink-0" />
+          <Columns3 className="h-5 w-5 text-primary shrink-0" />
           <h2 className="text-base font-bold text-foreground truncate">
             Compare Sets
           </h2>
@@ -244,7 +244,7 @@ export function ComparisonWorkspace() {
                   onClick={() => toggleShown(label)}
                   className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
                     active
-                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-semibold"
+                      ? "border-primary bg-primary/10 dark:bg-primary/10 text-primary dark:text-primary font-semibold"
                       : "border-border text-muted-foreground hover:border-zinc-400"
                   }`}
                   title={active ? `Hide Set ${label}` : `Show Set ${label}`}
@@ -297,7 +297,7 @@ export function ComparisonWorkspace() {
               <Button
                 size="sm"
                 onClick={() => insertSet(label)}
-                className="h-7 shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
+                className="h-7 shrink-0 bg-primary hover:bg-primary/90 text-white text-xs"
               >
                 <Plus className="h-3 w-3 mr-1" />
                 Insert set
@@ -321,13 +321,13 @@ export function ComparisonWorkspace() {
                   key={label}
                   className="flex items-center justify-between gap-2 bg-muted/60 px-3 py-1.5"
                 >
-                  <h4 className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider truncate">
+                  <h4 className="text-xs font-semibold text-primary dark:text-primary uppercase tracking-wider truncate">
                     {group.title}
                   </h4>
                   <button
                     type="button"
                     onClick={() => insertSection(label, group.title)}
-                    className="text-[11px] text-indigo-600 hover:underline shrink-0"
+                    className="text-[11px] text-primary hover:underline shrink-0"
                   >
                     Insert section
                   </button>

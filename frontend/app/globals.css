@@ -138,6 +138,10 @@ body {
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -166,7 +170,10 @@ body {
     --card-foreground: oklch(0.145 0 0);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
+    /* Indigo is the single brand accent (was near-black gray). Matches the
+       app's de-facto indigo-600 action color; now tokenized so shadcn
+       primary + custom buttons + focus rings are one consistent hue. */
+    --primary: oklch(0.511 0.254 277);
     --primary-foreground: oklch(0.985 0 0);
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
@@ -175,9 +182,14 @@ body {
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
+    /* Muted semantic status tokens (calm on the grayscale base). */
+    --success: oklch(0.58 0.13 155);
+    --success-foreground: oklch(0.985 0 0);
+    --warning: oklch(0.68 0.13 75);
+    --warning-foreground: oklch(0.205 0 0);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    --ring: oklch(0.511 0.254 277);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -207,7 +219,7 @@ html[data-auth-page] *.dark {
     --card-foreground: oklch(0.145 0 0);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
+    --primary: oklch(0.511 0.254 277);
     --primary-foreground: oklch(0.985 0 0);
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
@@ -217,7 +229,7 @@ html[data-auth-page] *.dark {
     --accent-foreground: oklch(0.205 0 0);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    --ring: oklch(0.511 0.254 277);
 }
 
 .dark {
@@ -227,8 +239,9 @@ html[data-auth-page] *.dark {
     --card-foreground: oklch(0.985 0 0);
     --popover: oklch(0.205 0 0);
     --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
+    /* Indigo lifted for contrast on dark surfaces; white text on it. */
+    --primary: oklch(0.585 0.233 277);
+    --primary-foreground: oklch(0.985 0 0);
     --secondary: oklch(0.269 0 0);
     --secondary-foreground: oklch(0.985 0 0);
     --muted: oklch(0.269 0 0);
@@ -236,9 +249,13 @@ html[data-auth-page] *.dark {
     --accent: oklch(0.269 0 0);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
+    --success: oklch(0.7 0.14 155);
+    --success-foreground: oklch(0.205 0 0);
+    --warning: oklch(0.78 0.14 75);
+    --warning-foreground: oklch(0.205 0 0);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
+    --ring: oklch(0.585 0.233 277);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -337,6 +354,38 @@ html[data-auth-page] *.dark {
 }
 .block-drag-handle:active {
     cursor: grabbing !important;
+}
+
+/* Read-only paper preview (Question Bank split view): strip the editor's
+   per-node editing chrome — drag handles, delete/add controls, and the marks
+   number-stepper — so it reads as a clean document. Kept UNLAYERED (like the
+   rules above) so it is actually emitted and outranks the node styles. Scoped
+   to .paper-preview-scroll so the real editor is untouched. */
+.paper-preview-scroll .block-drag-handle,
+.paper-preview-scroll .question-controls,
+.paper-preview-scroll .question-add-sub,
+.paper-preview-scroll .section-controls,
+.paper-preview-scroll .instruction-controls,
+.paper-preview-scroll .question-group-controls {
+    display: none !important;
+}
+.paper-preview-scroll .question-marks-input {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: textfield;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    pointer-events: none;
+    width: auto !important;
+    min-width: 0 !important;
+    text-align: right;
+}
+.paper-preview-scroll .question-marks-input::-webkit-inner-spin-button,
+.paper-preview-scroll .question-marks-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    display: none;
+    margin: 0;
 }
 
 /* Make the blinking text caret always visible on the light paper (#fcfbf9)

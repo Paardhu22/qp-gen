@@ -869,10 +869,22 @@ export const TiptapEditor = ({
               // Creating a new paper row is the user's explicit action via
               // "Paper Details" → Save.  Never POST from here — that caused
               // the empty-paper flood (#3 / CLUSTER 1).
-              const syncedPaperId =
-                currentPaperId && currentPaperId !== "current"
-                  ? currentPaperId
-                  : null;
+              // Set tabs hand us paperId as "{baseId}_A|B|C" (editor/page.tsx).
+              // The base paper row IS Set A, so autosave mirrors Set A to that
+              // base id. B/C are variants stored inside the paper's `sets`
+              // array and persist via the explicit multi-set Save — autosaving
+              // them here (updatePaperAction wraps content into a lone Set A)
+              // would 404 on the non-existent "{id}_B" row AND clobber Set A.
+              // A bare id with no suffix (legacy) syncs as-is.
+              let syncedPaperId: string | null = null;
+              if (currentPaperId) {
+                const m = currentPaperId.match(/^(.*)_([ABC])$/);
+                const base = m ? m[1] : currentPaperId;
+                const setLabel = m ? m[2] : "A";
+                if (base && base !== "current" && setLabel === "A") {
+                  syncedPaperId = base;
+                }
+              }
               if (syncedPaperId) {
                 await updatePaperAction(
                   syncedPaperId,
