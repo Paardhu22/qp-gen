@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2, PanelLeftOpen, Sparkles, X } from "lucide-react";
+import { Loader2, PanelLeftOpen, Zap, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   savePaperAction,
@@ -888,7 +888,7 @@ export default function EditorPage() {
         {/* Mobile-only drawer header with close */}
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 h-14 shrink-0 lg:hidden">
           <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <Sparkles className="h-4 w-4 text-primary" />
+            <Zap className="h-4 w-4 text-primary" />
             Generate &amp; Sources
           </span>
           <button

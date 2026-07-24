@@ -8,7 +8,7 @@ import {
   ListChecks,
   FileText,
   BookOpen,
-  Wand2,
+  Hammer,
   Settings,
   LogOut,
   Menu,
@@ -31,7 +31,7 @@ const navItems = [
   { icon: ListChecks, label: "Question Bank", href: "/paper-library" },
   { icon: FileText, label: "Editor", href: "/editor" },
   { icon: BookOpen, label: "Papers", href: "/question-bank" },
-  { icon: Wand2, label: "Builder", href: "/build-paper" },
+  { icon: Hammer, label: "Builder", href: "/build-paper" },
   { icon: Settings, label: "Settings", href: "/settings" },
 ];
 
