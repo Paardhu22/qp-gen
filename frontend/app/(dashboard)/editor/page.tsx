@@ -78,7 +78,7 @@ export default function EditorPage() {
   const [questionSubject, setQuestionSubject] = useState("");
   const [questionTopic, setQuestionTopic] = useState("");
 
-  // Question Paper Browser state
+  // Question Bank Browser state
   const questionBankBrowserOpen = useEditorStore(
     (state) => state.questionBankBrowserOpen,
   );
@@ -107,6 +107,77 @@ export default function EditorPage() {
   const [paperLoading, setPaperLoading] = useState(false);
   const [paperError, setPaperError] = useState<string | null>(null);
   const [currentPaperId, setCurrentPaperId] = useState<string | null>(null);
+
+  // Mirrors currentPaperId so the reset routine can read the latest value
+  // without being re-created (and re-firing the load effect) on every change.
+  const currentPaperIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    currentPaperIdRef.current = currentPaperId;
+  }, [currentPaperId]);
+
+  // Bumped to force a brand-new TiptapEditor instance (fresh ProseMirror doc +
+  // cleared undo/redo history + reset save state) — see the `key` prop below.
+  const [editorInstanceKey, setEditorInstanceKey] = useState(0);
+
+  const clearComparisonSets = useEditorStore((s) => s.clearComparisonSets);
+  const setGlobalSaveState = useEditorStore((s) => s.setSaveState);
+
+  // ── "New Paper" reset ─────────────────────────────────────────────────
+  // A brand-new paper must start with EVERY set empty and hold no reference
+  // to the paper that was open before. The previous reset only cleared the
+  // inputs that feed Set A (paperContent + metadata), so Sets B/C — whose
+  // content comes from `comparisonSets`/`loadedSets` and their own per-set
+  // IndexedDB drafts (`current_B`, `current_C`, …) — kept rendering the old
+  // paper. This purges all three sources, in order, and forces a fresh editor
+  // instance so switching tabs afterwards can never rehydrate stale content.
+  const resetToNewPaper = useCallback(async () => {
+    const userId = sessionData?.user?.id;
+
+    // 1. Purge every per-set live draft for BOTH the previously-open paper
+    //    scope and the unsaved "current" scope. Best-effort: a failed delete
+    //    must not block the reset. This must complete before the editor
+    //    remounts, otherwise its load effect (which prefers the IndexedDB
+    //    draft over initialContent) could re-hydrate the old Set A/B/C.
+    if (userId) {
+      const scopes = new Set<string>(["current"]);
+      const prevId = currentPaperIdRef.current;
+      if (prevId) scopes.add(prevId);
+      const draftIds = new Set<string>();
+      for (const scope of scopes) {
+        for (const label of ["A", "B", "C"]) draftIds.add(`${scope}_${label}`);
+        draftIds.add(scope); // legacy single-set key
+      }
+      await Promise.all(
+        [...draftIds].map((pid) =>
+          deleteLiveDocument(getLiveDocumentId(userId, pid)).catch((err) =>
+            console.error("Failed to purge set draft:", pid, err),
+          ),
+        ),
+      );
+    }
+
+    // 2. Drop the multi-set references so the Set B/C tabs disappear and their
+    //    initialContent can no longer resolve to the old paper.
+    clearComparisonSets();
+    setLoadedSets([]);
+    setActiveSetTab("A");
+
+    // 3. Reset paper identity, metadata, content and save state.
+    setCurrentPaperId(null);
+    setPaperContent("");
+    setLoadedPaperTitle(null);
+    setPaperUpdatedAt(null);
+    setPaperError(null);
+    setPaperClass("");
+    setPaperSubject("");
+    setPaperExamName("");
+    setHsatSources([]);
+    setUploadedDocs([]);
+    setGlobalSaveState("saved");
+
+    // 4. Force a fresh TiptapEditor (empty doc, cleared undo/redo history).
+    setEditorInstanceKey((k) => k + 1);
+  }, [sessionData?.user?.id, clearComparisonSets, setGlobalSaveState]);
 
   // Resizable sidebar
   const SIDEBAR_MIN = 260;
@@ -194,6 +265,15 @@ export default function EditorPage() {
     | "answer_script"
     | "question_bank";
 
+  // Deep-link to a specific set (A/B/C) from the Papers page's per-set
+  // Preview / Export / Print actions. Only re-applies on an actual navigation
+  // (searchParams identity change), so it never fights a manual tab click.
+  const setParam = searchParams.get("set");
+  useEffect(() => {
+    const s = (setParam || "").toUpperCase();
+    if (s === "A" || s === "B" || s === "C") setActiveSetTab(s);
+  }, [setParam]);
+
   // Auto-trigger export when the action param is present (set by the
   // question-paper page Actions modal). We fire after the paper finishes
   // loading and immediately strip the param from the URL.
@@ -254,6 +334,15 @@ export default function EditorPage() {
           }
         } catch {
           toast.error("DOCX export failed. Please try from the toolbar.");
+        }
+      } else if (actionParam === "print") {
+        // Per-set print: the active set tab is already selected via ?set=,
+        // and the editor's @media print rules isolate #tiptap-paper-container,
+        // so the browser dialog prints only this set's A4 pages.
+        try {
+          window.print();
+        } catch {
+          toast.error("Print failed. Please try again from the editor.");
         }
       }
       // Remove the action param from the URL so refresh doesn't re-trigger
@@ -376,31 +465,26 @@ export default function EditorPage() {
         // it — never destroy unsaved work on a best-effort cleanup.
       }
     }
-    setPaperExamName("");
-    setPaperClass("");
-    setPaperSubject("");
-    setLoadedPaperTitle(null);
-    setCurrentPaperId(null);
-    setPaperContent("");
+    // Reset ALL sets (A/B/C), not just Set A. The previous draft was already
+    // archived above, so purging the per-set drafts here is safe.
+    await resetToNewPaper();
   };
 
   useEffect(() => {
     let active = true;
 
     if (isNew) {
-      setPaperContent("");
-      setLoadedPaperTitle(null);
-      setPaperError(null);
-      setPaperUpdatedAt(null);
-      setCurrentPaperId(null);
-      setPaperClass("");
-      setPaperSubject("");
-      setPaperExamName("");
-      setHsatSources([]);
-      setUploadedDocs([]);
       setCheckedResume(true); // Bypass resume prompt for explicitly new papers
-      router.replace("/editor");
-      return;
+      // Reset EVERY set before dropping the `new=true` flag. Runs async so the
+      // per-set IndexedDB drafts are purged first; only then do we navigate,
+      // so the remounted editor cannot rehydrate the previous paper's B/C.
+      (async () => {
+        await resetToNewPaper();
+        if (active) router.replace("/editor");
+      })();
+      return () => {
+        active = false;
+      };
     }
 
     if (!paperId) {
@@ -416,13 +500,13 @@ export default function EditorPage() {
       };
     }
 
-    if (paperId === "current") {
+    if (paperId && paperId.startsWith("current")) {
       const loadLocalDraft = async () => {
         const userId = sessionData?.user?.id;
         if (!userId) return;
         try {
           const draft = await getLiveDocument(
-            getLiveDocumentId(userId, "current"),
+            getLiveDocumentId(userId, paperId),
           );
           if (draft && active) {
             setPaperContent(
@@ -433,7 +517,7 @@ export default function EditorPage() {
             setPaperClass(draft.metadata?.className || "");
             setPaperSubject(draft.metadata?.subject || "");
             setPaperUpdatedAt(new Date(draft.updatedAt).toISOString());
-            setCurrentPaperId("current");
+            setCurrentPaperId(paperId);
             setPaperError(null);
             setHsatSources(draft.metadata?.hsatSources || []);
             setUploadedDocs(draft.metadata?.uploadedDocs || []);
@@ -444,7 +528,7 @@ export default function EditorPage() {
             setPaperClass("");
             setPaperSubject("");
             setPaperUpdatedAt(null);
-            setCurrentPaperId("current");
+            setCurrentPaperId(paperId);
             setPaperError(null);
             setHsatSources([]);
             setUploadedDocs([]);
@@ -540,7 +624,7 @@ export default function EditorPage() {
     return () => {
       active = false;
     };
-  }, [paperId, isNew, sessionData?.user?.id, router]);
+  }, [paperId, isNew, sessionData?.user?.id, router, resetToNewPaper]);
 
   const handleLivePaperCreated = useCallback(
     (newPaperId: string) => {
@@ -704,7 +788,7 @@ export default function EditorPage() {
       const res = await saveQuestionsToBank(payload);
       setSaveQuestionModalOpen(false);
       toast.success(
-        `Saved ${res.count} question(s) to the Question Paper successfully!`,
+        `Saved ${res.count} question(s) to the Paper successfully!`,
       );
 
       // Reset form
@@ -895,7 +979,7 @@ export default function EditorPage() {
         })()}
 
         <TiptapEditor
-          key={activeSetTab}
+          key={`${editorInstanceKey}-${activeSetTab}`}
           initialContent={(() => {
             const activeSets = comparisonSets.length > 0 ? comparisonSets : loadedSets;
             if (activeSets.length > 0 && activeSetTab !== "A") {
@@ -998,9 +1082,9 @@ export default function EditorPage() {
       >
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Save to Question Paper</DialogTitle>
+            <DialogTitle>Save to Paper</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Save {questionsToSave.length} question(s) to the Question Paper
+              Save {questionsToSave.length} question(s) to the Paper
               collection.
             </DialogDescription>
           </DialogHeader>
@@ -1055,16 +1139,16 @@ export default function EditorPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* Question Paper Browser Modal */}
+      {/* Question Bank Browser Modal */}
       <Dialog
         open={questionBankBrowserOpen}
         onOpenChange={setQuestionBankBrowserOpen}
       >
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[700px] max-h-[85dvh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Question Paper Browser</DialogTitle>
+            <DialogTitle>Question Bank</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Search and select saved questions to add to your current paper.
+              Search and select questions from the bank to add to your current paper.
             </DialogDescription>
           </DialogHeader>
           <div className="flex-shrink-0 py-2">

@@ -92,9 +92,60 @@ class ExportRecord(TimeStampedModel):
         db_table = "ExportRecord"
 
 
+class QuestionFamily(models.Model):
+    code = models.CharField(primary_key=True, max_length=50)
+    name = models.CharField(max_length=255)
+    response_mode = models.CharField(max_length=50)
+    is_auto_markable = models.BooleanField()
+    sort_order = models.IntegerField()
+
+    class Meta:
+        db_table = "QuestionFamily"
+        ordering = ["sort_order"]
+
+
+class QuestionType(models.Model):
+    code = models.CharField(primary_key=True, max_length=50)
+    family = models.ForeignKey(QuestionFamily, on_delete=models.PROTECT, related_name="types")
+    name = models.CharField(max_length=255)
+    description = models.TextField()
+    purpose = models.TextField(null=True, blank=True)
+    is_container = models.BooleanField(default=False)
+    requires_stimulus = models.BooleanField(default=False)
+    requires_options = models.BooleanField(default=False)
+    requires_figure = models.BooleanField(default=False)
+    produces_figure = models.BooleanField(default=False)
+    is_auto_markable = models.BooleanField(default=False)
+    is_competency_default = models.BooleanField(default=False)
+    needs_answer_space = models.BooleanField(default=True)
+    default_answer_space_lines = models.IntegerField(null=True, blank=True)
+    is_internal_only = models.BooleanField(default=False)
+    content_schema = models.JSONField(default=dict, blank=True)
+    answer_schema = models.JSONField(default=dict, blank=True)
+    deprecated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "QuestionType"
+
+
+class QuestionTypeAlias(models.Model):
+    type = models.ForeignKey(QuestionType, on_delete=models.CASCADE, related_name="aliases")
+    alias = models.CharField(max_length=255)
+    locale = models.CharField(max_length=10, null=True, blank=True)
+    board_code = models.CharField(max_length=50, null=True, blank=True)
+    source = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        db_table = "QuestionTypeAlias"
+        unique_together = (("type", "alias", "locale", "board_code"),)
+        indexes = [
+            models.Index(fields=["alias"], name="question_type_alias_idx"),
+        ]
+
+
 class Question(TimeStampedModel):
     id = models.CharField(primary_key=True, max_length=32, default=generate_id, editable=False)
-    type = models.CharField(max_length=50)
+    type = models.ForeignKey(QuestionType, on_delete=models.PROTECT, db_column="type", null=True, blank=True)
     content = models.TextField()
     answer = models.TextField(null=True, blank=True)
     # PortableArrayField, not ArrayField: identical `text[]` column on

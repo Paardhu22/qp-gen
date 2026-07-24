@@ -12,6 +12,8 @@
 /package-lock.json
 /.claude-flow/
 /.swarm/
+.claudeignore
+db.sqlite3
 
 # testing
 /coverage

@@ -10,7 +10,15 @@ def list_projects_for_user(user) -> List[Project]:
 
 
 def list_papers_for_user(user) -> List[Paper]:
-    return Paper.objects.filter(user=user).select_related("project").order_by("-updated_at")
+    # prefetch_related("sets") — the list serializer embeds every PaperSet, so
+    # without this the papers table issues one extra query per paper (N+1),
+    # which the redesigned enterprise list (hundreds of papers) would feel.
+    return (
+        Paper.objects.filter(user=user)
+        .select_related("project")
+        .prefetch_related("sets")
+        .order_by("-updated_at")
+    )
 
 
 def get_paper_for_user(user, paper_id: str) -> Paper:

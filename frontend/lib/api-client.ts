@@ -308,6 +308,10 @@ export async function fetchPaper<T>(paperId: string): Promise<T> {
   return fetchJson<T>(`/api/projects/papers/${paperId}/`, { method: "GET", timeoutMs: 60000 });
 }
 
+export async function fetchQuestionTypes<T>(options: FetchJsonOptions = {}): Promise<T> {
+  return fetchJson<T>("/api/projects/questions/types", { method: "GET", timeoutMs: 15000, ...options });
+}
+
 export async function saveQuestions<T>(
   payload: Record<string, any>,
 ): Promise<T> {

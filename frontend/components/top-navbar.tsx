@@ -8,6 +8,7 @@ import {
   ListChecks,
   FileText,
   BookOpen,
+  Wand2,
   Settings,
   LogOut,
   Menu,
@@ -27,9 +28,10 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-  { icon: ListChecks, label: "Saved Questions", href: "/paper-library" },
+  { icon: ListChecks, label: "Question Bank", href: "/paper-library" },
   { icon: FileText, label: "Editor", href: "/editor" },
-  { icon: BookOpen, label: "Question Paper", href: "/question-bank" },
+  { icon: BookOpen, label: "Papers", href: "/question-bank" },
+  { icon: Wand2, label: "Builder", href: "/build-paper" },
   { icon: Settings, label: "Settings", href: "/settings" },
 ];
 
