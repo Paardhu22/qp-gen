@@ -13,35 +13,6 @@
 
 ## Table of Contents
 
-1. [System Thesis — the one idea to hold in your head](#1-system-thesis)
-2. [The Two-Layer Generation Model](#2-the-two-layer-generation-model)
-   - 2.1 [High-level architecture](#21-high-level-architecture)
-   - 2.2 [The request lifecycle](#22-the-request-lifecycle)
-   - 2.3 [The blueprint resolution sequence](#23-the-blueprint-resolution-sequence)
-3. [Comprehensive File & Folder Directory](#3-comprehensive-file--folder-directory)
-4. [Technology Stack](#4-technology-stack)
-5. [The Persistence Layer & Data Model](#5-the-persistence-layer--data-model)
-6. [Subsystem: Authentication (AWS Cognito)](#6-subsystem-authentication)
-7. [Subsystem: Document Ingestion](#7-subsystem-document-ingestion)
-8. [Subsystem: Chapter Reconstruction & Detection](#8-subsystem-chapter-reconstruction--detection)
-9. [Subsystem: The Blueprint Engine](#9-subsystem-the-blueprint-engine)
-10. [Subsystem: The Pool Pipeline (production layer)](#10-subsystem-the-pool-pipeline)
-    - 10.1 [Model 1 — chapter → pool](#101-model-1--chapter--pool)
-    - 10.2 [The image stage](#102-the-image-stage)
-    - 10.3 [Model 2 — pool → paper](#103-model-2--pool--paper)
-    - 10.4 [Multiple sets (A/B/C)](#104-multiple-sets)
-    - 10.5 [Paper-from-Bank](#105-paper-from-bank)
-11. [The SSE Event Contract](#11-the-sse-event-contract)
-12. [Subsystem: Storage & Media URLs](#12-subsystem-storage--media-urls)
-13. [The Frontend](#13-the-frontend)
-14. [Configuration & Feature Flags](#14-configuration--feature-flags)
-15. [Deployment Topology](#15-deployment-topology)
-16. [Design Trade-offs & Alternatives Considered](#16-design-trade-offs--alternatives-considered)
-17. [Testing Strategy](#17-testing-strategy)
-18. [Appendix A — API Endpoints](#appendix-a--api-endpoints)
-19. [Appendix B — Environment Variables](#appendix-b--environment-variables)
-
----
 
 ## 1. System Thesis
 
