@@ -52,7 +52,10 @@ def save_questions_to_project(user, project_name: str, questions: List[dict]) ->
                 Question(
                     content=question.get("content", ""),
                     answer=question.get("answer"),
-                    type=question.get("type", "mcq"),
+                    # `type` is a FK to QuestionType; the serializer has already
+                    # resolved it to a canonical code string, so assign via the
+                    # `_id` attribute rather than the relation.
+                    type_id=question.get("type"),
                     marks=int(question.get("marks") or 1),
                     options=question.get("options") or [],
                     project=projects_cache[q_project_name],

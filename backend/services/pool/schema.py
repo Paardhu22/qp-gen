@@ -222,14 +222,30 @@ class PoolQuestion:
         }
 
     def to_model_kwargs(
-        self, *, user, project, paper=None, grade_class: Optional[str] = None
+        self,
+        *,
+        user,
+        project,
+        paper=None,
+        grade_class: Optional[str] = None,
+        valid_type_codes=None,
     ) -> Dict[str, Any]:
         """Kwargs for constructing a `projects.Question` row.
 
         `grade_class` must be supplied by the caller — the pool contract has no
         class field, but `load_bank` filters on it, so omitting it makes a
         saved question invisible to "Create Paper from Saved Questions".
+
+        `Question.type` is a FK to `QuestionType` keyed by a canonical code that
+        differs from the pool's vocabulary (pool "MCQ" → DB "MCQ_SINGLE"). We
+        emit `type_id` (the resolved code string) rather than `type` so
+        `bulk_create` never has to fetch the related row. Callers persisting a
+        whole pool should pass `valid_type_codes` once to avoid re-querying it
+        per question.
         """
+        from apps.projects.question_types import resolve_type_code
+
+        type_code = resolve_type_code(self.type, valid=valid_type_codes)
         source_pdf = (self.metadata or {}).get("sourcePdf") or (
             self.metadata or {}
         ).get("sourceDocument")
@@ -238,7 +254,7 @@ class PoolQuestion:
         source_pdf = str(source_pdf or "").strip()[:255] or None
 
         return {
-            "type": self.type,
+            "type_id": type_code,
             "content": self.question,
             "answer": self.answer or None,
             "options": self.options or [],
@@ -275,12 +291,17 @@ class PoolQuestion:
         is the source of truth, so Model 2 must be able to run against rows it
         did not just generate.
         """
+        from apps.projects.question_types import to_pool_type
+
+        # `row.type` is now a FK; read the id (the canonical code, e.g.
+        # "MCQ_SINGLE") and translate it back to the pool vocabulary ("MCQ").
         return cls(
             id=row.id,
             subject=row.subject or "",
             chapter=row.inferred_chapter or "",
             topic=row.inferred_topic or "",
-            type=normalize_type(row.type) or "SHORT_ANSWER",
+            type=normalize_type(to_pool_type(getattr(row, "type_id", None)))
+            or "SHORT_ANSWER",
             blooms=normalize_blooms(row.bloom_taxonomy) or "UNDERSTAND",
             difficulty=normalize_difficulty(row.difficulty) or "medium",
             marks=int(row.marks or 1),

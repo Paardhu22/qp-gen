@@ -22,6 +22,7 @@ from django.core.cache import cache
 from django.db import transaction
 
 from apps.projects.models import Project, Question
+from apps.projects.question_types import valid_type_codes
 from services.pool.schema import PoolQuestion
 
 logger = logging.getLogger("[POOL_STORE]")
@@ -110,6 +111,9 @@ def persist_pool(
 
             if to_save:
                 grade_class = str(class_num) if class_num else None
+                # Fetch the canonical type-code set once; every row resolves its
+                # pool type against it rather than re-querying per question.
+                type_codes = valid_type_codes()
                 Question.objects.bulk_create(
                     [
                         Question(
@@ -118,6 +122,7 @@ def persist_pool(
                                 project=project,
                                 paper=paper,
                                 grade_class=grade_class,
+                                valid_type_codes=type_codes,
                             )
                         )
                         for question in to_save

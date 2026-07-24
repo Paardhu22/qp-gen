@@ -1,6 +1,35 @@
 from rest_framework import serializers
 
 from apps.projects.models import Project, Question, Paper, PaperSet, QuestionFamily, QuestionType
+from apps.projects.question_types import resolve_type_code
+
+
+class QuestionTypeCodeField(serializers.Field):
+    """Read/write `Question.type` as its canonical code string.
+
+    On read, yields the FK's code ("MCQ_SINGLE"). On write, accepts either a
+    canonical code or a legacy/pool code ("MCQ", "SHORT_ANSWER", …) and resolves
+    it — the manual "Save Questions" flow still posts the old vocabulary, and a
+    bare string would otherwise fail FK coercion. Returns the resolved code
+    string, so callers must assign it via `type_id=`.
+    """
+
+    def get_attribute(self, instance):
+        # Read the FK id (which *is* the code) directly rather than the related
+        # object, so serializing a project's questions doesn't fire one query
+        # per question to load each QuestionType row.
+        return getattr(instance, "type_id", None)
+
+    def to_representation(self, value):
+        if value is None:
+            return None
+        return getattr(value, "code", None) or (value if isinstance(value, str) else None)
+
+    def to_internal_value(self, data):
+        code = resolve_type_code(data)
+        if not code:
+            raise serializers.ValidationError(f"Unknown question type: {data!r}")
+        return code
 
 
 class QuestionFamilySerializer(serializers.ModelSerializer):
@@ -18,6 +47,8 @@ class QuestionTypeSerializer(serializers.ModelSerializer):
 
 
 class QuestionSerializer(serializers.ModelSerializer):
+    type = QuestionTypeCodeField(required=False, allow_null=True)
+
     class Meta:
         model = Question
         fields = ["id", "type", "content", "answer", "options", "marks", "bloom_taxonomy", "grade_class", "subject", "inferred_topic", "inferred_chapter", "source_pdf", "difficulty", "created_at", "updated_at"]

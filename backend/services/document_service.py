@@ -326,7 +326,7 @@ def _build_image_chunks(
     # latency (~11 s/image); removing it makes ingestion pure extraction →
     # chunk → embed → store. Each figure carries the surrounding textbook prose
     # as its retrieval context instead of an AI caption.
-    logger.info(
+    logger.debug(
         "Extracting %d figure(s) from %s (ingestion is GPT-free — no captioning)",
         len(usable_images),
         file_name,
@@ -439,7 +439,7 @@ def process_pdf_upload(file, user, *, background: bool = False) -> PdfSource:
         user=user, sha256=sha256_hash, status="ready"
     ).first()
     if existing:
-        logger.info("Duplicate PDF detected: reusing %s", existing.id)
+        logger.debug("Duplicate PDF detected: reusing %s", existing.id)
         existing.warnings = []  # type: ignore[attr-defined]
         return existing
 
@@ -540,7 +540,7 @@ def process_pdf_from_storage(key: str, user, name: str, content_type: str) -> Pd
         user=user, sha256=sha256_hash, status="ready"
     ).first()
     if existing:
-        logger.info("Duplicate PDF detected (from storage): reusing %s", existing.id)
+        logger.debug("Duplicate PDF detected (from storage): reusing %s", existing.id)
         existing.warnings = []  # type: ignore[attr-defined]
         return existing
 

@@ -636,9 +636,11 @@ export const GeneratorForm = ({
             // Model 1 reads the whole chapter before any question exists, so
             // without progress the panel would sit silent for 30-60s.
             if (data.stage === "pool_progress") {
-              setPoolStatus(
-                `Writing questions… ${data.produced}/${data.target}`,
-              );
+              // No counter: the pool deliberately over-generates (a paper of
+              // 38 draws from a pool of ~84), so "produced/target" both reads
+              // wrong and can exceed the target (e.g. 83/78). Show a plain
+              // in-progress message instead.
+              setPoolStatus("Writing questions…");
             } else if (data.message) {
               setPoolStatus(data.message);
             }
