@@ -96,6 +96,11 @@ else:
         )
     }
 
+    if DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3":
+        DATABASES["default"]["OPTIONS"] = {
+            "timeout": 20,
+        }
+
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
