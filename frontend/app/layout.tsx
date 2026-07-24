@@ -4,20 +4,11 @@ import "../styles/editor.css";
 import "katex/dist/katex.min.css";
 import { Providers } from "@/components/providers";
 import { Toaster } from "sonner";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 
-// Registered as CSS variables (not just `.className`) so the Tailwind
-// `--font-sans` / `--font-mono` / `--font-heading` tokens in globals.css
-// resolve to a real font instead of the browser default. See globals.css
-// `@theme inline`.
-const geistSans = Geist({
+const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-geist-sans",
-});
-
-const geistMono = Geist_Mono({
-  subsets: ["latin"],
-  variable: "--font-geist-mono",
+  variable: "--font-inter",
 });
 
 export const metadata: Metadata = {
@@ -47,7 +38,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable}`}
+      className={`${inter.variable}`}
     >
       <body className="font-sans bg-background text-foreground">
         <Providers>{children}</Providers>
