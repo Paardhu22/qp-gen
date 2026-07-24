@@ -15,11 +15,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Wand2,
+  Hammer,
   Search,
   RefreshCcw,
   Loader2,
-  Sparkles,
+  Zap,
   BookMarked,
   AlertTriangle,
 } from "lucide-react";
@@ -242,7 +242,7 @@ export default function BuildPaperPage() {
         <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <Wand2 className="h-5 w-5 text-indigo-500" />
+              <Hammer className="h-5 w-5 text-indigo-500" />
               <h1 className="text-lg font-semibold tracking-tight">
                 Builder
               </h1>
@@ -536,7 +536,7 @@ export default function BuildPaperPage() {
               </>
             ) : (
               <>
-                <Sparkles className="h-4 w-4" />
+                <Zap className="h-4 w-4" />
                 Generate{totalSelected > 0 ? ` from ${totalSelected} questions` : ""}
               </>
             )}
