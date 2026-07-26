@@ -135,6 +135,12 @@ def filter_pool(
     some easy and some hard questions, and that spread is handled by the
     scoring in stage 2. Passing `difficulty` here only drops questions whose
     difficulty is missing entirely.
+
+    The chapter filter applies to TEXTBOOK questions only. "Chapter" is a
+    property of uploaded source material; an unseen reading passage, a grammar
+    task or a writing prompt has none. Filtering those out because the teacher
+    picked two literature chapters would silently delete 40 of an English
+    paper's 80 marks — the assets are scoped by subject and class instead.
     """
     wanted_chapters = {str(c).strip().lower() for c in (chapters or []) if str(c).strip()}
     excluded = {str(x) for x in (exclude_ids or [])}
@@ -147,7 +153,11 @@ def filter_pool(
             continue
         if subject and question.subject and question.subject.strip().lower() != subject.strip().lower():
             continue
-        if wanted_chapters and str(question.chapter or "").strip().lower() not in wanted_chapters:
+        if (
+            wanted_chapters
+            and question.uses_uploaded_content
+            and str(question.chapter or "").strip().lower() not in wanted_chapters
+        ):
             continue
         filtered.append(question)
 
@@ -168,9 +178,19 @@ def _score_question(
     difficulty_target: str,
     rng: random.Random,
     vi_required: bool = False,
+    asset_type: str = "",
 ) -> float:
     """Higher is better. Every term pushes toward a well-spread paper."""
     score = 0.0
+
+    # Asset type — the blueprint's declared shape for this slot. Eligibility
+    # stays loose (a slot short of its exact shape is better filled than left
+    # blank), but the preference is weighted above every diversity term, so a
+    # prose extract goes to the prose slot and the poetry extract to the poetry
+    # slot whenever both exist. Questions that declare no asset type are
+    # neutral, which is every question banked before the field existed.
+    if asset_type and question.asset_type:
+        score += 10.0 if question.asset_type == asset_type else -10.0
 
     # Topic diversity dominates: repeating a topic is the most visible defect
     # in a generated paper, and the old engine's duplicate-stem warnings were
@@ -267,7 +287,10 @@ def build_candidates(
     total_slots = max(1, len(plan))
 
     def _rank(
-        candidates: List[PoolQuestion], *, vi_required: bool = False
+        candidates: List[PoolQuestion],
+        *,
+        vi_required: bool = False,
+        asset_type: str = "",
     ) -> List[PoolQuestion]:
         return sorted(
             candidates,
@@ -281,6 +304,7 @@ def build_candidates(
                 difficulty_target=difficulty,
                 rng=rng,
                 vi_required=vi_required,
+                asset_type=asset_type,
             ),
             reverse=True,
         )
@@ -300,7 +324,9 @@ def build_candidates(
             continue
 
         chosen = _rank(
-            available, vi_required=bool(getattr(slot, "vi_required", False))
+            available,
+            vi_required=bool(getattr(slot, "vi_required", False)),
+            asset_type=str(getattr(slot, "asset_type", "") or ""),
         )[0]
         used_ids.add(chosen.id)
         used_topics[(chosen.topic or "").strip().lower()] += 1
@@ -332,7 +358,9 @@ def build_candidates(
         if not spare:
             continue
 
-        picked = _rank(spare)[:wanted]
+        picked = _rank(
+            spare, asset_type=str(getattr(assignment.slot, "asset_type", "") or "")
+        )[:wanted]
         if needs_choice and picked:
             # The OR alternative is held out of `alternates` so the review
             # stage cannot swap the main question onto it and collapse the

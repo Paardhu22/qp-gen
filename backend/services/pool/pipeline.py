@@ -1,31 +1,46 @@
-"""The pool generation pipeline.
+"""The paper generation pipeline.
 
-    chapter Markdown
-          │
-          ▼
-      Model 1  ──────────┐
-          │              │  (parallel batches)
-          ▼              │
-    image stage ─────────┤
-          │              │
-          ▼              ▼
-     Question Pool ──→ auto-saved to the user's bank
-          │
-          ▼
-      Model 2  ──→ assembled paper ──→ SSE
-                                        │
-                                        ▼
-                                   TipTap editor
+                        blueprint (routing engine)
+                                  │
+              ┌───────────────────┴────────────────────┐
+              │                                        │
+   slots naming an asset generator          slots naming `question_pool`
+              │                                        │
+   services.assets.runner                      chapter Markdown
+   (reading / grammar / writing,                       │
+    run in parallel, NO uploads)                   Model 1  ─────────┐
+              │                                        │   (parallel batches)
+              │                                  image stage ────────┤
+              │                                        │             │
+              └───────────────┬────────────────────────┴─────────────┘
+                              ▼
+                      merged Question Pool ──→ auto-saved to the user's bank
+                              │
+                              ▼
+                          Model 2  ──→ assembled paper ──→ SSE
+                                                            │
+                                                            ▼
+                                                       TipTap editor
 
-The blueprint layer is untouched. `build_question_plan` and friends in
-services.generation_router still decide what a CBSE paper must contain — that
-is the pedagogical core and it was never the expensive part. What changes is
-how questions are produced: one whole-chapter read instead of one retrieval
-plus one LLM call per slot.
+Two things decide everything downstream, and both come from the blueprint:
+which generator owns a slot, and — following from that — whether the uploaded
+textbook is read at all. Science, Social Science and Mathematics declare no
+generators, so every slot routes to `question_pool` and this file behaves
+exactly as it did before the split. English routes Reading, Grammar and Writing
+to independent generators that are never handed chapter text, and only its
+Literature section reaches Model 1.
+
+The blueprint layer still decides what a paper must contain — that is the
+pedagogical core and was never the expensive part. What the pool changed was
+how textbook questions are produced (one whole-chapter read instead of one
+retrieval plus one LLM call per slot); what the asset split changes is *which*
+questions come from the textbook at all.
 
 The SSE contract is preserved exactly (`plan`, `question`, `update`, `notice`,
 `warning`, `done`, and the question object's field names) so the editor,
-review tray and auto-insert paths keep working without frontend changes.
+review tray and auto-insert paths keep working without frontend changes. The
+`plan` event gained an additive `routing` key; consumers that do not read it
+are unaffected.
 """
 
 from __future__ import annotations
@@ -42,6 +57,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.conf import settings
 
 from apps.generation.models import GenerationHistory
+from services.assets import (
+    DEFAULT_GENERATOR,
+    generate_assets_for_plan,
+    partition_plan,
+)
+from services.assets.registry import routing_summary
 from services.pool import store
 from services.pool.chapters import Chapter, build_chapters, split_chapter
 from services.pool.image_model import (
@@ -50,11 +71,7 @@ from services.pool.image_model import (
     resolve_strategy,
 )
 from services.pool.model1 import PoolGenerationResult, generate_question_pool
-from services.pool.model2 import (
-    AssembledPaper,
-    PaperAssemblyError,
-    assemble_paper,
-)
+from services.pool.model2 import PaperAssemblyError, assemble_paper
 from services.pool.rendering import or_label_for, printable_content
 from services.pool.schema import PoolQuestion, pool_summary
 from utils.ids import generate_id
@@ -162,6 +179,13 @@ def _question_to_wire(
             "slotIndex": int(getattr(slot, "index", 0) or 0),
             "section": section_title,
             "sourceType": question.source_type,
+            # Provenance is stamped explicitly rather than inherited from
+            # `question.metadata`, which is only populated for asset questions.
+            # Every question on the wire says where it came from, so a consumer
+            # never has to infer it from the section heading.
+            "generator": question.generator,
+            "assetType": question.asset_type,
+            "usesUploadedContent": question.uses_uploaded_content,
             "questionId": question.id,
             "poolId": question.pool_id,
             "subject": question.subject,
@@ -345,6 +369,7 @@ def _build_pool_streaming(
     difficulty: str,
     pool_id: str,
     user,
+    plan: Optional[Sequence[Any]] = None,
 ) -> Iterable[Any]:
     """Run per-chapter Model 1 + image stages on workers, yielding progress.
 
@@ -381,6 +406,7 @@ def _build_pool_streaming(
             pool_id=pool_id,
             question_metadata=metadata,
             on_question=progress.put,
+            plan=plan,
         )
 
         image_result = generate_image_questions(
@@ -861,29 +887,75 @@ def stream_pool_questions(
         )
         summary = summarize_question_plan(plan)
 
-    # ── Chapter source material ─────────────────────────────────────────
-    yield _sse(
-        {"stage": "reading_chapters", "message": "Reading source chapters…"},
-        event="status",
+    # ── Route the blueprint ─────────────────────────────────────────────
+    # The single decision this whole file turns on. `routed` says which
+    # generator owns which slots; `textbook_slots` is the subset that may see
+    # an upload. For every subject that declares no generators — Science,
+    # Social Science, Mathematics, Hindi, Telugu, General Instructions mode —
+    # `textbook_slots` is the whole plan and nothing below changes behaviour.
+    routed = partition_plan(plan)
+    textbook_slots: List[Any] = list(routed.get(DEFAULT_GENERATOR) or [])
+    asset_slots: List[Any] = [
+        slot
+        for name, slots in routed.items()
+        if name != DEFAULT_GENERATOR
+        for slot in slots
+    ]
+    routing = routing_summary(plan)
+    logger.info(
+        "Blueprint routing: %s",
+        "; ".join(
+            f"{entry['generator']}={entry['questions']}q/{entry['marks']}m"
+            for entry in routing
+        ),
     )
 
-    chapters = build_chapters(
-        pdf_source_ids=pdf_source_ids, hsat_source_ids=hsat_source_ids
-    )
-    if not chapters:
+    # ── Chapter source material ─────────────────────────────────────────
+    # Read only when some slot actually needs it. An all-asset paper skips
+    # this entirely, which is what lets a language paper's Reading, Grammar
+    # and Writing sections generate with no upload at all.
+    chapters: List[Chapter] = []
+    if textbook_slots:
+        yield _sse(
+            {"stage": "reading_chapters", "message": "Reading source chapters…"},
+            event="status",
+        )
+        chapters = list(
+            build_chapters(
+                pdf_source_ids=pdf_source_ids, hsat_source_ids=hsat_source_ids
+            )
+        )
+
+    if textbook_slots and not chapters:
+        if not asset_slots:
+            yield _sse(
+                {
+                    "error": "No readable content was found in the selected sources. "
+                    "Check that the upload finished processing, then try again."
+                },
+                event="error",
+            )
+            return
+        # Part of this paper does not need an upload. Drop the textbook slots,
+        # keep everything else, and say plainly what will be missing.
+        missing_marks = sum(int(getattr(s, "marks", 0) or 0) for s in textbook_slots)
         yield _sse(
             {
-                "error": "No readable content was found in the selected sources. "
-                "Check that the upload finished processing, then try again."
+                "message": (
+                    f"No readable textbook content was found, so the "
+                    f"{len(textbook_slots)} question(s) worth {missing_marks} marks "
+                    "that draw on the uploaded chapters will be left out. The rest "
+                    "of the paper does not need an upload and will be generated."
+                )
             },
-            event="error",
+            event="warning",
         )
-        return
+        textbook_slots = []
 
     chapter_name = (
         chapters[0].title
         if len(chapters) == 1
-        else (topic or f"{len(chapters)} chapters")
+        else (topic or (f"{len(chapters)} chapters" if chapters else subject_label))
     )
 
     yield _sse(
@@ -895,75 +967,182 @@ def stream_pool_questions(
             "summary": summary,
             "generalInstructions": general_instructions,
             "sets": num_sets,
+            # Additive: which generator owns which part of the paper.
+            "routing": routing,
         },
         event="plan",
     )
 
-    # ── Model 1 + image stage ───────────────────────────────────────────
-    # The pool is sized to over-provision the blueprint so Model 2 has real
-    # choice; a 38-slot paper draws on ~84 questions. That total is allocated
-    # across detected chapters instead of sending the whole upload to Model 1.
-    target_total = max(len(plan) * 2, 40)
+    # ── Generation stage ────────────────────────────────────────────────
+    # The textbook pool is sized to over-provision its own slots so Model 2 has
+    # real choice; a 38-slot board paper draws on ~84 questions. That total is
+    # allocated across detected chapters instead of sending the whole upload to
+    # Model 1. Sizing off `textbook_slots` rather than the whole plan is what
+    # stops an English paper generating 84 Literature questions for the six
+    # slots that can actually use them.
+    pool_id = generate_id()
+    target_total = max(len(textbook_slots) * 2, 40) if textbook_slots else 0
     configured_image_cap = max(0, int(getattr(settings, "IMAGE_QUESTIONS_PER_POOL", 8)))
     image_total = _contextual_image_total(
-        plan=plan,
+        plan=textbook_slots,
         chapters=chapters,
         subject_norm=subject_norm,
         configured_cap=configured_image_cap,
     )
-    units = _build_generation_units(
-        chapters, target_total=target_total, image_total=image_total
+    units = (
+        _build_generation_units(
+            chapters, target_total=target_total, image_total=image_total
+        )
+        if textbook_slots and chapters
+        else []
     )
     max_prompt_tokens = max((unit.chapter.estimated_tokens for unit in units), default=0)
 
-    yield _sse(
-        {
-            "stage": "generating_pool",
-            "message": "Writing a pool of questions…",
-            "chapter": chapter_name,
-            "chapters": [
-                {
-                    "number": chapter.number,
-                    "title": chapter.title,
-                    "sourcePages": chapter.question_metadata().get("sourcePages"),
-                    "sourcePdf": chapter.question_metadata().get("sourcePdf"),
-                    "estimatedTokens": chapter.estimated_tokens,
-                }
-                for chapter in chapters
-            ],
-            "generationUnits": len(units),
-            "maxPromptTokens": max_prompt_tokens,
-        },
-        event="status",
-    )
-
     pool_questions: List[PoolQuestion] = []
     outcome: Dict[str, Any] = {}
-    pool_id = generate_id()
+    asset_reports: List[Dict[str, Any]] = []
+    asset_result = None
 
-    for item in _build_pool_streaming(
-        units=units,
-        subject=subject_label,
-        subject_norm=subject_norm,
-        class_num=class_num,
-        difficulty=difficulty,
-        pool_id=pool_id,
-        user=user,
-    ):
-        if isinstance(item, PoolQuestion):
-            pool_questions.append(item)
-            # Progress only — these are pool questions, not paper questions.
-            # The paper is assembled after the pool is complete.
+    # The asset generators need nothing from the chapter read, so they run
+    # alongside Model 1 rather than in front of it. Started first, joined last.
+    # A daemon thread rather than an executor: this is a generator, and a
+    # client that disconnects mid-stream closes it without running the join —
+    # a daemon thread cannot then hold up interpreter shutdown. Same reason
+    # `_build_pool_streaming` uses one.
+    asset_outcome: Dict[str, Any] = {}
+    asset_thread: Optional[threading.Thread] = None
+    if asset_slots:
+        yield _sse(
+            {
+                "stage": "generating_assets",
+                "message": "Writing passages, grammar tasks and writing prompts…",
+                "generators": [
+                    entry
+                    for entry in routing
+                    if entry["generator"] != DEFAULT_GENERATOR
+                ],
+            },
+            event="status",
+        )
+
+        def _run_assets():
+            try:
+                asset_outcome["result"], asset_outcome["reports"] = (
+                    generate_assets_for_plan(
+                        plan,
+                        subject=subject_label,
+                        subject_norm=subject_norm,
+                        class_num=class_num,
+                        difficulty=difficulty,
+                        pool_id=pool_id,
+                        user=user,
+                    )
+                )
+            except Exception as exc:  # pragma: no cover - runner catches its own
+                logger.error("Asset stage failed: %s", exc, exc_info=True)
+                asset_outcome["error"] = str(exc)
+
+        asset_thread = threading.Thread(
+            target=_run_assets, name="asset-generation", daemon=True
+        )
+        asset_thread.start()
+
+    if units:
+        yield _sse(
+            {
+                "stage": "generating_pool",
+                "message": "Writing a pool of questions…",
+                "chapter": chapter_name,
+                "chapters": [
+                    {
+                        "number": chapter.number,
+                        "title": chapter.title,
+                        "sourcePages": chapter.question_metadata().get("sourcePages"),
+                        "sourcePdf": chapter.question_metadata().get("sourcePdf"),
+                        "estimatedTokens": chapter.estimated_tokens,
+                    }
+                    for chapter in chapters
+                ],
+                "generationUnits": len(units),
+                "maxPromptTokens": max_prompt_tokens,
+            },
+            event="status",
+        )
+
+        # Composite-question papers (the CBSE language blueprints, and any
+        # explicit General-Instructions plan) ask for mark values the fixed
+        # per-subject recipes never produce. Deriving Model 1's recipe from the
+        # plan itself guarantees the pool can fill every slot. The tuned
+        # Science/Maths/Social recipes still win for their board papers.
+        recipe_plan = (
+            textbook_slots
+            if is_gim or subject_norm in {"english", "hindi", "telugu", "sanskrit"}
+            else None
+        )
+
+        for item in _build_pool_streaming(
+            units=units,
+            subject=subject_label,
+            subject_norm=subject_norm,
+            class_num=class_num,
+            difficulty=difficulty,
+            pool_id=pool_id,
+            user=user,
+            plan=recipe_plan,
+        ):
+            if isinstance(item, PoolQuestion):
+                pool_questions.append(item)
+                # Progress only — these are pool questions, not paper questions.
+                # The paper is assembled after the pool is complete.
+                yield _sse(
+                    {
+                        "stage": "pool_progress",
+                        "produced": len(pool_questions),
+                        "target": sum(unit.target_total for unit in units),
+                    },
+                    event="status",
+                )
+            elif isinstance(item, dict):
+                outcome = item
+
+    if asset_thread is not None:
+        asset_thread.join()
+        asset_result = asset_outcome.get("result")
+        asset_reports = list(asset_outcome.get("reports") or [])
+        if asset_result is not None:
+            pool_questions.extend(asset_result.questions)
+
+        if asset_outcome.get("error"):
             yield _sse(
                 {
-                    "stage": "pool_progress",
-                    "produced": len(pool_questions),
-                    "target": sum(unit.target_total for unit in units),
+                    "message": (
+                        "The Reading / Grammar / Writing stage could not run: "
+                        f"{asset_outcome['error']}. Those sections will be missing."
+                    )
+                },
+                event="warning",
+            )
+
+        if asset_reports:
+            yield _sse(
+                {
+                    "stage": "assets_ready",
+                    "message": "Reading, grammar and writing material is ready.",
+                    "generators": asset_reports,
                 },
                 event="status",
             )
-        elif isinstance(item, dict):
-            outcome = item
+        for report in asset_reports:
+            if report.get("failures"):
+                yield _sse(
+                    {
+                        "message": (
+                            f"{report['label']} reported a problem: "
+                            + "; ".join(str(f) for f in report["failures"])
+                        )
+                    },
+                    event="warning",
+                )
 
     if outcome.get("error"):
         yield _sse({"error": outcome["error"]}, event="error")
@@ -972,8 +1151,9 @@ def stream_pool_questions(
     if not pool_questions:
         yield _sse(
             {
-                "error": "No questions could be generated from this chapter. The "
-                "source may be too short or unreadable."
+                "error": "No questions could be generated. The source may be too "
+                "short or unreadable, and no independent generator produced "
+                "material either."
             },
             event="error",
         )
@@ -999,6 +1179,7 @@ def stream_pool_questions(
             ],
             "generationUnits": len(units),
             **summary_stats,
+            "assetGenerators": asset_reports,
             "imageStrategy": resolve_strategy(),
             "imagesGenerated": getattr(image_result, "generated_count", 0),
             "imagesReused": getattr(image_result, "reused_count", 0),
@@ -1139,6 +1320,11 @@ def stream_pool_questions(
         "reviewSwaps": paper.review_swaps,
         "syntheticImageCount": synthetic_count,
         "savedToBank": persist.saved,
+        "routing": routing,
+        "assetGenerators": asset_reports,
+        "textbookQuestions": sum(
+            1 for a in paper.assignments if a.question.uses_uploaded_content
+        ),
         "footerNotes": [],
     }
 
@@ -1152,16 +1338,42 @@ def stream_pool_questions(
 
     if paper.unfilled:
         reasons = {u.reason for u in paper.unfilled}
+        # Name the generator that fell short, not "this chapter" — an unfilled
+        # Reading slot has nothing to do with the upload, and telling a teacher
+        # to upload more chapters would be actively misleading.
+        short_generators = sorted(
+            {
+                str(getattr(u.slot, "generator", "") or DEFAULT_GENERATOR)
+                for u in paper.unfilled
+            }
+        )
+        remedy = (
+            "Upload more chapters for a complete paper."
+            if short_generators == [DEFAULT_GENERATOR]
+            else "Try generating again; the affected sections are produced "
+            "independently of the uploaded chapters."
+        )
         yield _sse(
             {
                 "requested": len(plan),
                 "realized": paper.total_questions,
+                "generators": short_generators,
                 "message": (
                     f"{len(paper.unfilled)} of {len(plan)} blueprint slots could "
-                    "not be filled from this chapter's question pool "
-                    f"({'; '.join(sorted(reasons))}). Upload more chapters for a "
-                    "complete paper."
+                    f"not be filled ({'; '.join(sorted(reasons))}). {remedy}"
                 ),
+            },
+            event="notice",
+        )
+
+    if asset_result is not None and asset_result.validation_warnings:
+        yield _sse(
+            {
+                "message": (
+                    "Some generated material did not match the blueprint exactly: "
+                    + "; ".join(asset_result.validation_warnings[:6])
+                ),
+                "validationWarnings": asset_result.validation_warnings,
             },
             event="notice",
         )
@@ -1231,6 +1443,9 @@ def stream_pool_questions(
                 "instructions": instructions,
                 "poolSize": len(pool_questions),
                 "blueprintTotal": len(plan),
+                "textbookSlots": len(textbook_slots),
+                "assetSlots": len(asset_slots),
+                "assetGenerators": asset_reports,
                 "realizedTotal": paper.total_questions,
                 "savedToBank": persist.saved,
                 "duplicatesSkipped": persist.duplicates_skipped,

@@ -68,10 +68,11 @@ class TestMarksAndCounts(unittest.TestCase):
         self.assertEqual(sum(s.marks for s in science), 80)
 
     def test_english_section_marks(self):
+        # Section titles follow the official paper's own headings.
         marks = _section_marks(_plan("English"))
-        self.assertEqual(marks["Section A - Reading Comprehension"], 20)
-        self.assertEqual(marks["Section B - Grammar and Writing"], 20)
-        self.assertEqual(marks["Section C - Literature"], 40)
+        self.assertEqual(marks["Section A - Reading Skills"], 20)
+        self.assertEqual(marks["Section B - Grammar and Writing Skills"], 20)
+        self.assertEqual(marks["Section C - Literature Textbook"], 40)
 
     def test_hindi_section_marks(self):
         marks = _section_marks(_plan("Hindi"))
@@ -187,9 +188,11 @@ class TestCompositionBuilders(unittest.TestCase):
         self.assertIn("EXACTLY 3 संकेत-बिन्दु", comp[0].exact_instruction)
 
     def test_english_analytical_is_stimulus_based(self):
-        comp = [s for s in _plan("English")
-                if s.generation_mode == "COMPOSITION" and "Analytical" in (s.instruction_hint or "")]
+        # Selected on the slot's declared asset type, not on wording in the
+        # hint — that is what the prompt builder now keys off too.
+        comp = [s for s in _plan("English") if s.asset_type == "analytical_paragraph"]
         self.assertEqual(len(comp), 1)
+        self.assertEqual(comp[0].generation_mode, "COMPOSITION")
         self.assertIn("STIMULUS-BASED", comp[0].exact_instruction)
 
     def test_composition_carries_cardinal_rule(self):

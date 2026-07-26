@@ -27,6 +27,13 @@ from utils.ids import generate_id
 
 # ── Canonical vocabularies ──────────────────────────────────────────────
 
+#: The routing key for "written from uploaded textbook content by Model 1".
+#: Lives here, at the bottom of the dependency graph, because both the pool and
+#: `services.assets` need it and the pool cannot import the asset package
+#: (the asset package is built on this module). `services.assets.registry`
+#: re-exports it as the public name.
+DEFAULT_GENERATOR = "question_pool"
+
 #: Question types the pool can hold. Superset of QuestionTypeCode: the extra
 #: members are the language-subject types the router emits (READING_COMP,
 #: LETTER, GRAMMAR, …) plus VERY_SHORT_ANSWER, which CBSE uses as a distinct
@@ -191,12 +198,28 @@ class PoolQuestion:
     #: rather than a rendering concern.
     vi_alternative: Optional[str] = None
 
+    #: Provenance. `generator` names the pipeline that wrote this question and
+    #: is the first thing `slot_accepts` checks — a Reading asset must never be
+    #: eligible for a Literature slot, and vice versa, no matter how well the
+    #: type and marks line up. Defaults to the textbook pool so every question
+    #: written before this field existed keeps its old meaning.
+    generator: str = "question_pool"
+    #: The shape within that generator ("discursive_passage", "grammar_task",
+    #: "formal_letter"). Advisory: used for reuse keying and diagnostics, not
+    #: for eligibility.
+    asset_type: str = ""
+
     #: Non-spec fields the pipeline needs. Excluded from the wire payload sent
     #: to Model 2 so its prompt stays small.
     source_type: str = "pool"
     content_hash: str = ""
     pool_id: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def uses_uploaded_content(self) -> bool:
+        """True when this question was written from an uploaded chapter."""
+        return self.generator == DEFAULT_GENERATOR
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -271,11 +294,16 @@ class PoolQuestion:
             "content_hash": self.content_hash or None,
             "pool_id": self.pool_id or None,
             "source_type": self.source_type or None,
-            # VI text rides in metadata rather than its own column: it is
-            # present on a small minority of questions (map/picture slots) and
-            # a nullable column on the live table buys nothing over this.
+            # VI text and provenance ride in metadata rather than their own
+            # columns: VI text is present on a small minority of questions
+            # (map/picture slots), and `generator`/`assetType` are read back by
+            # `from_model` only. Neither justifies a migration on the live
+            # table, and keeping them here means an older row simply reads back
+            # as `question_pool` — the pre-refactor meaning.
             "metadata": {
                 **(self.metadata or {}),
+                "generator": self.generator or DEFAULT_GENERATOR,
+                **({"assetType": self.asset_type} if self.asset_type else {}),
                 **({"viAlternative": self.vi_alternative} if self.vi_alternative else {}),
             },
             "user": user,
@@ -292,6 +320,8 @@ class PoolQuestion:
         did not just generate.
         """
         from apps.projects.question_types import to_pool_type
+
+        row_metadata = getattr(row, "metadata", {}) or {}
 
         # `row.type` is now a FK; read the id (the canonical code, e.g.
         # "MCQ_SINGLE") and translate it back to the pool vocabulary ("MCQ").
@@ -310,11 +340,15 @@ class PoolQuestion:
             answer=row.answer or "",
             explanation=getattr(row, "explanation", "") or "",
             image=getattr(row, "image_url", None),
-            vi_alternative=(getattr(row, "metadata", {}) or {}).get("viAlternative"),
+            vi_alternative=row_metadata.get("viAlternative"),
+            # Rows banked before provenance existed have no `generator` and
+            # correctly read back as textbook-pool questions.
+            generator=str(row_metadata.get("generator") or DEFAULT_GENERATOR),
+            asset_type=str(row_metadata.get("assetType") or ""),
             source_type=getattr(row, "source_type", "pool") or "pool",
             content_hash=getattr(row, "content_hash", "") or "",
             pool_id=getattr(row, "pool_id", "") or "",
-            metadata=getattr(row, "metadata", {}) or {},
+            metadata=row_metadata,
         )
 
 
@@ -366,6 +400,8 @@ def normalize_pool_question(
     pool_id: str = "",
     default_difficulty: str = "medium",
     source_type: str = "pool",
+    generator: str = DEFAULT_GENERATOR,
+    asset_type: str = "",
 ) -> PoolQuestion:
     """Coerce one raw LLM object into the pool contract.
 
@@ -445,6 +481,8 @@ def normalize_pool_question(
         explanation=str(raw.get("explanation") or "").strip(),
         image=image,
         vi_alternative=vi_alternative,
+        generator=generator or DEFAULT_GENERATOR,
+        asset_type=asset_type,
         source_type=source_type,
         content_hash=compute_content_hash(subject, chapter, text),
         pool_id=pool_id,
@@ -452,13 +490,35 @@ def normalize_pool_question(
     )
 
 
+def slot_generator(slot) -> str:
+    """Which generator the blueprint says owns this slot.
+
+    Mirrors `services.assets.registry.generator_for_slot` without importing it,
+    so the pool stays free of any dependency on the asset package. Slots with
+    no declared generator — every non-English blueprint, General Instructions
+    mode, anything reconstructed from the bank — mean the textbook pool.
+    """
+    return str(getattr(slot, "generator", "") or "").strip() or DEFAULT_GENERATOR
+
+
 def slot_accepts(pool_question: PoolQuestion, slot) -> bool:
     """Can this pool question fill this blueprint slot?
 
-    Matching is on type and marks. Marks must be exact — a 3-mark slot filled
-    with a 5-mark question breaks the paper's total, which is the one thing a
-    CBSE paper cannot get wrong.
+    Provenance first, then type and marks.
+
+    Provenance is the gate the architecture turns on: a slot the blueprint
+    routed to the Reading generator may only be filled by a Reading asset, and
+    a Literature slot may only be filled from the textbook pool. Without it, a
+    10-mark textbook question is a perfectly legal fill for a 10-mark Reading
+    slot — which is precisely how an English paper ended up asking students to
+    "explain Hari Singh" under a Reading Skills heading.
+
+    Marks must then be exact: a 3-mark slot filled with a 5-mark question
+    breaks the paper's total, the one thing a board paper cannot get wrong.
     """
+    if pool_question.generator != slot_generator(slot):
+        return False
+
     if int(pool_question.marks) != int(getattr(slot, "marks", 0) or 0):
         return False
 
@@ -480,12 +540,14 @@ def pool_summary(questions: List[PoolQuestion]) -> Dict[str, Any]:
     by_marks: Dict[int, int] = {}
     by_difficulty: Dict[str, int] = {}
     by_blooms: Dict[str, int] = {}
+    by_generator: Dict[str, int] = {}
 
     for question in questions:
         by_type[question.type] = by_type.get(question.type, 0) + 1
         by_marks[question.marks] = by_marks.get(question.marks, 0) + 1
         by_difficulty[question.difficulty] = by_difficulty.get(question.difficulty, 0) + 1
         by_blooms[question.blooms] = by_blooms.get(question.blooms, 0) + 1
+        by_generator[question.generator] = by_generator.get(question.generator, 0) + 1
 
     return {
         "total": len(questions),
@@ -493,5 +555,6 @@ def pool_summary(questions: List[PoolQuestion]) -> Dict[str, Any]:
         "byMarks": {str(k): v for k, v in sorted(by_marks.items())},
         "byDifficulty": by_difficulty,
         "byBlooms": by_blooms,
+        "byGenerator": by_generator,
         "withImage": sum(1 for q in questions if q.image),
     }

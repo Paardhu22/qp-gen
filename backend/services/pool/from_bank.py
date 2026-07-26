@@ -7,6 +7,12 @@ two orders of magnitude cheaper than a fresh generation, and near-instant.
 
 Reuses the same blueprint compiler and the same Model 2 as the live pipeline;
 the only difference is where the pool comes from.
+
+One wrinkle the asset split introduces: the bank is selected by chapter, and
+Reading, Grammar and Writing assets have no chapter. They are loaded separately
+(by subject and class) and, for any asset slot the bank still cannot cover, the
+generators run to fill the gap. Without that, "Create Paper from Saved
+Questions" would quietly return an English paper missing 40 of its 80 marks.
 """
 
 from __future__ import annotations
@@ -17,13 +23,22 @@ import time
 from typing import Any, Dict, Iterable, List, Optional
 
 from apps.generation.models import GenerationHistory
+from services.assets import (
+    DEFAULT_GENERATOR,
+    generate_assets_for_plan,
+    partition_plan,
+)
+from services.assets.registry import routing_summary
+from services.assets.store import load_reusable_assets
 from services.pool import store
 from services.pool.model2 import PaperAssemblyError, assemble_paper
+from services.pool.schema import slot_accepts
 from services.pool.pipeline import (
     _build_variant_results,
     _find_or_create_section,
     _GimSlot,
     _legacy_type_for,
+    _persist_pool_by_chapter,
     _question_to_wire,
     _resolve_num_sets,
     _sse,
@@ -81,15 +96,10 @@ def stream_paper_from_bank(
         project_ids=project_ids,
     )
 
-    if not pool:
-        yield _sse(
-            {
-                "error": "No saved questions match this selection. Generate a "
-                "paper from a chapter first, or widen the subject/chapter filter."
-            },
-            event="error",
-        )
-        return
+    # The empty-bank check is deliberately NOT here. A blueprint whose slots
+    # are owned by asset generators can be filled without a single saved
+    # question, so "is there anything to work with" can only be answered after
+    # the plan is compiled and the asset stage has run.
 
     # ── Blueprint ───────────────────────────────────────────────────────
     if is_gim:
@@ -182,6 +192,7 @@ def stream_paper_from_bank(
         )
         summary = summarize_question_plan(plan)
 
+    routing = routing_summary(plan)
     yield _sse(
         {
             "total": len(plan),
@@ -193,9 +204,102 @@ def stream_paper_from_bank(
             "fromBank": True,
             "bankSize": len(pool),
             "sets": num_sets,
+            "routing": routing,
         },
         event="plan",
     )
+
+    # ── Asset slots ─────────────────────────────────────────────────────
+    # Assets have no chapter, so the chapter-scoped bank query above cannot see
+    # them. Load them by subject and class instead, then generate only what the
+    # bank still cannot cover — the cheap path stays cheap for a user who has
+    # generated an English paper before.
+    asset_reports: List[Dict[str, Any]] = []
+    asset_result = None
+    routed = partition_plan(plan)
+    asset_slots = [
+        slot
+        for name, slots in routed.items()
+        if name != DEFAULT_GENERATOR
+        for slot in slots
+    ]
+
+    if asset_slots:
+        known_ids = {q.id for q in pool}
+        banked_assets = [
+            q
+            for q in load_reusable_assets(
+                user=user,
+                subject=subject_label,
+                class_num=class_num,
+                generators=[n for n in routed if n != DEFAULT_GENERATOR],
+            )
+            if q.id not in known_ids
+        ]
+        pool.extend(banked_assets)
+
+        uncovered = [
+            slot
+            for slot in asset_slots
+            if not any(slot_accepts(q, slot) for q in pool)
+        ]
+        if uncovered:
+            yield _sse(
+                {
+                    "stage": "generating_assets",
+                    "message": (
+                        f"Writing {len(uncovered)} question(s) your bank does not "
+                        "cover yet…"
+                    ),
+                },
+                event="status",
+            )
+            asset_result, asset_reports = generate_assets_for_plan(
+                uncovered,
+                subject=subject_label,
+                subject_norm=subject_norm,
+                class_num=class_num,
+                difficulty=difficulty,
+                user=user,
+                # These already came back from the bank above; asking the
+                # store for them again would just re-run the same query.
+                reuse=False,
+            )
+            pool.extend(asset_result.questions)
+            # Bank them, so the next paper for this subject takes the cheap
+            # path and this whole branch is skipped.
+            if asset_result.questions:
+                banked = _persist_pool_by_chapter(
+                    user=user,
+                    questions=asset_result.questions,
+                    subject=subject_label,
+                    class_num=class_num,
+                )
+                if not banked.ok:
+                    logger.warning(
+                        "Could not bank generated assets: %s", banked.error
+                    )
+            for report in asset_reports:
+                if report.get("failures"):
+                    yield _sse(
+                        {
+                            "message": (
+                                f"{report['label']} reported a problem: "
+                                + "; ".join(str(f) for f in report["failures"])
+                            )
+                        },
+                        event="warning",
+                    )
+
+    if not pool:
+        yield _sse(
+            {
+                "error": "No saved questions match this selection. Generate a "
+                "paper from a chapter first, or widen the subject/chapter filter."
+            },
+            event="error",
+        )
+        return
 
     # ── Model 2 ─────────────────────────────────────────────────────────
     yield _sse(
@@ -287,6 +391,8 @@ def stream_paper_from_bank(
         "reviewApplied": paper.review_applied,
         "reviewSwaps": paper.review_swaps,
         "syntheticImageCount": synthetic_count,
+        "routing": routing,
+        "assetGenerators": asset_reports,
         "footerNotes": [],
     }
     if synthetic_count:

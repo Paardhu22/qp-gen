@@ -141,6 +141,12 @@ def _int_env(
     return value
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    return val.strip().lower() in ("1", "true", "yes", "on", "t", "y")
+
 STATIC_URL = "static/"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
@@ -313,6 +319,22 @@ POOL_CHAPTER_CONCURRENCY = _int_env(
 POOL_MIN_QUESTIONS_PER_CHAPTER = _int_env(
     "POOL_MIN_QUESTIONS_PER_CHAPTER", 12, minimum=1, maximum=200
 )
+
+# ─── Independent asset generators (services.assets) ────────────────────────
+# Reading passages, grammar tasks and writing prompts are produced by
+# generators that never see uploaded content. Only slots whose blueprint names
+# one of them are affected — today that is CBSE Class 10 English Sections A
+# and B. Everything else routes to the textbook pool as before.
+#
+#   ASSET_MODEL — model for the asset generators. Falls back to POOL_MODEL.
+#     Their prompts carry no chapter, so this can be set independently (and
+#     more cheaply) than Model 1.
+#   ASSET_REUSE_ENABLED — load previously generated assets from the user's
+#     bank as extra candidates. Fresh material is still written every run; this
+#     only widens the choice (and is what makes the grammar task pool
+#     genuinely reusable). Turn off to make every generation self-contained.
+ASSET_MODEL = os.environ.get("ASSET_MODEL", "").strip()
+ASSET_REUSE_ENABLED = os.environ.get("ASSET_REUSE_ENABLED", "true").lower() == "true"
 
 # Whole-chapter Markdown handed to Model 1. ~240k chars ≈ 60k tokens, far more
 # than any single CBSE chapter; the cap only exists to stop somebody feeding a

@@ -39,7 +39,7 @@ from apps.question_generation.infrastructure.providers.openai_provider import (
 )
 from services.chapter_markdown import ChapterMarkdown
 from services.content_filters import clean_question_text
-from services.pool.recipes import Batch, batches_for_subject
+from services.pool.recipes import Batch, batches_for_subject, batches_from_plan
 from services.pool.schema import (
     PoolQuestion,
     PoolValidationError,
@@ -154,6 +154,10 @@ def _batch_instruction(batch: Batch) -> str:
             f"  • {quota.count} × {quota.type} worth {quota.marks} mark"
             f"{'s' if quota.marks != 1 else ''} each"
         )
+        # The blueprint's own structural notes for this shape. Absent for the
+        # fixed per-subject recipes, so those prompts are unchanged.
+        for hint in quota.hints:
+            lines.append(f"      – {hint}")
     lines.extend(
         [
             "",
@@ -217,6 +221,14 @@ def _normalise_batch(
     # drifted can be snapped back rather than dropped.
     allowed_marks = {q.marks for q in batch.quotas}
 
+    # A plan-derived batch holds exactly one shape, so its asset type applies
+    # to everything in the batch. Unambiguous or nothing: the fixed recipes
+    # carry no asset type, and a hypothetical mixed batch would be a guess.
+    batch_asset_types = {q.asset_type for q in batch.quotas if q.asset_type}
+    batch_asset_type = (
+        next(iter(batch_asset_types)) if len(batch_asset_types) == 1 else ""
+    )
+
     for raw in raw_questions:
         try:
             question = normalize_pool_question(
@@ -231,9 +243,11 @@ def _normalise_batch(
             logger.debug("Dropped a question from batch %s: %s", batch.name, exc)
             continue
 
+        question.asset_type = batch_asset_type
         question.metadata.update(
             {
                 **(question_metadata or {}),
+                **({"assetType": batch_asset_type} if batch_asset_type else {}),
                 "chapterTitle": (question_metadata or {}).get(
                     "chapterTitle", chapter_name
                 ),
@@ -377,6 +391,7 @@ def generate_question_pool(
     question_metadata: Optional[Dict[str, Any]] = None,
     on_question: Optional[Callable[[PoolQuestion], None]] = None,
     pool_id: Optional[str] = None,
+    plan: Optional[Sequence[Any]] = None,
 ) -> PoolGenerationResult:
     """Read a chapter, return a deduplicated Question Pool.
 
@@ -384,6 +399,11 @@ def generate_question_pool(
     worker thread — callers pushing to an SSE stream must make it thread-safe.
     `pool_id` lets a multi-chapter caller share one id across every chapter's
     pool so the whole generation groups together; omitted → a fresh id.
+    `plan`, when supplied, derives the batch recipe from the blueprint's actual
+    (type, marks) shapes instead of the fixed per-subject recipe — the only way
+    a composite-question paper (the CBSE language papers) gets a pool that can
+    fill its 6/10/12-mark slots. Falls back to the subject recipe when the plan
+    yields no usable shapes.
     """
     pool_id = pool_id or generate_id()
     result = PoolGenerationResult(
@@ -395,7 +415,9 @@ def generate_question_pool(
         return result
 
     resolved_model = model or getattr(settings, "POOL_MODEL", settings.OPENAI_MODEL)
-    batches = batches_for_subject(subject_norm, target_total=target_total)
+    batches = batches_from_plan(plan, target_total=target_total) if plan else []
+    if not batches:
+        batches = batches_for_subject(subject_norm, target_total=target_total)
     provider = OpenAIProvider()
 
     logger.info(

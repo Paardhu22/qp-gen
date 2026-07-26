@@ -2,11 +2,12 @@ import logging
 import re
 import dataclasses
 from collections import Counter
-from typing import List, Dict, Any, Iterable, Optional, Set, Tuple
+from typing import List, Dict, Any, Iterable, Optional, Sequence, Set, Tuple
 
 from django.conf import settings
 
 from q_instructions.master.facade import AcademicGenerationFacade, GeneratePaperRequest
+from services.pool.schema import DEFAULT_GENERATOR as POOL_GENERATOR
 from services.syllabus_scope import (
     excluded_topics_prose_block,
     excluded_topics_compact_line,
@@ -60,7 +61,17 @@ _SUBJECT_ALIASES: Dict[str, str] = {
 
 @dataclasses.dataclass(frozen=True)
 class QuestionGenerationSlot:
-    """A deterministic, pre-LLM contract for exactly one generated question."""
+    """A deterministic, pre-LLM contract for exactly one generated question.
+
+    The routing fields at the bottom are what make the blueprint a *routing
+    engine* rather than a section labeller. `generator` names which pipeline
+    owns this slot; everything downstream — whether the uploaded textbook is
+    read at all, which pool may fill the slot, what Model 1's recipe covers —
+    follows from it. Every routing field defaults to the pre-existing
+    behaviour, so a blueprint that declares none of them (Science, Social
+    Science, Mathematics, Hindi, Telugu, General Instructions mode) routes to
+    the textbook pool exactly as before.
+    """
 
     index: int
     section_title: str
@@ -81,6 +92,32 @@ class QuestionGenerationSlot:
     # CONTENT | PASSAGE | GRAMMAR | COMPOSITION (see q_instructions.core.enums.GenerationMode).
     # Defaults to CONTENT so Science / Social Science / Mathematics behaviour is unchanged.
     generation_mode: str = "CONTENT"
+
+    # ── Routing contract ────────────────────────────────────────────────
+    #: Which generator produces this slot. `question_pool` (the default) is the
+    #: uploaded-textbook pipeline; anything else is an independent generator
+    #: registered in `services.assets`.
+    generator: str = POOL_GENERATOR
+    #: The shape that generator must emit ("discursive_passage",
+    #: "grammar_task_set", "formal_letter", "extract_poetry", …).
+    asset_type: str = ""
+    #: Generator-readable parameters: word counts, sub-question marks patterns,
+    #: task counts, allowed formats. Excluded from equality/hashing because it
+    #: is a mutable mapping and slots are compared by identity of contract, not
+    #: by their parameter blob.
+    constraints: Dict[str, Any] = dataclasses.field(
+        default_factory=dict, compare=False
+    )
+    #: Names of rules in `services.assets.validation` to run on what comes back.
+    validation: Tuple[str, ...] = ()
+    #: How the student chooses: "none", "internal_choice", "any_4_of_5", …
+    #: `choice_required` remains the machine-readable flag for OR handling.
+    optionality: str = "none"
+    #: "objective" | "descriptive" | "mixed" — what a marking scheme expects.
+    answer_type: str = ""
+    #: How the question prints: "passage_with_subquestions", "letter",
+    #: "paragraph", "numbered_task_list", …
+    output_format: str = ""
 
 
 def normalize_subject(subject: str) -> str:
@@ -445,9 +482,18 @@ def build_general_instructions(plan: List[QuestionGenerationSlot], subject: str,
     if class_num == 10 and subject_norm == "english":
         return [
             "This question paper contains 11 questions. All questions are compulsory.",
+            "The question paper contains THREE sections — Section A: Reading Skills; "
+            "Section B: Grammar and Writing Skills; Section C: Literature Textbook.",
+            "Attempt questions based on the specific instructions given for each part. "
             "Marks are indicated against each question.",
-            "Q1–Q2: Reading Comprehension (10 marks each). Q3: Grammar tasks (10 marks, do any 10 of 12). Q4–Q5: Writing tasks (5 marks each).",
-            "Q6–Q7: Literature extracts — Prose and Poetry (5 marks each). Q8: Short answer questions from First Flight and Footprints (12 marks, do any 4 of 5). Q9: Footprints long answer (6 marks, do any 2 of 3). Q10–Q11: First Flight and Footprints long answers (6 marks each, internal choice).",
+            "Section A (20 marks): Q1–Q2, two unseen passages of 10 marks each.",
+            "Section B (20 marks): Q3, grammar — attempt any ten of twelve tasks (10 marks); "
+            "Q4–Q5, writing tasks of 5 marks each with an internal choice.",
+            "Section C (40 marks): Q6–Q7, extract-based questions (5 marks each); "
+            "Q8, answer any four of five (12 marks); Q9, answer any two of three (6 marks); "
+            "Q10–Q11, long answers of 6 marks each with an internal choice.",
+            "All names and details in the Writing section are imaginary and created "
+            "for assessment purposes.",
         ]
     if class_num == 10 and subject_norm == "hindi":
         return [
@@ -726,17 +772,21 @@ def _build_english_blueprint_instructions(difficulty: str, count: int) -> str:
         rules.extend([f"- You MUST generate exactly {count} questions.", "WORKSHEET MODE: Dynamic sections."])
         return "\n".join(rules)
     rules.extend([
-        "- Total: 11 questions, 80 marks, 3 hours.",
-        "- Q1–Q2 (10m each): Reading Comprehension passages — one factual, one discursive.",
-        "- Q3 (10m): Grammar — 12 tasks, do any 10 (editing, gap-fill, reporting, transformation).",
-        "- Q4 (5m): Formal letter (complaint/request/order) or notice. Q5 (5m): Analytical paragraph.",
-        "- Q6 (5m): Extract from First Flight prose — 4-5 MCQs/very short answers.",
-        "- Q7 (5m): Extract from First Flight poetry — 4-5 MCQs/very short answers.",
-        "- Q8 (12m): Short answers — 5 questions from First Flight Prose, First Flight Poetry, and Footprints (do any 4, 3m each).",
-        "- Q9 (6m): Footprints — 3 LA options, do any 2 (3m each).",
-        "- Q10 (6m): First Flight LA — one question with internal OR.",
-        "- Q11 (6m): Footprints LA — one question with internal OR.",
-        "- Q8 must span at least 2 First Flight Prose chapters, 1 First Flight poem, and 1 Footprints story.",
+        "- Total: 11 questions, 80 marks, 3 hours, in THREE sections.",
+        "- SECTION A — Reading Skills (20m): Q1 a discursive passage, Q2 a case-based "
+        "passage, 10 marks each. Both passages are ORIGINAL and unseen. They are "
+        "written by the Reading generator and MUST NOT come from any uploaded chapter.",
+        "- SECTION B — Grammar and Writing Skills (20m): Q3 twelve one-mark grammar "
+        "tasks of which any ten are attempted; Q4 a formal letter and Q5 an analytical "
+        "paragraph, 5 marks each with an internal choice. Grammar and Writing are "
+        "rule- and scenario-based and MUST NOT be built from any uploaded chapter.",
+        "- SECTION C — Literature Textbook (40m): Q6 a prose extract, Q7 a poetry "
+        "extract (5m each), Q8 answer any four of five (12m), Q9 answer any two of "
+        "three (6m), Q10 and Q11 long answers with internal choice (6m each). This is "
+        "the ONLY section drawn from the uploaded textbook.",
+        "- Sections A and B carry 40 of the 80 marks and are produced by independent "
+        "generators. A question in either section that references a prescribed story, "
+        "poem, character or author is a structural defect.",
     ])
     return "\n".join(rules)
 
@@ -1138,8 +1188,13 @@ def _build_composition_instruction(slot: QuestionGenerationSlot) -> str:
             "State the word limit (~120 शब्द) in the stem. A topic with fewer than 3 संकेत-बिन्दु is INVALID.",
             "Topics must be contemporary, socially relevant, age-appropriate (Class X) and NON-duplicative.",
         ]
-    elif subject_norm == "english" and "Analytical" in hint:
-        # Stimulus-based analytical paragraph.
+    elif str(getattr(slot, "asset_type", "") or "") == "analytical_paragraph" or (
+        subject_norm == "english" and "analytical" in hint.lower()
+    ):
+        # Stimulus-based analytical paragraph. Keyed off the slot's declared
+        # asset type first — substring-matching the prose hint was fragile, and
+        # silently stopped selecting this branch the moment the hint was
+        # reworded.
         lines += [
             "This is a STIMULUS-BASED analytical paragraph — NOT a free-topic essay, NOT a letter.",
             "Generate the STIMULUS inside the question: either TWO excerpts/profiles OR THREE profiles, "
@@ -1367,6 +1422,13 @@ def _make_slot(
     vi_required: bool = False,
     instruction_hint: str = "",
     mode: str = "CONTENT",
+    generator: str = POOL_GENERATOR,
+    asset_type: str = "",
+    constraints: Optional[Dict[str, Any]] = None,
+    validation: Sequence[str] = (),
+    optionality: str = "",
+    answer_type: str = "",
+    output_format: str = "",
 ) -> QuestionGenerationSlot:
     legacy_type = _legacy_question_type(qtype_name)
     retrieval_query = build_retrieval_query(
@@ -1402,6 +1464,15 @@ def _make_slot(
         vi_required=vi_required,
         instruction_hint=instruction_hint,
         generation_mode=str(mode).upper(),
+        generator=str(generator or POOL_GENERATOR),
+        asset_type=str(asset_type or ""),
+        constraints=dict(constraints or {}),
+        validation=tuple(validation or ()),
+        optionality=str(
+            optionality or ("internal_choice" if choice_required else "none")
+        ),
+        answer_type=str(answer_type or ""),
+        output_format=str(output_format or ""),
     )
     return dataclasses.replace(draft, exact_instruction=_slot_instruction(draft))
 
@@ -1628,180 +1699,344 @@ def _exact_class10_blueprint_entries_mathematics() -> List[Dict[str, Any]]:
     return entries
 
 
+#: Section headings, matching the official paper's own wording.
+_ENGLISH_SECTION_READING = "Section A - Reading Skills"
+_ENGLISH_SECTION_WRITING = "Section B - Grammar and Writing Skills"
+_ENGLISH_SECTION_LITERATURE = "Section C - Literature Textbook"
+
+
 def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
-    """11 questions, 80 marks — CBSE Class 10 English Language & Literature (Code 184) SQP 2025-26."""
+    """11 questions, 80 marks — CBSE Class 10 English Language & Literature (184).
+
+    This is the blueprint that routes. Reading, Grammar and Writing declare
+    independent generators and get their material written fresh; only Section C
+    names `question_pool`, so only Section C reads the uploaded textbook. That
+    single change is what stops Reading and Writing inheriting Literature
+    questions — 40 of the 80 marks no longer touch the upload at all.
+
+    The structural detail each generator needs lives in `constraints`
+    (word counts, the sub-question marks pattern, which skill each part
+    assesses, how many grammar tasks and how many to attempt), and the checks
+    run on what comes back live in `validation`. Nothing about CBSE is encoded
+    in the generators themselves — change these numbers and the same generators
+    produce a different board's paper.
+    """
     return [
-        # Section A — Reading Comprehension (20m)
+        # ── Section A — Reading Skills (20m) — original unseen passages ──
         {
-            "section": "Section A - Reading Comprehension",
+            "section": _ENGLISH_SECTION_READING,
             "stream": "ENGLISH_READING",
             "qtype": "READING_COMP",
             "mode": "PASSAGE",
             "marks": 10,
             "count": 1,
-            "hint": (
-                "Q1 (10m): Generate an ORIGINAL ~400-word factual/discursive passage. "
-                "NEVER reproduce any text from First Flight or Footprints Without Feet. "
-                "Generate 8 sub-questions with marks distribution 1+1+1+1+1+2+1+2. "
-                "Types: (i) inferential short-answer 1m, (ii) EXCEPT-type MCQ 1m, "
-                "(iii) fill-blank-from-bracket 1m, (iv) select-True MCQ 1m, "
-                "(v) complete-analogy 1m, (vi) 2-mark explanation, (vii) main-idea MCQ 1m, "
-                "(viii) 2-mark synthesis. Questions must progress from lower to higher order thinking."
+            "generator": "reading_asset_pool",
+            "asset_type": "discursive_passage",
+            "optionality": "none",
+            "answer_type": "mixed",
+            "output_format": "passage_with_subquestions",
+            "constraints": {
+                "word_count": (350, 450),
+                "paragraphs": "5 to 7",
+                "reading_level": "class_10",
+                "sub_questions": 8,
+                "sub_question_marks": (1, 1, 1, 1, 1, 2, 1, 2),
+                "sub_question_skills": (
+                    "inference_short_answer",
+                    "except_mcq",
+                    "bracket_gap_fill",
+                    "true_statement_mcq",
+                    "analogy_completion",
+                    "explanation",
+                    "paragraph_main_idea_mcq",
+                    "synthesis",
+                ),
+                "topic_domains": (
+                    "culture and heritage",
+                    "environment and sustainability",
+                    "science and everyday technology",
+                    "health and well-being",
+                    "work, craft and local economies",
+                ),
+            },
+            "validation": (
+                "sub_question_marks_sum",
+                "sub_question_count",
+                "passage_word_count",
+                "paragraph_map_present",
+                "paragraph_reference_bounds",
+                "option_completeness",
+                "answer_key_complete",
+                "self_contained",
             ),
+            "hint": "Discursive passage: an argued position, not a report of data.",
         },
         {
-            "section": "Section A - Reading Comprehension",
+            "section": _ENGLISH_SECTION_READING,
             "stream": "ENGLISH_READING",
             "qtype": "READING_COMP",
             "mode": "PASSAGE",
             "marks": 10,
             "count": 1,
+            "generator": "reading_asset_pool",
+            "asset_type": "case_based_passage",
+            "optionality": "none",
+            "answer_type": "mixed",
+            "output_format": "passage_with_subquestions",
+            "constraints": {
+                "word_count": (220, 300),
+                "paragraphs": "4 to 5",
+                "reading_level": "class_10",
+                "sub_questions": 9,
+                "sub_question_marks": (1, 1, 1, 1, 1, 1, 1, 2, 1),
+                "sub_question_skills": (
+                    "data_interpretation_mcq",
+                    "phrase_identification",
+                    "bracket_gap_fill",
+                    "vocabulary",
+                    "data_interpretation_mcq",
+                    "inference_short_answer",
+                    "relationship",
+                    "elaboration",
+                    "one_word_gap_fill",
+                ),
+                "topic_domains": (
+                    "survey findings",
+                    "consumer or student habits",
+                    "transport and mobility",
+                    "media and reading habits",
+                    "nutrition and lifestyle",
+                ),
+            },
+            "validation": (
+                "sub_question_marks_sum",
+                "sub_question_count",
+                "passage_word_count",
+                "paragraph_map_present",
+                "paragraph_reference_bounds",
+                "option_completeness",
+                "answer_key_complete",
+                "self_contained",
+            ),
             "hint": (
-                "Q2 (10m): Generate an ORIGINAL ~250-word data/survey/infographic passage "
-                "(topic MUST differ from Q1; NEVER use prescribed text). "
-                "Generate 9 sub-questions: 7×1m + 1×2m + 1×1m. "
-                "Include: MCQ data-interpretation, phrase identification, "
-                "data-comprehension fill-blank, relationship explanation, 2-mark elaboration. "
-                "Final sub-question MUST be fill-blank-ONE-word type."
+                "Case-based passage: reports a study or survey and carries "
+                "concrete figures the sub-questions can be built on."
             ),
         },
-        # Section B — Grammar & Writing (20m)
+        # ── Section B — Grammar (10m) — rule-based, no textbook ──────────
         {
-            "section": "Section B - Grammar and Writing",
+            "section": _ENGLISH_SECTION_WRITING,
             "stream": "ENGLISH_GRAMMAR",
             "qtype": "GRAMMAR",
             "mode": "GRAMMAR",
             "marks": 10,
             "count": 1,
-            "hint": (
-                "Q3 (10m): Generate EXACTLY 12 one-mark grammar tasks; student attempts any 10. "
-                "Cover DISTINCT grammar points without repetition: "
-                "tense correction (×2), reported speech statement (×1), reported speech command (×1), "
-                "reported speech question (×1), error-correction plain sentence (×1), "
-                "error-correction MCQ-format with options (×1), preposition MCQ (×1), "
-                "modal verb (×1), determiner (×1), quantifier (×1), participle/gerund MCQ (×1). "
-                "Use realistic contexts: market research survey, diary entry, formal letter, public notice."
-            ),
+            "generator": "grammar_asset_pool",
+            "asset_type": "grammar_task_set",
+            "optionality": "any_10_of_12",
+            "answer_type": "mixed",
+            "output_format": "numbered_task_list",
+            "constraints": {
+                "tasks": 12,
+                "attempt": 10,
+                "max_per_grammar_topic": 1,
+                "grammar_topics": (
+                    "verb_form_gap_fill",
+                    "error_correction_table",
+                    "tense_gap_fill",
+                    "reported_speech_statement",
+                    "preposition_mcq",
+                    "reported_speech_command",
+                    "non_finite_mcq",
+                    "error_correction_mcq",
+                    "reported_speech_question",
+                    "modal_gap_fill",
+                    "determiner_mcq",
+                    "quantifier_mcq",
+                ),
+            },
+            "validation": ("task_count", "distinct_grammar_topics", "self_contained"),
+            "hint": "Twelve one-mark tasks; the student attempts any ten.",
         },
+        # ── Section B — Writing (10m) — original scenarios ───────────────
         {
-            "section": "Section B - Grammar and Writing",
+            "section": _ENGLISH_SECTION_WRITING,
             "stream": "ENGLISH_WRITING",
             "qtype": "LETTER",
             "mode": "COMPOSITION",
             "marks": 5,
             "count": 1,
             "choice_required": True,
-            "hint": (
-                "Q4 (5m): Two options — attempt ONE. State word limit (~120 words) in the question stem. "
-                "(A) Formal letter to an authority (Municipal Corporation/School Principal/Editor) "
-                "proposing a community scheme or school event; full format, named sender + city. "
-                "(B) Letter to the Editor of a newspaper on a current social/environmental issue; "
-                "full format, named sender + city."
-            ),
+            "generator": "writing_asset_pool",
+            "asset_type": "formal_letter_to_authority",
+            "optionality": "internal_choice",
+            "answer_type": "descriptive",
+            "output_format": "letter",
+            "constraints": {
+                "word_limit": 120,
+                "formats": ("formal_letter_to_authority", "letter_to_editor"),
+                "themes": (
+                    "civic amenities",
+                    "school and community initiatives",
+                    "environment",
+                    "digital safety",
+                    "public health",
+                ),
+            },
+            "validation": ("word_limit_declared", "rubric_present", "self_contained"),
+            "hint": "Formal letter with a named sender, named recipient and a clear purpose.",
         },
         {
-            "section": "Section B - Grammar and Writing",
+            "section": _ENGLISH_SECTION_WRITING,
             "stream": "ENGLISH_WRITING",
-            "qtype": "SHORT_ANSWER",
+            "qtype": "ANALYTICAL_PARAGRAPH",
             "mode": "COMPOSITION",
             "marks": 5,
             "count": 1,
             "choice_required": True,
+            "generator": "writing_asset_pool",
+            "asset_type": "analytical_paragraph",
+            "optionality": "internal_choice",
+            "answer_type": "descriptive",
+            "output_format": "paragraph",
+            "constraints": {
+                "word_limit": 120,
+                "formats": ("analytical_paragraph",),
+                "stimulus_required": True,
+                "stimulus_blocks": 2,
+                "single_paragraph": True,
+                "themes": (
+                    "choosing between two candidates",
+                    "comparing two proposals",
+                    "interpreting two sets of figures",
+                ),
+            },
+            "validation": (
+                "stimulus_present",
+                "word_limit_declared",
+                "rubric_present",
+                "self_contained",
+            ),
             "hint": (
-                "Q5 (5m): Analytical Paragraph — Two options — attempt ONE (120–150 words). "
-                "Provide 2 different excerpts/profiles/data points for each option. "
-                "Student must analyse and justify a choice based on stated criteria. "
-                "CRITICAL: Exactly ONE cohesive paragraph. NOT an essay. NOT a letter. NOT a list."
+                "Stimulus-based analytical paragraph: the question supplies the "
+                "material to compare."
             ),
         },
-        # Section C — Literature (40m)
+        # ── Section C — Literature (40m) — the ONLY textbook section ─────
         {
-            "section": "Section C - Literature",
+            "section": _ENGLISH_SECTION_LITERATURE,
             "stream": "ENGLISH_LITERATURE",
-            "qtype": "SHORT_ANSWER",
+            "qtype": "EXTRACT_PROSE",
             "marks": 5,
             "count": 1,
             "choice_required": True,
+            "generator": POOL_GENERATOR,
+            "asset_type": "extract_prose",
+            "optionality": "internal_choice",
+            "answer_type": "mixed",
+            "output_format": "extract_with_subquestions",
             "hint": (
-                "Q6 (5m): Two prose extract options (A and B) from DIFFERENT First Flight prose chapters. "
-                "Each has 4 sub-questions: 2+1+1+1 marks. "
-                "Prescribed chapters: A Letter to God, Nelson Mandela, Two Stories About Flying, "
-                "Anne Frank, Glimpses of India, Mijbil the Otter, Madam Rides the Bus, "
-                "The Sermon at Benares, The Proposal."
+                "Q6 (5m): a prose/drama extract from the uploaded chapter, quoted "
+                "verbatim, followed by 4 sub-questions worth 2+1+1+1 marks. Mix a "
+                "short inferential answer, an MCQ and a one-line contextual item. "
+                "The extract must come from the source material, not from memory."
             ),
         },
         {
-            "section": "Section C - Literature",
+            "section": _ENGLISH_SECTION_LITERATURE,
             "stream": "ENGLISH_LITERATURE",
-            "qtype": "SHORT_ANSWER",
+            "qtype": "EXTRACT_POETRY",
             "marks": 5,
             "count": 1,
             "choice_required": True,
+            "generator": POOL_GENERATOR,
+            "asset_type": "extract_poetry",
+            "optionality": "internal_choice",
+            "answer_type": "mixed",
+            "output_format": "extract_with_subquestions",
             "hint": (
-                "Q7 (5m): Two poetry extract options (A and B) from DIFFERENT First Flight poems. "
-                "Each has 4 sub-questions: 1+2+1+1 marks. "
-                "Test: identify poetic device/imagery (1m), explain theme/tone (2m), "
-                "contextual meaning (1m), inferential (1m). "
-                "Prescribed poems: Dust of Snow, Fire and Ice, A Tiger in the Zoo, "
-                "How to Tell Wild Animals, The Ball Poem, Amanda!, Animals, The Trees, Fog, "
-                "Custard the Dragon, For Anne Gregory."
+                "Q7 (5m): a poetry extract from the uploaded chapter, quoted "
+                "verbatim with its line breaks, followed by 4 sub-questions worth "
+                "1+2+1+1 marks: poetic device or imagery, theme/tone, contextual "
+                "meaning, inference. Quote only lines present in the source."
             ),
         },
         {
-            "section": "Section C - Literature",
+            "section": _ENGLISH_SECTION_LITERATURE,
             "stream": "ENGLISH_LITERATURE",
             "qtype": "SHORT_ANSWER",
             "marks": 12,
             "count": 1,
+            "generator": POOL_GENERATOR,
+            "asset_type": "short_answer_bundle",
+            "optionality": "any_4_of_5",
+            "answer_type": "descriptive",
+            "output_format": "numbered_question_list",
+            "constraints": {"questions": 5, "attempt": 4, "marks_each": 3},
             "hint": (
-                "Q8 (12m): Generate 5 short-answer questions; student answers any 4 (×3m, ~50 words each). "
-                "MANDATORY coverage: at least 2 from First Flight Prose, "
-                "at least 1 from First Flight Poetry, at least 1 from Footprints Without Feet. "
-                "No chapter/poem repeated. ALL questions must require analysis or evaluation — "
-                "reject pure factual recall."
+                "Q8 (12m): ONE question object containing FIVE numbered "
+                "sub-questions of 3 marks each, headed 'Answer any four of the "
+                "following five questions, in about 50 words each'. Draw each "
+                "sub-question from a DIFFERENT chapter or poem in the source "
+                "material. Every one must require analysis or evaluation, never "
+                "plain recall. Give the answer key for all five."
             ),
         },
         {
-            "section": "Section C - Literature",
+            "section": _ENGLISH_SECTION_LITERATURE,
             "stream": "ENGLISH_LITERATURE",
             "qtype": "SHORT_ANSWER",
             "marks": 6,
             "count": 1,
+            "generator": POOL_GENERATOR,
+            "asset_type": "short_answer_bundle",
+            "optionality": "any_2_of_3",
+            "answer_type": "descriptive",
+            "output_format": "numbered_question_list",
+            "constraints": {"questions": 3, "attempt": 2, "marks_each": 3},
             "hint": (
-                "Q9 (6m): Generate 3 questions from Footprints Without Feet ONLY; "
-                "student answers any 2 (×3m, ~40-50 words each). "
-                "All 3 from DIFFERENT Footprints stories. "
-                "Stories: A Triumph of Surgery, The Thief's Story, The Midnight Visitor, "
-                "A Question of Trust, Footprints Without Feet, Making of a Scientist, "
-                "The Necklace, The Hack Driver, Bholi, The Book That Saved the Earth."
+                "Q9 (6m): ONE question object containing THREE numbered "
+                "sub-questions of 3 marks each, headed 'Answer any two of the "
+                "following three questions, in about 40-50 words'. All three from "
+                "DIFFERENT chapters of the source material. Give all three answers."
             ),
         },
         {
-            "section": "Section C - Literature",
+            "section": _ENGLISH_SECTION_LITERATURE,
             "stream": "ENGLISH_LITERATURE",
             "qtype": "LONG_ANSWER",
             "marks": 6,
             "count": 1,
             "choice_required": True,
+            "generator": POOL_GENERATOR,
+            "asset_type": "long_answer",
+            "optionality": "internal_choice",
+            "answer_type": "descriptive",
+            "output_format": "paragraph",
+            "constraints": {"word_limit": (100, 120)},
             "hint": (
-                "Q10 (6m): Two options from First Flight — attempt ONE (~100-120 words). "
-                "Thematic or comparative analysis across 2-3 First Flight chapters/poems. "
-                "Higher-order: evaluate theme, character development, or moral message. "
-                "NOT a plot summary."
+                "Q10 (6m): a 100-120 word evaluative answer on theme, character "
+                "development or moral message, drawing on the source material. "
+                "Not a plot summary."
             ),
         },
         {
-            "section": "Section C - Literature",
+            "section": _ENGLISH_SECTION_LITERATURE,
             "stream": "ENGLISH_LITERATURE",
             "qtype": "LONG_ANSWER",
             "marks": 6,
             "count": 1,
             "choice_required": True,
+            "generator": POOL_GENERATOR,
+            "asset_type": "long_answer",
+            "optionality": "internal_choice",
+            "answer_type": "descriptive",
+            "output_format": "paragraph",
+            "constraints": {"word_limit": (100, 120)},
             "hint": (
-                "Q11 (6m): Two options from Footprints Without Feet — attempt ONE (~100-120 words). "
-                "Both options from DIFFERENT Footprints stories. "
-                "Require critical commentary on narrative technique, character significance, "
-                "or thematic message. NOT a plot summary."
+                "Q11 (6m): a 100-120 word critical commentary on narrative "
+                "technique, character significance or thematic message, drawn from "
+                "a DIFFERENT chapter than Q10. Not a plot summary."
             ),
         },
     ]
@@ -2492,6 +2727,16 @@ def _build_exact_cbse_class10_plan(
                     vi_required=bool(entry.get("vi_required")),
                     instruction_hint=str(entry.get("hint") or ""),
                     mode=str(entry.get("mode") or "CONTENT").upper(),
+                    # Routing declaration. Entries that omit these — every
+                    # subject except English — fall through to the textbook
+                    # pool defaults, so their plans are unchanged.
+                    generator=str(entry.get("generator") or POOL_GENERATOR),
+                    asset_type=str(entry.get("asset_type") or ""),
+                    constraints=entry.get("constraints") or {},
+                    validation=entry.get("validation") or (),
+                    optionality=str(entry.get("optionality") or ""),
+                    answer_type=str(entry.get("answer_type") or ""),
+                    output_format=str(entry.get("output_format") or ""),
                 )
             )
 

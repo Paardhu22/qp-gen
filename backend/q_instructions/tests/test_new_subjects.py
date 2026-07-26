@@ -129,11 +129,44 @@ class TestEnglishBlueprint(unittest.TestCase):
             self.assertEqual(e["marks"], 10)
 
     def test_q8_spans_sources(self):
+        # Q8 is one 12-mark bundle of five 3-mark questions, of which the
+        # student answers four, each from a different part of the source
+        # material. The requirement is expressed structurally rather than by
+        # naming NCERT titles: the pool is built from whatever chapters the
+        # teacher uploaded, so naming books the upload may not contain invited
+        # the model to write from memory instead of from the source.
         q8 = [e for e in self.entries if e.get("hint", "").startswith("Q8")]
         self.assertEqual(len(q8), 1)
-        hint = q8[0]["hint"]
-        self.assertIn("First Flight", hint)
-        self.assertIn("Footprint", hint)
+        entry = q8[0]
+        self.assertEqual(entry["marks"], 12)
+        self.assertEqual(entry["optionality"], "any_4_of_5")
+        self.assertEqual(entry["constraints"], {"questions": 5, "attempt": 4, "marks_each": 3})
+        self.assertIn("DIFFERENT chapter", entry["hint"])
+
+    def test_only_literature_uses_the_uploaded_textbook(self):
+        """The whole point of the split: Sections A and B declare their own
+        generators, so 40 of the 80 marks never touch an upload."""
+        by_generator = {}
+        for entry in self.entries:
+            key = entry.get("generator", "question_pool")
+            by_generator[key] = by_generator.get(key, 0) + entry["marks"] * entry.get("count", 1)
+
+        self.assertEqual(by_generator["question_pool"], 40)
+        self.assertEqual(by_generator["reading_asset_pool"], 20)
+        self.assertEqual(by_generator["grammar_asset_pool"], 10)
+        self.assertEqual(by_generator["writing_asset_pool"], 10)
+
+    def test_asset_slots_declare_a_full_routing_contract(self):
+        for entry in self.entries:
+            if entry.get("generator", "question_pool") == "question_pool":
+                continue
+            label = entry["hint"][:40]
+            self.assertTrue(entry.get("asset_type"), label)
+            self.assertTrue(entry.get("constraints"), label)
+            self.assertTrue(entry.get("validation"), label)
+            self.assertTrue(entry.get("optionality"), label)
+            self.assertTrue(entry.get("answer_type"), label)
+            self.assertTrue(entry.get("output_format"), label)
 
 
 class TestHindiBlueprint(unittest.TestCase):

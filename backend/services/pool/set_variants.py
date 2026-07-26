@@ -75,6 +75,11 @@ def _matches(
     chapter-level matching (see `_find_replacement`) rather than treating a
     topic mismatch as disqualifying on its own.
     """
+    # Provenance first: a Reading asset and a Literature question can look
+    # structurally identical (same type, same marks) and still be completely
+    # wrong for each other's slot.
+    if candidate.generator != original.generator:
+        return False
     if int(candidate.marks) != int(original.marks):
         return False
     if candidate.type != original.type:
