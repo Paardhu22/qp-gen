@@ -18,6 +18,27 @@ from utils.ids import generate_id
 
 
 class Conversation(TimeStampedModel):
+    # A conversation becomes a *paper session* the moment it is about making
+    # a paper. The distinction is not cosmetic: a session carries a spec that
+    # can be half-finished, and half-finished work has to be parkable. A
+    # teacher interrupted mid-setup pauses it, starts another, and comes back
+    # — which is only possible if the session is a thing with a state rather
+    # than just the most recent messages.
+    MODE_CHAT = "chat"
+    MODE_PAPER = "paper"
+    MODE_CHOICES = [(MODE_CHAT, "Chat"), (MODE_PAPER, "Paper session")]
+
+    STATUS_ACTIVE = "active"
+    STATUS_PAUSED = "paused"
+    STATUS_GENERATING = "generating"
+    STATUS_COMPLETED = "completed"
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, "Active"),
+        (STATUS_PAUSED, "Paused"),
+        (STATUS_GENERATING, "Generating"),
+        (STATUS_COMPLETED, "Completed"),
+    ]
+
     id = models.CharField(
         primary_key=True, max_length=32, default=generate_id, editable=False
     )
@@ -34,6 +55,16 @@ class Conversation(TimeStampedModel):
     # and the handoff to the generator reads the latest state, not a
     # transcript.
     spec = models.JSONField(default=dict, blank=True)
+    mode = models.CharField(max_length=16, choices=MODE_CHOICES, default=MODE_CHAT)
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_ACTIVE
+    )
+    # The paper this session produced, once it has produced one. Not a FK:
+    # papers are deletable from the library and losing one should not take
+    # the conversation that made it with it.
+    paper_id = models.CharField(
+        max_length=32, null=True, blank=True, db_column="paperId"
+    )
 
     class Meta:
         db_table = "Conversation"

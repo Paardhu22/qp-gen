@@ -17,7 +17,10 @@ from rest_framework.views import APIView
 
 from services.chat_service import (
     build_message_history,
+    can_generate,
+    collect_source_ids,
     extract_spec,
+    next_prompt,
     spec_is_ready,
     stream_reply,
     suggest_title,
@@ -84,6 +87,46 @@ class ConversationDetailView(APIView):
         conversation = self.get_object(request, conversation_id)
         conversation.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ConversationStatusView(APIView):
+    """POST /api/chat/conversations/<id>/status — park or resume a session.
+
+    Pausing changes nothing about the work; the spec and transcript are
+    already durable. What it buys the teacher is a truthful list: a paper
+    they walked away from reads as paused instead of sitting at the top
+    pretending to be in progress.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    ALLOWED = {
+        Conversation.STATUS_ACTIVE,
+        Conversation.STATUS_PAUSED,
+        Conversation.STATUS_GENERATING,
+        Conversation.STATUS_COMPLETED,
+    }
+
+    def post(self, request, conversation_id):
+        conversation = get_object_or_404(request.user.conversations, id=conversation_id)
+
+        status_value = str(request.data.get("status") or "").strip()
+        if status_value not in self.ALLOWED:
+            return Response(
+                {"detail": f"Unknown status '{status_value}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        fields = ["status", "updated_at"]
+        conversation.status = status_value
+
+        paper_id = request.data.get("paperId")
+        if paper_id:
+            conversation.paper_id = str(paper_id)[:32]
+            fields.insert(1, "paper_id")
+
+        conversation.save(update_fields=fields)
+        return Response(ConversationSerializer(conversation).data)
 
 
 class ChatMessageStreamView(APIView):
@@ -163,17 +206,48 @@ class ChatMessageStreamView(APIView):
                 content=reply,
             )
 
-            spec = extract_spec(
+            extraction = extract_spec(
                 history + [{"role": "assistant", "content": reply}],
                 previous=conversation.spec,
                 user=user,
             )
+            spec = extraction.spec
+
+            updates = []
             if spec != conversation.spec:
                 conversation.spec = spec
-                conversation.save(update_fields=["spec", "updated_at"])
+                updates.append("spec")
+            # A conversation that turns out to be about a paper becomes a
+            # session and stays one; it never reverts, because the teacher
+            # wandering off-topic for a turn should not throw away the setup
+            # they have done so far.
+            if extraction.is_paper and conversation.mode != Conversation.MODE_PAPER:
+                conversation.mode = Conversation.MODE_PAPER
+                updates.append("mode")
+            # Answering a question un-pauses: the teacher is plainly back.
+            if conversation.status == Conversation.STATUS_PAUSED:
+                conversation.status = Conversation.STATUS_ACTIVE
+                updates.append("status")
+            if updates:
+                conversation.save(update_fields=[*updates, "updated_at"])
 
+            source_ids = collect_source_ids(conversation.messages.all())
+            is_paper = conversation.mode == Conversation.MODE_PAPER
             yield _sse(
-                {"spec": spec, "ready": spec_is_ready(spec)}, event="spec"
+                {
+                    "spec": spec,
+                    "ready": spec_is_ready(spec),
+                    "canGenerate": can_generate(spec, len(source_ids)),
+                    "sourceIds": source_ids,
+                    "mode": conversation.mode,
+                    # The next thing to ask for, as a widget. Sent only for
+                    # paper sessions — a teacher asking about photosynthesis
+                    # should not be handed a subject picker.
+                    "nextPrompt": (
+                        next_prompt(spec, len(source_ids)) if is_paper else None
+                    ),
+                },
+                event="spec",
             )
             yield _sse(
                 {"messageId": message.id, "content": reply}, event="done"

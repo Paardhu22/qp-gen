@@ -318,7 +318,7 @@ OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
 # conversation and fills in a form, and never writes a question — that is the
 # pool pipeline's job, on POOL_MODEL. Independent of OPENAI_MODEL for the same
 # reason as every other stage.
-CHAT_MODEL = os.environ.get("CHAT_MODEL", "gpt-4o-mini")
+CHAT_MODEL = os.environ.get("CHAT_MODEL", "gpt-4.1-mini")
 
 # Per-request ceiling on every OpenAI call. The SDK defaults to 600s, which is
 # longer than gunicorn's worker timeout — a hung request would get the worker

@@ -26,7 +26,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Iterator, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 from django.conf import settings
 
@@ -37,7 +38,7 @@ logger = logging.getLogger("[CHAT]")
 
 
 def _model() -> str:
-    return getattr(settings, "CHAT_MODEL", "gpt-4o-mini")
+    return getattr(settings, "CHAT_MODEL", "gpt-4.1-mini")
 
 
 # ── The spec ────────────────────────────────────────────────────────────
@@ -102,39 +103,47 @@ _SPEC_SCHEMA = {
             "items": {"type": "string"},
             "description": "Chapter or topic names the teacher named.",
         },
+        "isPaperRequest": {
+            "type": "boolean",
+            "description": (
+                "True if the teacher is asking for a question paper to be "
+                "made. False for any other conversation."
+            ),
+        },
     },
-    "required": list(SPEC_FIELDS),
+    "required": list(SPEC_FIELDS) + ["isPaperRequest"],
 }
 
 _SYSTEM_PROMPT = """\
-You are the assistant on the dashboard of AOS, a CBSE question-paper tool \
-used by school teachers in India.
+You are the assistant in AOS, a CBSE question-paper tool used by school \
+teachers in India. You are a general assistant first: answer whatever you are \
+asked, help with whatever is put in front of you — explaining a concept, \
+drafting a notice to parents, checking a marking scheme, planning a term, \
+arithmetic, or plain conversation. Be genuinely useful on all of it.
 
-Your job is to understand what paper the teacher wants and to fill the gaps \
-by asking. You do NOT write questions, passages or answer keys yourself — a \
-separate generation engine does that, and the teacher launches it from the \
-button that appears once the requirements are settled. If you are asked for \
-actual questions, say that you will set the paper up and the generator will \
-write it.
+One thing is special. When the teacher wants a question paper made, you \
+switch into setting it up. You do NOT write the questions yourself — a \
+separate generation engine does that, and it starts when the teacher presses \
+Generate. Your job is to pin down what it needs:
 
-To launch a generation the engine needs: board, class, subject, and total \
-marks. Useful but optional: difficulty, chapters or topics, how many \
-questions, and how many parallel sets (1-3).
+  required   board, class, subject, total marks
+  helpful    chapters or an uploaded PDF, difficulty, question count, and
+             how many parallel sets (1-3)
 
-How to behave:
-- Ask at most two questions per reply. A teacher in a hurry should be able to \
-answer in one line.
-- Never re-ask something already settled earlier in the conversation.
-- Prefer sensible CBSE defaults over interrogation. A class 10 board-pattern \
-paper is 80 marks; say so and let them correct you rather than asking.
+While setting a paper up:
+- Ask for ONE thing at a time. The interface renders your question as buttons \
+the teacher can tap, so a single clear ask beats a paragraph of them.
+- Never re-ask something already settled.
+- Prefer a sensible CBSE default over an interrogation. A class 10 \
+board-pattern paper is 80 marks — say so and let them correct you.
 - When everything required is known, summarise the paper in two or three \
 lines and tell them they can generate it.
-- Be brief and plain. No preamble, no bullet-point walls, no emoji.
-- Subjects supported: Science, Mathematics, Social Science, English, Hindi, \
-Telugu. Classes 1 to 10. If asked for something outside that, say so plainly.
+- Supported: Science, Mathematics, Social Science, English, Hindi, Telugu, \
+classes 1-10. Say plainly if you are asked for something outside that.
 
-You can also answer general questions about CBSE paper patterns, blueprints, \
-marking schemes and how to use the app.\
+Always: be brief and plain. No preamble, no bullet-point walls, no emoji. If \
+the teacher changes the subject away from the paper, follow them — the paper \
+setup is still there when they come back.\
 """
 
 _EXTRACTION_PROMPT = """\
@@ -204,11 +213,155 @@ def spec_is_ready(spec: Optional[Dict[str, Any]]) -> bool:
     return all(str(spec.get(field) or "").strip() for field in REQUIRED_FIELDS)
 
 
+# ── Interactive follow-ups ──────────────────────────────────────────────
+#
+# The next question is derived here, not asked of the model. Every field the
+# generator takes has a closed, known set of answers — six subjects, ten
+# classes, three set counts — so a model has nothing to add except the chance
+# of offering an eleventh class or misspelling "Social Science". The
+# assistant's prose asks the question conversationally; this decides what the
+# interface puts under it, and the two always agree because both are driven
+# by the same spec.
+
+_SUBJECTS = ["Science", "Mathematics", "Social Science", "English", "Hindi", "Telugu"]
+
+_FOLLOW_UPS: List[Dict[str, Any]] = [
+    {
+        "field": "subject",
+        "kind": "choice",
+        "label": "Which subject?",
+        "options": [{"value": s, "label": s} for s in _SUBJECTS],
+    },
+    {
+        "field": "academicClass",
+        "kind": "choice",
+        "label": "Which class?",
+        "options": [
+            {"value": str(n), "label": f"Class {n}"} for n in range(1, 11)
+        ],
+    },
+    {
+        "field": "board",
+        "kind": "choice",
+        "label": "Which board pattern?",
+        "options": [{"value": "CBSE", "label": "CBSE"}],
+    },
+    {
+        "field": "marks",
+        "kind": "choice",
+        "label": "Total marks?",
+        "options": [
+            {"value": "80", "label": "80", "hint": "Board pattern"},
+            {"value": "40", "label": "40", "hint": "Half paper"},
+            {"value": "20", "label": "20", "hint": "Unit test"},
+        ],
+        "allowOther": True,
+    },
+    # Not optional, whatever it looks like. The generation endpoint rejects a
+    # request with no `pdfSourceIds` and no `hsatSourceIds`
+    # (apps/generation/serializers.py), so a paper with nothing to read from
+    # cannot be made at all — offering to skip this would produce a Generate
+    # button that fails on press.
+    {
+        "field": "sources",
+        "kind": "files",
+        "label": "Attach the chapters to draw from",
+        "hint": "A textbook PDF. Questions are written from what you attach.",
+    },
+    {
+        "field": "difficulty",
+        "kind": "choice",
+        "label": "How hard should it be?",
+        "options": [
+            {"value": "easy", "label": "Easy"},
+            {"value": "medium", "label": "Medium"},
+            {"value": "hard", "label": "Hard"},
+        ],
+        "optional": True,
+    },
+    {
+        "field": "numberOfSets",
+        "kind": "choice",
+        "label": "How many parallel sets?",
+        "options": [
+            {"value": "1", "label": "One", "hint": "Set A"},
+            {"value": "2", "label": "Two", "hint": "Sets A & B"},
+            {"value": "3", "label": "Three", "hint": "Sets A, B & C"},
+        ],
+        "optional": True,
+    },
+]
+
+
+def collect_source_ids(messages: Iterable[Any]) -> List[str]:
+    """Every document the teacher attached over the whole session.
+
+    Sources accumulate across turns rather than belonging to the message that
+    carried them: a teacher who attaches chapter 3 and then, four turns later,
+    chapter 4 means the paper to draw on both.
+    """
+    seen: List[str] = []
+    for message in messages:
+        for attachment in getattr(message, "attachments", None) or []:
+            source_id = str((attachment or {}).get("id") or "").strip()
+            if source_id and source_id not in seen:
+                seen.append(source_id)
+    return seen
+
+
+def next_prompt(
+    spec: Optional[Dict[str, Any]], source_count: int = 0
+) -> Optional[Dict[str, Any]]:
+    """The next thing to ask for, as a widget the interface can render.
+
+    Fields are asked for in a fixed order, so two teachers setting up the same
+    paper are asked the same questions in the same sequence. Returns None once
+    nothing is left to ask, which is what stops the interface nagging.
+    """
+    spec = spec or {}
+
+    def filled(field: str) -> bool:
+        # Sources live on the messages, not the spec — the teacher answers
+        # this one by attaching a file rather than saying a word.
+        if field == "sources":
+            return source_count > 0
+        value = spec.get(field)
+        if isinstance(value, list):
+            return len(value) > 0
+        return bool(str(value or "").strip())
+
+    for prompt in _FOLLOW_UPS:
+        if not filled(prompt["field"]):
+            return dict(prompt)
+    return None
+
+
+def can_generate(spec: Optional[Dict[str, Any]], source_count: int = 0) -> bool:
+    """Whether pressing Generate would actually succeed.
+
+    Deliberately stricter than `spec_is_ready`: the blueprint only needs the
+    four required fields, but the pipeline also needs something to read.
+    """
+    return spec_is_ready(spec) and source_count > 0
+
+
+@dataclass
+class Extraction:
+    """What the transcript says about the paper, after one turn."""
+
+    spec: Dict[str, Any]
+    # Whether this conversation is about making a paper at all. Needed
+    # separately from the spec because "make me a paper" fills no fields yet
+    # is unmistakably a paper request — without it the first turn of every
+    # session would get no follow-up widget.
+    is_paper: bool = False
+
+
 def extract_spec(
     messages: List[Dict[str, str]],
     previous: Optional[Dict[str, Any]] = None,
     user: Optional[User] = None,
-) -> Dict[str, Any]:
+) -> Extraction:
     """Re-derive the paper spec from the transcript.
 
     Failure here is not failure of the turn: the teacher has already read the
@@ -245,7 +398,7 @@ def extract_spec(
         )
     except Exception as exc:
         logger.warning("Spec extraction failed, keeping the previous spec: %s", exc)
-        return dict(previous or {})
+        return Extraction(spec=dict(previous or {}), is_paper=bool(previous))
 
     _record_usage(user, "chat_spec", _model(), completion.usage)
 
@@ -253,9 +406,14 @@ def extract_spec(
         parsed = json.loads(completion.choices[0].message.content or "{}")
     except (json.JSONDecodeError, TypeError):
         logger.warning("Spec extraction returned unparseable JSON")
-        return dict(previous or {})
+        return Extraction(spec=dict(previous or {}), is_paper=bool(previous))
 
-    return normalize_spec(parsed, previous)
+    spec = normalize_spec(parsed, previous)
+    # A spec with anything in it is a paper session whatever the model says
+    # about intent: the fields only get filled from things the teacher
+    # actually asked for.
+    is_paper = bool(parsed.get("isPaperRequest")) or bool(spec)
+    return Extraction(spec=spec, is_paper=is_paper)
 
 
 def stream_reply(
