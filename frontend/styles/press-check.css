@@ -1,0 +1,254 @@
+/* Press check — the generation animation.
+   Component: components/dashboard/press-check.tsx
+
+   Kept out of Tailwind utilities because most of this is container-relative
+   typography (`cqw`) on the sheet: the paper must look like a paper at any
+   width, which means its type scales with the sheet rather than the viewport. */
+
+.press-check {
+  /* The press room. A deliberate world of its own — dark ground, lit sheet —
+     rather than the app's surface colours, because for these few minutes the
+     sheet is the only thing that matters on screen. */
+  --pc-ground: #0e1116;
+  --pc-hairline: #232a33;
+  --pc-sheet: #fbfbf9;
+  --pc-sheet-edge: #e4e2da;
+  --pc-ink: #14171c;
+  --pc-ink-soft: #5d636c;
+  --pc-chrome: #7e858f;
+  --pc-chrome-dim: #4a5058;
+  --pc-reg: #1b8a94;
+  --pc-reg-lift: #2cb5c1;
+  --pc-mark: #c2185b;
+  --pc-rule: #c9c6bc;
+
+  --pc-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --pc-serif: ui-serif, Georgia, "Times New Roman", Times, serif;
+
+  font-family: var(--pc-mono);
+  color: var(--pc-chrome);
+}
+
+/* In a light theme the room becomes a light table rather than an inversion:
+   the sheet is still the lit object, the surround is just daylight. */
+:root:not([data-theme="dark"]) .press-check {
+  --pc-ground: #dfe1de;
+  --pc-hairline: #c6c9c4;
+  --pc-chrome: #5a6068;
+  --pc-chrome-dim: #8a9099;
+  --pc-reg: #14717a;
+  --pc-reg-lift: #0e5f67;
+}
+
+:root[data-theme="dark"] .press-check {
+  --pc-ground: #0e1116;
+  --pc-hairline: #232a33;
+  --pc-chrome: #7e858f;
+  --pc-chrome-dim: #4a5058;
+  --pc-reg: #1b8a94;
+  --pc-reg-lift: #2cb5c1;
+}
+
+/* ── Chrome ─────────────────────────────────────────────────────────── */
+
+.pc-crop {
+  width: 22px;
+  height: 22px;
+  border-color: var(--pc-chrome-dim);
+  border-style: solid;
+  border-width: 0;
+  pointer-events: none;
+}
+.pc-crop.border-t { border-top-width: 1px; }
+.pc-crop.border-b { border-bottom-width: 1px; }
+.pc-crop.border-l { border-left-width: 1px; }
+.pc-crop.border-r { border-right-width: 1px; }
+
+.pc-pulse { animation: pc-pulse 1.6s ease-in-out infinite; }
+
+@keyframes pc-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc-reg-lift) 22%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--pc-reg-lift) 4%, transparent); }
+}
+
+/* ── The sheet ──────────────────────────────────────────────────────── */
+
+.pc-ghost {
+  position: absolute;
+  inset: 0;
+  background: var(--pc-sheet);
+  border: 1px solid var(--pc-sheet-edge);
+  border-radius: 2px;
+  animation: pc-fan 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.pc-ghost-b { --pc-fan-x: 14px; --pc-fan-y: 10px; --pc-fan-r: 1.4deg; }
+.pc-ghost-c { --pc-fan-x: 28px; --pc-fan-y: 20px; --pc-fan-r: 2.8deg; }
+
+@keyframes pc-fan {
+  from { opacity: 0; transform: none; }
+  to {
+    opacity: 1;
+    transform: translate(var(--pc-fan-x), var(--pc-fan-y)) rotate(var(--pc-fan-r));
+  }
+}
+
+.pc-sheet {
+  position: relative;
+  aspect-ratio: 210 / 297;
+  background: var(--pc-sheet);
+  border: 1px solid var(--pc-sheet-edge);
+  border-radius: 2px;
+  box-shadow:
+    0 26px 60px -24px rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  color: var(--pc-ink);
+  font-family: var(--pc-serif);
+  container-type: inline-size;
+}
+
+/* A very slow raking light. Ambient only — it carries no information, which
+   is why it is the first thing reduced-motion drops. */
+.pc-sheet::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    104deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.5) 50%,
+    transparent 62%
+  );
+  opacity: 0.55;
+  animation: pc-rake 13s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes pc-rake {
+  from { transform: translateX(-120%); }
+  to   { transform: translateX(120%); }
+}
+
+.pc-feed {
+  position: absolute;
+  inset: 0;
+  padding: 6.5% 7.5%;
+  display: flex;
+  flex-direction: column;
+  gap: 2.2cqw;
+  transition: transform 0.9s cubic-bezier(0.3, 0.8, 0.3, 1);
+}
+
+/* ── Sheet content ──────────────────────────────────────────────────── */
+
+.pc-masthead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7cqw;
+  text-align: center;
+  animation: pc-strike 0.5s ease both;
+}
+
+.pc-masthead-rule {
+  width: 100%;
+  border-top: 0.45cqw solid var(--pc-ink);
+  border-bottom: 0.15cqw solid var(--pc-ink);
+  padding-bottom: 0.4cqw;
+  margin-bottom: 0.6cqw;
+}
+
+.pc-masthead-title {
+  font-size: 3.6cqw;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.pc-masthead-line { font-size: 2.7cqw; letter-spacing: 0.03em; }
+
+.pc-masthead-meta {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 2.4cqw;
+  padding-top: 0.8cqw;
+}
+
+.pc-section {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 1.4cqw;
+  padding-bottom: 0.5cqw;
+  border-bottom: 0.15cqw solid var(--pc-ink);
+  font-size: 2.5cqw;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  animation: pc-strike 0.4s ease both;
+}
+
+/* Mirrors the editor's own question grid: number, body, marks. */
+.pc-qrow {
+  display: grid;
+  grid-template-columns: 5cqw minmax(0, 1fr) 6cqw;
+  gap: 1.2cqw;
+  align-items: baseline;
+  font-size: 2.35cqw;
+  line-height: 1.42;
+  animation: pc-strike 0.34s ease both;
+}
+
+.pc-qno { font-variant-numeric: tabular-nums; }
+.pc-qbody { min-width: 0; }
+.pc-qmarks {
+  font-family: var(--pc-mono);
+  font-size: 2cqw;
+  text-align: right;
+  color: var(--pc-ink-soft);
+}
+
+.pc-slot {
+  height: 2.6cqw;
+  border-bottom: 0.12cqw dashed var(--pc-rule);
+  animation: pc-strike 0.4s ease both;
+}
+
+@keyframes pc-strike {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Control strip ──────────────────────────────────────────────────── */
+
+.pc-swatch {
+  height: 26px;
+  border: 1px solid var(--pc-hairline);
+  position: relative;
+  overflow: hidden;
+}
+
+.pc-swatch::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--pc-reg);
+  transform: scaleY(0);
+  transform-origin: bottom;
+  transition: transform 0.6s cubic-bezier(0.3, 0.8, 0.3, 1);
+}
+.pc-swatch[data-inked="partial"]::after { transform: scaleY(0.45); }
+.pc-swatch[data-inked="full"]::after { transform: scaleY(1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-sheet::after { display: none; }
+  .press-check *,
+  .press-check *::before,
+  .press-check *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
