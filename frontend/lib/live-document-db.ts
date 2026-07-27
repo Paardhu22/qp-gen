@@ -144,6 +144,28 @@ export async function deleteLiveDocument(id: string): Promise<void> {
   });
 }
 
+/**
+ * Delete every live draft belonging to one paper: the legacy un-suffixed key
+ * plus the per-set `_A`/`_B`/`_C` keys the editor writes for its set tabs.
+ * Deleting only the base id leaves orphaned set drafts that the load effect
+ * happily re-hydrates, which looks to the user like a deleted paper coming
+ * back from the dead. Best-effort — a failed delete never rejects.
+ */
+export async function deleteLiveDocumentsForPaper(
+  userId: string,
+  paperId: string | null | undefined,
+): Promise<void> {
+  const scope = paperId || "current";
+  const ids = [scope, `${scope}_A`, `${scope}_B`, `${scope}_C`];
+  await Promise.all(
+    ids.map((id) =>
+      deleteLiveDocument(getLiveDocumentId(userId, id)).catch((err) =>
+        console.error("Failed to delete live draft:", id, err),
+      ),
+    ),
+  );
+}
+
 export async function clearLiveDocumentsForUser(userId: string): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {

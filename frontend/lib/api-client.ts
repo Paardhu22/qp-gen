@@ -3,8 +3,7 @@
 import { getAccessToken } from "@/lib/token-storage";
 import { refreshAccessToken } from "@/lib/auth-client";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.110.176.28:8000";
+import { API_BASE_URL } from "@/lib/api-base-url";
 
 type FetchJsonOptions = RequestInit & {
   skipAuth?: boolean;
@@ -180,7 +179,7 @@ export async function fetchForm<T>(
 
 export { API_BASE_URL };
 
-type SseEventHandler = (event: string, data: any) => void;
+export type SseEventHandler = (event: string, data: any) => void;
 
 export async function streamSse(
   path: string,
@@ -222,6 +221,12 @@ export async function streamSse(
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
+  // A generation is only complete when the backend says so. Anything that
+  // cuts the connection first — a proxy read timeout, a killed gunicorn
+  // worker, a dropped network — surfaces as a clean `done: true` from
+  // `reader.read()`, which used to make this function resolve as if the
+  // generation had succeeded. The caller then saw no error and no result.
+  let sawTerminalEvent = false;
 
   while (true) {
     const { value, done } = await reader.read();
@@ -237,6 +242,10 @@ export async function streamSse(
       let data = "";
 
       for (const line of lines) {
+        // Lines beginning with ":" are SSE comments. The backend sends them
+        // as keepalive pings during long silent stages; they carry no data
+        // and must be skipped, not parsed.
+        if (line.startsWith(":")) continue;
         if (line.startsWith("event:")) {
           event = line.replace("event:", "").trim();
         } else if (line.startsWith("data:")) {
@@ -245,12 +254,22 @@ export async function streamSse(
       }
 
       if (!data) continue;
+      if (event === "done" || event === "error") sawTerminalEvent = true;
       try {
         onEvent(event, JSON.parse(data));
       } catch (error) {
         onEvent("error", { error: "Failed to parse stream payload" });
       }
     }
+  }
+
+  if (!sawTerminalEvent) {
+    throw new ApiError(
+      "The connection closed before generation finished. This usually means " +
+        "the request took longer than the server allows — try again, or " +
+        "generate fewer chapters at once.",
+      response.status,
+    );
   }
 }
 
@@ -283,6 +302,73 @@ export async function streamPaperFromBank(
   onEvent: SseEventHandler,
 ): Promise<void> {
   return streamSse("/api/generation/paper-from-bank", payload, onEvent);
+}
+
+/** The blueprint identity of one question, as the editor stores it. */
+export type ReplacementSlot = {
+  slotIndex?: number;
+  section?: string;
+  marks: number;
+  type: string;
+  generator?: string;
+  assetType?: string;
+  chapter?: string;
+  topic?: string;
+  difficulty?: string;
+  subject?: string;
+  classNum?: number;
+  poolId?: string;
+  questionId?: string;
+};
+
+export type ReplacementResponse = {
+  /** "bank" when an existing question was reused, "generated" when one was written. */
+  source: "bank" | "generated";
+  question: {
+    content: string;
+    type: string;
+    options: string[];
+    answer: string;
+    marks: number;
+    explanation?: string;
+    image_url?: string;
+    metadata?: Record<string, any>;
+  };
+};
+
+/**
+ * Regenerate exactly ONE question, preserving its blueprint slot.
+ *
+ * Marks, question type, section, chapter, difficulty and the generator that
+ * owns the slot all travel in `slot`, so the replacement is eligible for the
+ * same position and nothing else on the paper changes. `excludeIds` are the
+ * questions already on the paper, which keeps the replacement from being one
+ * the teacher is already looking at.
+ */
+export async function replaceQuestion(
+  slot: ReplacementSlot,
+  options: {
+    excludeIds?: string[];
+    excludeHashes?: string[];
+    pdfSourceIds?: string[];
+    hsatSourceIds?: string[];
+    allowGeneration?: boolean;
+  } = {},
+): Promise<ReplacementResponse> {
+  return fetchJson<ReplacementResponse>("/api/generation/replace-question", {
+    method: "POST",
+    body: JSON.stringify({
+      slot,
+      excludeIds: options.excludeIds || [],
+      excludeHashes: options.excludeHashes || [],
+      pdfSourceIds: options.pdfSourceIds || [],
+      hsatSourceIds: options.hsatSourceIds || [],
+      allowGeneration: options.allowGeneration !== false,
+    }),
+    // Writing a fresh question runs a model call; the default 30s can be tight
+    // for a 10-mark reading passage.
+    timeoutMs: 120000,
+  });
 }
 
 export async function fetchProjects<T>(
@@ -370,13 +456,180 @@ export async function getExportUrl(
 
 export async function generateAnswerScript(
   paperId: string,
+  setId?: string,
 ): Promise<{ answer_script_paper_id: string; editor_url: string }> {
   return fetchJson<{ answer_script_paper_id: string; editor_url: string }>(
     `/api/generation/papers/${paperId}/generate-answer-script/`,
     {
       method: "POST",
+      body: setId ? JSON.stringify({ setId }) : undefined,
       // Answer generation may take a while for papers with many questions
       timeoutMs: 300000,
     },
+  );
+}
+
+// ── Dashboard assistant ─────────────────────────────────────────────────
+//
+// The assistant is a plain conversation model, separate from the generation
+// pipeline: it asks the follow-up questions a half-specified request leaves
+// open and accumulates the answers into a `PaperSpec`. Generating the paper
+// is still the pool pipeline's job — the spec is handed to it.
+
+/** Field names match `formSchema` in components/generator-form.tsx. */
+export interface PaperSpec {
+  board?: string;
+  academicClass?: string;
+  subject?: string;
+  difficulty?: string;
+  marks?: string;
+  numberOfQuestions?: string;
+  numberOfSets?: string;
+  chapters?: string[];
+}
+
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  size?: number;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  attachments?: ChatAttachment[];
+  created_at?: string;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  spec: PaperSpec;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: ChatMessage[];
+}
+
+export async function fetchConversations(): Promise<Conversation[]> {
+  return fetchJson<Conversation[]>("/api/chat/conversations", { method: "GET" });
+}
+
+export async function fetchConversation(
+  conversationId: string,
+): Promise<ConversationDetail> {
+  return fetchJson<ConversationDetail>(
+    `/api/chat/conversations/${conversationId}`,
+    { method: "GET" },
+  );
+}
+
+export async function createConversation(): Promise<ConversationDetail> {
+  return fetchJson<ConversationDetail>("/api/chat/conversations", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  await fetchJson<void>(`/api/chat/conversations/${conversationId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function renameConversation(
+  conversationId: string,
+  title: string,
+): Promise<Conversation> {
+  return fetchJson<Conversation>(`/api/chat/conversations/${conversationId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+}
+
+/**
+ * Stream one assistant turn.
+ *
+ * Events: `delta` ({text}) per token, `spec` ({spec, ready}) once the reply is
+ * complete, then the terminal `done` — or `error`. `streamSse` throws if the
+ * connection closes before a terminal event, so a proxy timeout surfaces as a
+ * failure rather than a silently truncated reply.
+ */
+export async function streamChatMessage(
+  conversationId: string,
+  content: string,
+  attachments: ChatAttachment[],
+  onEvent: SseEventHandler,
+): Promise<void> {
+  return streamSse(
+    `/api/chat/conversations/${conversationId}/messages`,
+    { content, attachments },
+    onEvent,
+  );
+}
+
+/**
+ * Ingest a PDF and return the source the chat can reference.
+ *
+ * Tries the presigned direct-to-S3 route first and falls back to a server
+ * upload, mirroring components/file-upload.tsx. That duplication is
+ * deliberate for now: the upload component interleaves progress reporting
+ * with each step, and unpicking it is a bigger change than this needs.
+ */
+export async function uploadPdfSource(
+  file: File,
+): Promise<{ pdfSourceId: string; warnings?: string[] }> {
+  let presign: {
+    url?: string;
+    fields?: Record<string, string>;
+    key?: string;
+  } | null = null;
+
+  try {
+    presign = await fetchJson<{
+      url?: string;
+      fields?: Record<string, string>;
+      key?: string;
+    }>("/api/documents/presign", {
+      method: "POST",
+      body: JSON.stringify({
+        name: file.name,
+        content_type: file.type,
+        size: file.size,
+      }),
+    });
+  } catch {
+    presign = null;
+  }
+
+  if (presign?.url && presign.fields && presign.key) {
+    const s3form = new FormData();
+    Object.entries(presign.fields).forEach(([k, v]) => s3form.append(k, v));
+    s3form.append("file", file);
+
+    const uploadRes = await fetch(presign.url, { method: "POST", body: s3form });
+    if (!uploadRes.ok) throw new Error("Failed to upload file to storage");
+
+    return fetchJson<{ pdfSourceId: string; warnings?: string[] }>(
+      "/api/documents/confirm",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          key: presign.key,
+          name: file.name,
+          content_type: file.type,
+        }),
+      },
+    );
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  return fetchForm<{ pdfSourceId: string; warnings?: string[] }>(
+    "/api/documents/upload",
+    formData,
   );
 }

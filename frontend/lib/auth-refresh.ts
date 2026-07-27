@@ -2,8 +2,7 @@
 
 import { clearTokens, getRefreshToken, setTokens } from "@/lib/token-storage";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://3.110.176.28:8000";
+import { API_BASE_URL } from "@/lib/api-base-url";
 
 type RefreshResponse = {
   accessToken: string;

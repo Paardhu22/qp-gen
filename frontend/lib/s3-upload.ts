@@ -8,7 +8,7 @@
  * On failure it throws — callers are expected to `.catch()` and log.
  */
 
-import { API_BASE_URL } from "./api-client";
+import { API_BASE_URL } from "./api-base-url";
 import { getAccessToken } from "./token-storage";
 
 export type ExportType = "question_paper" | "answer_script" | "question_bank";
@@ -17,8 +17,18 @@ export type FileFormat = "pdf" | "docx";
 export interface UploadExportOptions {
   exportType: ExportType;
   fileFormat: FileFormat;
-  /** Paper ID — required for question_paper and answer_script, omit for question_bank. */
+  /**
+   * Base paper ID — required for question_paper and answer_script, omit for
+   * question_bank. Must NOT carry the editor's `_A`/`_B`/`_C` set suffix;
+   * that is a client-side tab discriminator and no such row exists.
+   */
   paperId?: string | null;
+  /**
+   * Which set this export is of ("A" | "B" | "C"). The backend records the
+   * key on that set, so exporting Set B no longer overwrites Set A's object.
+   * Defaults server-side to the paper's first set.
+   */
+  setLabel?: string;
 }
 
 const CONTENT_TYPE: Record<FileFormat, string> = {
@@ -30,7 +40,7 @@ export async function uploadExportToS3(
   blob: Blob,
   options: UploadExportOptions,
 ): Promise<{ s3_key: string }> {
-  const { exportType, fileFormat, paperId } = options;
+  const { exportType, fileFormat, paperId, setLabel } = options;
 
   const formData = new FormData();
   // Re-type the blob so the server sees the correct Content-Type in the multipart body.
@@ -39,6 +49,7 @@ export async function uploadExportToS3(
   formData.append("export_type", exportType);
   formData.append("file_format", fileFormat);
   if (paperId) formData.append("paper_id", paperId);
+  if (setLabel) formData.append("set_label", setLabel);
 
   const headers: Record<string, string> = {};
   const token = getAccessToken();
