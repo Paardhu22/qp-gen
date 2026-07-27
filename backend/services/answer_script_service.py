@@ -20,10 +20,10 @@ from typing import Any, Dict, List, Optional, Set
 from django.conf import settings
 
 from apps.documents.models import PdfSource
-from apps.projects.models import Paper
+from apps.projects.models import Paper, PaperSet
 from services.embedding_service import generate_embeddings
 from services.openai_service import get_openai_client, _record_usage
-from services.paper_content_service import dual_write_paper_content, read_paper_content
+from services.paper_content_service import dual_write_set_content, read_set_content
 from services.retrieval_service import retrieve_relevant_chunks
 
 logger = logging.getLogger("[ANSWER_SCRIPT]")
@@ -654,6 +654,25 @@ def _build_pages_from_doc(answer_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
     return pages
 
 
+def _primary_set(paper):
+    """The set an answer script is generated from.
+
+    Paper content moved off ``Paper`` onto ``PaperSet`` in the multiple-sets
+    work. An answer script is generated for ONE set — Set A, the set the
+    editor's default tab holds — because a marking scheme for three different
+    papers stacked into one document would be unusable. ``order`` is the
+    canonical sequence, so the first set by order is Set A whatever its label
+    happens to be.
+    """
+    return paper.sets.order_by("order", "created_at").first()
+
+
+def _read_primary_set_content(paper) -> str:
+    """Set A's content, read through the P2 accessor (DB-authoritative)."""
+    paper_set = _primary_set(paper)
+    return read_set_content(paper_set) if paper_set else ""
+
+
 def _build_answer_paper_content(
     original_content: str,
     answer_doc: Dict[str, Any],
@@ -691,7 +710,7 @@ def _build_answer_paper_content(
 # ---------------------------------------------------------------------------
 
 
-def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
+def generate_answer_script(paper_id: str, user, set_id: str = None) -> Dict[str, str]:
     """
     Generate a complete CBSE-style answer script / marking scheme for
     the given paper.
@@ -718,7 +737,18 @@ def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
     # Content is read through the P2 accessor (DB-authoritative by default;
     # S3-first only when PAPER_CONTENT_SOURCE="s3"). Read once, reused at
     # Step 6 so both steps see the same snapshot.
-    paper_content = read_paper_content(paper)
+    # Determine which set to generate for
+    if set_id:
+        target_set = paper.sets.filter(id=set_id).first()
+        if not target_set:
+            raise ValueError(f"Set '{set_id}' not found on paper '{paper_id}'.")
+    else:
+        target_set = _primary_set(paper)
+
+    if not target_set:
+        raise ValueError("No valid set found to generate answer script for.")
+
+    paper_content = read_set_content(target_set)
     questions = _extract_questions_from_content(paper_content)
     if not questions:
         raise ValueError(
@@ -868,24 +898,49 @@ def generate_answer_script(paper_id: str, user) -> Dict[str, str]:
         answer_doc = {"type": "doc", "content": answer_blocks}
         new_doc = _build_answer_paper_content(paper_content, answer_doc)
 
+        set_label = target_set.label if target_set else "Set A"
+        answer_title = f"{paper.title} - Answer Key"
+        if target_set and target_set.label != "Set A":
+            answer_title = f"{paper.title} - {target_set.label} Answer Key"
+
         new_paper = Paper.objects.create(
-            title=f"{paper.title} - Answer Key",
-            content=json.dumps(new_doc),
+            title=answer_title,
+            subject=paper.subject,
+            grade_class=paper.grade_class,
+            board=paper.board,
             project=paper.project,
-            user=user
+            user=user,
+        )
+        # Content lives on PaperSet, not Paper. An answer script is a
+        # single-set document — one marking scheme for Set A — so it gets
+        # exactly one set, labelled to match what the editor's default tab
+        # expects.
+        answer_set = PaperSet.objects.create(
+            paper=new_paper,
+            label=set_label,
+            order=1,
+            content=json.dumps(new_doc),
         )
 
-        # P2 dual-write: answer scripts are Paper rows too — mirror their
-        # content to S3 exactly like teacher-saved papers. Never raises.
-        dual_write_paper_content(new_paper)
+        # P2 dual-write: mirror the set content to S3 exactly like
+        # teacher-saved papers. Never raises.
+        dual_write_set_content(answer_set)
 
         # Step 6b: Write the link back onto the source paper so the DB holds
-        # the relationship (no more localStorage-only mapping on the frontend).
-        # Use update() to avoid touching the auto-updated `updated_at` field
-        # on the source paper (a pure metadata write shouldn't bump the edit ts).
-        Paper.objects.filter(id=paper_id, user=user).update(
-            answer_script_id=new_paper.id
-        )
+        # the relationship. For primary sets, keep using the paper-level field.
+        # Always update the specific set's metadata for robust set-level tracking.
+        if target_set:
+            metadata = dict(target_set.metadata or {})
+            metadata["answer_script_id"] = new_paper.id
+            target_set.metadata = metadata
+            target_set.save(update_fields=["metadata"])
+            
+        # Maintain backwards compatibility: only update paper-level answer_script_id
+        # if no set_id was provided, or if the primary set was explicitly selected.
+        if not set_id or (target_set and target_set == _primary_set(paper)):
+            Paper.objects.filter(id=paper_id, user=user).update(
+                answer_script_id=new_paper.id
+            )
 
         # Bust the papers list cache so the next GET /api/projects/papers/
         # returns the fresh answerScriptId immediately.

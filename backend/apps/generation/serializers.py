@@ -48,6 +48,60 @@ class AnswerKeySerializer(serializers.Serializer):
     paperContentHTML = serializers.CharField()
 
 
+class ReplacementSlotSerializer(serializers.Serializer):
+    """The blueprint identity of one question, as the editor knows it.
+
+    Mirrors the `slotMeta` blob stamped on a generated question block. Every
+    field is optional except the ones that decide eligibility (`marks`,
+    `type`), because a question saved before `slotMeta` existed still carries
+    enough for a sensible replacement.
+    """
+
+    slotIndex = serializers.IntegerField(required=False, default=0)
+    section = serializers.CharField(required=False, allow_blank=True, default="")
+    marks = serializers.IntegerField(min_value=1, max_value=40)
+    type = serializers.CharField()
+    generator = serializers.CharField(
+        required=False, allow_blank=True, default="question_pool"
+    )
+    assetType = serializers.CharField(required=False, allow_blank=True, default="")
+    chapter = serializers.CharField(required=False, allow_blank=True, default="")
+    topic = serializers.CharField(required=False, allow_blank=True, default="")
+    difficulty = serializers.CharField(
+        required=False, allow_blank=True, default="medium"
+    )
+    subject = serializers.CharField(required=False, allow_blank=True, default="")
+    classNum = serializers.IntegerField(required=False, default=10)
+    poolId = serializers.CharField(required=False, allow_blank=True, default="")
+    questionId = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class ReplaceQuestionSerializer(serializers.Serializer):
+    """Regenerate one slot. `excludeIds` keeps the paper free of duplicates."""
+
+    slot = ReplacementSlotSerializer()
+    #: Question ids already on the paper — never offered as a replacement.
+    excludeIds = serializers.ListField(
+        child=serializers.CharField(), allow_empty=True, required=False, default=list
+    )
+    #: Content hashes already on the paper, for questions with no id (e.g. a
+    #: set variant rendered before the bank write completed).
+    excludeHashes = serializers.ListField(
+        child=serializers.CharField(), allow_empty=True, required=False, default=list
+    )
+    #: Needed only when the bank is exhausted AND the slot is textbook-backed,
+    #: so Model 1 can re-read the chapter.
+    pdfSourceIds = serializers.ListField(
+        child=serializers.CharField(), allow_empty=True, required=False, default=list
+    )
+    hsatSourceIds = serializers.ListField(
+        child=serializers.CharField(), allow_empty=True, required=False, default=list
+    )
+    #: False restricts the replacement to the bank — instant and free, but it
+    #: can fail when nothing else fits.
+    allowGeneration = serializers.BooleanField(required=False, default=True)
+
+
 class PaperFromBankSerializer(serializers.Serializer):
     """Assemble a paper from questions already saved in the user's bank.
 
