@@ -390,10 +390,13 @@ def _split_markdown(markdown: str, max_chars: int) -> List[str]:
     parts: List[str] = []
     current = ""
     for block in blocks:
-        if current and len(current) + len(block) > max_chars:
-            parts.append(current)
-            current = block
-        elif len(block) > max_chars:
+        # Oversized blocks are checked FIRST. When this was the `elif` branch
+        # any non-empty `current` sent an oversized block down the "start a new
+        # part" path instead, so it was emitted whole and the cap silently did
+        # not hold — a heading-less chapter (common in OCR'd textbook PDFs)
+        # produced one Model 1 request far over the token budget, which fails
+        # the whole batch rather than splitting.
+        if len(block) > max_chars:
             # A single heading's body is itself too big — split on blank lines.
             for para in re.split(r"\n\s*\n", block):
                 if len(para) > max_chars:
@@ -407,6 +410,9 @@ def _split_markdown(markdown: str, max_chars: int) -> List[str]:
                     current = para
                 else:
                     current = f"{current}\n\n{para}" if current else para
+        elif current and len(current) + len(block) > max_chars:
+            parts.append(current)
+            current = block
         else:
             current = f"{current}{block}" if current else block
     if current.strip():

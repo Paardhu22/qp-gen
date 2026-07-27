@@ -55,6 +55,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
+from django.db import close_old_connections
 
 from apps.generation.models import GenerationHistory
 from services.assets import (
@@ -421,6 +422,13 @@ def _build_pool_streaming(
             question_metadata=metadata,
             on_question=progress.put,
         )
+        # Both stages record API usage, so this thread has opened its own
+        # connection. With CONN_MAX_AGE=600 Django hands it back to the pool
+        # rather than closing it, and a thread that exits without this call
+        # abandons a live Postgres backend — a few dozen generations is enough
+        # to hit max_connections. services/hsat_service.py and
+        # services/document_service.py do the same in their worker threads.
+        close_old_connections()
         return unit, result, image_result
 
     def _worker():
@@ -1041,6 +1049,10 @@ def stream_pool_questions(
             except Exception as exc:  # pragma: no cover - runner catches its own
                 logger.error("Asset stage failed: %s", exc, exc_info=True)
                 asset_outcome["error"] = str(exc)
+            finally:
+                # The asset generators persist questions and record usage;
+                # release this thread's connection (see _run_unit).
+                close_old_connections()
 
         asset_thread = threading.Thread(
             target=_run_assets, name="asset-generation", daemon=True
