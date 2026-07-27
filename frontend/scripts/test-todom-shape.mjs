@@ -19,6 +19,13 @@ const jiti = createJiti(here, {
   interopDefault: true,
   jsx: true,
   extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+  // Mirror the `@/*` path alias from tsconfig. nodes.tsx started importing
+  // `@/lib/api-client` when the per-question Replace button was added, and
+  // without this the whole script died with MODULE_NOT_FOUND — silently
+  // leaving the content-hole invariant unguarded.
+  alias: {
+    "@": path.resolve(here, ".."),
+  },
   transformOptions: {
     babel: {
       plugins: [],

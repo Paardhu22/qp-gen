@@ -2,6 +2,7 @@ import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { createPageId } from "../pagination-utils";
+import { canPullUp } from "./pagination-fit";
 
 const paginationKey = new PluginKey("paginationEngine");
 
@@ -9,6 +10,27 @@ type PageEntry = {
   node: any;
   pos: number;
 };
+
+/**
+ * Blocks that must never be the last thing on a page.
+ *
+ * A section heading stranded at the bottom with its questions overleaf is the
+ * classic widow, and the previous engine produced it in both directions: the
+ * split path pushed the heading down, the pull-up path dragged it back alone.
+ * Treating a heading as glued to what follows it — a "keep-together run" —
+ * removes the oscillation and is what lets a section start mid-page whenever
+ * its heading and first question genuinely fit.
+ */
+const KEEP_WITH_NEXT = new Set([
+  "sectionBlock",
+  "instructionBlock",
+  "paperHeaderBlock",
+]);
+
+// Fit is decided against the space actually left on the page
+// (`remainingSpace`) and the gap the incoming block will actually open
+// (`joinGap`) — both measured from the live layout. The arithmetic lives in
+// pagination-fit.ts so it can be tested without a browser.
 
 function getPageEntries(doc: any): PageEntry[] {
   const pages: PageEntry[] = [];
@@ -55,14 +77,110 @@ function findPageBreakIndex(pageNode: any) {
   return -1;
 }
 
+// ── Measurement ─────────────────────────────────────────────────────────
+
+/**
+ * The usable height inside a page's content box.
+ *
+ * `clientHeight` includes padding, so the padding has to come back off to get
+ * the height content can actually occupy (A4 here: 1121 − 48 − 56 = 1017px).
+ * Used only to decide whether a block could EVER share a page with a heading;
+ * fit decisions measure the live page directly (see `remainingSpace`).
+ */
+function usableHeight(contentEl: HTMLElement) {
+  const style = window.getComputedStyle(contentEl);
+  const paddingTop = parseFloat(style.paddingTop) || 0;
+  const paddingBottom = parseFloat(style.paddingBottom) || 0;
+  return contentEl.clientHeight - paddingTop - paddingBottom;
+}
+
+/** Where content must stop — the bottom of the content box, not the border box. */
+function contentBottom(contentEl: HTMLElement) {
+  const style = window.getComputedStyle(contentEl);
+  const paddingBottom = parseFloat(style.paddingBottom) || 0;
+  return contentEl.getBoundingClientRect().bottom - paddingBottom;
+}
+
+/**
+ * Unused vertical space below the last block on a page.
+ *
+ * Measured directly — bottom of the content box minus bottom of the last
+ * child — rather than derived as `usableHeight − contentHeight`. The derived
+ * form silently assumes content begins exactly at the content-box top, and it
+ * does not: `.section-block` and `.instruction-block` each carry a 10px top
+ * margin, so a page opening with either has 10px that the derivation cannot
+ * see. The pull-up rule was therefore allowed to fill 10px past the real
+ * bottom, the split rule immediately pushed the block back, and the two rules
+ * fought each other until the pass ceiling stopped pagination mid-document —
+ * leaving pages half empty. Measuring the gap that actually exists makes the
+ * two rules exact inverses, so a pulled-up block can never overflow.
+ */
+function remainingSpace(contentEl: HTMLElement, children: HTMLElement[]) {
+  if (children.length === 0) return usableHeight(contentEl);
+  const lastBottom = children[children.length - 1].getBoundingClientRect().bottom;
+  return contentBottom(contentEl) - lastBottom;
+}
+
+/**
+ * Height actually occupied by children `[from, to)`, margins between included.
+ *
+ * Measured as a span rather than a sum: the distance from the top of the first
+ * block to the bottom of the last block necessarily contains the margins
+ * collapsed between them, which summing individual heights does not. The
+ * leading margin above `from` is excluded by construction — `joinGap` accounts
+ * for it separately, because whether it applies depends on what it lands next
+ * to.
+ */
+function spanHeight(children: HTMLElement[], from: number, to: number) {
+  if (from >= to || from < 0 || to > children.length) return 0;
+  const top = children[from].getBoundingClientRect().top;
+  const bottom = children[to - 1].getBoundingClientRect().bottom;
+  return Math.max(0, bottom - top);
+}
+
+function marginTop(el: HTMLElement) {
+  return parseFloat(window.getComputedStyle(el).marginTop) || 0;
+}
+
+function marginBottom(el: HTMLElement) {
+  return parseFloat(window.getComputedStyle(el).marginBottom) || 0;
+}
+
+/**
+ * The gap that will open up when `incoming` is appended after `previous`.
+ *
+ * Adjacent siblings collapse their facing margins to the larger of the two, so
+ * this is exactly `max(previous.margin-bottom, incoming.margin-top)` — not a
+ * guess, and not the widest gap found elsewhere on the page (which is what the
+ * previous heuristic used, over-budgeting by up to a line on any page that
+ * happened to contain a section heading).
+ */
+function joinGap(previous: HTMLElement | undefined, incoming: HTMLElement) {
+  const incomingTop = marginTop(incoming);
+  if (!previous) return incomingTop;
+  return Math.max(marginBottom(previous), incomingTop);
+}
+
+/**
+ * The first child that spills past the usable content area.
+ *
+ * The previous implementation walked backwards and returned the first hit,
+ * which is the LAST overflowing child — almost always `childCount - 1`. The
+ * page was then split one block at a time across many animation frames, and
+ * because each pass re-ran `adjustSplitIndex` independently it could shave off
+ * more than it needed to. Returning the first overflowing index splits the
+ * page correctly in a single transaction.
+ *
+ * The limit is the content-box bottom. The old code used the border-box bottom
+ * plus a pixel, which is a whole 56px of bottom padding too generous, so a
+ * block could sit in the page margin and be reported as fitting.
+ */
 function findOverflowIndex(contentEl: HTMLElement) {
   const children = Array.from(contentEl.children) as HTMLElement[];
-  const containerRect = contentEl.getBoundingClientRect();
-  const maxBottom = containerRect.bottom + 1;
+  const maxBottom = contentBottom(contentEl);
 
-  for (let i = children.length - 1; i >= 0; i -= 1) {
-    const childRect = children[i].getBoundingClientRect();
-    if (childRect.bottom > maxBottom) {
+  for (let i = 0; i < children.length; i += 1) {
+    if (children[i].getBoundingClientRect().bottom > maxBottom + 1) {
       return i;
     }
   }
@@ -70,24 +188,46 @@ function findOverflowIndex(contentEl: HTMLElement) {
   return null;
 }
 
+// ── Keep-together ───────────────────────────────────────────────────────
+
+/**
+ * How many children starting at `index` form one indivisible run.
+ *
+ * A section heading (optionally followed by its instruction block) plus the
+ * first block after it. Everything else is a run of one.
+ */
+function keepTogetherRun(pageNode: any, index: number) {
+  let end = index;
+  while (
+    end < pageNode.childCount - 1 &&
+    KEEP_WITH_NEXT.has(pageNode.child(end).type?.name)
+  ) {
+    end += 1;
+  }
+  return end - index + 1;
+}
+
+/**
+ * Pull a split point back so it never lands inside a keep-together run.
+ *
+ * Walking backwards from the proposed index: while the block just before the
+ * split is one that must stay with what follows, move the split above it. The
+ * guard against returning 0 matters — splitting at 0 would move the entire
+ * page's content and leave an empty page behind, which the engine would then
+ * delete, looping forever.
+ */
 function adjustSplitIndex(pageNode: any, splitIndex: number) {
   if (splitIndex <= 0 || splitIndex >= pageNode.childCount) return splitIndex;
 
-  const prevNode = pageNode.child(splitIndex - 1);
-  if (prevNode?.type?.name === "sectionBlock") {
-    return splitIndex - 1 > 0 ? splitIndex - 1 : splitIndex;
+  let index = splitIndex;
+  while (index > 0 && KEEP_WITH_NEXT.has(pageNode.child(index - 1).type?.name)) {
+    index -= 1;
   }
 
-  const prevPrevNode = splitIndex - 2 >= 0 ? pageNode.child(splitIndex - 2) : null;
-  if (
-    prevNode?.type?.name === "instructionBlock" &&
-    prevPrevNode?.type?.name === "sectionBlock"
-  ) {
-    return splitIndex - 2 > 0 ? splitIndex - 2 : splitIndex;
-  }
-
-  return splitIndex;
+  return index > 0 ? index : splitIndex;
 }
+
+// ── Transactions ────────────────────────────────────────────────────────
 
 function splitPageAtIndex(state: any, pagePos: number, pageNode: any, splitIndex: number) {
   if (splitIndex < 0 || splitIndex >= pageNode.childCount) return null;
@@ -118,19 +258,32 @@ function splitPageAtIndex(state: any, pagePos: number, pageNode: any, splitIndex
   return tr;
 }
 
-function moveFirstBlockToPreviousPage(
+/**
+ * Move the first `count` blocks of the next page onto the end of this one.
+ *
+ * Moving a whole run rather than a single block is what allows a section to
+ * begin part-way down a page: the heading and its first question travel
+ * together or not at all.
+ */
+function moveLeadingBlocksToPreviousPage(
   state: any,
   pagePos: number,
   pageNode: any,
   nextPagePos: number,
   nextPageNode: any,
+  count: number,
 ) {
   if (!nextPageNode || nextPageNode.childCount === 0) return null;
+  const take = Math.min(count, nextPageNode.childCount);
+  if (take <= 0) return null;
 
   const tr = state.tr;
   const from = nextPagePos + 1;
-  const firstChild = nextPageNode.child(0);
-  const to = from + firstChild.nodeSize;
+  let size = 0;
+  for (let i = 0; i < take; i += 1) {
+    size += nextPageNode.child(i).nodeSize;
+  }
+  const to = from + size;
   const slice = state.doc.slice(from, to);
 
   if (slice.size === 0) return null;
@@ -153,6 +306,8 @@ function moveFirstBlockToPreviousPage(
 
   return tr;
 }
+
+// ── One pass ────────────────────────────────────────────────────────────
 
 function paginateOnce(view: EditorView) {
   const { state } = view;
@@ -206,22 +361,37 @@ function paginateOnce(view: EditorView) {
       }
     }
 
-    if (contentEl.scrollHeight > contentEl.clientHeight) {
+    const children = Array.from(contentEl.children) as HTMLElement[];
+    const available = usableHeight(contentEl);
+
+    // ── Overflow: this page holds more than it can show ─────────────────
+    const overflows =
+      contentEl.scrollHeight > contentEl.clientHeight ||
+      (children.length > 0 &&
+        children[children.length - 1].getBoundingClientRect().bottom >
+          contentBottom(contentEl) + 1);
+
+    if (overflows) {
       const overflowIndex = findOverflowIndex(contentEl);
-      if (overflowIndex !== null && overflowIndex > 0) {
-        const safeIndex = adjustSplitIndex(pageNode, overflowIndex);
-        if (safeIndex > 0) {
-          return splitPageAtIndex(state, pagePos, pageNode, safeIndex);
-        }
+      const proposed =
+        overflowIndex !== null && overflowIndex > 0
+          ? overflowIndex
+          : pageNode.childCount - 1;
+
+      // The keep-together adjustment now applies to the fallback path too.
+      // Previously it did not, so when `findOverflowIndex` came back null the
+      // engine blind-split the last block and could strand a section heading.
+      const safeIndex = adjustSplitIndex(pageNode, proposed);
+      if (safeIndex > 0 && safeIndex < pageNode.childCount) {
+        return splitPageAtIndex(state, pagePos, pageNode, safeIndex);
       }
 
-      if (pageNode.childCount > 1) {
-        return splitPageAtIndex(state, pagePos, pageNode, pageNode.childCount - 1);
-      }
-
+      // A single block taller than a whole page. Nothing to split; leave it
+      // rather than loop.
       continue;
     }
 
+    // ── Underflow: can the next page's opening run move up? ─────────────
     const nextPage = pages[i + 1];
     if (!nextPage) continue;
 
@@ -236,38 +406,52 @@ function paginateOnce(view: EditorView) {
     const nextContentEl = nextPageDom?.querySelector(
       '[data-page-content="true"]',
     ) as HTMLElement | null;
-    const nextFirstBlock = nextContentEl?.children?.[0] as HTMLElement | null;
+    if (!nextContentEl) continue;
 
-    if (!nextFirstBlock) continue;
+    const nextChildren = Array.from(nextContentEl.children) as HTMLElement[];
+    if (nextChildren.length === 0) continue;
 
-    // Measure the actual cumulative height of children inside the content container.
-    // We cannot use scrollHeight directly because the page has a fixed 100% height
-    // during underflow, making scrollHeight equal to clientHeight.
-    const computedStyle = window.getComputedStyle(contentEl);
-    const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
-    const paddingBottom = parseFloat(computedStyle.paddingBottom) || 0;
-    const availableHeight = contentEl.clientHeight - paddingTop - paddingBottom;
+    // How many of the next page's opening blocks are glued together. A section
+    // heading brings its first question with it; anything else moves alone.
+    let runLength = Math.min(
+      keepTogetherRun(nextPage.node, 0),
+      nextChildren.length,
+    );
 
-    const children = Array.from(contentEl.children) as HTMLElement[];
-    const actualContentHeight = children.reduce((acc, child) => {
-      return acc + child.getBoundingClientRect().height;
-    }, 0);
+    const gap = joinGap(children[children.length - 1], nextChildren[0]);
+    const free = remainingSpace(contentEl, children);
 
-    const nextFirstBlockHeight = nextFirstBlock.getBoundingClientRect().height;
-
-    // Use a small safety buffer (12px) to account for block margins and prevent layout oscillations
-    // (where a block is repeatedly pulled and then split back).
-    const safetyBuffer = 12;
-
-    if (actualContentHeight + nextFirstBlockHeight + safetyBuffer <= availableHeight) {
-      return moveFirstBlockToPreviousPage(
-        state,
-        pagePos,
-        pageNode,
-        nextPage.pos,
-        nextPage.node,
-      );
+    // A run whose non-heading tail cannot fit on an EMPTY page — a full-page
+    // reading passage, say — can never be kept with its heading by any page
+    // break. Holding the heading back for it strands the heading at the top of
+    // the next page and leaves this one short for nothing, so in that case the
+    // heading travels on its own. Without this the run stays permanently
+    // unmovable and the gap before every such section is a whole page.
+    if (runLength > 1 && spanHeight(nextChildren, 0, runLength) > available) {
+      // Drop the trailing non-heading block; what is left is the heading (and
+      // its instruction block), which by construction is all that precedes it.
+      runLength -= 1;
     }
+
+    const fits = canPullUp({
+      free,
+      joinGap: gap,
+      runHeight: spanHeight(nextChildren, 0, runLength),
+    });
+    if (!fits) continue;
+
+    // Moving the run must not leave the next page starting on a widow of its
+    // own — if what remains there begins with a heading whose question we just
+    // took, take the heading too on the following pass (the run recomputes).
+    const tr = moveLeadingBlocksToPreviousPage(
+      state,
+      pagePos,
+      pageNode,
+      nextPage.pos,
+      nextPage.node,
+      runLength,
+    );
+    if (tr) return tr;
   }
 
   return null;
@@ -281,22 +465,64 @@ export const PaginationEngine = Extension.create({
     let rafId: number | null = null;
     let isDispatching = false;
     let resizeObserver: ResizeObserver | null = null;
+    let passCount = 0;
 
-    const schedule = () => {
+    /**
+     * Ceiling on consecutive layout passes.
+     *
+     * Pagination is a feedback loop — every transaction changes the layout the
+     * next pass measures — so a disagreement between the split and pull-up
+     * rules could in principle ping-pong forever and peg a CPU. That is now
+     * prevented at the source: fit is decided against measured space, making
+     * the two rules exact inverses (see pagination-fit.ts and its test), so
+     * this is purely a hang guard and can afford to be generous. One pass per
+     * animation frame settles even a long answer script in a few hundred.
+     *
+     * Hitting it is a bug, not a slow document — so it says so, once. Silently
+     * stopping is what made the last measurement bug so hard to place: the
+     * document simply stayed half laid out with pages ending early.
+     */
+    const MAX_PASSES = 1200;
+    let warnedAboutCap = false;
+
+    const schedule = (reset = false) => {
       if (!viewRef || viewRef.isDestroyed) return;
+      if (reset) {
+        passCount = 0;
+        warnedAboutCap = false;
+      }
       if (rafId !== null) cancelAnimationFrame(rafId);
 
       rafId = window.requestAnimationFrame(() => {
         rafId = null;
         if (!viewRef || viewRef.isDestroyed) return;
+        if (passCount >= MAX_PASSES) {
+          if (!warnedAboutCap) {
+            warnedAboutCap = true;
+            console.warn(
+              `[pagination] gave up after ${MAX_PASSES} passes — page breaks ` +
+                `below this point may be wrong. This means two layout rules ` +
+                `disagree; check pagination-fit.ts against the block margins ` +
+                `in styles/editor.css.`,
+            );
+          }
+          return;
+        }
+        passCount += 1;
 
         const tr = paginateOnce(viewRef);
         if (!tr || !tr.docChanged) return;
 
+        // try/finally: a throw here used to leave `isDispatching` stuck true,
+        // which permanently muted the plugin's own update handler — pagination
+        // would stop for the rest of the session with no indication why.
         isDispatching = true;
-        tr.setMeta(paginationKey, true);
-        viewRef.dispatch(tr);
-        isDispatching = false;
+        try {
+          tr.setMeta(paginationKey, true);
+          viewRef.dispatch(tr);
+        } finally {
+          isDispatching = false;
+        }
 
         schedule();
       });
@@ -307,10 +533,10 @@ export const PaginationEngine = Extension.create({
         key: paginationKey,
         view(view) {
           viewRef = view;
-          schedule();
+          schedule(true);
 
           if (typeof ResizeObserver !== "undefined") {
-            resizeObserver = new ResizeObserver(() => schedule());
+            resizeObserver = new ResizeObserver(() => schedule(true));
             resizeObserver.observe(view.dom);
           }
 
@@ -318,7 +544,7 @@ export const PaginationEngine = Extension.create({
             update(view, prevState) {
               if (isDispatching) return;
               if (!view.state.doc.eq(prevState.doc)) {
-                schedule();
+                schedule(true);
               }
             },
             destroy() {
