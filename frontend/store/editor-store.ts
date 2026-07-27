@@ -120,6 +120,15 @@ interface EditorState {
    *  textarea. Persisted so a page reload, account switch back, or
    *  return-from-editor doesn't lose what the teacher wrote. */
   generalInstructionsDraft: string;
+  /** Paper settings handed over by the dashboard assistant.
+   *
+   *  The assistant gathers requirements conversationally, then routes here.
+   *  The generator form consumes this ONCE on mount and clears it, so the
+   *  handoff cannot re-apply itself every time the teacher returns to the
+   *  editor and silently undo whatever they changed by hand. Passed through
+   *  the store rather than the URL because it is a small object, and a query
+   *  string would put a half-specified paper in the browser history. */
+  paperSpecHandoff: Record<string, any> | null;
   /** Staging area for generated questions awaiting review. */
   generatedTray: TrayItem[];
   /** All produced sets (A + derived B/C) from the latest multi-set generation.
@@ -127,6 +136,21 @@ interface EditorState {
   comparisonSets: ComparisonSet[];
   /** Whether the full-screen Comparison Workspace overlay is open. */
   comparisonOpen: boolean;
+  /**
+   * Sets the teacher has approved, keyed by label ("A" | "B" | "C").
+   *
+   * Approval is what puts a generated paper into its editor tab. The review
+   * workspace no longer inserts anything: it reviews, replaces and approves,
+   * and each approved set becomes the initial content of its own tab. Empty
+   * until the teacher approves.
+   */
+  approvedSets: Record<string, any>;
+  /**
+   * Bumped on every approval. The editor folds this into its content-load key
+   * so a second generation replaces the tab's document instead of losing to
+   * the IndexedDB draft written by the first one.
+   */
+  approvedAt: number;
   /** Last metadata picked up from the generator form / loaded paper.
    *  Used to make the resume modal truthful and prefill Paper Details. */
   generatorContext: {
@@ -158,6 +182,7 @@ interface EditorState {
 
   setInsertionMode: (mode: InsertionMode) => void;
   setGeneralInstructionsDraft: (draft: string) => void;
+  setPaperSpecHandoff: (spec: Record<string, any> | null) => void;
   setGeneratorContext: (
     ctx: Partial<EditorState["generatorContext"]>,
   ) => void;
@@ -177,6 +202,68 @@ interface EditorState {
   setComparisonSets: (sets: ComparisonSet[]) => void;
   clearComparisonSets: () => void;
   setComparisonOpen: (open: boolean) => void;
+  replaceComparisonQuestion: (
+    label: string,
+    slotIndex: number,
+    question: any,
+  ) => void;
+  removeComparisonQuestion: (label: string, slotIndex: number) => void;
+  approveComparisonSets: () => void;
+  clearApprovedSets: () => void;
+}
+
+/**
+ * Walk a set's `result.sections`, applying `mutate` to the question at
+ * `slotIndex`. Returning `null` from `mutate` deletes the question.
+ *
+ * Kept structural rather than mutating in place: the sets are React state, so
+ * every level that changes has to be a new object or the editor tabs (which
+ * read `result` as their initial content) will not see the update.
+ */
+function mapSetQuestion(
+  set: ComparisonSet,
+  slotIndex: number,
+  mutate: (question: any) => any | null,
+): ComparisonSet {
+  const sections = (set.result?.sections || []).map((section: any) => {
+    const questions: any[] = [];
+    let touched = false;
+    (section.questions || []).forEach((q: any, position: number) => {
+      const key = Number(q?.metadata?.slotIndex);
+      const resolved = Number.isFinite(key) ? key : position;
+      if (resolved !== slotIndex) {
+        questions.push(q);
+        return;
+      }
+      touched = true;
+      const next = mutate(q);
+      if (next) questions.push(next);
+    });
+    return touched ? { ...section, questions } : section;
+  });
+
+  const totalQuestions = sections.reduce(
+    (n: number, s: any) => n + (s.questions?.length || 0),
+    0,
+  );
+  const totalMarks = sections.reduce(
+    (n: number, s: any) =>
+      n +
+      (s.questions || []).reduce(
+        (m: number, q: any) => m + (Number(q.marks) || 0),
+        0,
+      ),
+    0,
+  );
+
+  return {
+    ...set,
+    result: {
+      ...set.result,
+      sections,
+      meta: { ...(set.result?.meta || {}), totalQuestions, totalMarks },
+    },
+  };
 }
 
 const initialGeneratorContext: EditorState["generatorContext"] = {
@@ -212,8 +299,11 @@ export const useEditorStore = create<EditorState>()(
       generatedTray: [],
       comparisonSets: [],
       comparisonOpen: false,
+      approvedSets: {},
+      approvedAt: 0,
       generatorContext: initialGeneratorContext,
       generalInstructionsDraft: "",
+      paperSpecHandoff: null,
 
       // ── Actions ─────────────────────────────────────────────────────
       appendQuestions: (questions) =>
@@ -250,6 +340,8 @@ export const useEditorStore = create<EditorState>()(
 
       setGeneralInstructionsDraft: (draft) =>
         set({ generalInstructionsDraft: draft }),
+
+      setPaperSpecHandoff: (spec) => set({ paperSpecHandoff: spec }),
 
       setGeneratorContext: (ctx) =>
         set((state) => ({
@@ -308,8 +400,52 @@ export const useEditorStore = create<EditorState>()(
 
       setComparisonSets: (sets) => set({ comparisonSets: sets }),
       clearComparisonSets: () =>
-        set({ comparisonSets: [], comparisonOpen: false }),
+        set({
+          comparisonSets: [],
+          comparisonOpen: false,
+          approvedSets: {},
+          approvedAt: 0,
+        }),
       setComparisonOpen: (open) => set({ comparisonOpen: open }),
+
+      replaceComparisonQuestion: (label, slotIndex, question) =>
+        set((state) => ({
+          comparisonSets: state.comparisonSets.map((s) =>
+            s.label === label
+              ? mapSetQuestion(s, slotIndex, (existing) => ({
+                  ...existing,
+                  ...question,
+                  metadata: {
+                    ...(existing?.metadata || {}),
+                    ...(question?.metadata || {}),
+                  },
+                }))
+              : s,
+          ),
+        })),
+
+      removeComparisonQuestion: (label, slotIndex) =>
+        set((state) => ({
+          comparisonSets: state.comparisonSets.map((s) =>
+            s.label === label ? mapSetQuestion(s, slotIndex, () => null) : s,
+          ),
+        })),
+
+      // Approval is the ONLY path from the review workspace into the editor.
+      // Each set's assembled paper becomes the initial content of its own tab,
+      // which is why there is no per-question / per-section / per-set insert
+      // any more — the tabs already exist, so inserting was busywork that also
+      // let two sets collide in one document.
+      approveComparisonSets: () =>
+        set((state) => ({
+          approvedSets: Object.fromEntries(
+            state.comparisonSets.map((s) => [s.label, s.result]),
+          ),
+          approvedAt: Date.now(),
+          comparisonOpen: false,
+        })),
+
+      clearApprovedSets: () => set({ approvedSets: {}, approvedAt: 0 }),
     }),
     {
       // The persistence key is namespaced so callers (auth signOut, account
@@ -338,9 +474,16 @@ export const useEditorStore = create<EditorState>()(
         // navigation so the Comparison Workspace can be reopened. `comparisonOpen`
         // is transient UI and deliberately NOT persisted.
         comparisonSets: state.comparisonSets,
+        // Approved sets survive navigation so returning to the editor from
+        // another route does not lose the paper the teacher just accepted.
+        approvedSets: state.approvedSets,
+        approvedAt: state.approvedAt,
         generatorContext: state.generatorContext,
         template: state.template,
         generalInstructionsDraft: state.generalInstructionsDraft,
+        // Persisted so the handoff survives the navigation from the dashboard
+        // to the editor even if the tab reloads on the way.
+        paperSpecHandoff: state.paperSpecHandoff,
       }),
       version: 1,
     },
@@ -369,6 +512,8 @@ export function resetEditorStoreForAccountSwitch(): void {
     generatedTray: [],
     comparisonSets: [],
     comparisonOpen: false,
+    approvedSets: {},
+    approvedAt: 0,
     questionsToAppend: [],
     sectionsToAppend: [],
     instructionsToAppend: null,

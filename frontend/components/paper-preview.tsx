@@ -13,7 +13,9 @@
 // gains a new custom node, add it here too or the preview will drop that node.
 
 import { useEditor, EditorContent } from "@tiptap/react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { normalizeInitialContent } from "@/components/tiptap-editor";
+import { isEnglishSubject } from "@/lib/subject";
 import StarterKit from "@tiptap/starter-kit";
 import { OrderedList } from "@tiptap/extension-list";
 import Typography from "@tiptap/extension-typography";
@@ -99,22 +101,20 @@ const previewExtensions = [
 function toDocument(content: string | undefined) {
   if (!content || !content.trim()) return null;
   try {
-    const parsed = JSON.parse(content);
-    const doc =
-      parsed?.type === "doc"
-        ? parsed
-        : parsed?.editorJSON?.type === "doc"
-        ? parsed.editorJSON
-        : parsed?.document?.type === "doc"
-        ? parsed.document
-        : null;
-    return doc ? ensurePageDocument(doc) : null;
+    const doc = normalizeInitialContent(content);
+    return doc || null;
   } catch {
     return null;
   }
 }
 
-export function PaperPreview({ content }: { content: string | undefined }) {
+export function PaperPreview({
+  content,
+  subject,
+}: {
+  content: string | undefined;
+  subject?: string | null;
+}) {
   const doc = useMemo(() => toDocument(content), [content]);
 
   const editor = useEditor(
@@ -137,9 +137,37 @@ export function PaperPreview({ content }: { content: string | undefined }) {
     [],
   );
 
-  // Refresh when a different paper is selected.
+  // Refresh when a different paper — or a different SET of the same paper —
+  // is selected.
+  //
+  // Deferred to a microtask rather than run inline. Every block in a paper is
+  // a React NodeView, and TipTap mounts those through `flushSync`; calling
+  // `setContent` straight from an effect runs that flush while React is still
+  // committing, which React refuses to do ("flushSync was called from inside a
+  // lifecycle method"). It skips the flush, the NodeViews never get their
+  // synchronous mount, and because a read-only editor dispatches no further
+  // transactions nothing ever re-renders them — so switching to Set B swapped
+  // the document but left the previous set's blocks on screen. A microtask
+  // runs after the commit, where the flush is legal.
+  // Seeded with the FIRST render's `doc` — the very value `useEditor` was
+  // constructed with (its dep array is empty, so it captures render one).
+  // Re-setting that same document would discard NodeViews that are already
+  // correct, and on a null first render it would skip the first real document
+  // entirely and leave the preview blank.
+  const appliedDocRef = useRef<unknown>(doc);
   useEffect(() => {
-    if (editor && doc) editor.commands.setContent(doc);
+    if (!editor || !doc) return;
+    if (appliedDocRef.current === doc) return;
+    appliedDocRef.current = doc;
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled || editor.isDestroyed) return;
+      editor.commands.setContent(doc, { emitUpdate: false });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [editor, doc]);
 
   if (!doc) {
@@ -151,7 +179,11 @@ export function PaperPreview({ content }: { content: string | undefined }) {
   }
 
   return (
-    <div className="paper-preview-scroll h-full overflow-auto bg-muted/40 p-4 sm:p-6">
+    <div
+      className={`paper-preview-scroll h-full overflow-auto bg-muted/40 p-4 sm:p-6${
+        isEnglishSubject(subject) ? " is-english-paper" : ""
+      }`}
+    >
       {/* White paper sheet, like the editor — keeps black document text
           readable regardless of app theme. */}
       <div className="mx-auto max-w-[820px] rounded-md bg-white text-black shadow-sm ring-1 ring-black/5 p-6 sm:p-10">
