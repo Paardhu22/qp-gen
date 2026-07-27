@@ -74,7 +74,19 @@ def get_openai_client() -> OpenAI:
         # without bubbling failures up to the ingestion or generation
         # pipelines. Combined with detail="low" on vision calls, this
         # keeps captioning well inside Tier 1 TPM budgets.
-        _client = OpenAI(api_key=settings.OPENAI_API_KEY, max_retries=5)
+        #
+        # timeout is explicit because the SDK's default is 600s: a single
+        # hung request would outlive gunicorn's worker timeout (the worker is
+        # killed mid-stream and the client sees a truncated response) and,
+        # with max_retries=5, could in principle occupy a worker for the best
+        # part of an hour. A generation call that has produced nothing in
+        # OPENAI_TIMEOUT_SECONDS is not going to recover; failing it lets the
+        # batch record the failure and the pipeline carry on with the rest.
+        _client = OpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            max_retries=5,
+            timeout=float(getattr(settings, "OPENAI_TIMEOUT_SECONDS", 120.0)),
+        )
     return _client
 
 
