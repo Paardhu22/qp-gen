@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "pgvector.django",
     "apps.accounts",
+    "apps.chat",
     "apps.documents",
     "apps.generation",
     "apps.projects",
@@ -217,12 +218,40 @@ AWS_COGNITO_USER_POOL_ID = os.environ.get("AWS_COGNITO_USER_POOL_ID", "ap-south-
 # wrong client. Must match NEXT_PUBLIC_AWS_COGNITO_APP_CLIENT_ID on the frontend.
 AWS_COGNITO_APP_CLIENT_ID = os.environ.get("AWS_COGNITO_APP_CLIENT_ID", "")
 
+# FRONTEND_URL is the canonical origin — it also builds the links in
+# password-reset emails, so it must stay a single value.
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
-CORS_ALLOWED_ORIGINS = [FRONTEND_URL]
+
+
+def _origins(*values: str) -> list[str]:
+    """Normalise and de-duplicate a set of CORS/CSRF origins, order preserved.
+
+    An origin is scheme+host+port with no path and no trailing slash;
+    django-cors-headers matches the request's `Origin` header literally, so a
+    stray slash silently allows nothing.
+    """
+    seen: list[str] = []
+    for value in values:
+        for item in (value or "").split(","):
+            origin = item.strip().rstrip("/")
+            if origin and origin not in seen:
+                seen.append(origin)
+    return seen
+
+
+# Additional browser origins allowed to call the API, comma-separated. Needed
+# because CORS matches the Origin header exactly: `https://hsatedu.in` and
+# `https://www.hsatedu.in` are different origins, and a deployment reachable at
+# both will fail CORS on whichever one FRONTEND_URL does not name. Preview
+# deployments and a staging domain belong here too.
+#   EXTRA_ALLOWED_ORIGINS=https://www.hsatedu.in,https://staging.hsatedu.in
+EXTRA_ALLOWED_ORIGINS = os.environ.get("EXTRA_ALLOWED_ORIGINS", "")
+
+CORS_ALLOWED_ORIGINS = _origins(FRONTEND_URL, EXTRA_ALLOWED_ORIGINS)
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + ["X-CSRFToken"]
 
-CSRF_TRUSTED_ORIGINS = [FRONTEND_URL]
+CSRF_TRUSTED_ORIGINS = _origins(FRONTEND_URL, EXTRA_ALLOWED_ORIGINS)
 SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
 CSRF_COOKIE_SECURE = os.environ.get("CSRF_COOKIE_SECURE", "false").lower() == "true"
 SESSION_COOKIE_SAMESITE = "Lax"
@@ -278,11 +307,33 @@ if not OPENAI_API_KEY:
 #   POOL_MODEL      — Model 1 (pool generation) + image-spec proposal
 #   REVIEW_MODEL    — Model 2 (paper assembly review)
 #   ANSWER_MODEL    — answer-key + answer-script generation
+#   CHAT_MODEL      — the dashboard assistant (conversation only, never
+#                     generates questions; see services/chat_service.py)
 #   OPENAI_IMAGE_MODEL     — diagram image generation (gpt-image-1)
 #   OPENAI_EMBEDDING_MODEL — retrieval embeddings (text-embedding-3-small)
 #   OPENAI_MODEL    — legacy/blueprint fallback ONLY; nothing above inherits it.
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+
+# The dashboard assistant. Deliberately a small, cheap, fast model: it holds a
+# conversation and fills in a form, and never writes a question — that is the
+# pool pipeline's job, on POOL_MODEL. Independent of OPENAI_MODEL for the same
+# reason as every other stage.
+CHAT_MODEL = os.environ.get("CHAT_MODEL", "gpt-4o-mini")
+
+# Per-request ceiling on every OpenAI call. The SDK defaults to 600s, which is
+# longer than gunicorn's worker timeout — a hung request would get the worker
+# killed mid-stream rather than failing cleanly. Keep this comfortably BELOW
+# the gunicorn --timeout in deployment/qp-gen-backend.service.
+OPENAI_TIMEOUT_SECONDS = float(os.environ.get("OPENAI_TIMEOUT_SECONDS", "120"))
+
 QG_NEW_ENGINE_ENABLED = os.environ.get("QG_NEW_ENGINE_ENABLED", "false").lower() == "true"
+
+# Routes diagnostic endpoints that spend real OpenAI budget on hard-coded
+# inputs (currently /api/generation/test-science-engine). Off in production —
+# they are developer tools, not product surface. Defaults to DEBUG.
+ENABLE_TEST_ENDPOINTS = (
+    os.environ.get("ENABLE_TEST_ENDPOINTS", str(DEBUG)).lower() == "true"
+)
 OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 # Retained for the (now-optional) vision-caption helper; ingestion no longer
 # calls it (no GPT calls during ingestion — see services.document_service).
