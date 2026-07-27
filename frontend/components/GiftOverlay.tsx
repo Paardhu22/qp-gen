@@ -41,6 +41,19 @@ const BOW_WIDTH = "clamp(236px, 54vmin, 560px)";
 // Satisfying ease for the wrapping parting open.
 const OPEN_EASE: [number, number, number, number] = [0.83, 0, 0.17, 1];
 
+/**
+ * Deterministic [0, 1) noise for confetti scatter.
+ *
+ * A pure substitute for `Math.random()` so the overlay renders identically on
+ * every pass. `index` is the confetti piece, `channel` the property being
+ * scattered — mixing both means one piece's x-offset and its rotation are
+ * uncorrelated, which is all "looks random" needs here.
+ */
+function noise(index: number, channel: number): number {
+  const x = Math.sin(index * 127.1 + channel * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
 const CONFETTI_COLORS = [
   "#C85A10", // burnt orange
   "#B34000", // vermilion
@@ -116,21 +129,28 @@ export default function GiftOverlay({ onOpened }: GiftOverlayProps) {
     onOpenedRef.current?.();
   }, []);
 
+  // Scattered deterministically rather than with Math.random(). Rendering has
+  // to be pure: React 19 may render a component twice (StrictMode, and any
+  // concurrent re-render that gets thrown away), and a fresh Math.random() on
+  // each pass gives the two renders different confetti — which is what the
+  // react-hooks/purity rule is warning about. `noise` is a cheap hash, so the
+  // scatter is fixed for a given piece and still looks random across 26 of
+  // them; nobody can tell it is the same scatter every time.
   const confettiPieces = useMemo(
     () =>
       Array.from({ length: 26 }, (_, i) => {
-        const dist = 150 + Math.random() * 260;
+        const dist = 150 + noise(i, 0) * 260;
         return {
           id: i,
-          x: (Math.random() - 0.5) * 2 * dist,
-          up: 110 + Math.random() * 190,
-          fall: 320 + Math.random() * 380,
-          rotate: (Math.random() - 0.5) * 760,
-          size: 9 + Math.random() * 9,
+          x: (noise(i, 1) - 0.5) * 2 * dist,
+          up: 110 + noise(i, 2) * 190,
+          fall: 320 + noise(i, 3) * 380,
+          rotate: (noise(i, 4) - 0.5) * 760,
+          size: 9 + noise(i, 5) * 9,
           color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-          delay: Math.random() * 0.14,
-          duration: 1.2 + Math.random() * 0.7,
-          round: Math.random() > 0.6,
+          delay: noise(i, 6) * 0.14,
+          duration: 1.2 + noise(i, 7) * 0.7,
+          round: noise(i, 8) > 0.6,
         };
       }),
     [],

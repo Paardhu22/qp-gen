@@ -71,6 +71,7 @@ import { useEditorStore } from "@/store/editor-store";
 import { exportToPDF } from "@/lib/export-pdf";
 import { exportToDocx } from "@/lib/export-docx";
 import { uploadExportToS3, type ExportType } from "@/lib/s3-upload";
+import { persistablePaperId, splitPaperId } from "@/lib/paper-id";
 import { toast } from "sonner";
 import { extractPagesFromDoc } from "./pagination-utils";
 
@@ -819,8 +820,17 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
       const blob = await exportToPDF("tiptap-paper-container", filename);
       toast.success("PDF downloaded!", { id: toastId });
       // Fire-and-forget cloud backup — never blocks the local download.
-      if (paperId && paperId !== "current") {
-        uploadExportToS3(blob, { exportType, fileFormat: "pdf", paperId })
+      // `paperId` arrives as the per-tab composed id ("{base}_A"); the backend
+      // only knows the base row, so send that plus the set this export is of.
+      // Sending the composed id 404'd every upload.
+      const backupId = persistablePaperId(paperId);
+      if (backupId) {
+        uploadExportToS3(blob, {
+          exportType,
+          fileFormat: "pdf",
+          paperId: backupId,
+          setLabel: splitPaperId(paperId).set ?? undefined,
+        })
           .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
           .catch((err) => console.error("[S3 upload]", err));
       }
@@ -848,8 +858,14 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
       const blob = await exportToDocx(container, filename);
       toast.success("DOCX downloaded!", { id: toastId });
       // Fire-and-forget cloud backup — never blocks the local download.
-      if (paperId && paperId !== "current") {
-        uploadExportToS3(blob, { exportType, fileFormat: "docx", paperId })
+      const backupId = persistablePaperId(paperId);
+      if (backupId) {
+        uploadExportToS3(blob, {
+          exportType,
+          fileFormat: "docx",
+          paperId: backupId,
+          setLabel: splitPaperId(paperId).set ?? undefined,
+        })
           .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
           .catch((err) => console.error("[S3 upload]", err));
       }

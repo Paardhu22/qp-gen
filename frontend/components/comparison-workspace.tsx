@@ -1,35 +1,49 @@
 "use client";
 
 /**
- * Comparison Workspace — the primary interface for reviewing a multi-set
- * generation (Sets A / B / C produced in one SSE run).
+ * Comparison Workspace — reviewing a multi-set generation (Sets A / B / C
+ * produced in one SSE run).
  *
- * It replaces the old single-set "switcher" for multi-set output. Two or three
- * sets are shown side by side, aligned row-for-row by the blueprint slot index
- * so sections and marks line up horizontally and one scrollbar keeps every
- * column in sync (structural synchronised scrolling — no manual scroll
- * mirroring needed). Questions that are identical across the shown sets are
- * marked "same"; questions that differ are highlighted "changed".
+ * Two or three sets are shown side by side, aligned row-for-row by the
+ * blueprint slot index so sections and marks line up horizontally and one
+ * scrollbar keeps every column in sync. Questions identical across the shown
+ * sets are marked "same"; questions that differ are highlighted "changed".
  *
- * Insertion is set-scoped: Insert Single / Insert Section / Insert Set for each
- * of A, B, C, routed through the store's `appendSections` with a `setLabel` so
- * the TipTap editor renders "Set B · Section A" headers and the sets never
- * collide in one document (the regression this view fixes).
+ * This view reviews. It does not insert.
  *
- * v1 is read + diff + insert. Inline edit, per-question regenerate, and
- * move-between-sets are deferred.
+ * It used to carry Insert Single / Insert Section / Insert Set for each of A,
+ * B and C, routed through `appendSections` with a set label so headers read
+ * "Set B · Section A" and two sets could share one document without merging.
+ * That whole mechanism existed to work around a problem the editor no longer
+ * has: it has a tab per set. Approving now hands each set to its own tab
+ * directly, so a teacher who likes the paper clicks once instead of three
+ * times per set, and two sets can never end up in one document.
+ *
+ * What replaced it is per-question control — Edit, Delete and Replace — which
+ * is what "I like the paper but not question 7" actually needs. Replace
+ * regenerates exactly that slot (same marks, type, section, chapter,
+ * difficulty, generator) and leaves every other question untouched.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useEditorStore,
   type ComparisonSet,
-  type Question,
-  type SectionToAppend,
 } from "@/store/editor-store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { CheckCircle2, Columns3, Plus, X } from "lucide-react";
+import { replaceQuestion, ApiError } from "@/lib/api-client";
+import {
+  Check,
+  CheckCircle2,
+  Columns3,
+  Loader2,
+  Pencil,
+  RefreshCw,
+  Trash2,
+  X,
+} from "lucide-react";
 
 // ── Row model: one aligned blueprint slot across the shown sets ──────────────
 interface SlotRow {
@@ -52,18 +66,6 @@ const norm = (s: unknown) =>
     .trim()
     .toLowerCase();
 
-/** Map a set's assembled-paper result into editor Question shape. */
-function toEditorQuestion(q: any): Question {
-  return {
-    content: q.content,
-    type: q.type,
-    options: q.options || [],
-    answer: q.answer,
-    marks: q.marks,
-    image_url: q.image_url || q.metadata?.image_url || "",
-  };
-}
-
 /** Stable slot key: prefer the blueprint slotIndex, fall back to position. */
 function slotKeyOf(q: any, fallback: number): number {
   const raw = Number(q?.metadata?.slotIndex);
@@ -75,10 +77,7 @@ function slotKeyOf(q: any, fallback: number): number {
  * by first appearance in the first shown set (blueprint order); rows within a
  * section are ordered by slotIndex.
  */
-function buildGroups(
-  sets: ComparisonSet[],
-  shown: string[],
-): SectionGroup[] {
+function buildGroups(sets: ComparisonSet[], shown: string[]): SectionGroup[] {
   const shownSets = sets.filter((s) => shown.includes(s.label));
   // slotIndex -> { sectionTitle, byLabel }
   const slots = new Map<
@@ -111,9 +110,7 @@ function buildGroups(
 
   const rows: SlotRow[] = Array.from(slots.entries())
     .map(([slotIndex, e]) => {
-      const present = shown
-        .map((l) => e.byLabel[l])
-        .filter((q) => q != null);
+      const present = shown.map((l) => e.byLabel[l]).filter((q) => q != null);
       const contents = present.map((q) => norm(q.content));
       const identical =
         present.length === shown.length &&
@@ -126,10 +123,7 @@ function buildGroups(
         _order: e.order,
       } as SlotRow & { _order: number };
     })
-    .sort(
-      (a: any, b: any) =>
-        a.slotIndex - b.slotIndex || a._order - b._order,
-    );
+    .sort((a: any, b: any) => a.slotIndex - b.slotIndex || a._order - b._order);
 
   // Group by section, preserving section order.
   const byTitle = new Map<string, SlotRow[]>();
@@ -143,14 +137,60 @@ function buildGroups(
     .map((title) => ({ title, rows: byTitle.get(title)! }));
 }
 
+/**
+ * The blueprint identity of a question, for the replace call.
+ *
+ * Everything here comes from the metadata the backend already stamps on every
+ * generated question, so a replacement is matched against the same slot the
+ * original filled rather than against a guess.
+ */
+function slotFor(q: any, sectionTitle: string) {
+  const meta = q?.metadata || {};
+  return {
+    slotIndex: Number(meta.slotIndex) || 0,
+    section: String(meta.section || sectionTitle || ""),
+    marks: Number(q?.marks) || 1,
+    type: String(q?.type || ""),
+    generator: String(meta.generator || "question_pool"),
+    assetType: String(meta.assetType || ""),
+    chapter: String(meta.inferredChapter || meta.chapterTitle || ""),
+    topic: String(meta.inferredTopic || ""),
+    difficulty: String(meta.difficulty || ""),
+    subject: String(meta.subject || ""),
+    poolId: String(meta.poolId || ""),
+    questionId: String(meta.questionId || ""),
+  };
+}
+
+/** Every question id currently on any set — never offer one of them back. */
+function usedQuestionIds(sets: ComparisonSet[]): string[] {
+  const ids = new Set<string>();
+  sets.forEach((set) =>
+    (set.result?.sections || []).forEach((section: any) =>
+      (section.questions || []).forEach((q: any) => {
+        const id = q?.metadata?.questionId;
+        if (id) ids.add(String(id));
+      }),
+    ),
+  );
+  return Array.from(ids);
+}
+
 export function ComparisonWorkspace() {
   const sets = useEditorStore((s) => s.comparisonSets);
   const open = useEditorStore((s) => s.comparisonOpen);
   const setOpen = useEditorStore((s) => s.setComparisonOpen);
-  const appendSections = useEditorStore((s) => s.appendSections);
+  const replaceInSet = useEditorStore((s) => s.replaceComparisonQuestion);
+  const removeFromSet = useEditorStore((s) => s.removeComparisonQuestion);
+  const approveSets = useEditorStore((s) => s.approveComparisonSets);
 
   const availableLabels = useMemo(() => sets.map((s) => s.label), [sets]);
   const [shown, setShown] = useState<string[]>(availableLabels);
+
+  // Which cell is being edited / replaced, keyed "label:slotIndex".
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
 
   // Keep `shown` valid if the available sets change between generations.
   const effectiveShown = useMemo(() => {
@@ -165,6 +205,17 @@ export function ComparisonWorkspace() {
     [sets, effectiveShown],
   );
 
+  // Esc closes the overlay — it is full-screen and modal, so a keyboard exit
+  // matters more here than anywhere else in the app.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !editing) setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, editing, setOpen]);
+
   if (!open || sets.length < 2) return null;
 
   const toggleShown = (label: string) => {
@@ -176,43 +227,70 @@ export function ComparisonWorkspace() {
     });
   };
 
-  // ── Insertion (set-scoped) ────────────────────────────────────────────────
-  const insertSections = (payload: SectionToAppend[], toastMsg: string) => {
-    if (payload.length === 0) return;
-    appendSections(payload);
-    toast.success(toastMsg);
+  const cellKey = (label: string, slotIndex: number) => `${label}:${slotIndex}`;
+
+  // ── Per-question actions ──────────────────────────────────────────────────
+
+  const startEdit = (label: string, slotIndex: number, content: string) => {
+    setEditing(cellKey(label, slotIndex));
+    setDraft(content);
   };
 
-  const insertQuestion = (label: string, sectionTitle: string, q: any) => {
-    insertSections(
-      [{ title: sectionTitle, setLabel: label, questions: [toEditorQuestion(q)] }],
-      `Inserted 1 question from Set ${label} into the paper.`,
-    );
+  const commitEdit = (label: string, slotIndex: number) => {
+    const text = draft.trim();
+    if (!text) {
+      toast.error("A question cannot be empty.");
+      return;
+    }
+    replaceInSet(label, slotIndex, { content: text });
+    setEditing(null);
+    setDraft("");
   };
 
-  const insertSection = (label: string, sectionTitle: string) => {
-    const set = sets.find((s) => s.label === label);
-    const section = (set?.result?.sections || []).find(
-      (s: any) => String(s.title || "Questions") === sectionTitle,
-    );
-    const questions = (section?.questions || []).map(toEditorQuestion);
-    insertSections(
-      [{ title: sectionTitle, setLabel: label, questions }],
-      `Inserted ${questions.length} question(s) — Set ${label} · ${sectionTitle}.`,
-    );
+  const deleteQuestion = (label: string, slotIndex: number) => {
+    removeFromSet(label, slotIndex);
+    toast.success(`Removed question ${slotIndex} from Set ${label}.`);
   };
 
-  const insertSet = (label: string) => {
-    const set = sets.find((s) => s.label === label);
-    const payload: SectionToAppend[] = (set?.result?.sections || []).map(
-      (s: any) => ({
-        title: String(s.title || "Questions"),
-        setLabel: label,
-        questions: (s.questions || []).map(toEditorQuestion),
-      }),
+  const doReplace = async (
+    label: string,
+    slotIndex: number,
+    sectionTitle: string,
+    question: any,
+  ) => {
+    const key = cellKey(label, slotIndex);
+    setBusy((b) => ({ ...b, [key]: true }));
+    try {
+      const { question: next, source } = await replaceQuestion(
+        slotFor(question, sectionTitle),
+        { excludeIds: usedQuestionIds(sets) },
+      );
+      replaceInSet(label, slotIndex, next);
+      toast.success(
+        source === "bank"
+          ? `Swapped in another question from your bank (Set ${label}, Q${slotIndex}).`
+          : `Wrote a new question for Set ${label}, Q${slotIndex}.`,
+      );
+    } catch (error) {
+      const message =
+        error instanceof ApiError && error.status === 409
+          ? "No other question fits this slot yet. Generate more for this chapter first."
+          : error instanceof Error
+            ? error.message
+            : "Could not replace this question.";
+      toast.error(message);
+    } finally {
+      setBusy((b) => ({ ...b, [key]: false }));
+    }
+  };
+
+  const approve = () => {
+    approveSets();
+    toast.success(
+      sets.length > 1
+        ? `Approved — Sets ${sets.map((s) => s.label).join(", ")} are now in their tabs.`
+        : "Approved — the paper is now in the editor.",
     );
-    const total = payload.reduce((n, s) => n + s.questions.length, 0);
-    insertSections(payload, `Inserted all ${total} question(s) of Set ${label}.`);
   };
 
   const cols = effectiveShown.length;
@@ -225,10 +303,10 @@ export function ComparisonWorkspace() {
         <div className="flex items-center gap-2 min-w-0">
           <Columns3 className="h-5 w-5 text-primary shrink-0" />
           <h2 className="text-base font-bold text-foreground truncate">
-            Compare Sets
+            Review Sets
           </h2>
           <span className="text-[11px] text-muted-foreground hidden sm:inline">
-            Aligned by blueprint slot · identical vs changed highlighted
+            Aligned by blueprint slot · edit, delete or replace any question
           </span>
         </div>
 
@@ -255,6 +333,15 @@ export function ComparisonWorkspace() {
             })}
           </div>
           <Button
+            size="sm"
+            onClick={approve}
+            className="h-8 bg-primary hover:bg-primary/90 text-white text-xs font-semibold"
+            title="Put every set into its own editor tab"
+          >
+            <Check className="h-4 w-4 mr-1" />
+            Approve &amp; open in editor
+          </Button>
+          <Button
             variant="ghost"
             size="sm"
             onClick={() => setOpen(false)}
@@ -266,7 +353,7 @@ export function ComparisonWorkspace() {
         </div>
       </div>
 
-      {/* ── Column headers (Insert whole set) ───────────────────────────── */}
+      {/* ── Column headers ──────────────────────────────────────────────── */}
       <div
         className="grid gap-px border-b border-border bg-border"
         style={{ gridTemplateColumns: gridTemplate }}
@@ -274,34 +361,21 @@ export function ComparisonWorkspace() {
         {effectiveShown.map((label) => {
           const meta = sets.find((s) => s.label === label)?.result?.meta || {};
           return (
-            <div
-              key={label}
-              className="flex items-center justify-between gap-2 bg-background px-3 py-2"
-            >
-              <div className="min-w-0">
-                <div className="text-sm font-bold text-foreground">
-                  Set {label}
-                  {label === "A" && (
-                    <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
-                      master
-                    </span>
-                  )}
-                </div>
-                <div className="text-[10px] text-muted-foreground truncate">
-                  {meta.totalQuestions ?? "—"} Q · {meta.totalMarks ?? "—"} marks
-                  {label !== "A" && meta.replacedCount != null
-                    ? ` · ${meta.replacedCount} changed from A`
-                    : ""}
-                </div>
+            <div key={label} className="bg-background px-3 py-2">
+              <div className="text-sm font-bold text-foreground">
+                Set {label}
+                {label === "A" && (
+                  <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
+                    master
+                  </span>
+                )}
               </div>
-              <Button
-                size="sm"
-                onClick={() => insertSet(label)}
-                className="h-7 shrink-0 bg-primary hover:bg-primary/90 text-white text-xs"
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                Insert set
-              </Button>
+              <div className="text-[10px] text-muted-foreground truncate">
+                {meta.totalQuestions ?? "—"} Q · {meta.totalMarks ?? "—"} marks
+                {label !== "A" && meta.replacedCount != null
+                  ? ` · ${meta.replacedCount} changed from A`
+                  : ""}
+              </div>
             </div>
           );
         })}
@@ -311,26 +385,16 @@ export function ComparisonWorkspace() {
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {groups.map((group) => (
           <div key={group.title}>
-            {/* Section header spanning all columns + per-set "Insert section" */}
+            {/* Section header spanning all columns */}
             <div
               className="grid gap-px border-y border-border bg-border sticky top-0 z-10"
               style={{ gridTemplateColumns: gridTemplate }}
             >
               {effectiveShown.map((label) => (
-                <div
-                  key={label}
-                  className="flex items-center justify-between gap-2 bg-muted/60 px-3 py-1.5"
-                >
+                <div key={label} className="bg-muted/60 px-3 py-1.5">
                   <h4 className="text-xs font-semibold text-primary dark:text-primary uppercase tracking-wider truncate">
                     {group.title}
                   </h4>
-                  <button
-                    type="button"
-                    onClick={() => insertSection(label, group.title)}
-                    className="text-[11px] text-primary hover:underline shrink-0"
-                  >
-                    Insert section
-                  </button>
                 </div>
               ))}
             </div>
@@ -344,6 +408,10 @@ export function ComparisonWorkspace() {
               >
                 {effectiveShown.map((label) => {
                   const q = row.byLabel[label];
+                  const key = cellKey(label, row.slotIndex);
+                  const isEditing = editing === key;
+                  const isBusy = !!busy[key];
+
                   return (
                     <div
                       key={label}
@@ -360,7 +428,7 @@ export function ComparisonWorkspace() {
                               variant="outline"
                               className="font-mono bg-white dark:bg-zinc-950"
                             >
-                              {q.marks}m
+                              Q{row.slotIndex} · {q.marks}m
                             </Badge>
                             <Badge
                               variant="outline"
@@ -379,34 +447,105 @@ export function ComparisonWorkspace() {
                               </Badge>
                             )}
                           </div>
-                          <p className="text-sm text-zinc-800 dark:text-zinc-100">
-                            {q.content}
-                          </p>
-                          {q.options && q.options.length > 0 && (
-                            <div className="grid grid-cols-2 gap-1">
-                              {q.options.map((opt: string, i: number) => (
-                                <div
-                                  key={i}
-                                  className="text-[11px] text-muted-foreground border border-border p-1 rounded bg-background/50"
+
+                          {isEditing ? (
+                            <div className="space-y-2">
+                              <Textarea
+                                value={draft}
+                                onChange={(e) => setDraft(e.target.value)}
+                                rows={6}
+                                className="text-sm"
+                                autoFocus
+                              />
+                              <div className="flex gap-1.5">
+                                <Button
+                                  size="sm"
+                                  onClick={() => commitEdit(label, row.slotIndex)}
+                                  className="h-7 text-xs"
                                 >
-                                  {String.fromCharCode(65 + i)}. {opt}
-                                </div>
-                              ))}
+                                  Save
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setEditing(null);
+                                    setDraft("");
+                                  }}
+                                  className="h-7 text-xs"
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
                             </div>
+                          ) : (
+                            <>
+                              <p className="text-sm whitespace-pre-wrap text-zinc-800 dark:text-zinc-100">
+                                {q.content}
+                              </p>
+                              {q.options && q.options.length > 0 && (
+                                <div className="grid grid-cols-2 gap-1">
+                                  {q.options.map((opt: string, i: number) => (
+                                    <div
+                                      key={i}
+                                      className="text-[11px] text-muted-foreground border border-border p-1 rounded bg-background/50"
+                                    >
+                                      {String.fromCharCode(65 + i)}. {opt}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="flex items-center gap-1 pt-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    doReplace(
+                                      label,
+                                      row.slotIndex,
+                                      row.sectionTitle,
+                                      q,
+                                    )
+                                  }
+                                  className="h-7 text-xs"
+                                  title="Regenerate only this question, keeping its marks, type and section"
+                                >
+                                  {isBusy ? (
+                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                  ) : (
+                                    <RefreshCw className="h-3 w-3 mr-1" />
+                                  )}
+                                  Replace
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    startEdit(label, row.slotIndex, q.content)
+                                  }
+                                  className="h-7 text-xs"
+                                  title="Edit this question"
+                                >
+                                  <Pencil className="h-3 w-3 mr-1" />
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    deleteQuestion(label, row.slotIndex)
+                                  }
+                                  className="h-7 text-xs text-destructive hover:text-destructive"
+                                  title="Delete this question from this set"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </>
                           )}
-                          <div className="pt-1">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() =>
-                                insertQuestion(label, row.sectionTitle, q)
-                              }
-                              className="h-7 text-xs"
-                            >
-                              <Plus className="h-3 w-3 mr-1" />
-                              Insert
-                            </Button>
-                          </div>
                         </div>
                       ) : (
                         <div className="flex h-full items-center justify-center py-4">
