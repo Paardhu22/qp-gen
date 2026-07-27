@@ -140,6 +140,7 @@ export default function QuestionBankPage() {
 
   // Detail view
   const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailPaper, setDetailPaper] = useState<EditorPaper | null>(null);
 
@@ -177,19 +178,33 @@ export default function QuestionBankPage() {
   useEffect(() => {
     if (!selectedPaperId) {
       setDetailPaper(null);
+      setSelectedSetId(null);
       return;
     }
     setDetailLoading(true);
     getPaperAction(selectedPaperId)
-      .then((data) => setDetailPaper(data))
+      .then((data) => {
+        setDetailPaper(data);
+        if (data?.sets && data.sets.length > 0) {
+          setSelectedSetId(data.sets[0].id || null);
+        } else {
+          setSelectedSetId(null);
+        }
+      })
       .catch(() => toast.error("Failed to load paper details."))
       .finally(() => setDetailLoading(false));
   }, [selectedPaperId]);
 
+  const activeSet = useMemo(() => {
+    if (!detailPaper?.sets || detailPaper.sets.length === 0) return null;
+    return detailPaper.sets.find((s) => s.id === selectedSetId) || detailPaper.sets[0] || null;
+  }, [detailPaper, selectedSetId]);
+
   const breakdown = useMemo<PaperBreakdown | null>(() => {
-    if (!detailPaper?.content) return null;
-    return computePaperBreakdown(detailPaper.content);
-  }, [detailPaper]);
+    const content = activeSet?.content || detailPaper?.content;
+    if (!content) return null;
+    return computePaperBreakdown(content);
+  }, [detailPaper, activeSet]);
 
   const selectedMeta = useMemo(
     () => parsedPapers.find((p) => p.id === selectedPaperId) ?? null,
@@ -252,14 +267,27 @@ export default function QuestionBankPage() {
     }
   }
 
-  async function handleGenerateAnswerScript(paperId: string) {
-    setGeneratingIds((prev) => new Set(prev).add(paperId));
+  async function handleGenerateAnswerScript(paperId: string, setId?: string) {
+    const trackingId = setId ? `${paperId}-${setId}` : paperId;
+    setGeneratingIds((prev) => new Set(prev).add(trackingId));
     try {
-      const result = await generateAnswerScript(paperId);
+      const result = await generateAnswerScript(paperId, setId);
+      
+      // Update local state so UI updates
+      if (detailPaper && detailPaper.id === paperId) {
+        setDetailPaper((prev) => {
+          if (!prev) return prev;
+          const updatedSets = (prev.sets || []).map((s) => 
+            s.id === setId ? { ...s, metadata: { ...(s.metadata || {}), answer_script_id: result.answer_script_paper_id } } : s
+          );
+          return { ...prev, sets: updatedSets };
+        });
+      }
+
       setPapers((prev) =>
         prev.map((p) =>
           p.id === paperId
-            ? { ...p, answerScriptId: result.answer_script_paper_id }
+            ? { ...p, answerScriptId: (!setId || p.sets?.[0]?.id === setId) ? result.answer_script_paper_id : p.answerScriptId }
             : p,
         ),
       );
@@ -269,7 +297,7 @@ export default function QuestionBankPage() {
     } finally {
       setGeneratingIds((prev) => {
         const next = new Set(prev);
-        next.delete(paperId);
+        next.delete(trackingId);
         return next;
       });
     }
@@ -343,6 +371,30 @@ export default function QuestionBankPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Set Selector */}
+              {detailPaper?.sets && detailPaper.sets.length > 1 && (
+                <div className="space-y-2">
+                  <h3 className="text-sm font-semibold text-foreground">Select Set</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {detailPaper.sets.map((set) => (
+                      <button
+                        key={set.id}
+                        type="button"
+                        onClick={() => setSelectedSetId(set.id || null)}
+                        className={cn(
+                          "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                          selectedSetId === set.id
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        )}
+                      >
+                        {set.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Paper Breakdown */}
               {breakdown && breakdown.totalQuestions > 0 && (
@@ -441,46 +493,57 @@ export default function QuestionBankPage() {
                 <h3 className="text-sm font-semibold text-foreground">
                   Answer Script
                 </h3>
-                {selectedMeta?.answerScriptId ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      Generated
-                    </span>
+                {(() => {
+                  const setAnswerScriptId = activeSet?.metadata?.answer_script_id || (activeSet?.id === detailPaper?.sets?.[0]?.id ? selectedMeta?.answerScriptId : null);
+                  const isGenerating = generatingIds.has(activeSet?.id ? `${selectedPaperId}-${activeSet.id}` : selectedPaperId);
+                  
+                  if (setAnswerScriptId) {
+                    return (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          Generated
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(
+                              `/editor?paperId=${setAnswerScriptId}`,
+                            )
+                          }
+                          className="text-xs font-medium text-primary hover:underline"
+                        >
+                          View answer script
+                        </button>
+                      </div>
+                    );
+                  }
+                  return (
                     <button
                       type="button"
-                      onClick={() =>
-                        router.push(
-                          `/editor?paperId=${selectedMeta.answerScriptId}`,
-                        )
-                      }
-                      className="text-xs font-medium text-primary hover:underline"
+                      disabled={isGenerating}
+                      onClick={() => handleGenerateAnswerScript(selectedPaperId, activeSet?.id)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50"
                     >
-                      View answer script
+                      {isGenerating ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Key className="h-3.5 w-3.5" />
+                      )}
+                      {isGenerating
+                        ? "Generating…"
+                        : `Generate Answer Script ${activeSet ? `for ${activeSet.label}` : ''}`}
                     </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={generatingIds.has(selectedPaperId)}
-                    onClick={() => handleGenerateAnswerScript(selectedPaperId)}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                  >
-                    {generatingIds.has(selectedPaperId) ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Key className="h-3.5 w-3.5" />
-                    )}
-                    {generatingIds.has(selectedPaperId)
-                      ? "Generating…"
-                      : "Generate Answer Script"}
-                  </button>
-                )}
+                  );
+                })()}
               </div>
             </div>
 
             {/* ── Right panel: paper preview (~60%) ─────────────── */}
             <div className="flex-1 min-w-0 overflow-hidden bg-muted/20">
-              <PaperPreview content={detailPaper?.content} />
+              <PaperPreview
+                content={activeSet?.content || detailPaper?.content}
+                subject={detailPaper?.subject}
+              />
             </div>
           </div>
         )}

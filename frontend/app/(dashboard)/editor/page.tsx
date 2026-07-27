@@ -1,7 +1,7 @@
 "use client";
 
 import { GeneratorForm } from "@/components/generator-form";
-import { TiptapEditor } from "@/components/tiptap-editor";
+import { TiptapEditor, normalizeInitialContent } from "@/components/tiptap-editor";
 import { ComparisonWorkspace } from "@/components/comparison-workspace";
 import { useEditorStore } from "@/store/editor-store";
 import { type AppliedHsatSource } from "@/components/hsat-source-picker";
@@ -34,10 +34,16 @@ import {
 import { useSession } from "@/lib/auth-client";
 import {
   deleteLiveDocument,
+  deleteLiveDocumentsForPaper,
   getLiveDocumentId,
   getLatestLiveDocumentForUser,
   getLiveDocument,
 } from "@/lib/live-document-db";
+import {
+  basePaperId,
+  withSetSuffix,
+  DRAFT_PAPER_ID,
+} from "@/lib/paper-id";
 
 export default function EditorPage() {
   const router = useRouter();
@@ -87,6 +93,12 @@ export default function EditorPage() {
   );
   const appendQuestions = useEditorStore((state) => state.appendQuestions);
   const comparisonSets = useEditorStore((state) => state.comparisonSets);
+  // Sets the teacher approved in the review workspace. Each one becomes the
+  // content of its own tab — the reason there is no "Insert set" button any
+  // more. `approvedAt` changes on every approval and is what tells the editor
+  // this content supersedes whatever draft is in IndexedDB for that tab.
+  const approvedSets = useEditorStore((state) => state.approvedSets);
+  const approvedAt = useEditorStore((state) => state.approvedAt);
 
   const [activeSetTab, setActiveSetTab] = useState("A");
   const [loadedSets, setLoadedSets] = useState<any[]>([]);
@@ -139,19 +151,12 @@ export default function EditorPage() {
     //    remounts, otherwise its load effect (which prefers the IndexedDB
     //    draft over initialContent) could re-hydrate the old Set A/B/C.
     if (userId) {
-      const scopes = new Set<string>(["current"]);
-      const prevId = currentPaperIdRef.current;
+      const scopes = new Set<string>([DRAFT_PAPER_ID]);
+      const prevId = basePaperId(currentPaperIdRef.current);
       if (prevId) scopes.add(prevId);
-      const draftIds = new Set<string>();
-      for (const scope of scopes) {
-        for (const label of ["A", "B", "C"]) draftIds.add(`${scope}_${label}`);
-        draftIds.add(scope); // legacy single-set key
-      }
       await Promise.all(
-        [...draftIds].map((pid) =>
-          deleteLiveDocument(getLiveDocumentId(userId, pid)).catch((err) =>
-            console.error("Failed to purge set draft:", pid, err),
-          ),
+        [...scopes].map((scope) =>
+          deleteLiveDocumentsForPaper(userId, scope),
         ),
       );
     }
@@ -256,7 +261,14 @@ export default function EditorPage() {
   }, []);
 
   const searchParams = useSearchParams();
-  const paperId = searchParams.get("paperId");
+  // The URL must only ever carry a BASE paper id. A set suffix reaching it
+  // (via a live document written before this normalisation, or a hand-edited
+  // link) would be re-suffixed on every render pass and autosave would PUT a
+  // non-existent "{id}_A_A" row. Strip it here and heal the URL below.
+  const rawPaperIdParam = searchParams.get("paperId");
+  const paperId = rawPaperIdParam
+    ? basePaperId(rawPaperIdParam) ?? DRAFT_PAPER_ID
+    : null;
   const isNew = searchParams.get("new") === "true";
   const actionParam = searchParams.get("action"); // e.g. "export-pdf" | "export-docx"
   // exportTypeParam lets the question-bank page signal that an answer script is being exported.
@@ -264,6 +276,15 @@ export default function EditorPage() {
     | "question_paper"
     | "answer_script"
     | "question_bank";
+
+  // Heal a URL that already carries a set suffix (written by a live document
+  // saved before the suffix leak was fixed). Left alone it keeps growing a
+  // suffix per visit and every autosave 404s.
+  useEffect(() => {
+    if (rawPaperIdParam && paperId && rawPaperIdParam !== paperId) {
+      router.replace(`/editor?paperId=${paperId}`);
+    }
+  }, [rawPaperIdParam, paperId, router]);
 
   // Deep-link to a specific set (A/B/C) from the Papers page's per-set
   // Preview / Export / Print actions. Only re-applies on an actual navigation
@@ -351,7 +372,8 @@ export default function EditorPage() {
       router.replace(url.pathname + url.search);
     }, IMPORT_TIMEOUT);
     return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Deliberately narrow deps: this fires an export/print once, then strips
+    // `action` from the URL so it cannot re-trigger.
   }, [actionParam, paperLoading, paperError]);
 
   const [resumeDoc, setResumeDoc] = useState<any>(null);
@@ -400,11 +422,10 @@ export default function EditorPage() {
         // "Resume previous paper?" prompt when the latest doc was
         // written in a different session.
         if (latestDoc.sessionId && latestDoc.sessionId === browserSessionId) {
-          if (latestDoc.paperId) {
-            router.replace(`/editor?paperId=${latestDoc.paperId}`);
-          } else {
-            router.replace(`/editor?paperId=current`);
-          }
+          // Older live documents stored the composed "{id}_A" form here.
+          router.replace(
+            `/editor?paperId=${basePaperId(latestDoc.paperId) ?? DRAFT_PAPER_ID}`,
+          );
           setCheckedResume(true);
           return;
         }
@@ -431,13 +452,11 @@ export default function EditorPage() {
   const handleContinueEditing = () => {
     setShowResumePrompt(false);
     if (resumeDoc) {
-      if (resumeDoc.paperId) {
-        router.replace(`/editor?paperId=${resumeDoc.paperId}`);
-      } else {
-        // No backend paper id yet — load the local "current" draft, which
-        // the editor's load effect rehydrates from IndexedDB.
-        router.replace(`/editor?paperId=current`);
-      }
+      // A null/`current` id means there is no backend row yet — the editor's
+      // load effect rehydrates the local draft from IndexedDB.
+      router.replace(
+        `/editor?paperId=${basePaperId(resumeDoc.paperId) ?? DRAFT_PAPER_ID}`,
+      );
     }
   };
 
@@ -505,9 +524,15 @@ export default function EditorPage() {
         const userId = sessionData?.user?.id;
         if (!userId) return;
         try {
-          const draft = await getLiveDocument(
-            getLiveDocumentId(userId, paperId),
-          );
+          // The editor writes one draft per set tab under "{id}_A|B|C"; the
+          // un-suffixed key only exists for pre-set-tabs drafts. Read the
+          // legacy key first, then Set A, so the page still recovers the
+          // draft's title/class/subject instead of showing "Unsaved Draft".
+          const draft =
+            (await getLiveDocument(getLiveDocumentId(userId, paperId))) ??
+            (await getLiveDocument(
+              getLiveDocumentId(userId, withSetSuffix(paperId, "A")),
+            ));
           if (draft && active) {
             setPaperContent(
               draft.editorJSON ? JSON.stringify(draft.editorJSON) : "",
@@ -607,9 +632,7 @@ export default function EditorPage() {
 
           const userId = sessionData?.user?.id;
           if (userId && paperId) {
-            deleteLiveDocument(getLiveDocumentId(userId, paperId)).catch(
-              (err) => console.error("Failed to delete stale autosave:", err),
-            );
+            deleteLiveDocumentsForPaper(userId, paperId);
           }
         } else {
           setPaperError("Failed to load paper. Please try again.");
@@ -697,14 +720,20 @@ export default function EditorPage() {
           if (labelNormalized === activeSetTab) {
              setContent = contentToSave;
           } else {
-             const draftId = getLiveDocumentId(sessionData?.user?.id || "", currentPaperId ? `${currentPaperId}_${labelNormalized}` : `current_${labelNormalized}`);
+             // withSetSuffix, not string concatenation: composing inline is
+             // what let the suffix compound into "{id}_A_A" and 404 autosave.
+             const draftId = getLiveDocumentId(
+               sessionData?.user?.id || "",
+               withSetSuffix(currentPaperId, labelNormalized),
+             );
              const draft = await getLiveDocument(draftId);
              if (draft && draft.editorJSON) {
                setContent = JSON.stringify(draft.editorJSON);
              } else {
-               setContent = typeof s.result !== "undefined" ? 
+               const raw = typeof s.result !== "undefined" ? 
                   (typeof s.result === "string" ? s.result : JSON.stringify(s.result)) : 
                   s.content;
+               setContent = JSON.stringify(normalizeInitialContent(raw));
              }
           }
           
@@ -979,8 +1008,20 @@ export default function EditorPage() {
         })()}
 
         <TiptapEditor
-          key={`${editorInstanceKey}-${activeSetTab}`}
+          // `approvedAt` is part of the key so approving a NEW generation
+          // remounts the editor. Without it the tab keeps the previous
+          // paper's document and the approval appears to do nothing.
+          key={`${editorInstanceKey}-${activeSetTab}-${approvedAt}`}
           initialContent={(() => {
+            // An approved set is the authority for its tab — including Set A,
+            // which previously had no path from a generation into the editor
+            // except the manual "Insert set" button.
+            const approved = approvedSets?.[activeSetTab];
+            if (approved) {
+              return typeof approved === "string"
+                ? approved
+                : JSON.stringify(approved);
+            }
             const activeSets = comparisonSets.length > 0 ? comparisonSets : loadedSets;
             if (activeSets.length > 0 && activeSetTab !== "A") {
               const activeSet = activeSets.find((s: any) => s.label.replace("Set ", "") === activeSetTab);
@@ -992,7 +1033,12 @@ export default function EditorPage() {
             }
             return paperContent;
           })()}
-          paperId={currentPaperId ? `${currentPaperId}_${activeSetTab}` : `current_${activeSetTab}`}
+          paperId={withSetSuffix(currentPaperId, activeSetTab)}
+          // Approving is an explicit "use this paper" instruction, so it has to
+          // beat the IndexedDB draft the tab may already hold from an earlier
+          // generation. Anything else and a second approval silently no-ops.
+          forceInitialContent={Boolean(approvedSets?.[activeSetTab])}
+          contentVersion={approvedAt}
           serverUpdatedAt={paperUpdatedAt}
           paperMetadata={{
             examName: paperExamName,
