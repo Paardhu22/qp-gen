@@ -3,6 +3,7 @@ from typing import List, Optional
 from django.db import transaction
 
 from apps.projects.models import Project, Question, Paper
+from apps.projects.question_types import resolve_type_code
 
 
 def list_projects_for_user(user) -> List[Project]:
@@ -111,9 +112,7 @@ def save_paper_to_project(
             paper.question_pool_id = question_pool_id
             paper.project = project
             paper.save()
-            
-            # Replace sets
-            paper.sets.all().delete()
+
             # Replace questions
             paper.questions.all().delete()
         else:
@@ -129,29 +128,70 @@ def save_paper_to_project(
                 user=user,
             )
 
-        # Create Paper Sets
-        set_objects = []
+        # ── Paper Sets: upsert by label, never delete-and-recreate ──────────
+        #
+        # This used to be `paper.sets.all().delete()` followed by a bulk
+        # create, which had two consequences on a paper that has more than
+        # one set:
+        #
+        #   1. Editor autosave sends ONLY Set A (updatePaperAction wraps the
+        #      current document into a lone Set A when no `sets` are given),
+        #      so the first keystroke on a multi-set paper silently destroyed
+        #      Sets B and C.
+        #   2. Every save minted new PaperSet ids, discarding each set's
+        #      s3_pdf_key / s3_docx_key / s3_content_key. Previously exported
+        #      PDFs became unreachable and their S3 objects orphaned.
+        #
+        # Upserting on the normalised label keeps ids — and therefore export
+        # keys — stable, and leaves sets the payload does not mention alone.
+        # Removing a set is not something the UI offers, so absence means
+        # "not included in this save", never "delete me".
+        def _norm(label: str) -> str:
+            return (label or "").strip().upper().removeprefix("SET ").strip()
+
+        existing = {_norm(s.label): s for s in paper.sets.all()}
         for set_data in sets:
-            set_objects.append(
-                PaperSet(
+            label = set_data.get("label", "Set")
+            paper_set = existing.get(_norm(label))
+            if paper_set is None:
+                PaperSet.objects.create(
                     paper=paper,
-                    label=set_data.get("label", "Set"),
+                    label=label,
                     order=set_data.get("order", 1),
                     content=set_data.get("content", ""),
                     answers=set_data.get("answers", ""),
                     metadata=set_data.get("metadata", {}),
                 )
+                continue
+            paper_set.label = label
+            paper_set.order = set_data.get("order", 1)
+            paper_set.content = set_data.get("content", "")
+            paper_set.answers = set_data.get("answers", "")
+            paper_set.metadata = set_data.get("metadata", {})
+            paper_set.save(
+                update_fields=[
+                    "label",
+                    "order",
+                    "content",
+                    "answers",
+                    "metadata",
+                    "updated_at",
+                ]
             )
-        
-        if set_objects:
-            PaperSet.objects.bulk_create(set_objects)
 
         if questions:
             question_objects = [
                 Question(
                     content=q.get("content", ""),
                     answer=q.get("answer") or None,
-                    type=q.get("type") or "short",
+                    # `type` is a FK to QuestionType. Assigning the raw string
+                    # raises ValueError ("must be a QuestionType instance") the
+                    # moment a caller sends a non-empty `questions` list, so
+                    # set the id side of the relation. Unlike the questions
+                    # endpoint this payload is a bare DictField — nothing has
+                    # canonicalised the code — so resolve it here or an alias
+                    # ("short", "MCQ") becomes a foreign-key violation.
+                    type_id=resolve_type_code(q.get("type")),
                     marks=int(q.get("marks") or 1),
                     options=q.get("options") or [],
                     project=project,
