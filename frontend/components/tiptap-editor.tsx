@@ -50,7 +50,15 @@ import {
   ensurePageDocument,
   extractPagesFromDoc,
 } from "./editor/pagination-utils";
+// Block mapping lives in one module so the three insertion paths (initial
+// content for Sets B/C, live auto-insert, section insert) cannot drift apart.
+import {
+  buildInlineRun,
+  buildQuestionBlocks,
+  buildQuestionContentNodes,
+} from "./editor/question-nodes";
 
+import { isEnglishSubject } from "@/lib/subject";
 import { useEditorStore } from "@/store/editor-store";
 import { useEffect, useState, useMemo, useRef, memo } from "react";
 import debounce from "lodash.debounce";
@@ -61,6 +69,13 @@ import {
   saveLiveDocument,
   type LiveEditorDocument,
 } from "@/lib/live-document-db";
+import {
+  basePaperId,
+  splitPaperId,
+  withSetSuffix,
+  persistablePaperId,
+  DRAFT_PAPER_ID,
+} from "@/lib/paper-id";
 import { useSession } from "@/lib/auth-client";
 import { updatePaperAction } from "@/actions/savePaper";
 import { SyncCancelledError } from "@/lib/api-client";
@@ -398,7 +413,7 @@ function createEmptyDocument() {
   };
 }
 
-function normalizeInitialContent(rawContent: string | undefined) {
+export function normalizeInitialContent(rawContent: string | undefined) {
   if (rawContent === undefined) return createEmptyDocument();
 
   const trimmed = rawContent.trim();
@@ -428,28 +443,7 @@ function normalizeInitialContent(rawContent: string | undefined) {
           });
         }
         (section.questions || []).forEach((q: any) => {
-          const questionContent: any[] = buildQuestionContentNodes(q.content);
-          const figureNode = buildFigureNode(q.image_url);
-          if (figureNode) {
-            questionContent.push(figureNode);
-          }
-          if (q.type !== "TF" && q.options && q.options.length > 0) {
-            questionContent.push({
-              type: "orderedList",
-              content: q.options.map((opt: string) => ({
-                type: "listItem",
-                content: [{ type: "paragraph", content: buildInlineRun(opt) }],
-              })),
-            });
-          }
-          pageContent.push({
-            type: "questionBlock",
-            attrs: {
-              marks: q.marks || 1,
-              questionType: q.type || (q.options && q.options.length > 0 ? "MCQ" : "SHORT"),
-            },
-            content: questionContent,
-          });
+          pageContent.push(...buildQuestionBlocks(q));
         });
       });
       if (pageContent.length === 0) pageContent.push({ type: "paragraph" });
@@ -549,111 +543,6 @@ function scrollToDocumentPosition(editor: any, position: number) {
   });
 }
 
-// LaTeX delimiter contract (matches the LLM prompt directive in
-// generation_router.py): inline math = \( ... \), display math = \[ ... \].
-// $...$ is also accepted as a tolerant fallback because the editor's existing
-// `$x$` InputRule already trained users on it; we transform it into the same
-// inlineMath node so the rendered output is consistent.
-//
-// Display ( \[ ... \] ) becomes its own ProseMirror block (mathBlock); inline
-// occurrences are spliced into the surrounding paragraph as inlineMath atoms.
-// Without this, raw "\( ... \)" survived to the rendered question stem as
-// literal backslashes — which was the bug teachers reported.
-const DISPLAY_MATH_RE = /\\\[([\s\S]+?)\\\]/g;
-const INLINE_MATH_RE = /\\\(([\s\S]+?)\\\)|\$([^\n$]+?)\$/g;
-
-function buildInlineRun(text: string): any[] {
-  const out: any[] = [];
-  let cursor = 0;
-  INLINE_MATH_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = INLINE_MATH_RE.exec(text))) {
-    if (m.index > cursor) {
-      out.push({ type: "text", text: text.slice(cursor, m.index) });
-    }
-    const latex = (m[1] ?? m[2] ?? "").trim();
-    if (latex) {
-      out.push({ type: "inlineMath", attrs: { latex } });
-    }
-    cursor = m.index + m[0].length;
-  }
-  if (cursor < text.length) {
-    out.push({ type: "text", text: text.slice(cursor) });
-  }
-  return out.length > 0 ? out : [{ type: "text", text }];
-}
-
-function buildQuestionContentNodes(content: string) {
-  const raw = String(content || "");
-  if (!raw.trim()) {
-    return [{ type: "paragraph" }];
-  }
-
-  // First split out display-math segments as standalone block nodes; the
-  // remaining string is processed paragraph-by-paragraph with inline math.
-  const blocks: any[] = [];
-  let cursor = 0;
-  DISPLAY_MATH_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = DISPLAY_MATH_RE.exec(raw))) {
-    if (m.index > cursor) {
-      const chunk = raw.slice(cursor, m.index);
-      pushTextBlocks(chunk, blocks);
-    }
-    const latex = (m[1] ?? "").trim();
-    if (latex) {
-      blocks.push({ type: "mathBlock", attrs: { latex, displayMode: true } });
-    }
-    cursor = m.index + m[0].length;
-  }
-  if (cursor < raw.length) {
-    pushTextBlocks(raw.slice(cursor), blocks);
-  }
-
-  return blocks.length > 0 ? blocks : [{ type: "paragraph" }];
-}
-
-function pushTextBlocks(chunk: string, blocks: any[]) {
-  const lines = chunk.split(/\n{2,}|\n/).map((l) => l.trim()).filter(Boolean);
-  for (const line of lines) {
-    blocks.push({ type: "paragraph", content: buildInlineRun(line) });
-  }
-}
-
-// Insertion guard for generated figures. We accept ONLY a `data:` URL (the
-// validated inline-SVG figure pipeline emits these) or an absolute http(s)://
-// URL. Relative paths are also accepted because the FloatImage NodeView
-// resolves them against the Django origin at render time. Any other shape
-// (blank, "null"/"undefined" literals, hallucinated URLs the backend already
-// rejected) produces an empty src that renders as a broken-image icon — in
-// that case we skip the floatImage entirely and let the question stem speak
-// for itself, matching the backend's "text-self-contained on retry" contract.
-function buildFigureNode(imageUrl: string | undefined | null) {
-  const src = String(imageUrl || "").trim();
-  if (!src) return null;
-  const lower = src.toLowerCase();
-  if (lower === "null" || lower === "undefined") return null;
-  const isUsable =
-    src.startsWith("data:") ||
-    src.startsWith("http://") ||
-    src.startsWith("https://") ||
-    src.startsWith("/");
-  if (!isUsable) return null;
-  return {
-    type: "floatImage",
-    attrs: {
-      src,
-      // Alt is intentionally empty: the previous "Question visual"
-      // literal was the broken-image-icon caption users saw when an
-      // intermittently-failing src didn't load. The figure is decorative
-      // alongside a text-self-contained stem, so no alt is the safe
-      // default. (Screen readers read the stem itself.)
-      alt: "",
-      width: 320,
-      align: "center",
-    },
-  };
-}
 
 // ==================================
 // Main Editor Component
@@ -667,6 +556,22 @@ type TiptapEditorProps = {
   uploadedDocs?: { id: string; name: string; size: number }[];
   onPaperCreatedAction?: (paperId: string) => void;
   exportType?: "question_paper" | "answer_script" | "question_bank";
+  /**
+   * Load `initialContent` even when an IndexedDB draft exists for this paper.
+   *
+   * The draft normally wins — that is what makes a reload keep your edits.
+   * But an approved generation is an explicit "use this paper" instruction
+   * from the teacher, and the tab it targets usually already holds a draft
+   * from the PREVIOUS generation. Without this flag the second approval of a
+   * given tab silently does nothing.
+   */
+  forceInitialContent?: boolean;
+  /**
+   * Changes whenever `initialContent` is authoritatively replaced (the
+   * approval timestamp). Folded into the load key so the same JSON approved
+   * twice still triggers a reload.
+   */
+  contentVersion?: number;
 };
 
 export const TiptapEditor = ({
@@ -678,6 +583,8 @@ export const TiptapEditor = ({
   uploadedDocs,
   onPaperCreatedAction,
   exportType = "question_paper",
+  forceInitialContent = false,
+  contentVersion = 0,
 }: TiptapEditorProps) => {
   const [isClient, setIsClient] = useState(false);
   const template = useEditorStore((state) => state.template);
@@ -830,9 +737,13 @@ export const TiptapEditor = ({
             const effectiveClassName = metadata.className || generatorCtx.className || "";
             const effectiveSubject = metadata.subject || generatorCtx.subject || "";
             const liveDocument: LiveEditorDocument = {
+              // Keyed by the COMPOSED id so each set tab keeps its own draft…
               id: getLiveDocumentId(currentUserId, currentPaperId),
               userId: currentUserId,
-              paperId: currentPaperId,
+              // …but the stored id is the BASE row id, because this field is
+              // what the resume flow puts back into `?paperId=`. Storing the
+              // composed id there made the suffix compound on every visit.
+              paperId: persistablePaperId(currentPaperId),
               title: metadata.title,
               template,
               editorJSON,
@@ -876,15 +787,12 @@ export const TiptapEditor = ({
               // them here (updatePaperAction wraps content into a lone Set A)
               // would 404 on the non-existent "{id}_B" row AND clobber Set A.
               // A bare id with no suffix (legacy) syncs as-is.
-              let syncedPaperId: string | null = null;
-              if (currentPaperId) {
-                const m = currentPaperId.match(/^(.*)_([ABC])$/);
-                const base = m ? m[1] : currentPaperId;
-                const setLabel = m ? m[2] : "A";
-                if (base && base !== "current" && setLabel === "A") {
-                  syncedPaperId = base;
-                }
-              }
+              const { base: syncBase, set: syncSet } =
+                splitPaperId(currentPaperId);
+              const syncedPaperId =
+                syncBase && syncBase !== DRAFT_PAPER_ID && (syncSet ?? "A") === "A"
+                  ? syncBase
+                  : null;
               if (syncedPaperId) {
                 await updatePaperAction(
                   syncedPaperId,
@@ -1274,7 +1182,7 @@ export const TiptapEditor = ({
     const currentUserId = sessionData?.user?.id;
     if (!currentUserId) return;
 
-    const loadKey = `${currentUserId}:${paperId ?? "current"}:${serverUpdatedAt ?? "local"}:${initialContent}`;
+    const loadKey = `${currentUserId}:${paperId ?? "current"}:${serverUpdatedAt ?? "local"}:${contentVersion}:${initialContent}`;
     if (lastLoadedContentRef.current === loadKey) return;
     lastLoadedContentRef.current = loadKey;
     // Mark document as NOT loaded while the async IDB fetch is in flight.
@@ -1291,35 +1199,87 @@ export const TiptapEditor = ({
       let contentToLoad = normalizeInitialContent(initialContent ?? "");
       let liveDocument: LiveEditorDocument | null = null;
 
+      // An approved generation replaces the tab's document outright. Skipping
+      // the IndexedDB read (rather than reading it and ignoring it) also stops
+      // the stale draft from being re-adopted by the `paperId` reconciliation
+      // below.
+      if (forceInitialContent) {
+        queueMicrotask(() => {
+          if (cancelled || editor.isDestroyed) return;
+          editor.commands.setContent(contentToLoad, { emitUpdate: false });
+          const pages = extractPagesFromDoc(editor.state.doc);
+          setPages(pages);
+          setEditorContent(
+            JSON.stringify(
+              buildPersistedPaperContent({
+                editorJSON: editor.getJSON(),
+                pages,
+                template,
+                metadata: paperMetadataRef.current,
+                updatedAt: Date.now(),
+              }),
+            ),
+          );
+          updateSectionSummaries(editor);
+          updateQuestionNumbers(editor);
+          setSaveState(
+            typeof navigator !== "undefined" && !navigator.onLine
+              ? "offline"
+              : "saved",
+          );
+          documentLoadedRef.current = true;
+          setDocumentLoadedSignal((s) => s + 1);
+          // Persist immediately so the approved paper survives a reload even
+          // if the teacher never types.
+          debouncedLiveSync(editor);
+          debouncedLiveSync.flush();
+        });
+        return;
+      }
+
+      const { base: currentBase, set: currentSet } = splitPaperId(currentPaperId);
+
       try {
         if (currentPaperId) {
           liveDocument = await getLiveDocument(getLiveDocumentId(currentUserId, currentPaperId));
-          // Fallback to old format (e.g., current_A -> current, paper123_A -> paper123)
-          if (!liveDocument && currentPaperId.endsWith("_A")) {
-             const fallbackId = currentPaperId.replace(/_A$/, "");
-             liveDocument = await getLiveDocument(getLiveDocumentId(currentUserId, fallbackId));
+          // Fallback to the pre-set-tabs key (e.g. current_A -> current,
+          // paper123_A -> paper123), which only Set A may adopt.
+          if (!liveDocument && currentBase && (currentSet ?? "A") === "A") {
+            liveDocument = await getLiveDocument(
+              getLiveDocumentId(currentUserId, currentBase),
+            );
           }
         }
       } catch (error) {
         console.error("Failed to load live editor state:", error);
       }
 
+      // A draft is adoptable when it belongs to this tab's paper — either it
+      // was written for this exact id, or it predates the per-set keys and
+      // carries the base id (Set A only, handled by the fallback read above).
+      const draftBase = basePaperId(liveDocument?.paperId);
+      const draftMatchesTab =
+        !currentBase ||
+        currentBase === DRAFT_PAPER_ID ||
+        !draftBase ||
+        draftBase === currentBase;
+
       if (
         liveDocument &&
-        (currentPaperId === "current" ||
-          currentPaperId?.endsWith("_A") ||
-          !currentPaperId ||
-          liveDocument.paperId === currentPaperId ||
-          liveDocument.paperId === currentPaperId.replace(/_A$/, "")) &&
+        draftMatchesTab &&
         (!currentPaperId || liveDocument.updatedAt >= serverUpdatedTime)
       ) {
         contentToLoad = ensurePageDocument(liveDocument.editorJSON);
-        if (currentPaperId === "current" && liveDocument.paperId) {
-          paperIdRef.current = liveDocument.paperId;
-          onPaperCreatedRef.current?.(liveDocument.paperId);
-        } else if (!currentPaperId && liveDocument.paperId) {
-          paperIdRef.current = liveDocument.paperId;
-          onPaperCreatedRef.current?.(liveDocument.paperId);
+        // The draft knows about a backend row this tab doesn't (the paper was
+        // saved in a previous session): adopt its id and tell the page so the
+        // URL and autosave target the real row.
+        if (
+          (!currentBase || currentBase === DRAFT_PAPER_ID) &&
+          draftBase &&
+          draftBase !== DRAFT_PAPER_ID
+        ) {
+          paperIdRef.current = withSetSuffix(draftBase, currentSet ?? "A");
+          onPaperCreatedRef.current?.(draftBase);
         }
       }
 
@@ -1365,6 +1325,8 @@ export const TiptapEditor = ({
   }, [
     editor,
     initialContent,
+    contentVersion,
+    forceInitialContent,
     paperId,
     serverUpdatedAt,
     sessionData?.user?.id,
@@ -1372,6 +1334,7 @@ export const TiptapEditor = ({
     setPages,
     setSaveState,
     template,
+    debouncedLiveSync,
   ]);
 
   useEffect(() => {
@@ -1413,43 +1376,7 @@ export const TiptapEditor = ({
     const questions = [...questionsToAppend];
     clearQuestionsToAppend();
 
-    const contentToInsert: any[] = [];
-    questions.forEach((q) => {
-      const questionContent: any[] = buildQuestionContentNodes(q.content);
-
-      const figureNode = buildFigureNode(q.image_url);
-      if (figureNode) {
-        questionContent.push(figureNode);
-      }
-
-      if (q.type !== "TF" && q.options && q.options.length > 0) {
-        questionContent.push({
-          type: "orderedList",
-          content: q.options.map((opt: string) => ({
-            type: "listItem",
-            content: [
-              {
-                type: "paragraph",
-                // Same LaTeX pass as question stems and the section-insert
-                // path below: a raw text node leaves \(\tfrac{11}{36}\)
-                // unrendered in options inserted via live auto-insert.
-                content: buildInlineRun(opt),
-              },
-            ],
-          })),
-        });
-      }
-
-      contentToInsert.push({
-        type: "questionBlock",
-        attrs: {
-          marks: q.marks || 1,
-          questionType:
-            q.type || (q.options && q.options.length > 0 ? "MCQ" : "SHORT"),
-        },
-        content: questionContent,
-      });
-    });
+    const contentToInsert: any[] = questions.flatMap((q) => buildQuestionBlocks(q));
 
     queueMicrotask(() => {
       if (editor.isDestroyed) return;
@@ -1512,45 +1439,7 @@ export const TiptapEditor = ({
 
       // Insert each question in this section
       section.questions.forEach((q) => {
-        const questionContent: any[] = buildQuestionContentNodes(q.content);
-
-        const figureNode = buildFigureNode(q.image_url);
-        if (figureNode) {
-          questionContent.push(figureNode);
-        }
-
-        if (q.type !== "TF" && q.options && q.options.length > 0) {
-          questionContent.push({
-            type: "orderedList",
-            content: q.options.map((opt: string) => ({
-              type: "listItem",
-              content: [
-                {
-                  type: "paragraph",
-                  // Bug 1 fix: MCQ options used to wrap raw text in a single
-                  // { type: "text", text: opt } node. Any LaTeX delimiters
-                  // (\(\tfrac{11}{36}\), \(\dfrac{7}{25}\), \(x^2 - 5x +
-                  // 6 = 0\)) survived to the rendered DOM as literal
-                  // backslashes, which then made it into the PDF rasterizer
-                  // unchanged. Reuse buildInlineRun so math in options gets
-                  // the same inlineMath KaTeX node treatment that question
-                  // stems already enjoy.
-                  content: buildInlineRun(opt),
-                },
-              ],
-            })),
-          });
-        }
-
-        contentToInsert.push({
-          type: "questionBlock",
-          attrs: {
-            marks: q.marks || 1,
-            questionType:
-              q.type || (q.options && q.options.length > 0 ? "MCQ" : "SHORT"),
-          },
-          content: questionContent,
-        });
+        contentToInsert.push(...buildQuestionBlocks(q));
       });
     });
 
@@ -1646,7 +1535,11 @@ export const TiptapEditor = ({
           onClose={() => setShowFindReplace(false)}
         />
       )}
-      <div className="flex-1 overflow-auto overscroll-contain custom-scrollbar bg-transparent print:p-0">
+      <div
+        className={`flex-1 overflow-auto overscroll-contain custom-scrollbar bg-transparent print:p-0${
+          isEnglishSubject(paperMetadata?.subject) ? " is-english-paper" : ""
+        }`}
+      >
         <EditorContent editor={editor} className="h-full pb-32" />
       </div>
       {editor && <StatusBar editor={editor} />}

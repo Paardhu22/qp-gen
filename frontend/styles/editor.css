@@ -55,6 +55,29 @@
           min-height: 0;
         }
 
+        /* ── Read-only preview (question bank) ───────────────────────────
+           A page node is a fixed 1123px box with `overflow: hidden`, which is
+           correct in the editor because the pagination engine guarantees the
+           content fits. The preview runs no pagination engine, so it renders
+           whatever is stored — and a set saved without ever being opened in
+           its editor tab is stored as ONE page holding the entire paper.
+           Clipping that shows the first page's worth and silently discards the
+           rest, which is what made Set B look broken while Set A (saved from
+           the live, paginated editor) looked fine.
+
+           A preview page therefore grows to fit. Correctly paginated content
+           is unaffected: min-height still holds every page at full A4, so a
+           normal paper looks identical. */
+        .paper-preview-scroll .document-editor .doc-page {
+          height: auto;
+          overflow: visible;
+        }
+
+        .paper-preview-scroll .document-editor .doc-page-content {
+          height: auto;
+          overflow: visible;
+        }
+
         .document-editor img,
         .ProseMirror img {
           max-width: 100%;
@@ -447,6 +470,41 @@
           border-left: 1px solid #000000;
         }
 
+        /* ── English papers ──────────────────────────────────────────────
+           Reading and grammar tasks print as flowing prose in the CBSE
+           paper, not in the ruled grid the other subjects use.
+
+           The grid is also what would make a composite look broken now
+           that its passage and sub-questions are page-level siblings (see
+           `buildQuestionBlocks`): only the head block sits in a
+           `.question-row`, so a ruled box drawn around that single line
+           with the passage bare underneath reads as a mistake. Dropping
+           the rules and letting the row collapse to its content lets the
+           whole run read as one continuous task, with the number hanging
+           beside it the way the reference paper prints it. */
+        .is-english-paper .question-row {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+          border: none;
+        }
+
+        .is-english-paper .question-cell {
+          padding: 6px 0;
+        }
+
+        .is-english-paper .question-cell + .question-cell {
+          border-left: none;
+        }
+
+        .is-english-paper .question-body {
+          flex: 1;
+        }
+
+        .is-english-paper .question-marks {
+          margin-left: auto;
+        }
+
         .question-no {
           text-align: center;
           font-weight: 700;
@@ -513,7 +571,8 @@
           opacity: 1;
         }
 
-        .question-delete {
+        .question-delete,
+        .question-replace {
           border: 1px solid #000000;
           background: #ffffff;
           color: #000000;
@@ -524,6 +583,13 @@
           display: flex;
           align-items: center;
           justify-content: center;
+        }
+
+        /* Replace regenerates only this slot, so it is visually distinct from
+           the destructive delete sitting next to it. */
+        .question-replace:disabled {
+          opacity: 0.6;
+          cursor: progress;
         }
 
         .question-add-sub {

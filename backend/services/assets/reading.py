@@ -282,6 +282,9 @@ class ReadingAssetGenerator(AssetGenerator):
                 "passageWordCount": asset.word_count,
                 "paragraphCount": len(asset.paragraphs),
                 "subQuestionCount": len(asset.questions),
+                # The same text as `question`, handed over unglued so the editor
+                # can lay each piece out as its own page-level block.
+                "composite": asset.composite_parts(),
             },
         )
 

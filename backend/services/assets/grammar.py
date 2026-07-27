@@ -323,6 +323,8 @@ class GrammarAssetGenerator(AssetGenerator):
                 "taskCount": len(task_set.tasks),
                 "attemptCount": task_set.attempt,
                 "grammarTopics": [t.grammar_topic for t in task_set.tasks],
+                # See `ReadingAssetGenerator._to_question`.
+                "composite": task_set.composite_parts(),
             },
         )
 
