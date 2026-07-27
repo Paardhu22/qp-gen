@@ -5,13 +5,134 @@ import {
   NodeViewContent,
 } from "@tiptap/react";
 import React, { useState } from "react";
-import { GripVertical, Trash, Plus } from "lucide-react";
+import { GripVertical, Trash, Plus, RefreshCw, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { ApiError, replaceQuestion } from "@/lib/api-client";
+import {
+  buildQuestionBlocks,
+  compositeRunSize,
+  isCompositeQuestionType,
+  parseSlotMeta,
+} from "@/components/editor/question-nodes";
 
 // ==========================================
 // QuestionBlock - Enhanced from QuestionItem
 // ==========================================
 
-const QuestionComponent = ({ node, updateAttributes, deleteNode, editor }: any) => {
+/**
+ * Swap ONE question block for a freshly resolved replacement.
+ *
+ * The node carries the blueprint slot it filled (`slotMeta`), so the backend
+ * can return a question of the same marks, type, section, chapter and
+ * generator. The replacement is written straight over this node's range —
+ * nothing else in the document is read or touched, which is the whole point:
+ * a teacher who dislikes question 7 should not have to regenerate the paper.
+ */
+async function replaceQuestionNode({
+  editor,
+  getPos,
+  node,
+  onBusy,
+}: {
+  editor: any;
+  getPos: () => number | undefined;
+  node: any;
+  onBusy: (busy: boolean) => void;
+}) {
+  const slot = parseSlotMeta(node.attrs?.slotMeta);
+  if (!slot) return;
+
+  // Every question already in the document, so the replacement is not one of
+  // them. Matching on the id the generator stamped keeps this exact even when
+  // two questions share a stem prefix.
+  const excludeIds: string[] = [];
+  editor.state.doc.descendants((child: any) => {
+    if (child.type?.name !== "questionBlock") return;
+    const meta = parseSlotMeta(child.attrs?.slotMeta);
+    if (meta?.questionId) excludeIds.push(String(meta.questionId));
+  });
+
+  onBusy(true);
+  try {
+    const { question, source } = await replaceQuestion(
+      {
+        slotIndex: Number(slot.slotIndex) || 0,
+        section: String(slot.section || ""),
+        marks: Number(node.attrs?.marks ?? slot.marks ?? 1),
+        type: String(slot.type || node.attrs?.questionType || "SHORT_ANSWER"),
+        generator: String(slot.generator || "question_pool"),
+        assetType: String(slot.assetType || ""),
+        chapter: String(slot.chapter || ""),
+        topic: String(slot.topic || ""),
+        difficulty: String(slot.difficulty || ""),
+        subject: String(slot.subject || ""),
+        poolId: String(slot.poolId || ""),
+        questionId: String(slot.questionId || ""),
+      },
+      { excludeIds },
+    );
+
+    const pos = getPos();
+    if (typeof pos !== "number") return;
+
+    const replacement = buildQuestionBlocks({
+      content: question.content,
+      type: question.type,
+      options: question.options,
+      answer: question.answer,
+      marks: question.marks,
+      image_url: question.image_url,
+      metadata: question.metadata,
+    });
+
+    // Preserve the printed number and any OR-branch label; those belong to the
+    // slot's position on the paper, not to the question that happens to be in
+    // it. Auto-numbering would fix the number on its next pass anyway, but not
+    // before the teacher sees it flicker. On a composite only the head block
+    // is numbered, so it is the one that inherits them.
+    replacement[0].attrs = {
+      ...replacement[0].attrs,
+      number: node.attrs?.number ?? null,
+      subLabel: node.attrs?.subLabel ?? null,
+    };
+
+    // A composite question occupies a run of sibling blocks rather than a
+    // single node, so the range being overwritten has to cover the run — drop
+    // only the head and the new passage lands underneath the old one. The
+    // extent is bounded by the next structural block, so anything a teacher
+    // typed after the following question is untouched; prose they typed
+    // between this composite's last sub-question and that block is not, which
+    // is the price of a run with no wrapper node to delimit it.
+    const $pos = editor.state.doc.resolve(pos);
+    const replacedSize = isCompositeQuestionType(node.attrs?.questionType)
+      ? compositeRunSize($pos.parent, $pos.index())
+      : node.nodeSize;
+
+    editor
+      .chain()
+      .focus()
+      .insertContentAt({ from: pos, to: pos + replacedSize }, replacement)
+      .run();
+
+    toast.success(
+      source === "bank"
+        ? "Swapped in another question from your bank."
+        : "Wrote a new question for this slot.",
+    );
+  } catch (error) {
+    const message =
+      error instanceof ApiError && error.status === 409
+        ? "No other question fits this slot yet. Generate more for this chapter first."
+        : error instanceof Error
+          ? error.message
+          : "Could not replace this question.";
+    toast.error(message);
+  } finally {
+    onBusy(false);
+  }
+}
+
+const QuestionComponent = ({ node, updateAttributes, deleteNode, editor, getPos }: any) => {
   // C — OR-branch labels ("31(A)") have no trailing dot; standalone
   // questions ("31.") do. subLabel wins when set.
   const subLabel = node.attrs.subLabel;
@@ -20,6 +141,12 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode, editor }: any) 
     : node.attrs.number
     ? `${node.attrs.number}.`
     : "";
+
+  // Replace is offered only on generated questions: a hand-written one has no
+  // blueprint slot to regenerate against.
+  const [replacing, setReplacing] = useState(false);
+  const canReplace = Boolean(parseSlotMeta(node.attrs?.slotMeta));
+
   return (
     <NodeViewWrapper className="question-block group">
       {editor?.isEditable && (
@@ -72,6 +199,28 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode, editor }: any) 
       </div>
       {editor?.isEditable && (
         <div className="question-controls" contentEditable={false}>
+          {canReplace && (
+            <button
+              onClick={() =>
+                replaceQuestionNode({
+                  editor,
+                  getPos,
+                  node,
+                  onBusy: setReplacing,
+                })
+              }
+              onMouseDown={(e) => e.preventDefault()}
+              disabled={replacing}
+              className="question-replace"
+              title="Replace this question — same marks, type and section"
+            >
+              {replacing ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3 h-3" />
+              )}
+            </button>
+          )}
           <button
             onClick={deleteNode}
             onMouseDown={(e) => e.preventDefault()}
@@ -108,6 +257,16 @@ export const QuestionBlock = Node.create({
       questionType: { default: "SHORT" },
       tags: { default: "" },
       aiGenerated: { default: false },
+      // Blueprint provenance for a generated question, as a JSON string:
+      // which slot it filled, its marks, type, section, chapter and which
+      // generator produced it. "Replace question" reads this to regenerate
+      // exactly this slot and nothing else. Empty for hand-written questions,
+      // which is what hides the Replace control on them.
+      //
+      // `renderHTML: () => ({})` suppresses the automatic camelCase attribute;
+      // it is emitted once, as `data-slot-meta`, by the node's own renderHTML.
+      // Without this the JSON blob appears twice in the serialised HTML.
+      slotMeta: { default: "", renderHTML: () => ({}) },
     };
   },
 
@@ -126,6 +285,8 @@ export const QuestionBlock = Node.create({
             marks: Number.isNaN(marks) ? 1 : marks,
             number: Number.isNaN(number) ? null : number,
             subLabel: subLabelAttr || null,
+            questionType: el.getAttribute("data-question-type") || "SHORT",
+            slotMeta: el.getAttribute("data-slot-meta") || "",
           };
         },
       },
@@ -141,6 +302,8 @@ export const QuestionBlock = Node.create({
         "data-marks": HTMLAttributes.marks ?? "",
         "data-number": HTMLAttributes.number ?? "",
         "data-sub-label": HTMLAttributes.subLabel ?? "",
+        "data-question-type": HTMLAttributes.questionType ?? "",
+        "data-slot-meta": HTMLAttributes.slotMeta ?? "",
       }),
       ["div", { class: "question-content" }, 0],
     ];

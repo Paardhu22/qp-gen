@@ -184,14 +184,34 @@ class ReadingAsset:
             metadata={},
         )
 
+    def composite_parts(self) -> Dict[str, Any]:
+        """The printed question split into independently paginatable pieces.
+
+        `render_question()` joins these back into the single string the paper
+        has always carried, so this is not a second rendering — it is the same
+        one, handed over unglued. The editor needs the seams: its pagination
+        engine breaks a page only *between* top-level blocks, never inside
+        one, so a passage delivered as a single block cannot flow onto the
+        next page and is clipped instead.
+        """
+        return {
+            "preamble": "Read the following passage.",
+            "body": [
+                f"{position}   {paragraph}"
+                for position, paragraph in enumerate(self.paragraphs, start=1)
+            ]
+            + [
+                f"(Created for academic usage / {self.word_count} words)",
+                "Answer the following questions, based on the passage above.",
+            ],
+            "subQuestions": [q.render(i) for i, q in enumerate(self.questions)],
+        }
+
     def render_question(self) -> str:
-        lines = ["Read the following passage."]
-        for position, paragraph in enumerate(self.paragraphs, start=1):
-            lines.append(f"{position}   {paragraph}")
-        lines.append(f"(Created for academic usage / {self.word_count} words)")
-        lines.append("Answer the following questions, based on the passage above.")
-        lines.extend(q.render(i) for i, q in enumerate(self.questions))
-        return "\n\n".join(lines)
+        parts = self.composite_parts()
+        return "\n\n".join(
+            [parts["preamble"], *parts["body"], *parts["subQuestions"]]
+        )
 
     def render_answer(self) -> str:
         return "\n".join(q.render_answer(i) for i, q in enumerate(self.questions))
@@ -290,12 +310,22 @@ class GrammarTaskSet:
     def total_marks(self) -> int:
         return self.attempt
 
+    def composite_parts(self) -> Dict[str, Any]:
+        """See `ReadingAsset.composite_parts` — same contract, no passage body."""
+        return {
+            "preamble": (
+                f"Complete any {self.attempt} of {len(self.tasks)} of the "
+                "following tasks, as directed."
+            ),
+            "body": [],
+            "subQuestions": [t.render(i) for i, t in enumerate(self.tasks)],
+        }
+
     def render_question(self) -> str:
-        head = (
-            f"Complete any {self.attempt} of {len(self.tasks)} of the following "
-            "tasks, as directed."
+        parts = self.composite_parts()
+        return "\n\n".join(
+            [parts["preamble"], *parts["body"], *parts["subQuestions"]]
         )
-        return "\n\n".join([head] + [t.render(i) for i, t in enumerate(self.tasks)])
 
     def render_answer(self) -> str:
         return "\n".join(t.render_answer(i) for i, t in enumerate(self.tasks))
