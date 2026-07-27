@@ -7,8 +7,22 @@ User=ubuntu
 Group=www-data
 WorkingDirectory=/home/ubuntu/qp-gen/backend
 EnvironmentFile=/home/ubuntu/qp-gen/backend/.env
-ExecStart=/home/ubuntu/qp-gen/backend/.venv/bin/gunicorn \
+# --worker-class gthread + --threads: a paper generation holds its worker for
+# minutes. With the default sync worker, 3 workers means 3 concurrent
+# generations before every other request queues behind them (including the
+# auth and paper-save calls the same page makes).
+#
+# --timeout 600: gunicorn kills a worker that has not returned within the
+# timeout, mid-stream, and the client gets a truncated SSE response with no
+# `done` event. The default is 30s — far shorter than any real generation.
+# Keep this ABOVE OPENAI_TIMEOUT_SECONDS (settings.py, default 120) so a hung
+# model call fails as a handled error rather than as a killed worker.
+ExecStart=/home/ubuntu/qp-gen/backend/venv/bin/gunicorn \
           --workers 3 \
+          --worker-class gthread \
+          --threads 4 \
+          --timeout 600 \
+          --graceful-timeout 30 \
           --bind unix:/run/qp-gen.sock \
           --access-logfile /home/ubuntu/qp-gen/backend/gunicorn-access.log \
           --error-logfile /home/ubuntu/qp-gen/backend/gunicorn-error.log \
