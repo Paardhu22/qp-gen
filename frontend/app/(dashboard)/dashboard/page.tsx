@@ -1,13 +1,19 @@
 "use client";
 
 /**
- * The dashboard is the assistant.
+ * The dashboard is a working surface, not a board of statistics.
  *
- * It replaced a Quick Start / Overview & Stats / Recent Papers board. The
- * generator form asks a teacher to answer eleven fields before it will do
- * anything; this asks them to say what they want and fills the form in for
- * them. When the requirements are settled the conversation hands off to the
- * real pipeline — the model here never writes a question itself.
+ * Two things happen here and they are deliberately the same thing. A teacher
+ * can ask the assistant anything — it is a general assistant and answers as
+ * one. When what they want is a paper, the conversation becomes a *session*:
+ * it grows a spec, asks its outstanding question as something you tap rather
+ * than type, and ends by running the real generation with the press check
+ * over it. A session can be parked and picked up later, because a teacher
+ * setting up a paper gets interrupted.
+ *
+ * The generation itself is untouched — this calls the same
+ * `/api/generation/questions/stream` the generator form does, and hands the
+ * result to the editor through the same store.
  */
 
 import * as React from "react";
@@ -17,7 +23,8 @@ import {
   ArrowRight,
   MessageSquarePlus,
   PanelLeft,
-  Sparkles,
+  Pause,
+  Play,
   Trash2,
 } from "lucide-react";
 
@@ -26,6 +33,12 @@ import {
   PromptTooltipProvider,
   type PromptAttachment,
 } from "@/components/ui/ai-prompt-box";
+import { FollowUpCard } from "@/components/dashboard/follow-up-card";
+import {
+  PressCheck,
+  type PressRow,
+  type PressStageId,
+} from "@/components/dashboard/press-check";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/store/editor-store";
@@ -34,37 +47,56 @@ import {
   deleteConversation,
   fetchConversation,
   fetchConversations,
+  setConversationStatus,
   streamChatMessage,
+  streamSse,
   uploadPdfSource,
+  waitForPdfSource,
   type ChatMessage,
   type Conversation,
+  type ConversationStatus,
+  type FollowUpPrompt,
   type PaperSpec,
 } from "@/lib/api-client";
+import { asStatusText, planSummaryLine } from "@/lib/plan-summary";
 
 const SUGGESTIONS = [
-  "I need a class 10 Science unit test on Light and Electricity.",
-  "Make me an 80-mark CBSE class 10 Maths board-pattern paper.",
-  "What does the class 10 English paper look like this year?",
-  "Build a 40-mark Social Science test, three parallel sets.",
+  "Make a class 10 Science unit test on Light.",
+  "What does the class 10 English paper look like?",
+  "Draft a note to parents about the term test.",
+  "Explain the CBSE competency-based question format.",
 ];
 
-const SPEC_LABELS: Array<[keyof PaperSpec, string]> = [
-  ["board", "Board"],
-  ["academicClass", "Class"],
-  ["subject", "Subject"],
-  ["marks", "Marks"],
-  ["difficulty", "Difficulty"],
-  ["numberOfQuestions", "Questions"],
-  ["numberOfSets", "Sets"],
-];
+// The pipeline's own stage names, mapped onto the press. `pool_progress` is a
+// tick inside `generating_pool`, not a stage of its own.
+const STAGE_MAP: Record<string, PressStageId> = {
+  reading_chapters: "reading_chapters",
+  generating_assets: "generating_pool",
+  generating_pool: "generating_pool",
+  pool_progress: "generating_pool",
+  assets_ready: "generating_pool",
+  assembling: "assembling",
+};
 
-function specValue(spec: PaperSpec, key: keyof PaperSpec): string {
-  const value = spec[key];
-  if (Array.isArray(value)) return value.join(", ");
-  return String(value ?? "");
+interface GenerationState {
+  running: boolean;
+  stage: PressStageId;
+  status: string;
+  rows: PressRow[];
+  plannedSlots?: number;
+  poolCount?: number;
+  sets: string[];
+  done: boolean;
 }
 
-// ── Message bubbles ─────────────────────────────────────────────────────
+const IDLE: GenerationState = {
+  running: false,
+  stage: "reading_chapters",
+  status: "",
+  rows: [],
+  sets: [],
+  done: false,
+};
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
@@ -73,14 +105,12 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       <div
         className={cn(
           "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-          isUser
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted text-foreground",
+          isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
         )}
       >
-        {/* Plain text, deliberately: the assistant is instructed to answer in
-            prose, and rendering model output as HTML would be an injection
-            surface for no gain. `whitespace-pre-wrap` keeps its line breaks. */}
+        {/* Plain text, deliberately: the assistant answers in prose, and
+            rendering model output as HTML would be an injection surface for
+            no gain. `whitespace-pre-wrap` keeps its line breaks. */}
         <p className="whitespace-pre-wrap break-words">{message.content}</p>
         {(message.attachments?.length ?? 0) > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -116,130 +146,211 @@ function TypingDots() {
   );
 }
 
-// ── Spec handoff card ───────────────────────────────────────────────────
+const SPEC_ROW: Array<[keyof PaperSpec, string]> = [
+  ["subject", "Subject"],
+  ["academicClass", "Class"],
+  ["board", "Board"],
+  ["marks", "Marks"],
+  ["difficulty", "Difficulty"],
+  ["numberOfSets", "Sets"],
+];
 
-function SpecCard({ spec, onGenerate }: { spec: PaperSpec; onGenerate: () => void }) {
-  const filled = SPEC_LABELS.filter(([key]) => specValue(spec, key));
-  const chapters = spec.chapters?.length ? spec.chapters.join(", ") : "";
-
+/** The session's state of play, always visible while one is open. */
+function SessionHeader({
+  spec,
+  sourceCount,
+  status,
+  onPause,
+  onResume,
+}: {
+  spec: PaperSpec;
+  sourceCount: number;
+  status: ConversationStatus;
+  onPause: () => void;
+  onResume: () => void;
+}) {
+  const paused = status === "paused";
   return (
-    <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4">
-      <div className="flex items-center gap-2">
-        <Sparkles className="h-4 w-4 text-primary" />
-        <h3 className="text-sm font-semibold">Ready to generate</h3>
-      </div>
-      <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
-        {filled.map(([key, label]) => (
-          <div key={key} className="flex items-baseline gap-1.5">
-            <dt className="text-xs text-muted-foreground">{label}</dt>
-            <dd className="font-medium">{specValue(spec, key)}</dd>
-          </div>
-        ))}
-        {chapters && (
-          <div className="flex items-baseline gap-1.5">
-            <dt className="text-xs text-muted-foreground">Chapters</dt>
-            <dd className="font-medium">{chapters}</dd>
-          </div>
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
+      <span className="flex items-center gap-1.5 text-xs font-medium">
+        Paper session
+      </span>
+
+      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
+        {SPEC_ROW.map(([key, label]) => {
+          const value = spec[key];
+          if (!value || Array.isArray(value)) return null;
+          return (
+            <span key={key} className="text-xs text-muted-foreground">
+              {label} <span className="text-foreground">{value}</span>
+            </span>
+          );
+        })}
+        {sourceCount > 0 && (
+          <span className="text-xs text-muted-foreground">
+            Sources <span className="text-foreground">{sourceCount}</span>
+          </span>
         )}
-      </dl>
-      <Button onClick={onGenerate} className="mt-4" size="sm">
-        Generate this paper
-        <ArrowRight className="ml-1.5 h-4 w-4" />
+      </div>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={paused ? onResume : onPause}
+        className="shrink-0"
+      >
+        {paused ? (
+          <>
+            <Play className="mr-1.5 h-3.5 w-3.5" />
+            Resume
+          </>
+        ) : (
+          <>
+            <Pause className="mr-1.5 h-3.5 w-3.5" />
+            Pause
+          </>
+        )}
       </Button>
     </div>
   );
 }
 
-// ── Page ────────────────────────────────────────────────────────────────
-
 export default function DashboardPage() {
   const router = useRouter();
+  const adoptGeneratedSets = useEditorStore((s) => s.adoptGeneratedSets);
   const setPaperSpecHandoff = useEditorStore((s) => s.setPaperSpecHandoff);
 
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [spec, setSpec] = React.useState<PaperSpec>({});
-  const [specReady, setSpecReady] = React.useState(false);
+  const [mode, setMode] = React.useState<"chat" | "paper">("chat");
+  const [status, setStatus] = React.useState<ConversationStatus>("active");
+  const [prompt, setPrompt] = React.useState<FollowUpPrompt | null>(null);
+  const [sourceIds, setSourceIds] = React.useState<string[]>([]);
+  const [canGenerate, setCanGenerate] = React.useState(false);
   const [streamingText, setStreamingText] = React.useState("");
   const [isStreaming, setIsStreaming] = React.useState(false);
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
+  const [generation, setGeneration] = React.useState<GenerationState>(IDLE);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
-  // Streaming writes on every token; a ref keeps the abort check out of the
-  // render path so an aborted turn stops appending immediately.
+  const attachRef = React.useRef<(() => void) | null>(null);
   const abortedRef = React.useRef(false);
 
   React.useEffect(() => {
     fetchConversations()
       .then(setConversations)
       .catch(() => {
-        /* An empty history is a valid first-run state, not an error to show. */
+        /* An empty history is a valid first run, not an error to report. */
       });
   }, []);
 
-  // Pin to the newest message as tokens arrive.
   React.useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, streamingText]);
+  }, [messages, streamingText, prompt]);
 
-  const loadConversation = React.useCallback(async (conversationId: string) => {
-    try {
-      const detail = await fetchConversation(conversationId);
-      setActiveId(detail.id);
-      setMessages(detail.messages || []);
-      setSpec(detail.spec || {});
-      setSpecReady(
-        Boolean(
-          detail.spec?.board &&
-            detail.spec?.academicClass &&
-            detail.spec?.subject &&
-            detail.spec?.marks,
-        ),
-      );
-      setSidebarOpen(false);
-    } catch {
-      toast.error("Could not open that conversation.");
-    }
-  }, []);
-
-  const startNewChat = React.useCallback(() => {
+  const startNewSession = React.useCallback(() => {
     setActiveId(null);
     setMessages([]);
     setSpec({});
-    setSpecReady(false);
+    setMode("chat");
+    setStatus("active");
+    setPrompt(null);
+    setSourceIds([]);
+    setCanGenerate(false);
     setStreamingText("");
+    setGeneration(IDLE);
     setSidebarOpen(false);
   }, []);
 
-  const handleDelete = React.useCallback(
-    async (conversationId: string) => {
+  const loadConversation = React.useCallback(async (id: string) => {
+    try {
+      const detail = await fetchConversation(id);
+      setActiveId(detail.id);
+      setMessages(detail.messages || []);
+      setSpec(detail.spec || {});
+      setMode(detail.mode);
+      setStatus(detail.status);
+      setPrompt(detail.next_prompt);
+      setSourceIds(detail.source_ids || []);
+      setCanGenerate(Boolean(detail.can_generate));
+      setGeneration(IDLE);
+      setSidebarOpen(false);
+    } catch {
+      toast.error("Could not open that session.");
+    }
+  }, []);
+
+  const changeStatus = React.useCallback(
+    async (next: ConversationStatus) => {
+      if (!activeId) return;
+      setStatus(next);
       try {
-        await deleteConversation(conversationId);
+        await setConversationStatus(activeId, next);
         setConversations((current) =>
-          current.filter((c) => c.id !== conversationId),
+          current.map((c) => (c.id === activeId ? { ...c, status: next } : c)),
         );
-        if (activeId === conversationId) startNewChat();
       } catch {
-        toast.error("Could not delete that conversation.");
+        toast.error("Could not update the session.");
       }
     },
-    [activeId, startNewChat],
+    [activeId],
+  );
+
+  const handleDelete = React.useCallback(
+    async (id: string) => {
+      try {
+        await deleteConversation(id);
+        setConversations((current) => current.filter((c) => c.id !== id));
+        if (activeId === id) startNewSession();
+      } catch {
+        toast.error("Could not delete that session.");
+      }
+    },
+    [activeId, startNewSession],
   );
 
   const handleAttach = React.useCallback(
     async (file: File): Promise<PromptAttachment | null> => {
-      if (file.type !== "application/pdf") {
-        toast.error("Only PDF files can be attached.");
+      // Not `file.type !== "application/pdf"`: browsers report an empty type
+      // for files dragged from some archives and file managers, and Windows
+      // occasionally reports "application/octet-stream" for a perfectly good
+      // PDF. The extension is the more reliable signal, and the backend
+      // validates the actual bytes regardless.
+      const looksLikePdf =
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf");
+      if (!looksLikePdf) {
+        toast.error(`${file.name} isn't a PDF.`);
         return null;
       }
+
+      const notice = toast.loading(`Reading ${file.name}…`);
       try {
-        const { pdfSourceId, warnings } = await uploadPdfSource(file);
+        const { pdfSourceId, status, warnings } = await uploadPdfSource(file);
         warnings?.forEach((w) => toast.warning(w, { duration: 8000 }));
+
+        // Ingestion runs on a worker thread, so the upload returning is not
+        // the same as the source being usable. Generation rejects one that
+        // is still processing, which would surface as a baffling failure
+        // several minutes later instead of here.
+        if (status !== "ready") {
+          await waitForPdfSource(pdfSourceId);
+        }
+
+        toast.success(`${file.name} is ready.`, { id: notice });
         return { id: pdfSourceId, name: file.name, size: file.size };
-      } catch {
-        toast.error("Could not upload that PDF.");
+      } catch (error: any) {
+        // The real reason, not a shrug. An upload can fail for a dozen
+        // reasons the teacher can act on — the file is encrypted, it is over
+        // the size limit, the session expired — and "Could not upload that
+        // PDF" hides every one of them.
+        toast.error(error?.message || `Could not upload ${file.name}.`, {
+          id: notice,
+          duration: 8000,
+        });
         return null;
       }
     },
@@ -258,23 +369,20 @@ export default function DashboardPage() {
           setActiveId(created.id);
           setConversations((current) => [created, ...current]);
         } catch {
-          toast.error("Could not start a conversation.");
+          toast.error("Could not start a session.");
           return;
         }
       }
 
-      // Optimistic: the teacher's own turn should appear the instant they
-      // send it, not a round trip later. The id is local-only and is replaced
-      // when the conversation is next loaded from the server.
+      // The teacher's turn appears the instant they send it. The id is local
+      // and is replaced when the conversation is next loaded.
       setMessages((current) => [
         ...current,
-        {
-          id: `local-${Date.now()}`,
-          role: "user",
-          content,
-          attachments,
-        },
+        { id: `local-${Date.now()}`, role: "user", content, attachments },
       ]);
+      // Retire the answered question immediately; the next one arrives with
+      // the reply. Leaving it up would let the teacher answer twice.
+      setPrompt(null);
       setIsStreaming(true);
       setStreamingText("");
 
@@ -291,7 +399,11 @@ export default function DashboardPage() {
               setStreamingText(assembled);
             } else if (event === "spec") {
               setSpec(data.spec || {});
-              setSpecReady(Boolean(data.ready));
+              setMode(data.mode || "chat");
+              setPrompt(data.nextPrompt ?? null);
+              setSourceIds(data.sourceIds || []);
+              setCanGenerate(Boolean(data.canGenerate));
+              if (data.mode === "paper") setStatus("active");
             } else if (event === "done") {
               setMessages((current) => [
                 ...current,
@@ -310,41 +422,190 @@ export default function DashboardPage() {
       } catch (error: any) {
         if (!abortedRef.current) {
           toast.error(error?.message || "The assistant is unreachable.");
-          // Keep whatever streamed before the connection dropped: the teacher
-          // already read it, and the backend has persisted the same text.
           if (assembled) {
             setMessages((current) => [
               ...current,
-              {
-                id: `partial-${Date.now()}`,
-                role: "assistant",
-                content: assembled,
-              },
+              { id: `partial-${Date.now()}`, role: "assistant", content: assembled },
             ]);
           }
           setStreamingText("");
         }
       } finally {
         setIsStreaming(false);
-        // The title is derived from the first turn, so refresh the list once
-        // the exchange lands rather than showing "New chat" until reload.
         fetchConversations().then(setConversations).catch(() => {});
       }
     },
     [activeId],
   );
 
-  const handleGenerate = React.useCallback(() => {
-    setPaperSpecHandoff(spec);
-    router.push("/editor?new=true");
-  }, [router, setPaperSpecHandoff, spec]);
+  // ── Generation ────────────────────────────────────────────────────────
+
+  const handleGenerate = React.useCallback(async () => {
+    if (!canGenerate || generation.running) return;
+
+    setGeneration({ ...IDLE, running: true, status: "Starting the press…" });
+    if (activeId) void setConversationStatus(activeId, "generating");
+
+    const variantSets: { label: string; result: any }[] = [];
+    let setA: any = null;
+
+    try {
+      await streamSse(
+        "/api/generation/questions/stream",
+        {
+          pdfSourceIds: sourceIds,
+          hsatSourceIds: [],
+          // -1 is the CBSE board pattern: the blueprint decides the count.
+          count: spec.numberOfQuestions ? Number(spec.numberOfQuestions) : -1,
+          countType: spec.numberOfQuestions ? "custom" : "cbse",
+          countVariation: spec.numberOfQuestions ? "custom" : "cbse",
+          difficulty: spec.difficulty || "medium",
+          instructions: (spec.chapters || []).length
+            ? `Chapters: ${(spec.chapters || []).join(", ")}`
+            : "",
+          board: spec.board || "CBSE",
+          subject: spec.subject || "",
+          class: spec.academicClass || "",
+          qp_type: "board",
+          mathLevel: "standard",
+          include_vi_alternatives: false,
+          contentScopePolicy: "strict",
+          sets: Number(spec.numberOfSets || "1"),
+        },
+        (event, data) => {
+          if (event === "status") {
+            const stage = STAGE_MAP[data.stage];
+            setGeneration((g) => ({
+              ...g,
+              stage: stage ?? g.stage,
+              status: asStatusText(data.message) || g.status,
+            }));
+          } else if (event === "plan") {
+            setGeneration((g) => ({
+              ...g,
+              stage: "plan",
+              plannedSlots: Number(data.total) || g.plannedSlots,
+              status: planSummaryLine(data.summary) || "Blueprint compiled",
+            }));
+          } else if (event === "pool") {
+            setGeneration((g) => ({ ...g, poolCount: Number(data.total) || g.poolCount }));
+          } else if (event === "question") {
+            setGeneration((g) => ({
+              ...g,
+              stage: "printing",
+              rows: [
+                ...g.rows,
+                {
+                  section:
+                    g.rows[g.rows.length - 1]?.section === data.section
+                      ? undefined
+                      : data.section,
+                  number: g.rows.length + 1,
+                  marks: Number(data.question?.marks ?? 1),
+                  text: String(data.question?.content ?? ""),
+                },
+              ],
+            }));
+          } else if (event === "set") {
+            variantSets.push({ label: data.label, result: data.result });
+            setGeneration((g) => ({
+              ...g,
+              stage: "sets",
+              sets: [...g.sets, data.label],
+            }));
+          } else if (event === "done") {
+            setA = data.result ?? setA;
+          } else if (event === "update" || event === "message") {
+            setA = data;
+          } else if (event === "error") {
+            throw new Error(data.error || "Generation failed");
+          }
+        },
+      );
+
+      setGeneration((g) => ({ ...g, done: true, status: "Paper ready" }));
+
+      // Hand the result to the editor as an APPROVED generation: each set
+      // becomes the content of its own tab the moment the editor mounts.
+      //
+      // Merely staging them (`setComparisonSets`) is what left the teacher
+      // staring at a blank editor — or at the previous paper, rehydrated from
+      // the tab's IndexedDB draft. The review workspace, which is what
+      // normally approves, is only reachable with two or more sets, so a
+      // single-set request had no route to its own paper at all.
+      const sets = [
+        ...(setA ? [{ label: "A", result: setA }] : []),
+        ...variantSets,
+      ];
+      if (sets.length > 0) adoptGeneratedSets(sets);
+      setPaperSpecHandoff(spec as Record<string, any>);
+      if (activeId) void setConversationStatus(activeId, "completed");
+
+      // A beat on the finished sheet before the editor takes over; cutting
+      // straight away throws the result off screen before it registers.
+      window.setTimeout(() => router.push("/editor"), 1400);
+    } catch (error: any) {
+      setGeneration(IDLE);
+      if (activeId) void setConversationStatus(activeId, "active");
+      toast.error(error?.message || "Generation failed.");
+    }
+  }, [
+    activeId,
+    canGenerate,
+    generation.running,
+    router,
+    adoptGeneratedSets,
+    setPaperSpecHandoff,
+    sourceIds,
+    spec,
+  ]);
+
+  // ── Render ────────────────────────────────────────────────────────────
+
+  if (generation.running) {
+    return (
+      <div className="flex h-full items-center justify-center overflow-auto p-6">
+        <div className="w-full max-w-3xl">
+          <PressCheck
+            stage={generation.stage}
+            status={generation.status}
+            rows={generation.rows}
+            plannedSlots={generation.plannedSlots}
+            poolCount={generation.poolCount}
+            sets={generation.sets}
+            subject={spec.subject}
+            academicClass={spec.academicClass}
+            marks={spec.marks}
+            done={generation.done}
+          />
+        </div>
+      </div>
+    );
+  }
 
   const isEmpty = messages.length === 0 && !streamingText;
+  const isPaperSession = mode === "paper";
+
+  const promptBox = (
+    <PromptInputBox
+      onSend={handleSend}
+      onAttach={handleAttach}
+      isLoading={isStreaming}
+      autoFocus={isEmpty}
+      onPickFile={(open) => {
+        attachRef.current = open;
+      }}
+      onStop={() => {
+        abortedRef.current = true;
+        setIsStreaming(false);
+        setStreamingText("");
+      }}
+    />
+  );
 
   return (
     <PromptTooltipProvider>
       <div className="flex h-full min-h-0 w-full">
-        {/* History */}
         <aside
           className={cn(
             "absolute inset-y-0 left-0 z-30 w-64 shrink-0 border-r border-border bg-background",
@@ -356,10 +617,10 @@ export default function DashboardPage() {
             <Button
               variant="outline"
               className="w-full justify-start"
-              onClick={startNewChat}
+              onClick={startNewSession}
             >
               <MessageSquarePlus className="mr-2 h-4 w-4" />
-              New chat
+              New session
             </Button>
           </div>
           <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -375,10 +636,19 @@ export default function DashboardPage() {
               >
                 <button
                   onClick={() => loadConversation(conversation.id)}
-                  className="min-w-0 flex-1 truncate text-left"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                   title={conversation.title}
                 >
-                  {conversation.title}
+                  <span className="truncate">{conversation.title}</span>
+                  {conversation.status === "paused" && (
+                    <Pause className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  )}
+                  {conversation.status === "completed" && (
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+                      title="Paper generated"
+                    />
+                  )}
                 </button>
                 <button
                   onClick={() => handleDelete(conversation.id)}
@@ -399,41 +669,45 @@ export default function DashboardPage() {
           />
         )}
 
-        {/* Conversation */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex items-center gap-2 border-b border-border px-3 py-2 lg:hidden">
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setSidebarOpen(true)}
-              aria-label="Show conversations"
+              aria-label="Show sessions"
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
             <span className="truncate text-sm font-medium">
-              {conversations.find((c) => c.id === activeId)?.title ?? "New chat"}
+              {conversations.find((c) => c.id === activeId)?.title ?? "New session"}
             </span>
           </div>
+
+          {isPaperSession && !isEmpty && (
+            <SessionHeader
+              spec={spec}
+              sourceCount={sourceIds.length}
+              status={status}
+              onPause={() => changeStatus("paused")}
+              onResume={() => changeStatus("active")}
+            />
+          )}
 
           {isEmpty ? (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4">
               <div className="w-full max-w-2xl space-y-6">
                 <div className="space-y-2 text-center">
                   <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                    What paper do you need?
+                    What can I help with?
                   </h1>
                   <p className="text-sm text-muted-foreground">
-                    Describe it in your own words. I&apos;ll ask for anything
-                    missing and set up the generator for you.
+                    Ask me anything. If it&apos;s a paper you need, I&apos;ll set
+                    it up and run the generator for you.
                   </p>
                 </div>
 
-                <PromptInputBox
-                  onSend={handleSend}
-                  onAttach={handleAttach}
-                  isLoading={isStreaming}
-                  autoFocus
-                />
+                {promptBox}
 
                 <div className="flex flex-wrap justify-center gap-2">
                   {SUGGESTIONS.map((suggestion) => (
@@ -474,25 +748,38 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {specReady && !isStreaming && (
-                    <SpecCard spec={spec} onGenerate={handleGenerate} />
+                  {prompt && !isStreaming && status !== "paused" && (
+                    <FollowUpCard
+                      prompt={prompt}
+                      onAnswer={(text) => handleSend(text, [])}
+                      onAttach={() => attachRef.current?.()}
+                    />
+                  )}
+
+                  {canGenerate && !isStreaming && (
+                    <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold">
+                          Everything&apos;s set
+                        </h3>
+                      </div>
+                      <p className="mt-1.5 text-sm text-muted-foreground">
+                        {spec.subject} · Class {spec.academicClass} ·{" "}
+                        {spec.marks} marks · {sourceIds.length} source
+                        {sourceIds.length === 1 ? "" : "s"}. This takes three to
+                        four minutes.
+                      </p>
+                      <Button onClick={handleGenerate} className="mt-3" size="sm">
+                        Generate the paper
+                        <ArrowRight className="ml-1.5 h-4 w-4" />
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
 
               <div className="border-t border-border px-4 py-3">
-                <div className="mx-auto max-w-2xl">
-                  <PromptInputBox
-                    onSend={handleSend}
-                    onAttach={handleAttach}
-                    isLoading={isStreaming}
-                    onStop={() => {
-                      abortedRef.current = true;
-                      setIsStreaming(false);
-                      setStreamingText("");
-                    }}
-                  />
-                </div>
+                <div className="mx-auto max-w-2xl">{promptBox}</div>
               </div>
             </>
           )}

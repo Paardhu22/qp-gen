@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "../styles/editor.css";
+import "../styles/press-check.css";
 import "katex/dist/katex.min.css";
 import { Providers } from "@/components/providers";
 import { Toaster } from "sonner";

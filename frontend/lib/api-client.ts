@@ -502,16 +502,60 @@ export interface ChatMessage {
   created_at?: string;
 }
 
+/** What the interface should put in front of the teacher next. */
+export interface FollowUpPrompt {
+  field: string;
+  kind: "choice" | "files" | "text";
+  label: string;
+  hint?: string;
+  optional?: boolean;
+  allowOther?: boolean;
+  options?: { value: string; label: string; hint?: string }[];
+}
+
+export type ConversationMode = "chat" | "paper";
+export type ConversationStatus =
+  | "active"
+  | "paused"
+  | "generating"
+  | "completed";
+
 export interface Conversation {
   id: string;
   title: string;
   spec: PaperSpec;
+  mode: ConversationMode;
+  status: ConversationStatus;
+  paper_id?: string | null;
+  ready: boolean;
   created_at?: string;
   updated_at?: string;
 }
 
 export interface ConversationDetail extends Conversation {
   messages: ChatMessage[];
+  next_prompt: FollowUpPrompt | null;
+  /** Every PDF attached across the session — what generation reads from. */
+  source_ids: string[];
+  /**
+   * Whether pressing Generate would actually succeed. Stricter than `ready`:
+   * the blueprint needs four fields, but the pipeline also needs a source.
+   */
+  can_generate: boolean;
+}
+
+export async function setConversationStatus(
+  conversationId: string,
+  status: ConversationStatus,
+  paperId?: string,
+): Promise<Conversation> {
+  return fetchJson<Conversation>(
+    `/api/chat/conversations/${conversationId}/status`,
+    {
+      method: "POST",
+      body: JSON.stringify({ status, ...(paperId ? { paperId } : {}) }),
+    },
+  );
 }
 
 export async function fetchConversations(): Promise<Conversation[]> {
@@ -579,9 +623,7 @@ export async function streamChatMessage(
  * deliberate for now: the upload component interleaves progress reporting
  * with each step, and unpicking it is a bigger change than this needs.
  */
-export async function uploadPdfSource(
-  file: File,
-): Promise<{ pdfSourceId: string; warnings?: string[] }> {
+export async function uploadPdfSource(file: File): Promise<UploadedSource> {
   let presign: {
     url?: string;
     fields?: Record<string, string>;
@@ -606,30 +648,98 @@ export async function uploadPdfSource(
   }
 
   if (presign?.url && presign.fields && presign.key) {
-    const s3form = new FormData();
-    Object.entries(presign.fields).forEach(([k, v]) => s3form.append(k, v));
-    s3form.append("file", file);
+    try {
+      const s3form = new FormData();
+      Object.entries(presign.fields).forEach(([k, v]) => s3form.append(k, v));
+      s3form.append("file", file);
 
-    const uploadRes = await fetch(presign.url, { method: "POST", body: s3form });
-    if (!uploadRes.ok) throw new Error("Failed to upload file to storage");
+      const uploadRes = await fetch(presign.url, {
+        method: "POST",
+        body: s3form,
+      });
+      if (!uploadRes.ok) {
+        throw new Error(`S3 rejected the upload (${uploadRes.status})`);
+      }
 
-    return fetchJson<{ pdfSourceId: string; warnings?: string[] }>(
-      "/api/documents/confirm",
-      {
+      return await fetchJson<UploadedSource>("/api/documents/confirm", {
         method: "POST",
         body: JSON.stringify({
           key: presign.key,
           name: file.name,
           content_type: file.type,
         }),
-      },
-    );
+      });
+    } catch (error) {
+      // Fall through to the server upload rather than failing the attachment.
+      // A presigned POST straight from the browser is the one step in this
+      // flow that depends on the bucket's CORS rules, and those are set
+      // outside the app — when they are wrong (or the bucket is in another
+      // region, or an extension blocks the cross-origin POST) every direct
+      // upload fails while the server-side route is perfectly healthy. That
+      // is exactly the state the generator form has always been in, since it
+      // only ever used the server route.
+      console.warn("Direct-to-S3 upload failed, falling back to server:", error);
+    }
   }
 
   const formData = new FormData();
   formData.append("file", file);
-  return fetchForm<{ pdfSourceId: string; warnings?: string[] }>(
-    "/api/documents/upload",
-    formData,
-  );
+  return fetchForm<UploadedSource>("/api/documents/upload", formData);
+}
+
+export interface UploadedSource {
+  pdfSourceId: string;
+  /** "ready" for a deduped/cached source, otherwise "processing". */
+  status?: string;
+  warnings?: string[];
+}
+
+export interface SourceStatus {
+  id: string;
+  status: string;
+  chunk_count: number;
+  error?: string | null;
+}
+
+export async function fetchSourceStatus(
+  sourceId: string,
+): Promise<SourceStatus> {
+  return fetchJson<SourceStatus>(`/api/documents/${sourceId}/status`, {
+    method: "GET",
+  });
+}
+
+/**
+ * Block until an uploaded PDF is actually usable.
+ *
+ * Ingestion runs on a worker thread and the upload returns as soon as the row
+ * is saved, so a source is normally `processing` for a while after it appears
+ * to have uploaded. The generation endpoint refuses a request that names one
+ * (`DOCUMENTS_NOT_READY`), so attaching without waiting produces a Generate
+ * button that fails minutes later for no visible reason.
+ */
+export async function waitForPdfSource(
+  sourceId: string,
+  { timeoutMs = 240000, intervalMs = 2000 }: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<SourceStatus> {
+  const deadline = Date.now() + timeoutMs;
+
+  for (;;) {
+    const status = await fetchSourceStatus(sourceId);
+    if (status.status === "ready") return status;
+    if (status.status === "error") {
+      throw new ApiError(
+        status.error || "This PDF could not be processed.",
+        422,
+      );
+    }
+    if (Date.now() > deadline) {
+      throw new ApiError(
+        "This PDF is taking unusually long to process. It will keep going — " +
+          "try again in a minute.",
+        504,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
 }

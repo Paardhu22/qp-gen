@@ -44,6 +44,7 @@ import {
   withSetSuffix,
   DRAFT_PAPER_ID,
 } from "@/lib/paper-id";
+import { resolveTabContent } from "@/lib/set-content";
 
 export default function EditorPage() {
   const router = useRouter();
@@ -133,6 +134,10 @@ export default function EditorPage() {
 
   const clearComparisonSets = useEditorStore((s) => s.clearComparisonSets);
   const setGlobalSaveState = useEditorStore((s) => s.setSaveState);
+  const awaitingGeneratedPaper = useEditorStore((s) => s.awaitingGeneratedPaper);
+  const consumeGeneratedPaperHandoff = useEditorStore(
+    (s) => s.consumeGeneratedPaperHandoff,
+  );
 
   // ── "New Paper" reset ─────────────────────────────────────────────────
   // A brand-new paper must start with EVERY set empty and hold no reference
@@ -406,6 +411,18 @@ export default function EditorPage() {
     if (!browserSessionId) return;
     if (!sessionData?.user?.id || paperId || checkedResume || isNew) return;
 
+    // A paper generated on the dashboard arrives here with no `?paperId=`,
+    // which is precisely the shape this effect treats as "the teacher wandered
+    // back to the editor". It would then either silently redirect to
+    // `?paperId=current` — loading the PREVIOUS draft's content and metadata
+    // over the paper that was just generated — or pop "Resume previous paper?"
+    // on top of it. The generation is the intent; there is nothing to resume.
+    if (awaitingGeneratedPaper) {
+      consumeGeneratedPaperHandoff();
+      setCheckedResume(true);
+      return;
+    }
+
     const checkResume = async () => {
       try {
         const latestDoc = await getLatestLiveDocumentForUser(
@@ -447,6 +464,8 @@ export default function EditorPage() {
     isNew,
     browserSessionId,
     router,
+    awaitingGeneratedPaper,
+    consumeGeneratedPaperHandoff,
   ]);
 
   const handleContinueEditing = () => {
@@ -1012,27 +1031,15 @@ export default function EditorPage() {
           // remounts the editor. Without it the tab keeps the previous
           // paper's document and the approval appears to do nothing.
           key={`${editorInstanceKey}-${activeSetTab}-${approvedAt}`}
-          initialContent={(() => {
-            // An approved set is the authority for its tab — including Set A,
-            // which previously had no path from a generation into the editor
-            // except the manual "Insert set" button.
-            const approved = approvedSets?.[activeSetTab];
-            if (approved) {
-              return typeof approved === "string"
-                ? approved
-                : JSON.stringify(approved);
-            }
-            const activeSets = comparisonSets.length > 0 ? comparisonSets : loadedSets;
-            if (activeSets.length > 0 && activeSetTab !== "A") {
-              const activeSet = activeSets.find((s: any) => s.label.replace("Set ", "") === activeSetTab);
-              if (activeSet) {
-                return typeof activeSet.result !== "undefined"
-                  ? (typeof activeSet.result === "string" ? activeSet.result : JSON.stringify(activeSet.result))
-                  : activeSet.content;
-              }
-            }
-            return paperContent;
-          })()}
+          // Precedence lives in `lib/set-content.ts` — see the note there on
+          // why an approved set is the only source that carries Set A.
+          initialContent={resolveTabContent({
+            activeSetTab,
+            approvedSets,
+            comparisonSets,
+            loadedSets,
+            paperContent,
+          })}
           paperId={withSetSuffix(currentPaperId, activeSetTab)}
           // Approving is an explicit "use this paper" instruction, so it has to
           // beat the IndexedDB draft the tab may already hold from an earlier

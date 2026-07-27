@@ -111,6 +111,15 @@ export interface PromptInputBoxProps {
   onStop?: () => void;
   /** Called when a file is picked. Resolve with the ingested source, or null to reject it. */
   onAttach?: (file: File) => Promise<PromptAttachment | null>;
+  /**
+   * Hands the caller a function that opens the file picker.
+   *
+   * The assistant's "attach the chapters" follow-up card is rendered up in the
+   * transcript, but the only `<input type="file">` lives down here. Rather
+   * than give the card a second input — and a second place for the accept
+   * list and the upload handler to drift — it borrows this one.
+   */
+  onPickFile?: (open: () => void) => void;
   placeholder?: string;
   disabled?: boolean;
   autoFocus?: boolean;
@@ -124,7 +133,8 @@ export function PromptInputBox({
   isLoading = false,
   onStop,
   onAttach,
-  placeholder = "Ask about a paper, or describe the one you need…",
+  onPickFile,
+  placeholder = "Ask me anything, or describe the paper you need…",
   disabled = false,
   autoFocus = false,
   className,
@@ -148,14 +158,29 @@ export function PromptInputBox({
   const hasContent = input.trim().length > 0 || attachments.length > 0;
   const isBusy = disabled || isUploading;
 
-  const handleFile = React.useCallback(
-    async (file: File) => {
-      if (!onAttach) return;
+  React.useEffect(() => {
+    onPickFile?.(() => fileInputRef.current?.click());
+  }, [onPickFile]);
+
+  // Files are taken as a batch and ingested together: a teacher attaching
+  // three chapters should pick them once, and should not wait for chapter one
+  // to finish processing before chapter two starts.
+  const handleFiles = React.useCallback(
+    async (files: File[]) => {
+      if (!onAttach || files.length === 0) return;
       setIsUploading(true);
       try {
-        const attachment = await onAttach(file);
-        if (attachment) {
-          setAttachments((current) => [...current, attachment]);
+        const results = await Promise.all(files.map((file) => onAttach(file)));
+        const accepted = results.filter(
+          (result): result is PromptAttachment => Boolean(result),
+        );
+        if (accepted.length > 0) {
+          // De-duplicate on id so the same PDF attached twice — which the
+          // backend dedupes to one source — does not show as two chips.
+          setAttachments((current) => {
+            const seen = new Set(current.map((a) => a.id));
+            return [...current, ...accepted.filter((a) => !seen.has(a.id))];
+          });
         }
       } finally {
         setIsUploading(false);
@@ -195,8 +220,7 @@ export function PromptInputBox({
         if (!onAttach) return;
         event.preventDefault();
         setIsDragging(false);
-        const file = event.dataTransfer.files?.[0];
-        if (file) void handleFile(file);
+        void handleFiles(Array.from(event.dataTransfer.files ?? []));
       }}
       className={cn(
         "rounded-3xl border border-border bg-card p-2 shadow-sm transition-colors duration-200",
@@ -256,12 +280,14 @@ export function PromptInputBox({
       <div className="flex items-center justify-between gap-2 px-1 pt-2">
         <div className="flex items-center gap-1">
           {onAttach && (
-            <IconTooltip label={isUploading ? "Uploading…" : "Attach a PDF"}>
+            <IconTooltip
+              label={isUploading ? "Reading your PDFs…" : "Attach PDFs"}
+            >
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isBusy || isLoading}
-                aria-label="Attach a PDF"
+                aria-label="Attach PDFs"
                 className={cn(
                   "flex h-8 w-8 items-center justify-center rounded-full",
                   "text-muted-foreground transition-colors",
@@ -278,11 +304,11 @@ export function PromptInputBox({
           <input
             ref={fileInputRef}
             type="file"
-            accept="application/pdf"
+            accept="application/pdf,.pdf"
+            multiple
             className="hidden"
             onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void handleFile(file);
+              void handleFiles(Array.from(event.target.files ?? []));
               // Clear so picking the same file twice still fires onChange.
               event.target.value = "";
             }}

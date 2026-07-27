@@ -77,6 +77,17 @@ export interface ComparisonSet {
   result: any;
 }
 
+/**
+ * Set labels reach the store in two shapes — the pipeline emits bare "A"/"B",
+ * saved `PaperSet` rows and some older call sites carry "Set A". The editor's
+ * tab state is always the bare letter, so anything used as a key into
+ * `approvedSets` has to be normalised or the lookup silently misses and the
+ * tab falls back to its IndexedDB draft — i.e. the previous paper.
+ */
+export function normalizeSetLabel(label: string): string {
+  return label.replace(/^Set\s+/i, "").trim() || label;
+}
+
 export type SaveState = "saving" | "saved" | "offline" | "failed";
 
 /**
@@ -151,6 +162,17 @@ interface EditorState {
    * the IndexedDB draft written by the first one.
    */
   approvedAt: number;
+  /**
+   * Set when a paper generated OUTSIDE the editor (the dashboard) is handed
+   * over, cleared the first time the editor mounts and takes it.
+   *
+   * The editor's resume flow runs whenever it opens with no `?paperId=`, which
+   * is exactly how the dashboard arrives. It would either silently redirect to
+   * the previous draft or pop "Resume previous paper?" over the paper the
+   * teacher just waited minutes for. A fresh generation is the thing to show —
+   * there is nothing to resume.
+   */
+  awaitingGeneratedPaper: boolean;
   /** Last metadata picked up from the generator form / loaded paper.
    *  Used to make the resume modal truthful and prefill Paper Details. */
   generatorContext: {
@@ -209,6 +231,11 @@ interface EditorState {
   ) => void;
   removeComparisonQuestion: (label: string, slotIndex: number) => void;
   approveComparisonSets: () => void;
+  /** Put an already-generated paper straight into the editor tabs, approved.
+   *  For generations that happen outside the review workspace (the dashboard). */
+  adoptGeneratedSets: (sets: ComparisonSet[]) => void;
+  /** One-shot: the editor calls this on mount to take the pending handoff. */
+  consumeGeneratedPaperHandoff: () => void;
   clearApprovedSets: () => void;
 }
 
@@ -301,6 +328,7 @@ export const useEditorStore = create<EditorState>()(
       comparisonOpen: false,
       approvedSets: {},
       approvedAt: 0,
+      awaitingGeneratedPaper: false,
       generatorContext: initialGeneratorContext,
       generalInstructionsDraft: "",
       paperSpecHandoff: null,
@@ -405,6 +433,7 @@ export const useEditorStore = create<EditorState>()(
           comparisonOpen: false,
           approvedSets: {},
           approvedAt: 0,
+          awaitingGeneratedPaper: false,
         }),
       setComparisonOpen: (open) => set({ comparisonOpen: open }),
 
@@ -439,13 +468,45 @@ export const useEditorStore = create<EditorState>()(
       approveComparisonSets: () =>
         set((state) => ({
           approvedSets: Object.fromEntries(
-            state.comparisonSets.map((s) => [s.label, s.result]),
+            state.comparisonSets.map((s) => [
+              normalizeSetLabel(s.label),
+              s.result,
+            ]),
           ),
           approvedAt: Date.now(),
           comparisonOpen: false,
         })),
 
-      clearApprovedSets: () => set({ approvedSets: {}, approvedAt: 0 }),
+      // The dashboard runs the generation itself and then navigates to the
+      // editor, so there is no review workspace in between for the teacher to
+      // approve from. Without this the sets landed in `comparisonSets` and
+      // stopped there: tab A reads `approvedSets` first and `comparisonSets`
+      // only for tabs B/C, so Set A never reached the document, and because
+      // nothing was approved the editor was free to rehydrate the tab's
+      // IndexedDB draft — the PREVIOUS paper — over the top of the blank tab.
+      // Worse, a single-set request never rendered the "Review & approve sets"
+      // panel at all (it needs two sets to compare), so there was no way to
+      // reach the paper the teacher had just waited minutes for.
+      //
+      // Generating from the dashboard is itself the "use this paper"
+      // instruction, so it approves. The sets stay in `comparisonSets` so the
+      // review workspace is still reachable afterwards for a multi-set run.
+      adoptGeneratedSets: (sets) =>
+        set({
+          comparisonSets: sets,
+          approvedSets: Object.fromEntries(
+            sets.map((s) => [normalizeSetLabel(s.label), s.result]),
+          ),
+          approvedAt: Date.now(),
+          comparisonOpen: false,
+          awaitingGeneratedPaper: true,
+        }),
+
+      consumeGeneratedPaperHandoff: () =>
+        set({ awaitingGeneratedPaper: false }),
+
+      clearApprovedSets: () =>
+        set({ approvedSets: {}, approvedAt: 0, awaitingGeneratedPaper: false }),
     }),
     {
       // The persistence key is namespaced so callers (auth signOut, account
@@ -478,6 +539,7 @@ export const useEditorStore = create<EditorState>()(
         // another route does not lose the paper the teacher just accepted.
         approvedSets: state.approvedSets,
         approvedAt: state.approvedAt,
+        awaitingGeneratedPaper: state.awaitingGeneratedPaper,
         generatorContext: state.generatorContext,
         template: state.template,
         generalInstructionsDraft: state.generalInstructionsDraft,
@@ -514,6 +576,7 @@ export function resetEditorStoreForAccountSwitch(): void {
     comparisonOpen: false,
     approvedSets: {},
     approvedAt: 0,
+    awaitingGeneratedPaper: false,
     questionsToAppend: [],
     sectionsToAppend: [],
     instructionsToAppend: null,
