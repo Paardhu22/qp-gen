@@ -1419,7 +1419,7 @@ def _make_slot(
     choice_required: bool = False,
     requires_image: bool = False,
     requires_figure: bool = False,
-    vi_required: bool = False,
+    vi_required: bool = False, # Force disabled
     instruction_hint: str = "",
     mode: str = "CONTENT",
     generator: str = POOL_GENERATOR,

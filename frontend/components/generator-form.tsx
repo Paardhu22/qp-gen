@@ -57,10 +57,6 @@ const formSchema = z.object({
   // Cluster C: CBSE Sample Papers include "Visually Impaired alternative"
   // text under any visual question. The user can opt OUT of carrying those
   // alternatives into the generated paper without changing the model's
-  // grounding — the backend implements it as a post-generation filter.
-  // No .default() here so the inferred type stays `boolean` (not
-  // `boolean | undefined`) — the default value is set in `defaultValues`.
-  includeViAlternatives: z.boolean(),
   contentScopePolicy: z.enum(["strict", "source_only"]),
   // Number of parallel paper sets to produce. "1" = Set A only; "2" adds
   // Set B; "3" adds Set C. The pool and Model 1 run once regardless — B and C
@@ -121,7 +117,6 @@ export const GeneratorForm = ({
       countType: "cbse",
       numberOfQuestions: "5",
       marks: "1",
-      includeViAlternatives: false,
       contentScopePolicy: "strict",
       numberOfSets: "1",
     },
@@ -145,6 +140,12 @@ export const GeneratorForm = ({
   const setGeneralInstructions = useEditorStore(
     (s) => s.setGeneralInstructionsDraft,
   );
+  // Requirements gathered by the dashboard assistant, if the teacher arrived
+  // from there. Applied once and then cleared: without the clear, every later
+  // visit to the editor would re-apply the same settings and quietly undo
+  // whatever the teacher had changed by hand since.
+  const paperSpecHandoff = useEditorStore((s) => s.paperSpecHandoff);
+  const setPaperSpecHandoff = useEditorStore((s) => s.setPaperSpecHandoff);
   // Saving is no longer a user action. The backend persists the entire
   // generated question pool (~80 questions, not just the ~38 this paper uses)
   // to the bank automatically and reports the outcome on the `saved` SSE
@@ -193,6 +194,49 @@ export const GeneratorForm = ({
       lastActiveAt: Date.now(),
     });
   }, [formClassValue, formSubjectValue, setGeneratorContext]);
+
+  // Apply the dashboard assistant's spec, once. Fields the conversation never
+  // settled are left at their defaults rather than blanked, so a partial
+  // handoff still leaves a form the teacher can submit. Chapter names go into
+  // the instructions box because chapters are not a form field — the
+  // generator scopes content by uploaded source, and a named chapter is only
+  // a hint until one is attached.
+  useEffect(() => {
+    if (!paperSpecHandoff) return;
+
+    const spec = paperSpecHandoff as Record<string, any>;
+    const apply = (
+      field: Parameters<typeof form.setValue>[0],
+      value: unknown,
+    ) => {
+      const text = String(value ?? "").trim();
+      if (text) form.setValue(field, text as never);
+    };
+
+    apply("board", spec.board);
+    apply("academicClass", spec.academicClass);
+    apply("subject", spec.subject);
+    apply("difficulty", spec.difficulty);
+    apply("marks", spec.marks);
+    apply("numberOfSets", spec.numberOfSets);
+    if (String(spec.numberOfQuestions ?? "").trim()) {
+      form.setValue("countType", "custom");
+      apply("numberOfQuestions", spec.numberOfQuestions);
+    }
+
+    const chapters: string[] = Array.isArray(spec.chapters) ? spec.chapters : [];
+    if (chapters.length > 0) {
+      const line = `Chapters: ${chapters.join(", ")}`;
+      setGeneralInstructions(
+        generalInstructions ? `${generalInstructions}\n${line}` : line,
+      );
+    }
+
+    setPaperSpecHandoff(null);
+    // `generalInstructions` is read, not tracked: including it would re-run
+    // this effect on every keystroke in the instructions box. The handoff is
+    // cleared on the first pass, so there is nothing to re-apply anyway.
+  }, [paperSpecHandoff, form, setGeneralInstructions, setPaperSpecHandoff]);
 
   const handleAddSourceClick = () => {
     fileInputRef.current?.click();
@@ -577,7 +621,7 @@ export const GeneratorForm = ({
           class: values.academicClass,
           qp_type: values.qpType,
           mathLevel: values.mathLevel,
-          include_vi_alternatives: values.includeViAlternatives,
+          include_vi_alternatives: false,
           contentScopePolicy: values.contentScopePolicy,
           sets: parseInt(values.numberOfSets, 10),
         },
@@ -1516,8 +1560,8 @@ export const GeneratorForm = ({
           <p className="text-[11px] text-muted-foreground mb-3 leading-snug">
             Review Sets {allSets.map((s) => s.label).join(", ")} side by side —
             aligned by section and marks, with changed questions highlighted.
-            Insert any question, section, or whole set into your paper; sets no
-            longer collide in the editor.
+            Edit, delete or replace any single question, then approve: each set
+            goes straight into its own tab in the editor.
           </p>
 
           <div className="flex flex-col gap-2">
@@ -1528,7 +1572,7 @@ export const GeneratorForm = ({
                   onClick={() => setComparisonOpen(true)}
                   disabled={allSets.length > 0 ? allSets.length < 2 : comparisonSets.length < 2}
                 >
-                  Open comparison workspace
+                  Review &amp; approve sets
                 </Button>
                 <Button
                   variant="ghost"
