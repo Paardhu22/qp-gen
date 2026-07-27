@@ -85,3 +85,62 @@ class OpenAIUsageLoggingTests(SimpleTestCase):
                 _record_usage(None, "image_caption", "gpt-4o", usage)
 
         self.assertIn("Failed to record image_caption usage", logs.output[0])
+
+
+class AllowedOriginsTests(SimpleTestCase):
+    """CORS matches the Origin header literally, so origin parsing is the
+    difference between a working apex+www deployment and one that fails every
+    cross-origin request from whichever host FRONTEND_URL does not name."""
+
+    def test_single_origin(self):
+        self.assertEqual(
+            project_settings._origins("https://hsatedu.in", ""),
+            ["https://hsatedu.in"],
+        )
+
+    def test_extra_origins_are_split_and_appended(self):
+        self.assertEqual(
+            project_settings._origins(
+                "https://hsatedu.in",
+                "https://www.hsatedu.in,https://staging.hsatedu.in",
+            ),
+            [
+                "https://hsatedu.in",
+                "https://www.hsatedu.in",
+                "https://staging.hsatedu.in",
+            ],
+        )
+
+    def test_trailing_slashes_are_stripped(self):
+        # An origin is scheme+host+port; a trailing slash matches nothing.
+        self.assertEqual(
+            project_settings._origins("https://hsatedu.in/", ""),
+            ["https://hsatedu.in"],
+        )
+
+    def test_whitespace_and_duplicates_are_dropped(self):
+        self.assertEqual(
+            project_settings._origins(
+                "https://hsatedu.in",
+                " https://www.hsatedu.in , https://hsatedu.in ,, ",
+            ),
+            ["https://hsatedu.in", "https://www.hsatedu.in"],
+        )
+
+    def test_empty_input_yields_no_origins(self):
+        self.assertEqual(project_settings._origins("", ""), [])
+
+
+class TestEndpointRoutingTests(SimpleTestCase):
+    """The science-engine runner spends real OpenAI budget on hard-coded
+    inputs, so it must not be routed unless explicitly enabled."""
+
+    def test_route_is_absent_when_disabled(self):
+        from django.urls import NoReverseMatch, reverse
+
+        if project_settings.ENABLE_TEST_ENDPOINTS:
+            # Enabled locally (it follows DEBUG) — assert the opposite branch.
+            self.assertTrue(reverse("test-science-engine"))
+            return
+        with self.assertRaises(NoReverseMatch):
+            reverse("test-science-engine")

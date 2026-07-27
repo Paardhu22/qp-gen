@@ -21,7 +21,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.projects.models import ExportRecord, Paper
+from apps.projects.models import ExportRecord, Paper, PaperSet
 from services.s3_client import (
     S3NotConfigured,
     generate_presigned_get_url,
@@ -39,21 +39,47 @@ CONTENT_TYPE_MAP = {
 }
 
 
+def _resolve_set(paper: Paper | None, set_label: str) -> PaperSet | None:
+    """The set an export belongs to.
+
+    A paper is now A/B/C, and each set is a different document — so an export
+    is an export OF A SET. The client names one via `set_label` ("A", "Set A",
+    "B"…); anything unrecognised falls back to the first set by order, which
+    is Set A and is what a single-set paper always has.
+    """
+    if paper is None:
+        return None
+    sets = list(paper.sets.order_by("order", "created_at"))
+    if not sets:
+        return None
+    wanted = (set_label or "").strip().upper().removeprefix("SET ").strip()
+    if wanted:
+        for paper_set in sets:
+            existing = paper_set.label.strip().upper().removeprefix("SET ").strip()
+            if existing == wanted:
+                return paper_set
+    return sets[0]
+
+
 def _build_s3_key(
     export_type: str,
     file_format: str,
     user_id: str,
     paper: Paper | None,
+    paper_set: PaperSet | None = None,
 ) -> str:
     ext = file_format  # 'pdf' or 'docx'
+    # The set id is part of the key so exporting Set B does not overwrite the
+    # object Set A already published — they are different papers.
+    suffix = f"-{paper_set.id}" if paper_set is not None else ""
     if export_type == "question_paper":
         assert paper is not None
         slug = slugify(paper.title) or "paper"
-        return f"question-papers/{user_id}/{paper.id}/{slug}.{ext}"
+        return f"question-papers/{user_id}/{paper.id}/{slug}{suffix}.{ext}"
     if export_type == "answer_script":
         assert paper is not None
         slug = slugify(paper.title) or "answer-key"
-        return f"answer-scripts/{user_id}/{paper.id}/{slug}-answer-key.{ext}"
+        return f"answer-scripts/{user_id}/{paper.id}/{slug}-answer-key{suffix}.{ext}"
     # question_bank — no persistent paper object; use UTC timestamp
     ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return f"question_bank/{user_id}/{ts}.{ext}"
@@ -114,7 +140,10 @@ class UploadExportView(APIView):
                 )
 
         # --- build key and upload ---
-        s3_key = _build_s3_key(export_type, file_format, request.user.id, paper)
+        paper_set = _resolve_set(paper, request.data.get("set_label", ""))
+        s3_key = _build_s3_key(
+            export_type, file_format, request.user.id, paper, paper_set
+        )
         content_type = CONTENT_TYPE_MAP[file_format]
 
         try:
@@ -128,11 +157,19 @@ class UploadExportView(APIView):
             return Response({"error": "Upload to storage failed. Please try again."}, status=502)
 
         # --- persist key on the right model ---
-        if paper is not None:
-            if file_format == "pdf":
-                Paper.objects.filter(pk=paper.pk).update(s3_pdf_key=s3_key)
-            else:
-                Paper.objects.filter(pk=paper.pk).update(s3_docx_key=s3_key)
+        # Export keys live on PaperSet, not Paper — writing them to Paper
+        # raised FieldDoesNotExist and 500'd every paper export.
+        if paper_set is not None:
+            field = "s3_pdf_key" if file_format == "pdf" else "s3_docx_key"
+            PaperSet.objects.filter(pk=paper_set.pk).update(**{field: s3_key})
+        elif paper is not None:
+            # A paper with no sets should not exist, but a 201 with the object
+            # safely in S3 beats a 500 over bookkeeping.
+            logger.warning(
+                "Paper %s has no sets; export key %s not recorded.",
+                paper.id,
+                s3_key,
+            )
         else:
             # question_bank — create a standalone record
             ExportRecord.objects.create(
@@ -169,9 +206,11 @@ class ExportUrlView(APIView):
 
         # Verify the requesting user owns this key.
         user = request.user
+        # Ownership is checked through the set's paper — the export keys moved
+        # to PaperSet, and filtering Paper on them raised FieldError (500).
         owns = (
-            Paper.objects.filter(user=user, s3_pdf_key=s3_key).exists()
-            or Paper.objects.filter(user=user, s3_docx_key=s3_key).exists()
+            PaperSet.objects.filter(paper__user=user, s3_pdf_key=s3_key).exists()
+            or PaperSet.objects.filter(paper__user=user, s3_docx_key=s3_key).exists()
             or ExportRecord.objects.filter(user=user, s3_key=s3_key).exists()
         )
         if not owns:

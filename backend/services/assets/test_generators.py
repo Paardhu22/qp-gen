@@ -163,6 +163,27 @@ class ReadingAssetTests(TestCase):
         key = ReadingAsset.from_raw(_reading_payload()).render_answer()
         self.assertEqual(len(key.strip().splitlines()), 8)
 
+    def test_composite_parts_rejoin_into_the_rendered_question(self):
+        # The editor lays the parts out as separate blocks so a long passage
+        # can break across pages. They must still be the SAME text the paper
+        # has always carried, or the two renderings drift.
+        asset = ReadingAsset.from_raw(_reading_payload())
+        parts = asset.composite_parts()
+        rejoined = "\n\n".join(
+            [parts["preamble"], *parts["body"], *parts["subQuestions"]]
+        )
+        self.assertEqual(rejoined, asset.render_question())
+
+    def test_composite_parts_are_split_on_real_newlines(self):
+        # A literal "\\n" here reaches the editor as two characters, collapses
+        # the passage into one unsplittable block and prints the escape.
+        parts = ReadingAsset.from_raw(_reading_payload(paragraphs=6)).composite_parts()
+        self.assertEqual(len(parts["subQuestions"]), 8)
+        # 6 numbered paragraphs + the word-count line + the lead-in.
+        self.assertEqual(len(parts["body"]), 8)
+        for chunk in [parts["preamble"], *parts["body"], *parts["subQuestions"]]:
+            self.assertNotIn("\\n", chunk)
+
 
 class GrammarAssetTests(TestCase):
     def test_a_task_set_prints_its_attempt_instruction(self):
@@ -170,6 +191,16 @@ class GrammarAssetTests(TestCase):
         rendered = GrammarTaskSet(tasks=tasks, attempt=10).render_question()
         self.assertIn("Complete any 10 of 12", rendered)
         self.assertIn("XII.", rendered)
+
+    def test_composite_parts_rejoin_into_the_rendered_question(self):
+        tasks = [GrammarAsset.from_raw(t) for t in _grammar_payload(["modal_gap_fill"] * 12)]
+        task_set = GrammarTaskSet(tasks=tasks, attempt=10)
+        parts = task_set.composite_parts()
+        self.assertEqual(len(parts["subQuestions"]), 12)
+        rejoined = "\n\n".join(
+            [parts["preamble"], *parts["body"], *parts["subQuestions"]]
+        )
+        self.assertEqual(rejoined, task_set.render_question())
 
     def test_a_task_without_a_grammar_topic_is_rejected(self):
         with self.assertRaises(PoolValidationError):
