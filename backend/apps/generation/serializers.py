@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.generation.models import GenerationHistory
+from apps.generation.models import GenerationHistory, PaperTemplate
 
 
 class GenerationHistorySerializer(serializers.ModelSerializer):
@@ -129,3 +129,24 @@ class PaperFromBankSerializer(serializers.Serializer):
     deterministic = serializers.BooleanField(required=False, default=False)
     #: 1, 2 or 3 sets. Set A is assembled from the bank; B and C are derived.
     sets = serializers.IntegerField(min_value=1, max_value=3, required=False, default=1)
+
+
+class PaperTemplateSerializer(serializers.ModelSerializer):
+    """A saved General Instructions recipe.
+
+    `settings` goes out as stored: its keys are generator-form field names, so
+    applying a template on the client is a copy, not a translation.
+    """
+
+    class Meta:
+        model = PaperTemplate
+        fields = [
+            "id",
+            "name",
+            "instructions",
+            "settings",
+            "last_used_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "last_used_at", "created_at", "updated_at"]
