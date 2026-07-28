@@ -39,6 +39,7 @@ import {
   type PressRow,
   type PressStageId,
 } from "@/components/dashboard/press-check";
+import { ChatBackdrop } from "@/components/dashboard/chat-backdrop";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/store/editor-store";
@@ -669,7 +670,12 @@ export default function DashboardPage() {
           />
         )}
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* `isolate` scopes the backdrop's negative stacking to this column, so
+            it sits under the chat but still above the page background — and
+            cannot slide behind the sidebar or the mobile scrim. */}
+        <div className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col">
+          <ChatBackdrop />
+
           <div className="flex items-center gap-2 border-b border-border px-3 py-2 lg:hidden">
             <Button
               variant="ghost"

@@ -150,6 +150,10 @@ body {
     --color-secondary: var(--secondary);
     --color-primary-foreground: var(--primary-foreground);
     --color-primary: var(--primary);
+    /* Theme-kit anchors, usable as `bg-brand-ink` / `text-brand-sand` when a
+       surface needs the literal palette colour rather than a semantic role. */
+    --color-brand-ink: var(--brand-ink);
+    --color-brand-sand: var(--brand-sand);
     --color-popover-foreground: var(--popover-foreground);
     --color-popover: var(--popover);
     --color-card-foreground: var(--card-foreground);
@@ -170,26 +174,34 @@ body {
     --card-foreground: oklch(0.145 0 0);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.145 0 0);
-    /* Indigo is the single brand accent (was near-black gray). Matches the
-       app's de-facto indigo-600 action color; now tokenized so shadcn
-       primary + custom buttons + focus rings are one consistent hue. */
-    --primary: oklch(0.511 0.254 277);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
+    /* ── Theme kit: ink #282d3c + sand #D7C3A3 ────────────────────────────
+       White is the canvas (`--background`), so `--primary` — the token every
+       shadcn button, icon accent and focus ring resolves to — is the ink.
+       Setting `--primary` itself to white would render every `bg-primary`
+       button invisible on the white page.
+
+       `--brand-sand` is the warm counterpart: the Grainient hue behind the
+       dashboard chat is built from it, and it drives the muted warm surfaces
+       below so the flat UI and the animated background read as one palette. */
+    --brand-ink: oklch(0.2990 0.0282 270.30); /* #282d3c */
+    --brand-sand: oklch(0.8257 0.0486 79.53); /* #D7C3A3 */
+    --primary: oklch(0.2990 0.0282 270.30);
+    --primary-foreground: oklch(1 0 0);
+    --secondary: oklch(0.9628 0.0119 79.78);
+    --secondary-foreground: oklch(0.2990 0.0282 270.30);
+    --muted: oklch(0.9628 0.0119 79.78);
+    --muted-foreground: oklch(0.5 0.012 270);
+    --accent: oklch(0.9228 0.0268 80.25);
+    --accent-foreground: oklch(0.2990 0.0282 270.30);
     --destructive: oklch(0.577 0.245 27.325);
-    /* Muted semantic status tokens (calm on the grayscale base). */
+    /* Muted semantic status tokens (calm on the sand/ink base). */
     --success: oklch(0.58 0.13 155);
     --success-foreground: oklch(0.985 0 0);
     --warning: oklch(0.68 0.13 75);
     --warning-foreground: oklch(0.205 0 0);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.511 0.254 277);
+    --border: oklch(0.905 0.011 79);
+    --input: oklch(0.905 0.011 79);
+    --ring: oklch(0.2990 0.0282 270.30);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -219,43 +231,49 @@ html[data-auth-page] *.dark {
     --card-foreground: oklch(0.145 0 0);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.511 0.254 277);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.511 0.254 277);
+    --brand-ink: oklch(0.2990 0.0282 270.30);
+    --brand-sand: oklch(0.8257 0.0486 79.53);
+    --primary: oklch(0.2990 0.0282 270.30);
+    --primary-foreground: oklch(1 0 0);
+    --secondary: oklch(0.9628 0.0119 79.78);
+    --secondary-foreground: oklch(0.2990 0.0282 270.30);
+    --muted: oklch(0.9628 0.0119 79.78);
+    --muted-foreground: oklch(0.5 0.012 270);
+    --accent: oklch(0.9228 0.0268 80.25);
+    --accent-foreground: oklch(0.2990 0.0282 270.30);
+    --border: oklch(0.905 0.011 79);
+    --input: oklch(0.905 0.011 79);
+    --ring: oklch(0.2990 0.0282 270.30);
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    /* Indigo lifted for contrast on dark surfaces; white text on it. */
-    --primary: oklch(0.585 0.233 277);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
+    /* Dark mode is the ink itself, deepened so `--card`/`--popover` can sit a
+       step above it. `--primary` inverts to sand: ink-on-ink would be an
+       invisible button, and sand is the palette's only other anchor. */
+    --background: oklch(0.2100 0.0230 271.00); /* a shade under #282d3c */
+    --foreground: oklch(0.9628 0.0119 79.78);
+    --card: oklch(0.2990 0.0282 270.30); /* #282d3c */
+    --card-foreground: oklch(0.9628 0.0119 79.78);
+    --popover: oklch(0.2990 0.0282 270.30);
+    --popover-foreground: oklch(0.9628 0.0119 79.78);
+    --brand-ink: oklch(0.2990 0.0282 270.30);
+    --brand-sand: oklch(0.8257 0.0486 79.53);
+    --primary: oklch(0.8257 0.0486 79.53); /* #D7C3A3 */
+    --primary-foreground: oklch(0.2990 0.0282 270.30);
+    --secondary: oklch(0.3502 0.0346 268.87);
+    --secondary-foreground: oklch(0.9628 0.0119 79.78);
+    --muted: oklch(0.3502 0.0346 268.87);
+    --muted-foreground: oklch(0.72 0.024 80);
+    --accent: oklch(0.3502 0.0346 268.87);
+    --accent-foreground: oklch(0.9628 0.0119 79.78);
     --destructive: oklch(0.704 0.191 22.216);
     --success: oklch(0.7 0.14 155);
     --success-foreground: oklch(0.205 0 0);
     --warning: oklch(0.78 0.14 75);
     --warning-foreground: oklch(0.205 0 0);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.585 0.233 277);
+    --border: oklch(0.8257 0.0486 79.53 / 14%);
+    --input: oklch(0.8257 0.0486 79.53 / 18%);
+    --ring: oklch(0.8257 0.0486 79.53);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);

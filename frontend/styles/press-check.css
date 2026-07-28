@@ -9,16 +9,16 @@
   /* The press room. A deliberate world of its own — dark ground, lit sheet —
      rather than the app's surface colours, because for these few minutes the
      sheet is the only thing that matters on screen. */
-  --pc-ground: #0e1116;
-  --pc-hairline: #232a33;
+  --pc-ground: #1e2230;
+  --pc-hairline: #333a4d;
   --pc-sheet: #fbfbf9;
   --pc-sheet-edge: #e4e2da;
-  --pc-ink: #14171c;
-  --pc-ink-soft: #5d636c;
-  --pc-chrome: #7e858f;
-  --pc-chrome-dim: #4a5058;
-  --pc-reg: #1b8a94;
-  --pc-reg-lift: #2cb5c1;
+  --pc-ink: #282d3c;
+  --pc-ink-soft: #5f6675;
+  --pc-chrome: #9a9483;
+  --pc-chrome-dim: #5f6675;
+  --pc-reg: #c9b18c;
+  --pc-reg-lift: #D7C3A3;
   --pc-mark: #c2185b;
   --pc-rule: #c9c6bc;
 
@@ -31,23 +31,30 @@
 }
 
 /* In a light theme the room becomes a light table rather than an inversion:
-   the sheet is still the lit object, the surround is just daylight. */
-:root:not([data-theme="dark"]) .press-check {
-  --pc-ground: #dfe1de;
-  --pc-hairline: #c6c9c4;
-  --pc-chrome: #5a6068;
-  --pc-chrome-dim: #8a9099;
-  --pc-reg: #14717a;
-  --pc-reg-lift: #0e5f67;
+   the sheet is still the lit object, the surround is just daylight.
+   Keyed on `.dark` on <html>, which is what actually toggles this app's theme
+   (see components/providers.tsx). These rules used to test
+   `[data-theme="dark"]`, an attribute nothing ever sets — so the `:not()` arm
+   matched unconditionally and the light table was the only room that ever
+   rendered, dark theme included. */
+html:not(.dark) .press-check {
+  --pc-ground: #e6e1d8;
+  --pc-hairline: #cdc6ba;
+  --pc-chrome: #565c66;
+  --pc-chrome-dim: #8a8578;
+  /* Registration marks in the theme kit's ink rather than the old teal. */
+  --pc-reg: #282d3c;
+  --pc-reg-lift: #1e2230;
 }
 
-:root[data-theme="dark"] .press-check {
-  --pc-ground: #0e1116;
-  --pc-hairline: #232a33;
-  --pc-chrome: #7e858f;
-  --pc-chrome-dim: #4a5058;
-  --pc-reg: #1b8a94;
-  --pc-reg-lift: #2cb5c1;
+html.dark .press-check {
+  --pc-ground: #1e2230;
+  --pc-hairline: #333a4d;
+  --pc-chrome: #9a9483;
+  --pc-chrome-dim: #5f6675;
+  /* On ink, sand is the only accent with enough lift to read as "live". */
+  --pc-reg: #c9b18c;
+  --pc-reg-lift: #D7C3A3;
 }
 
 /* ── Chrome ─────────────────────────────────────────────────────────── */
