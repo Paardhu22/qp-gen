@@ -107,13 +107,11 @@ interface EditorState {
   questionsToAppend: Question[];
   sectionsToAppend: SectionToAppend[];
   instructionsToAppend: string[] | null;
-  questionsToSave: Question[];
   /** Pending tray-driven "Undo" removals, consumed by tiptap-editor. */
   questionRemovals: QuestionRemovalRequest[];
 
   // ── Modal state ───────────────────────────────────────────────────
   savePaperModalOpen: boolean;
-  saveQuestionModalOpen: boolean;
   questionBankBrowserOpen: boolean;
 
   // ── Editor mirror (kept for backwards-compat callers) ─────────────
@@ -193,9 +191,7 @@ interface EditorState {
   appendInstructions: (instructions: string[]) => void;
   clearInstructionsToAppend: () => void;
 
-  setQuestionsToSave: (questions: Question[]) => void;
   setSavePaperModalOpen: (isOpen: boolean) => void;
-  setSaveQuestionModalOpen: (isOpen: boolean) => void;
   setQuestionBankBrowserOpen: (isOpen: boolean) => void;
   setEditorContent: (content: string) => void;
   setPages: (pages: Array<{ id: string; blocks: any[] }>) => void;
@@ -307,12 +303,10 @@ export const useEditorStore = create<EditorState>()(
       questionsToAppend: [],
       sectionsToAppend: [],
       instructionsToAppend: null,
-      questionsToSave: [],
       questionRemovals: [],
 
       // ── Modals ──────────────────────────────────────────────────────
       savePaperModalOpen: false,
-      saveQuestionModalOpen: false,
       questionBankBrowserOpen: false,
 
       // ── Editor mirror ───────────────────────────────────────────────
@@ -356,10 +350,7 @@ export const useEditorStore = create<EditorState>()(
 
       setTemplate: (template) => set({ template }),
 
-      setQuestionsToSave: (questions) => set({ questionsToSave: questions }),
       setSavePaperModalOpen: (isOpen) => set({ savePaperModalOpen: isOpen }),
-      setSaveQuestionModalOpen: (isOpen) =>
-        set({ saveQuestionModalOpen: isOpen }),
       setQuestionBankBrowserOpen: (isOpen) =>
         set({ questionBankBrowserOpen: isOpen }),
       setSaveState: (saveState) => set({ saveState }),
@@ -580,7 +571,6 @@ export function resetEditorStoreForAccountSwitch(): void {
     questionsToAppend: [],
     sectionsToAppend: [],
     instructionsToAppend: null,
-    questionsToSave: [],
     questionRemovals: [],
     insertionMode: "review",
     generatorContext: initialGeneratorContext,

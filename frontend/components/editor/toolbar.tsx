@@ -1348,53 +1348,6 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             <FolderOpen className="h-3 w-3 mr-1" /> Open Paper
           </Button>
 
-          {/* Save Questions */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-[10px] px-3 font-medium text-primary border-primary/30 hover:bg-primary/10 dark:text-primary dark:border-primary/50 dark:hover:bg-primary/30 dark:hover:text-primary"
-            onClick={() => {
-              const store = useEditorStore.getState();
-              const questions: any[] = [];
-              editor.state.doc.descendants((node: any) => {
-                if (node.type.name !== "questionBlock") return;
-                let questionText = "";
-                const options: string[] = [];
-                node.forEach((child: any) => {
-                  if (child.type.name === "paragraph" && !questionText) {
-                    child.forEach((inline: any) => {
-                      if (inline.text) questionText += inline.text;
-                    });
-                  }
-                  if (
-                    child.type.name === "bulletList" ||
-                    child.type.name === "orderedList"
-                  ) {
-                    child.forEach((li: any) => {
-                      let optText = "";
-                      li.forEach((p: any) => {
-                        p.forEach((inline: any) => {
-                          if (inline.text) optText += inline.text;
-                        });
-                      });
-                      if (optText) options.push(optText);
-                    });
-                  }
-                });
-                questions.push({
-                  content: questionText,
-                  type: options.length > 0 ? "mcq" : "short",
-                  marks: node.attrs.marks ?? 1,
-                  options,
-                });
-              });
-              store.setQuestionsToSave(questions);
-              store.setSaveQuestionModalOpen(true);
-            }}
-          >
-            <Save className="h-3 w-3 mr-1" /> Save Questions
-          </Button>
-
           {/* Paper Details */}
           <Button
             variant="default"

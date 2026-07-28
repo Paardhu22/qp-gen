@@ -27,10 +27,7 @@ import {
   updatePaperAction,
   getPaperAction,
 } from "@/actions/savePaper";
-import {
-  saveQuestionsToBank,
-  getQuestionsFromBank,
-} from "@/actions/saveQuestions";
+import { getQuestionsFromBank } from "@/actions/saveQuestions";
 import { useSession } from "@/lib/auth-client";
 import {
   deleteLiveDocument,
@@ -65,14 +62,6 @@ export default function EditorPage() {
     (state) => state.setSavePaperModalOpen,
   );
 
-  const saveQuestionModalOpen = useEditorStore(
-    (state) => state.saveQuestionModalOpen,
-  );
-  const setSaveQuestionModalOpen = useEditorStore(
-    (state) => state.setSaveQuestionModalOpen,
-  );
-
-  const questionsToSave = useEditorStore((state) => state.questionsToSave);
   // NOTE: `editorContent` is intentionally NOT subscribed here any more —
   // the TipTap editor used to push it into the store on every keystroke,
   // which re-rendered the whole EditorPage tree on each one. Save reads
@@ -83,11 +72,6 @@ export default function EditorPage() {
   const [paperClass, setPaperClass] = useState("");
   const [paperSubject, setPaperSubject] = useState("");
   const [paperExamName, setPaperExamName] = useState("");
-
-  // Question Form state
-  const [questionClass, setQuestionClass] = useState("");
-  const [questionSubject, setQuestionSubject] = useState("");
-  const [questionTopic, setQuestionTopic] = useState("");
 
   // Question Bank Browser state
   const questionBankBrowserOpen = useEditorStore(
@@ -767,46 +751,6 @@ export default function EditorPage() {
     }
   };
 
-  const handleSaveQuestions = async () => {
-    if (
-      !questionClass.trim() ||
-      !questionSubject.trim() ||
-      !questionTopic.trim()
-    ) {
-      toast.error("Please fill in all fields: Class, Subject, Topic.");
-      return;
-    }
-
-    if (questionsToSave.length === 0) {
-      toast.error("No questions found to save.");
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const payload = {
-        class: questionClass.trim(),
-        subject: questionSubject.trim(),
-        topic: questionTopic.trim(),
-        questions: questionsToSave,
-      };
-
-      const res = await saveQuestionsToBank(payload);
-      setSaveQuestionModalOpen(false);
-      toast.success(
-        `Saved ${res.count} question(s) to the Paper successfully!`,
-      );
-
-      // Reset form
-      setQuestionTopic("");
-    } catch (error: any) {
-      console.error(error);
-      toast.error(error?.message || "Failed to save questions.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   useEffect(() => {
     let active = true;
     if (questionBankBrowserOpen) {
@@ -1084,72 +1028,6 @@ export default function EditorPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Save Questions Modal */}
-      <Dialog
-        open={saveQuestionModalOpen}
-        onOpenChange={(open) => {
-          if (!isSaving) setSaveQuestionModalOpen(open);
-        }}
-      >
-        <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Save to Paper</DialogTitle>
-            <DialogDescription className="text-muted-foreground">
-              Save {questionsToSave.length} question(s) to the Paper
-              collection.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="questionClass">
-                  Class <span className="text-red-400">*</span>
-                </Label>
-                <Input
-                  id="questionClass"
-                  placeholder="e.g. Class 10"
-                  value={questionClass}
-                  disabled={isSaving}
-                  onChange={(e) => setQuestionClass(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="questionSubject">
-                  Subject <span className="text-red-400">*</span>
-                </Label>
-                <Input
-                  id="questionSubject"
-                  placeholder="e.g. Mathematics"
-                  value={questionSubject}
-                  disabled={isSaving}
-                  onChange={(e) => setQuestionSubject(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="questionTopic">
-                  Topic <span className="text-red-400">*</span>
-                </Label>
-                <Input
-                  id="questionTopic"
-                  placeholder="e.g. Probability"
-                  value={questionTopic}
-                  disabled={isSaving}
-                  onChange={(e) => setQuestionTopic(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              disabled={isSaving}
-              onClick={handleSaveQuestions}
-              className="bg-primary hover:bg-primary/90 text-white w-full gap-2"
-            >
-              {isSaving ? "Saving..." : "Save Questions"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       {/* Question Bank Browser Modal */}
       <Dialog
         open={questionBankBrowserOpen}

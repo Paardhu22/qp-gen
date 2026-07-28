@@ -313,13 +313,8 @@ export const GeneratorForm = ({
       0,
     );
     let newTotalSize = currentTotalSize;
-    let newDocCount = uploadedDocs.length + uploadingDocs.length;
 
     for (const file of files) {
-      if (newDocCount >= 5) {
-        toast.error("Maximum of 5 sources allowed.");
-        break;
-      }
       if (file.size > 100 * 1024 * 1024) {
         toast.error(`File ${file.name} exceeds 100MB limit.`);
         continue;
@@ -330,7 +325,6 @@ export const GeneratorForm = ({
       }
 
       newTotalSize += file.size;
-      newDocCount += 1;
 
       // Trigger automatic intelligent PDF analysis for PDF files
       if (file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") {
@@ -856,7 +850,12 @@ export const GeneratorForm = ({
         toast.error(generationError);
       }
     } catch (error: any) {
-      console.error(error);
+      // The stream can legitimately drop mid-generation (dev-server reload,
+      // proxy hiccup, network blip) — that's surfaced to the user via the
+      // toast below. console.error on an Error instance makes Next's dev
+      // overlay pop a full-screen "Console Error" for what is already a
+      // handled, user-visible failure, so log at warn instead.
+      console.warn("Question generation failed:", error);
       toast.error(
         error?.message ||
           "Failed to generate questions. Check whether your source files contain relevant content.",

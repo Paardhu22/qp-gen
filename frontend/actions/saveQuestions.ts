@@ -1,33 +1,4 @@
-import { saveQuestions, fetchProjectsWithQuestions } from "@/lib/api-client";
-
-/**
- * Save questions to the Question Paper.
- *
- * Questions are grouped under a Project named "<class> — <subject> — <topic>".
- * Auth is handled by api-client (JWT Bearer token from localStorage), matching
- * the rest of the app — NOT better-auth, which is not used here.
- */
-export async function saveQuestionsToBank(data: {
-  class: string;
-  subject: string;
-  topic: string;
-  questions: any[];
-}): Promise<{ success: boolean; count: number }> {
-  const projectName = `${data.class} — ${data.subject} — ${data.topic}`;
-
-  await saveQuestions<{ success: boolean; projectId: string }>({
-    projectName,
-    questions: data.questions.map((q) => ({
-      type: q.type || "short",
-      content: q.content,
-      answer: q.answer || "",
-      options: q.options || [],
-      marks: Number(q.marks) || 1,
-    })),
-  });
-
-  return { success: true, count: data.questions.length };
-}
+import { fetchProjectsWithQuestions } from "@/lib/api-client";
 
 /**
  * Fetch all questions from the Question Paper, optionally filtered by
