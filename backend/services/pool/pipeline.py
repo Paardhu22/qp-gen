@@ -74,7 +74,7 @@ from services.pool.image_model import (
 from services.pool.model1 import PoolGenerationResult, generate_question_pool
 from services.pool.model2 import PaperAssemblyError, assemble_paper
 from services.pool.rendering import or_label_for, printable_content
-from services.pool.schema import PoolQuestion, pool_summary
+from services.pool.schema import PoolQuestion, normalize_type, pool_summary
 from utils.ids import generate_id
 
 logger = logging.getLogger("[POOL_PIPELINE]")
@@ -116,6 +116,11 @@ class _PoolGenerationUnit:
     bank_chapter: str
     target_total: int
     image_count: int = 0
+    #: The slice of the blueprint this unit generates for, when the pool is
+    #: spread across chapters (see `_distribute_plan_shapes`). `None` means the
+    #: unit uses the caller's whole recipe plan — the behaviour for every
+    #: upload small enough that spreading is unnecessary.
+    plan_subset: Optional[Sequence[Any]] = None
 
 
 def _legacy_type_for(question_type: str) -> str:
@@ -407,7 +412,7 @@ def _build_pool_streaming(
             pool_id=pool_id,
             question_metadata=metadata,
             on_question=progress.put,
-            plan=plan,
+            plan=unit.plan_subset if unit.plan_subset else plan,
         )
 
         image_result = generate_image_questions(
@@ -610,13 +615,102 @@ def _contextual_image_total(
     return min(cap, desired)
 
 
+def _plan_shape_groups(plan: Sequence[Any]) -> List[List[Any]]:
+    """Group a plan's slots by the (type, marks, asset_type) shape they ask for.
+
+    Mirrors the keying `recipes.batches_from_plan` uses, so one group here is
+    exactly one Model 1 batch there.
+    """
+    groups: Dict[Any, List[Any]] = {}
+    order: List[Any] = []
+    for slot in plan or []:
+        qtype = normalize_type(getattr(slot, "question_type", "") or "")
+        if not qtype:
+            continue
+        try:
+            marks = int(getattr(slot, "marks", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if marks <= 0:
+            continue
+        key = (qtype, marks, str(getattr(slot, "asset_type", "") or ""))
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(slot)
+    return [groups[key] for key in order]
+
+
+def _distribute_plan_shapes(
+    units: Sequence["_PoolGenerationUnit"],
+    plan: Optional[Sequence[Any]],
+    *,
+    target_total: int,
+) -> None:
+    """Spread the blueprint's question shapes across units, in place.
+
+    `recipes.batches_from_plan` floors every shape it is given at one question
+    so that no blueprint shape is missing from the pool — `slot_accepts` matches
+    on EXACT marks, and a shape the pool lacks leaves its slot unfillable. That
+    floor is per Model 1 call, so handing every chapter the whole plan makes the
+    real pool size `chapters × distinct shapes`, no matter how small a target
+    each chapter was allocated. A 20-chapter English upload with 4 literature
+    shapes generated 80 questions against a 40-question budget.
+
+    The floor only has to hold once across the *merged* pool, so shapes are
+    dealt round-robin instead: every chapter still contributes, every shape is
+    still covered (several times over), and the total tracks the budget.
+
+    No-ops when the plan already fits — small uploads keep the previous
+    behaviour of asking each chapter for every shape, which gives Model 2 the
+    widest choice when there is room for it.
+    """
+    if not units or not plan or target_total <= 0:
+        return
+    groups = _plan_shape_groups(plan)
+    if len(groups) <= 1:
+        return
+    if len(groups) * len(units) <= target_total:
+        return  # every unit can afford the full plan; leave it alone
+
+    # Deal shapes round-robin so consecutive chapters cover different shapes
+    # and each shape recurs every `len(groups)` chapters.
+    for index, unit in enumerate(units):
+        assigned = groups[index % len(groups)]
+        # Give a unit a second shape when its own allocation can pay for it,
+        # so a generous budget still buys variety per chapter.
+        subset = list(assigned)
+        if unit.target_total > 1 and len(groups) > 1:
+            subset += list(groups[(index + 1) % len(groups)])
+        unit.plan_subset = subset
+
+
 def _build_generation_units(
-    chapters: Sequence[Chapter], *, target_total: int, image_total: int
+    chapters: Sequence[Chapter],
+    *,
+    target_total: int,
+    image_total: int,
+    recipe_plan: Optional[Sequence[Any]] = None,
 ) -> List[_PoolGenerationUnit]:
     """Split oversized chapters and assign text/image quotas to each unit."""
-    min_per_chapter = max(
+    # POOL_MIN_QUESTIONS_PER_CHAPTER is a *quality* floor — it stops a chapter
+    # being represented by one or two questions when only a handful were
+    # uploaded. It is not a per-chapter licence to grow the pool: applied
+    # unconditionally, `_allocate_targets` returns the floor for every chapter
+    # whenever `floor * len(chapters) >= target_total`, so the caller's budget
+    # is discarded and the pool becomes 12 × (chapters uploaded). Uploading a
+    # full 13-chapter textbook then generated ~160 questions for a 38-slot
+    # paper — Model 1 calls, tokens and wall-clock spent on questions no
+    # blueprint slot could ever consume.
+    #
+    # Capping the floor at each chapter's affordable share keeps the intent
+    # (never allocate a chapter 0) while honouring `target_total`, so pool size
+    # now tracks the blueprint rather than the size of the upload.
+    configured_floor = max(
         1, int(getattr(settings, "POOL_MIN_QUESTIONS_PER_CHAPTER", 12))
     )
+    affordable_floor = (target_total // len(chapters)) if chapters else 0
+    min_per_chapter = max(1, min(configured_floor, affordable_floor))
     chapter_targets = _allocate_targets(
         chapters, total=target_total, min_each=min_per_chapter
     )
@@ -624,17 +718,39 @@ def _build_generation_units(
     units: List[_PoolGenerationUnit] = []
     for chapter, chapter_target in zip(chapters, chapter_targets):
         sections = split_chapter(chapter)
+        # Same reasoning as the chapter floor above, one level down. A chapter
+        # split into more sections than its own allocation cannot give each
+        # section a question without exceeding that allocation, so the floor is
+        # dropped and the weighted split decides which sections are worth a
+        # question. Sections allocated none are skipped rather than rounded up
+        # to one — otherwise an 8-way split would silently produce 8 units.
+        section_floor = 1 if 0 < len(sections) <= chapter_target else 0
         section_targets = _allocate_targets(
-            sections, total=chapter_target, min_each=1 if len(sections) > 1 else 0
+            sections, total=chapter_target, min_each=section_floor
         )
-        for section, section_target in zip(sections, section_targets):
-            units.append(
-                _PoolGenerationUnit(
-                    chapter=section,
-                    bank_chapter=chapter.title,
-                    target_total=max(1, section_target),
-                )
+        chapter_units = [
+            _PoolGenerationUnit(
+                chapter=section,
+                bank_chapter=chapter.title,
+                target_total=section_target,
             )
+            for section, section_target in zip(sections, section_targets)
+            if section_target > 0
+        ]
+        # A chapter always contributes something: if rounding zeroed every
+        # section, keep the largest one with a single question.
+        if not chapter_units and sections:
+            largest = max(sections, key=lambda s: getattr(s, "char_count", 0) or 0)
+            chapter_units = [
+                _PoolGenerationUnit(
+                    chapter=largest,
+                    bank_chapter=chapter.title,
+                    target_total=1,
+                )
+            ]
+        units.extend(chapter_units)
+
+    _distribute_plan_shapes(units, recipe_plan, target_total=target_total)
 
     image_targets = _allocate_image_targets(units, total=image_total)
     for unit, image_count in zip(units, image_targets):
@@ -997,9 +1113,26 @@ def stream_pool_questions(
         subject_norm=subject_norm,
         configured_cap=configured_image_cap,
     )
+    # Composite-question papers (the CBSE language blueprints, and any explicit
+    # General-Instructions plan) ask for mark values the fixed per-subject
+    # recipes never produce. Deriving Model 1's recipe from the plan itself
+    # guarantees the pool can fill every slot. The tuned Science/Maths/Social
+    # recipes still win for their board papers.
+    #
+    # Resolved here rather than at the streaming call because unit construction
+    # needs it too: it is what lets the pool's shapes be spread across chapters
+    # instead of every chapter being asked for every shape.
+    recipe_plan = (
+        textbook_slots
+        if is_gim or subject_norm in {"english", "hindi", "telugu", "sanskrit"}
+        else None
+    )
     units = (
         _build_generation_units(
-            chapters, target_total=target_total, image_total=image_total
+            chapters,
+            target_total=target_total,
+            image_total=image_total,
+            recipe_plan=recipe_plan,
         )
         if textbook_slots and chapters
         else []
@@ -1079,17 +1212,6 @@ def stream_pool_questions(
                 "maxPromptTokens": max_prompt_tokens,
             },
             event="status",
-        )
-
-        # Composite-question papers (the CBSE language blueprints, and any
-        # explicit General-Instructions plan) ask for mark values the fixed
-        # per-subject recipes never produce. Deriving Model 1's recipe from the
-        # plan itself guarantees the pool can fill every slot. The tuned
-        # Science/Maths/Social recipes still win for their board papers.
-        recipe_plan = (
-            textbook_slots
-            if is_gim or subject_norm in {"english", "hindi", "telugu", "sanskrit"}
-            else None
         )
 
         for item in _build_pool_streaming(

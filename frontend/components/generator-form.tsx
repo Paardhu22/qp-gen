@@ -401,21 +401,19 @@ export const GeneratorForm = ({
   };
 
   const removeDoc = (id: string, name?: string) => {
-    setUploadedDocs((prev) => {
-      const nextDocs = prev.filter((d) => d.id !== id);
-      setPdfAnalysisMap((prevMap) => {
-        const nextMap = new Map(prevMap);
-        const targetName = name || prev.find((d) => d.id === id)?.name;
-        if (targetName) nextMap.delete(targetName);
-        void revalidatePdfResults(Array.from(nextMap.values()));
-        return nextMap;
-      });
-      if (nextDocs.length === 0 && hsatSources.length === 0) {
-        setDetectedSubject(null);
-        setValidationReport(null);
-      }
-      return nextDocs;
+    const targetName = name || uploadedDocs.find((d) => d.id === id)?.name;
+    const nextDocs = uploadedDocs.filter((d) => d.id !== id);
+    setUploadedDocs(nextDocs);
+    setPdfAnalysisMap((prevMap) => {
+      const nextMap = new Map(prevMap);
+      if (targetName) nextMap.delete(targetName);
+      void revalidatePdfResults(Array.from(nextMap.values()));
+      return nextMap;
     });
+    if (nextDocs.length === 0 && hsatSources.length === 0) {
+      setDetectedSubject(null);
+      setValidationReport(null);
+    }
   };
 
   const handleHsatApply = (source: AppliedHsatSource) => {
@@ -615,6 +613,9 @@ export const GeneratorForm = ({
       answer: question.answer,
       marks: question.marks,
       image_url: question.image_url || question.metadata?.image_url || "",
+      // Carries `composite` (paginatable passage blocks) and `slotIndex`
+      // (Replace question). See `Question.metadata` in editor-store.
+      metadata: question.metadata || null,
     };
 
     if (!liveInsertedSectionsRef.current.has(sectionTitle)) {
@@ -904,6 +905,9 @@ export const GeneratorForm = ({
             answer: q.answer,
             marks: q.marks,
             image_url: q.image_url || q.metadata?.image_url || "",
+            // Carries `composite` (paginatable passage blocks) and `slotIndex`
+            // (Replace question). See `Question.metadata` in editor-store.
+            metadata: q.metadata || null,
           })),
         };
       });
@@ -1207,8 +1211,8 @@ export const GeneratorForm = ({
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground min-w-[var(--radix-select-trigger-width)]">
-                    <SelectItem value="board">Board Mode</SelectItem>
-                    <SelectItem value="general_instructions">General Instructions Mode</SelectItem>
+                    <SelectItem value="board" label="Board Mode">Board Mode</SelectItem>
+                    <SelectItem value="general_instructions" label="General Instructions Mode">General Instructions Mode</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-0.5">
@@ -1257,16 +1261,16 @@ export const GeneratorForm = ({
                       <SelectTrigger className="w-full bg-background border-border text-foreground"><SelectValue placeholder="Select" /></SelectTrigger>
                     </FormControl>
                     <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground">
-                      <SelectItem value="1">Class 1</SelectItem>
-                      <SelectItem value="2">Class 2</SelectItem>
-                      <SelectItem value="3">Class 3</SelectItem>
-                      <SelectItem value="4">Class 4</SelectItem>
-                      <SelectItem value="5">Class 5</SelectItem>
-                      <SelectItem value="6">Class 6</SelectItem>
-                      <SelectItem value="7">Class 7</SelectItem>
-                      <SelectItem value="8">Class 8</SelectItem>
-                      <SelectItem value="9">Class 9</SelectItem>
-                      <SelectItem value="10">Class 10</SelectItem>
+                      <SelectItem value="1" label="Class 1">Class 1</SelectItem>
+                      <SelectItem value="2" label="Class 2">Class 2</SelectItem>
+                      <SelectItem value="3" label="Class 3">Class 3</SelectItem>
+                      <SelectItem value="4" label="Class 4">Class 4</SelectItem>
+                      <SelectItem value="5" label="Class 5">Class 5</SelectItem>
+                      <SelectItem value="6" label="Class 6">Class 6</SelectItem>
+                      <SelectItem value="7" label="Class 7">Class 7</SelectItem>
+                      <SelectItem value="8" label="Class 8">Class 8</SelectItem>
+                      <SelectItem value="9" label="Class 9">Class 9</SelectItem>
+                      <SelectItem value="10" label="Class 10">Class 10</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -1295,7 +1299,7 @@ export const GeneratorForm = ({
                       <SelectItem value={detectedSubject}>{detectedSubject}</SelectItem>
                     ) : (
                       ALL_SUBJECT_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
+                        <SelectItem key={opt.value} value={opt.value} label={opt.label}>
                           {opt.label}
                         </SelectItem>
                       ))
@@ -1334,8 +1338,8 @@ export const GeneratorForm = ({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground">
-                      <SelectItem value="standard">Standard (Code 041)</SelectItem>
-                      <SelectItem value="basic">Basic (Code 241)</SelectItem>
+                      <SelectItem value="standard" label="Standard (Code 041)">Standard (Code 041)</SelectItem>
+                      <SelectItem value="basic" label="Basic (Code 241)">Basic (Code 241)</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -1359,9 +1363,9 @@ export const GeneratorForm = ({
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground min-w-[var(--radix-select-trigger-width)]">
-                    <SelectItem value="easy">Easy</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="hard">Hard</SelectItem>
+                    <SelectItem value="easy" label="Easy">Easy</SelectItem>
+                    <SelectItem value="medium" label="Medium">Medium</SelectItem>
+                    <SelectItem value="hard" label="Hard">Hard</SelectItem>
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -1386,9 +1390,9 @@ export const GeneratorForm = ({
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground min-w-[var(--radix-select-trigger-width)]">
-                    <SelectItem value="1">1 Set (default)</SelectItem>
-                    <SelectItem value="2">2 Sets (A, B)</SelectItem>
-                    <SelectItem value="3">3 Sets (A, B, C)</SelectItem>
+                    <SelectItem value="1" label="1 Set (default)">1 Set (default)</SelectItem>
+                    <SelectItem value="2" label="2 Sets (A, B)">2 Sets (A, B)</SelectItem>
+                    <SelectItem value="3" label="3 Sets (A, B, C)">3 Sets (A, B, C)</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-1 leading-snug">
@@ -1418,8 +1422,8 @@ export const GeneratorForm = ({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground min-w-[var(--radix-select-trigger-width)]">
-                      <SelectItem value="cbse">CBSE Exact Pattern</SelectItem>
-                      <SelectItem value="custom">Custom Count</SelectItem>
+                      <SelectItem value="cbse" label="CBSE Exact Pattern">CBSE Exact Pattern</SelectItem>
+                      <SelectItem value="custom" label="Custom Count">Custom Count</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -1474,8 +1478,8 @@ export const GeneratorForm = ({
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground min-w-[var(--radix-select-trigger-width)]">
-                    <SelectItem value="strict">Standard Default (Allows Curriculum Fallback)</SelectItem>
-                    <SelectItem value="source_only">Strict to Source Material (Source Only)</SelectItem>
+                    <SelectItem value="strict" label="Standard Default (Allows Curriculum Fallback)">Standard Default (Allows Curriculum Fallback)</SelectItem>
+                    <SelectItem value="source_only" label="Strict to Source Material (Source Only)">Strict to Source Material (Source Only)</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-1 leading-snug">

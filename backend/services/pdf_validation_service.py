@@ -8,12 +8,11 @@ def validate_pdf_metadata_list(pdf_results: List[Dict[str, Any]]) -> Dict[str, A
     """
     Validates a list of PDF analysis metadata objects:
     1. Rejects non-educational documents (Resume, Invoice, etc.).
-    2. Rejects low confidence (< 0.90) analyses.
-    3. Enforces Subject consistency.
+    2. Enforces Subject consistency.
 
-    Note: Chapter/Board/Class consistency checks are disabled for now
-    (SQP testing needs multi-chapter uploads that span detection noise
-    in board/class fields).
+    Note: Low-confidence/missing-subject, Chapter, Board, and Class
+    consistency checks are disabled for now (SQP testing needs
+    multi-chapter uploads that span detection noise in these fields).
     """
     if not pdf_results:
         return {
@@ -43,26 +42,9 @@ def validate_pdf_metadata_list(pdf_results: List[Dict[str, Any]]) -> Dict[str, A
             ],
         }
 
-    # 2. Low confidence check
-    low_conf = [doc for doc in pdf_results if (doc.get("confidence") or 0.0) < 0.90 or not doc.get("subject")]
-    if low_conf:
-        bad_files = ", ".join(d.get("fileName", "Unknown") for d in low_conf)
-        return {
-            "valid": False,
-            "errorType": "LOW_CONFIDENCE",
-            "message": f"Unable to confidently determine the subject for: {bad_files}",
-            "mismatches": [
-                {
-                    "file": d.get("fileName"),
-                    "subject": d.get("subject") or "Unknown",
-                    "confidence": d.get("confidence") or 0.0,
-                }
-                for d in low_conf
-            ],
-        }
-
-    # 3. Subject Validation
-    subjects_map = {d.get("fileName"): d.get("subject") for d in pdf_results}
+    # 3. Subject Validation (only compare files where a subject was actually detected;
+    # files with no/low-confidence subject are allowed through rather than blocking upload)
+    subjects_map = {d.get("fileName"): d.get("subject") for d in pdf_results if d.get("subject")}
     unique_subjects = set(subjects_map.values())
     if len(unique_subjects) > 1:
         breakdown = [{"file": fname, "subject": subj} for fname, subj in subjects_map.items()]

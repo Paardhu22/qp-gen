@@ -35,6 +35,7 @@ import {
   getLiveDocumentId,
   getLatestLiveDocumentForUser,
   getLiveDocument,
+  saveLiveDocument,
 } from "@/lib/live-document-db";
 import {
   basePaperId,
@@ -439,7 +440,51 @@ export default function EditorPage() {
       // the only copy of whatever the teacher had not saved.
       (async () => {
         await resetToNewPaper();
-        if (active) router.replace(`/editor?paperId=${newLocalDraftId()}`);
+        if (!active) return;
+        const newDraftId = newLocalDraftId();
+        // The blank draft only starts existing in IndexedDB once the editor's
+        // debounced sync fires on a real edit. If the teacher clicks "New
+        // Paper" and closes the tab before typing anything, that write never
+        // happens — so the bare-`/editor` resume effect above still finds the
+        // OLD draft (with its uploaded PDFs) as "latest" and reopens THAT,
+        // making the new paper look like it never took. Seed an empty row
+        // immediately so the new paper is the latest draft from the moment
+        // it's created, not from the moment it's first edited.
+        const userId = sessionData?.user?.id;
+        if (userId) {
+          const now = Date.now();
+          try {
+            await saveLiveDocument({
+              id: getLiveDocumentId(userId, newDraftId),
+              userId,
+              paperId: newDraftId,
+              title: "Untitled Paper",
+              template: "cbse",
+              editorJSON: normalizeInitialContent(undefined),
+              pages: [],
+              metadata: {
+                title: "Untitled Paper",
+                className: "",
+                subject: "",
+                template: "cbse",
+                updatedAt: now,
+                hsatSources: [],
+                uploadedDocs: [],
+              },
+              layout: {
+                pageSize: "A4",
+                orientation: "portrait",
+                template: "cbse",
+                pages: [],
+              },
+              sync: { status: "synced", lastSyncedAt: now, error: null },
+              updatedAt: now,
+            });
+          } catch (error) {
+            console.warn("Failed to seed the new draft:", error);
+          }
+        }
+        if (active) router.replace(`/editor?paperId=${newDraftId}`);
       })();
       return () => {
         active = false;
@@ -796,6 +841,9 @@ export default function EditorPage() {
       type: q.type || "short",
       marks: q.marks || 1,
       options: q.options || [],
+      // A banked composite (unseen passage, grammar task set) must still split
+      // into paginatable blocks when re-inserted. See `Question.metadata`.
+      metadata: q.metadata ?? null,
     }));
 
     appendQuestions(formattedQuestions);

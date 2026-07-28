@@ -189,6 +189,10 @@ export default function BuildPaperPage() {
                   answer: q.answer,
                   marks: q.marks,
                   image_url: q.image_url || q.metadata?.image_url || "",
+                  // Carries `composite` (paginatable passage blocks) and
+                  // `slotIndex` (Replace question). See `Question.metadata`
+                  // in editor-store.
+                  metadata: q.metadata || null,
                 })),
               });
             }

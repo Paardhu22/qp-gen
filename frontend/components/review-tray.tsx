@@ -113,6 +113,10 @@ export function ReviewTray() {
           answer: t.question.answer,
           marks: t.question.marks,
           image_url: t.question.image_url,
+          // Forwarded, not decorative: `metadata.composite` is what lets the
+          // editor emit a passage as separate paginatable blocks instead of one
+          // block it cannot break. See `Question.metadata` in editor-store.
+          metadata: t.question.metadata || null,
         })),
       })),
     );

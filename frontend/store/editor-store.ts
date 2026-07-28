@@ -8,6 +8,19 @@ export interface Question {
   type: string;
   marks: number;
   image_url?: string;
+  /**
+   * Backend question metadata, carried through to the editor unchanged.
+   *
+   * Load-bearing, not diagnostic. `buildQuestionBlocks` reads
+   * `metadata.composite` to split a composite question (an unseen passage, a
+   * grammar task set) into a run of sibling blocks; the pagination engine only
+   * breaks a page *between* top-level blocks, so a passage that arrives as one
+   * block has no seam to break at and is clipped at the page edge. Dropping
+   * this field here is what made every English paper render as a page of empty
+   * placeholder lines. `metadata.slotIndex` is also what `buildSlotMeta` needs
+   * for the editor's "Replace question" action.
+   */
+  metadata?: Record<string, any> | null;
 }
 
 export interface SectionToAppend {
@@ -36,8 +49,10 @@ export interface SectionToAppend {
 export interface TrayItem {
   id: string;
   sectionTitle: string;
+  // `metadata` is declared on `Question` itself — the tray is not the only
+  // consumer that needs it, and re-declaring it here as non-nullable produced
+  // an intersection that quietly disallowed `null`.
   question: Question & {
-    metadata?: Record<string, any>;
     bloom?: string;
     or_choice?: any;
     vi_alternative?: string;

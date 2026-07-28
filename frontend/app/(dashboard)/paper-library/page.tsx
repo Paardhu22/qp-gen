@@ -60,6 +60,12 @@ type Question = {
   difficulty?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  /**
+   * Backend question metadata. Must be forwarded on insert: `metadata.composite`
+   * is what splits a banked reading passage or grammar set into paginatable
+   * blocks. See `Question.metadata` in store/editor-store.ts.
+   */
+  metadata?: Record<string, any> | null;
 };
 
 type QuestionType = {
@@ -522,6 +528,9 @@ export default function SavedQuestionsPage() {
       options: q.options ?? [],
       answer: q.answer ?? "",
       marks: q.marks,
+      // A banked composite (unseen passage, grammar task set) must still split
+      // into paginatable blocks when re-inserted. See `Question.metadata`.
+      metadata: q.metadata ?? null,
     }));
     useEditorStore.getState().appendQuestions(questions);
     toast.success(`Inserted ${questions.length} question(s) into the editor.`);
