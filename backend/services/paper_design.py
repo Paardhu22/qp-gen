@@ -70,6 +70,15 @@ QUESTION_TYPES = (
     "FILL_BLANK",
     "TRUE_FALSE",
     "MATCH_FOLLOWING",
+    # A question built on a figure. This vocabulary is the entire menu the
+    # designer is shown, so leaving DIAGRAM off it did not merely lose the
+    # label — a teacher who wrote "10 image based questions" got ten CASE_STUDY
+    # slots, because CASE_STUDY was the nearest thing on offer. Downstream it
+    # is also the signal that DECIDES whether images are drawn at all:
+    # `pipeline._plan_image_slots` counts DIAGRAM slots, and
+    # `_contextual_image_total` honours that count before falling back to a
+    # small supplemental budget. No DIAGRAM slot, no images.
+    "DIAGRAM",
 )
 
 DEFAULT_MARKS = {
@@ -81,6 +90,7 @@ DEFAULT_MARKS = {
     "SHORT_ANSWER": 2,
     "LONG_ANSWER": 5,
     "CASE_STUDY": 4,
+    "DIAGRAM": 2,
 }
 
 # Everything a model might plausibly write for a type, mapped to the vocabulary.
@@ -120,6 +130,26 @@ _TYPE_ALIASES = {
     "match the following": "MATCH_FOLLOWING",
     "matching": "MATCH_FOLLOWING",
     "match": "MATCH_FOLLOWING",
+    # Everything a teacher calls a figure question. "image based" and "picture
+    # based" are the two that actually get typed.
+    "image based": "DIAGRAM",
+    "image-based": "DIAGRAM",
+    "images based": "DIAGRAM",
+    "picture based": "DIAGRAM",
+    "picture-based": "DIAGRAM",
+    "diagram based": "DIAGRAM",
+    "diagram-based": "DIAGRAM",
+    "figure based": "DIAGRAM",
+    "figure-based": "DIAGRAM",
+    "map based": "DIAGRAM",
+    "map-based": "DIAGRAM",
+    "diagram": "DIAGRAM",
+    "figure": "DIAGRAM",
+    "picture": "DIAGRAM",
+    "image": "DIAGRAM",
+    "map": "DIAGRAM",
+    "chart": "DIAGRAM",
+    "graph": "DIAGRAM",
 }
 
 
@@ -273,7 +303,12 @@ _DESIGN_SCHEMA = {
                                     "description": (
                                         "One of: MCQ, ASSERTION_REASON, "
                                         "SHORT_ANSWER, LONG_ANSWER, CASE_STUDY, "
-                                        "FILL_BLANK, TRUE_FALSE, MATCH_FOLLOWING."
+                                        "FILL_BLANK, TRUE_FALSE, MATCH_FOLLOWING, "
+                                        "DIAGRAM. Use DIAGRAM whenever the "
+                                        "teacher asks for image / picture / "
+                                        "figure / map / diagram based questions "
+                                        "— it is what makes the paper carry "
+                                        "figures at all."
                                     ),
                                 },
                                 "marks": {"type": "integer"},

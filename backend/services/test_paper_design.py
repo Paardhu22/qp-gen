@@ -421,3 +421,111 @@ class BloomTests(TestCase):
         self.assertNotIn("bloom", str(serialized).lower())
         for spec in design_to_slot_specs(d):
             self.assertNotIn("bloom", str(spec).lower())
+
+
+class DiagramTypeTests(TestCase):
+    """"10 image based questions" must produce ten figure questions.
+
+    The failure this pins: DIAGRAM was missing from `QUESTION_TYPES`, which is
+    the entire menu the designer is shown. A teacher who asked for image-based
+    questions got CASE_STUDY slots — the nearest thing on offer — and because
+    `pipeline._plan_image_slots` counts DIAGRAM slots to decide the image
+    budget, a paper with no DIAGRAM slot draws no figures at all. Two symptoms,
+    one missing enum member.
+    """
+
+    def test_the_phrases_teachers_actually_type_resolve_to_diagram(self):
+        for phrase in (
+            "image based",
+            "images based",
+            "image-based",
+            "picture based",
+            "diagram based",
+            "figure based",
+            "map based",
+            "DIAGRAM",
+            "diagram",
+            "figure",
+            "picture",
+            "image",
+            "map",
+        ):
+            self.assertEqual(
+                normalize_question_type(phrase), "DIAGRAM", f"{phrase!r}"
+            )
+
+    def test_a_figure_ask_is_not_absorbed_by_case_study(self):
+        # The exact regression: CASE_STUDY was the closest available type, so
+        # every requested figure question became a passage question.
+        for phrase in ("image based", "picture based", "diagram based"):
+            self.assertNotEqual(normalize_question_type(phrase), "CASE_STUDY", phrase)
+
+    def test_case_study_phrasings_still_resolve_to_case_study(self):
+        # Adding DIAGRAM must not steal the passage types — "source based" and
+        # "case based" are genuinely CASE_STUDY.
+        for phrase in ("case study", "case based", "source based", "passage", "cbq"):
+            self.assertEqual(
+                normalize_question_type(phrase), "CASE_STUDY", f"{phrase!r}"
+            )
+
+    def test_diagram_survives_the_validator_with_a_default_mark(self):
+        d = validate_design(
+            design(DesignSection("A", [group(question_type="DIAGRAM", marks=0, count=10)]))
+        )
+        self.assertEqual(d.sections[0].groups[0].question_type, "DIAGRAM")
+        self.assertEqual(d.sections[0].groups[0].marks, 2, "type default applied")
+        self.assertEqual(d.total_questions, 10)
+
+    def test_diagram_slots_reach_the_pipeline_as_diagram(self):
+        # `_plan_image_slots` matches on question_type == "DIAGRAM"; anything
+        # else and the image stage never runs for this paper.
+        specs = design_to_slot_specs(
+            validate_design(
+                design(
+                    DesignSection(
+                        "Images Based Questions",
+                        [group(question_type="DIAGRAM", marks=1, count=10)],
+                    )
+                )
+            )
+        )
+        self.assertEqual(len(specs), 1)
+        self.assertEqual(specs[0]["type"], "DIAGRAM")
+        self.assertEqual(specs[0]["count"], 10)
+
+    def test_the_designer_is_offered_diagram_in_its_schema(self):
+        # The model can only choose from the list it is shown. This is the
+        # thing that was actually missing.
+        from services.paper_design import _DESIGN_SCHEMA
+
+        description = _DESIGN_SCHEMA["properties"]["sections"]["items"][
+            "properties"
+        ]["groups"]["items"]["properties"]["type"]["description"]
+        self.assertIn("DIAGRAM", description)
+
+    def test_a_full_image_paper_reaches_the_pipeline_intact(self):
+        # End to end on the reported instruction: ten one-mark figure
+        # questions, still ten DIAGRAM slots by the time the pipeline sees it.
+        from services.pool.pipeline import _plan_image_slots
+
+        d = validate_design(
+            design(
+                DesignSection(
+                    "Images Based Questions",
+                    [group(question_type=normalize_question_type("images based"),
+                           marks=1, count=10)],
+                )
+            )
+        )
+
+        class _Slot:
+            def __init__(self, question_type):
+                self.question_type = question_type
+
+        slots = [
+            _Slot(spec["type"])
+            for spec in design_to_slot_specs(d)
+            for _ in range(spec["count"])
+        ]
+        self.assertEqual(len(slots), 10)
+        self.assertEqual(_plan_image_slots(slots), 10)
