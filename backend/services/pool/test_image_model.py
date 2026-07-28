@@ -202,7 +202,10 @@ class GenerateStrategyTests(_ImageStageTestCase):
         ]
 
         def flaky(**kwargs):
-            if kwargs.get("prompt") == "Diagram B":
+            # Containment, not equality: the spec's `diagram_prompt` is wrapped
+            # in the house drawing style (`_RENDER_STYLE`) before it reaches the
+            # image model, so the sent prompt is no longer the spec verbatim.
+            if "Diagram B" in (kwargs.get("prompt") or ""):
                 raise RuntimeError("content policy rejection")
             return _fake_image_response()
 
@@ -329,3 +332,97 @@ class CapAndDegradationTests(_ImageStageTestCase):
             )
         self.assertEqual(result.total, 0)
         self.assertTrue(result.failures)
+
+
+class RenderPromptAndCacheKeyTests(TestCase):
+    """The two things that decide whether a drawn diagram is usable.
+
+    A low-tier gpt-image-1 render turns labels into letter-shaped noise, and a
+    labelled figure is the only kind an exam question needs — "identify the
+    part marked B" is unanswerable when B is a smudge. So the drawing style is
+    stated once, for every figure, and the cache key has to follow the settings
+    that produced the pixels rather than just the description.
+    """
+
+    def test_the_house_style_wraps_the_spec_and_keeps_it_intact(self):
+        from services.pool.image_model import _render_prompt
+
+        rendered = _render_prompt("A ray diagram for a concave mirror.")
+        self.assertIn("A ray diagram for a concave mirror.", rendered)
+        self.assertTrue(
+            rendered.index("textbook")
+            < rendered.index("A ray diagram for a concave mirror."),
+            "the style must precede the content it applies to",
+        )
+
+    def test_the_style_forbids_what_image_models_get_wrong_on_figures(self):
+        from services.pool.image_model import _render_prompt
+
+        rendered = _render_prompt("x").lower()
+        # Drift toward glossy renders, and invented captions/titles, are the
+        # two failure modes that make a generated figure unusable in a paper.
+        for forbidden in ("no photorealism", "no shading", "no 3d", "no title", "no caption"):
+            self.assertIn(forbidden, rendered, forbidden)
+        self.assertIn("sans-serif", rendered, "label legibility is the whole point")
+
+    def test_whitespace_around_the_spec_does_not_change_the_render(self):
+        from services.pool.image_model import _render_prompt
+
+        self.assertEqual(_render_prompt("  a diagram  "), _render_prompt("a diagram"))
+
+    def test_the_cache_key_changes_with_the_quality_tier(self):
+        # The regression this pins: the key hashed only the description, so a
+        # stored PNG outlived the settings that drew it. Raising the quality
+        # tier changed nothing on any chapter generated before, because every
+        # prompt still hit its old low-tier image.
+        from services.pool.image_model import _diagram_storage_path
+
+        with override_settings(OPENAI_IMAGE_QUALITY="low"):
+            low = _diagram_storage_path("A ray diagram.")
+        with override_settings(OPENAI_IMAGE_QUALITY="high"):
+            high = _diagram_storage_path("A ray diagram.")
+        self.assertNotEqual(low, high)
+
+    def test_the_cache_key_changes_with_the_model_and_size(self):
+        from services.pool.image_model import _diagram_storage_path
+
+        with override_settings(OPENAI_IMAGE_MODEL="gpt-image-1"):
+            a = _diagram_storage_path("A circuit.")
+        with override_settings(OPENAI_IMAGE_MODEL="dall-e-3"):
+            b = _diagram_storage_path("A circuit.")
+        self.assertNotEqual(a, b)
+
+        with override_settings(OPENAI_IMAGE_SIZE="1024x1024"):
+            small = _diagram_storage_path("A circuit.")
+        with override_settings(OPENAI_IMAGE_SIZE="1536x1024"):
+            wide = _diagram_storage_path("A circuit.")
+        self.assertNotEqual(small, wide)
+
+    def test_the_same_settings_still_reuse_the_same_file(self):
+        # Cache-busting must not become cache-defeating: an identical request
+        # has to keep hitting its stored PNG, or every regeneration repays for
+        # every diagram.
+        from services.pool.image_model import _diagram_storage_path
+
+        with override_settings(OPENAI_IMAGE_QUALITY="high"):
+            first = _diagram_storage_path("A ray diagram.")
+            second = _diagram_storage_path("A ray diagram.")
+        self.assertEqual(first, second)
+
+    def test_different_diagrams_never_share_a_file(self):
+        from services.pool.image_model import _diagram_storage_path
+
+        self.assertNotEqual(
+            _diagram_storage_path("A ray diagram."),
+            _diagram_storage_path("A circuit diagram."),
+        )
+
+    def test_the_default_quality_is_legible(self):
+        # "low" renders labels as approximate letter shapes. If this default
+        # ever goes back, diagram questions quietly stop being answerable.
+        from django.conf import settings as django_settings
+
+        self.assertIn(
+            str(getattr(django_settings, "OPENAI_IMAGE_QUALITY", "")).lower(),
+            {"medium", "high"},
+        )
