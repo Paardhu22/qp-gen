@@ -558,3 +558,67 @@ html[data-auth-page] *.dark {
 .dark .custom-scrollbar:hover::-webkit-scrollbar-thumb:hover {
     background-color: rgba(150, 160, 180, 0.6) !important;
 }
+
+/* ── Micro-interactions ───────────────────────────────────────────────────
+   Tactile feedback on the things you press, app-wide, with no JavaScript and
+   no per-component wiring.
+
+   Scoped to `no-preference` as a whole: these are ornamental, and a user who
+   has asked for less motion should get exactly the same layout without them.
+
+   Deliberately NOT applied to elements that already own their transform —
+   the curtain theme toggle scales its own portal, GooeyNav animates a pill,
+   and the press-check sheet is mid-animation for minutes at a time. A second
+   transform on those fights the first. */
+@media (prefers-reduced-motion: no-preference) {
+  button:not([data-no-press]):active,
+  [role="button"]:not([data-no-press]):active {
+    transform: scale(0.97);
+  }
+
+  button:not([data-no-press]),
+  [role="button"]:not([data-no-press]) {
+    transition: transform 50ms ease;
+  }
+
+  /* A disabled control that still flinches reads as "it did something". */
+  button:disabled:active,
+  button[aria-disabled="true"]:active,
+  [role="button"][aria-disabled="true"]:active {
+    transform: none;
+  }
+
+  [data-slot="card"] {
+    transition:
+      transform 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  [data-slot="card"]:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px oklch(0 0 0 / 6%);
+  }
+}
+
+/* ── Empty states ─────────────────────────────────────────────────────────
+   A screen with nothing on it is the one a new teacher sees first. A slow
+   breath on the icon is the difference between "empty" and "broken" — it is
+   ambient, not attention-seeking, which is why it runs at 4s rather than the
+   1-2s a spinner would use. */
+@keyframes empty-breathe {
+  0%,
+  100% {
+    transform: scale(0.96);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 0.6;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .empty-breathe {
+    animation: empty-breathe 4s ease-in-out infinite;
+  }
+}

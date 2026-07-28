@@ -687,7 +687,7 @@ export default function SavedQuestionsPage() {
           </div>
         ) : sorted.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-            <ListChecks className="h-10 w-10 opacity-30" />
+            <ListChecks className="empty-breathe h-10 w-10 opacity-30" />
             <p className="text-sm font-medium">
               {activeFilterCount > 0
                 ? "No questions match your filters."
