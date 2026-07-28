@@ -323,7 +323,7 @@ export function ComparisonWorkspace() {
                   className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
                     active
                       ? "border-primary bg-primary/10 dark:bg-primary/10 text-primary dark:text-primary font-semibold"
-                      : "border-border text-muted-foreground hover:border-zinc-400"
+                      : "border-border text-muted-foreground hover:border-border"
                   }`}
                   title={active ? `Hide Set ${label}` : `Show Set ${label}`}
                 >
@@ -426,13 +426,13 @@ export function ComparisonWorkspace() {
                           <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
                             <Badge
                               variant="outline"
-                              className="font-mono bg-white dark:bg-zinc-950"
+                              className="font-mono bg-white dark:bg-card"
                             >
                               Q{row.slotIndex} · {q.marks}m
                             </Badge>
                             <Badge
                               variant="outline"
-                              className="bg-white dark:bg-zinc-950"
+                              className="bg-white dark:bg-card"
                             >
                               {q.type || "—"}
                             </Badge>
@@ -480,7 +480,7 @@ export function ComparisonWorkspace() {
                             </div>
                           ) : (
                             <>
-                              <p className="text-sm whitespace-pre-wrap text-zinc-800 dark:text-zinc-100">
+                              <p className="text-sm whitespace-pre-wrap text-foreground">
                                 {q.content}
                               </p>
                               {q.options && q.options.length > 0 && (

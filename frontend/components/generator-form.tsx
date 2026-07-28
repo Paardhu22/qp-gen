@@ -1308,7 +1308,7 @@ export const GeneratorForm = ({
                     <SelectItem value="general_instructions">General Instructions Mode</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-0.5">
+                <p className="text-[10px] text-muted-foreground mt-0.5">
                   {field.value === "board"
                     ? "Uses CBSE/board-specific structure, sections, and Bloom's taxonomy."
                     : "The AI follows your written instructions exactly — no board patterns."}
@@ -1488,7 +1488,7 @@ export const GeneratorForm = ({
                     <SelectItem value="3">3 Sets (A, B, C)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-1 leading-snug">
+                <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
                   {field.value === "1"
                     ? "A single paper (Set A)."
                     : `Set A plus ${field.value === "2" ? "one variant (Set B)" : "two variants (Sets B & C)"}. Each variant keeps ~70% of Set A, swaps ~30% for parallel questions from the same pool, and reshuffles within sections. MCQs stay the same across all sets.`}
@@ -1545,7 +1545,7 @@ export const GeneratorForm = ({
                     />
                   </FormControl>
                   {currentQpType === "general_instructions" && (
-                    <p className="text-[10px] text-zinc-400 dark:text-muted-foreground">
+                    <p className="text-[10px] text-muted-foreground">
                       Leave empty if your instructions specify the count.
                     </p>
                   )}
@@ -1575,7 +1575,7 @@ export const GeneratorForm = ({
                     <SelectItem value="source_only">Strict to Source Material (Source Only)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-1 leading-snug">
+                <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
                   {field.value === "strict" 
                     ? "If uploaded chapters lack coverage for certain blueprint topics, the AI will generate those questions from general CBSE curriculum knowledge."
                     : "Questions are generated STRICTLY from your source material. Blueprint slots missing from your PDF will be skipped, which may result in a shorter paper."}
@@ -1604,11 +1604,11 @@ export const GeneratorForm = ({
                   "Example: Weekly test on Light, 20 marks — 5 MCQs, " +
                   "3 short answers of 2 marks, 1 long answer of 5."
                 }
-                className="bg-background border-border text-foreground placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-primary min-h-[120px] border-primary/30 dark:border-primary ring-1 ring-primary/40 dark:ring-primary/50"
+                className="bg-background border-border text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground text-sm resize-none focus:ring-primary min-h-[120px] border-primary/30 dark:border-primary ring-1 ring-primary/40 dark:ring-primary/50"
                 value={generalInstructions}
                 onChange={(e) => setGeneralInstructions(e.target.value)}
               />
-              <p className="text-[11px] text-zinc-400 dark:text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 Written in plain words. The paper follows these instructions —
                 no board pattern, no Bloom&apos;s targets.
               </p>
@@ -1681,7 +1681,7 @@ export const GeneratorForm = ({
             className={`flex-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
               insertionMode === "review"
                 ? "border-primary bg-primary/10 dark:bg-primary/10 text-primary dark:text-primary font-medium"
-                : "border-border text-muted-foreground hover:border-zinc-400"
+                : "border-border text-muted-foreground hover:border-border"
             }`}
           >
             Review before inserting
@@ -1692,7 +1692,7 @@ export const GeneratorForm = ({
             className={`flex-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
               insertionMode === "auto"
                 ? "border-primary bg-primary/10 dark:bg-primary/10 text-primary dark:text-primary font-medium"
-                : "border-border text-muted-foreground hover:border-zinc-400"
+                : "border-border text-muted-foreground hover:border-border"
             }`}
           >
             Auto-insert all
@@ -1723,10 +1723,10 @@ export const GeneratorForm = ({
                       className="p-3 bg-muted/50 border border-border rounded-xl space-y-2"
                     >
                       <div className="flex justify-between items-start gap-2">
-                        <p className="font-medium text-sm text-zinc-800 dark:text-zinc-100">
+                        <p className="font-medium text-sm text-foreground">
                           {q.content}
                         </p>
-                        <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-600 dark:text-zinc-400 font-mono">
+                        <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-mono">
                           {q.marks}m
                         </span>
                       </div>
@@ -1735,7 +1735,7 @@ export const GeneratorForm = ({
                           {q.options.map((opt: string, oIdx: number) => (
                             <div
                               key={oIdx}
-                              className="text-[11px] text-muted-foreground dark:text-zinc-400 border border-border p-1.5 rounded bg-background/50"
+                              className="text-[11px] text-muted-foreground border border-border p-1.5 rounded bg-background/50"
                             >
                               {String.fromCharCode(65 + oIdx)}. {opt}
                             </div>
@@ -1785,7 +1785,7 @@ export const GeneratorForm = ({
                 </Button>
                 <Button
                   variant="ghost"
-                  className="w-full text-zinc-400 dark:text-muted-foreground hover:text-zinc-600 dark:hover:text-zinc-300"
+                  className="w-full text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground"
                   onClick={() => setGeneratedResult(null)}
                 >
                   Clear Results
@@ -1844,7 +1844,7 @@ export const GeneratorForm = ({
                 </Button>
                 <Button
                   variant="ghost"
-                  className="w-full text-zinc-400 dark:text-muted-foreground hover:text-zinc-600 dark:hover:text-zinc-300"
+                  className="w-full text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground"
                   onClick={() => {
                     setGeneratedResult(null);
                     setVariantSets([]);
