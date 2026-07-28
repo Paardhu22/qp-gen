@@ -35,6 +35,7 @@ const TYPE_LABELS: Record<string, string> = {
   FILL_BLANK: "Fill in the blank",
   TRUE_FALSE: "True / false",
   MATCH_FOLLOWING: "Match the following",
+  DIAGRAM: "Figure-based",
 };
 
 function typeLabel(raw: string): string {

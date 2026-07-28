@@ -571,6 +571,12 @@ def _allocate_image_targets(
     return allocation
 
 
+# The most images one paper may draw, however many DIAGRAM slots the blueprint
+# declares. Matches the upper bound on IMAGE_QUESTIONS_PER_POOL, so an explicit
+# request can exceed the configured default but never the hard limit.
+EXPLICIT_IMAGE_SLOT_CEILING = 40
+
+
 def _plan_image_slots(plan: Sequence[Any]) -> int:
     return sum(
         1
@@ -593,12 +599,21 @@ def _contextual_image_total(
     or hammering the image API.
     """
     cap = max(0, int(configured_cap or 0))
+    # A configured cap of zero is the deliberate off switch — no images at all,
+    # however many the plan asks for. Honour it before anything else.
     if cap <= 0 or not plan:
         return 0
 
     diagram_slots = _plan_image_slots(plan)
     if diagram_slots:
-        return min(cap, diagram_slots)
+        # An explicitly requested figure slot is not the same thing as a
+        # supplemental one. `IMAGE_QUESTIONS_PER_POOL` exists to stop images the
+        # teacher never asked for from dominating the bill; clamping an explicit
+        # ask to it means someone who types "10 image based questions" silently
+        # gets eight, with nothing saying why. The blueprint is the teacher's,
+        # so it wins — bounded by the hard ceiling that keeps a runaway plan
+        # from becoming a runaway invoice.
+        return min(EXPLICIT_IMAGE_SLOT_CEILING, diagram_slots)
 
     subject = (subject_norm or "").strip().lower()
     if subject in {"english", "hindi", "telugu", "sanskrit"}:
