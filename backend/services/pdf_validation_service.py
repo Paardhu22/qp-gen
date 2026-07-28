@@ -60,7 +60,7 @@ def validate_pdf_metadata_list(pdf_results: List[Dict[str, Any]]) -> Dict[str, A
             ],
         }
 
-    # 3. Subject Validation
+    # 3. Subject Validation (Mandatory Content-based Validation)
     subjects_map = {d.get("fileName"): d.get("subject") for d in pdf_results}
     unique_subjects = set(subjects_map.values())
     if len(unique_subjects) > 1:
@@ -72,48 +72,17 @@ def validate_pdf_metadata_list(pdf_results: List[Dict[str, Any]]) -> Dict[str, A
             "mismatches": breakdown,
         }
 
-    # 4. Chapter Validation (if multiple chapters detected)
-    chapters_map = {d.get("fileName"): d.get("chapter") for d in pdf_results if d.get("chapter")}
-    unique_chapters = set(chapters_map.values())
-    if len(unique_chapters) > 1:
-        breakdown = [{"file": fname, "chapter": chap} for fname, chap in chapters_map.items()]
-        return {
-            "valid": False,
-            "errorType": "CHAPTER_MISMATCH",
-            "message": "Multiple chapters detected. Please upload PDFs from the same chapter.",
-            "mismatches": breakdown,
-        }
-
-    # 5. Board Validation
-    boards_map = {d.get("fileName"): d.get("board") for d in pdf_results if d.get("board")}
-    unique_boards = set(boards_map.values())
-    if len(unique_boards) > 1:
-        breakdown = [{"file": fname, "board": b} for fname, b in boards_map.items()]
-        return {
-            "valid": False,
-            "errorType": "BOARD_MISMATCH",
-            "message": "Multiple boards detected. Please upload PDFs from the same board.",
-            "mismatches": breakdown,
-        }
-
-    # 6. Class Validation
-    classes_map = {d.get("fileName"): d.get("class") for d in pdf_results if d.get("class")}
-    unique_classes = set(classes_map.values())
-    if len(unique_classes) > 1:
-        breakdown = [{"file": fname, "class": c} for fname, c in classes_map.items()]
-        return {
-            "valid": False,
-            "errorType": "CLASS_MISMATCH",
-            "message": "Multiple classes detected. Please upload PDFs from the same class.",
-            "mismatches": breakdown,
-        }
-
     first = pdf_results[0]
+    all_chapters = [d.get("chapter") for d in pdf_results if d.get("chapter")]
+    unique_chapters_list = list(dict.fromkeys(all_chapters))
+    chapter_summary = ", ".join(unique_chapters_list) if unique_chapters_list else None
+
     return {
         "valid": True,
         "subject": first.get("subject"),
         "board": first.get("board") or "CBSE",
         "class": first.get("class") or "10",
-        "chapter": first.get("chapter"),
+        "chapter": chapter_summary,
+        "chapters": unique_chapters_list,
         "mismatches": [],
     }

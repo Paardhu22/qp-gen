@@ -174,12 +174,6 @@ export const GeneratorForm = ({
           form.setValue("subject", report.subject);
           toast.success(`✓ Subject detected: ${report.subject}`);
         }
-        if (report.board && ["CBSE"].includes(report.board)) {
-          form.setValue("board", report.board);
-        }
-        if (report.class && FORM_CLASS_VALUES.includes(report.class)) {
-          form.setValue("academicClass", report.class);
-        }
       } else {
         setDetectedSubject(null);
         if (report.message) {
@@ -320,6 +314,18 @@ export const GeneratorForm = ({
         toast.error("Maximum of 5 sources allowed.");
         break;
       }
+
+      // Duplicate PDF Detection: check if identical file is already uploaded or uploading
+      const isDuplicate =
+        uploadedDocs.some(
+          (d) => d.name === file.name && (d.size === file.size || !d.size),
+        ) || uploadingDocs.some((d) => d.name === file.name);
+
+      if (isDuplicate) {
+        toast.warning("This PDF has already been uploaded.");
+        continue;
+      }
+
       if (file.size > 100 * 1024 * 1024) {
         toast.error(`File ${file.name} exceeds 100MB limit.`);
         continue;
