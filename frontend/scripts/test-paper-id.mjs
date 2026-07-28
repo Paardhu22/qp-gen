@@ -35,6 +35,8 @@ const {
   basePaperId,
   withSetSuffix,
   isDraftPaperId,
+  isLocalDraftId,
+  newLocalDraftId,
   persistablePaperId,
 } = await import(`file://${file}`);
 
@@ -126,6 +128,56 @@ check("round trip never grows the id", () => {
     stored = persistablePaperId(composed);
   }
   eq(stored, "clx9k2p0000abcd");
+});
+
+// ── Per-draft local ids ────────────────────────────────────────────────────
+// Unsaved papers used to share the single `current` scope, so there was only
+// ever one unsaved draft: starting a new paper had to destroy the previous one.
+// These ids give each draft its own scope so they can be listed side by side.
+
+check("minted draft ids are local, unique, and never persisted", () => {
+  const a = newLocalDraftId();
+  const b = newLocalDraftId();
+  if (a === b) throw new Error(`ids collided: ${a}`);
+  for (const id of [a, b]) {
+    eq(isLocalDraftId(id), true, `isLocalDraftId(${id}):`);
+    eq(isDraftPaperId(id), true, `isDraftPaperId(${id}):`);
+    eq(persistablePaperId(id), null, `persistablePaperId(${id}):`);
+  }
+});
+
+check("a minted id survives the set-suffix round trip intact", () => {
+  // The id must not contain anything `splitPaperId` would chew into — a
+  // trailing `_A`-looking tail would silently truncate the draft's scope and
+  // point the editor at a different draft.
+  const id = newLocalDraftId();
+  for (const set of ["A", "B", "C"]) {
+    eq(basePaperId(withSetSuffix(id, set)), id, `set ${set}:`);
+    eq(splitPaperId(withSetSuffix(id, set)).set, set, `set ${set}:`);
+  }
+  eq(persistablePaperId(withSetSuffix(id, "B")), null);
+});
+
+check("minted ids contain no underscore", () => {
+  for (let i = 0; i < 200; i++) {
+    const id = newLocalDraftId();
+    if (id.includes("_")) throw new Error(`minted id has an underscore: ${id}`);
+  }
+});
+
+check("the legacy sentinel and real rows are still classified correctly", () => {
+  eq(isLocalDraftId("current"), false, "legacy `current` is not a per-draft id:");
+  eq(isLocalDraftId("clx9k2p0000abcd"), false);
+  eq(isLocalDraftId(null), false);
+  // A real backend cuid must never be mistaken for a draft, or it stops syncing.
+  eq(isDraftPaperId("clx9k2p0000abcd"), false);
+  eq(persistablePaperId("clx9k2p0000abcd"), "clx9k2p0000abcd");
+});
+
+check("draft ids are recognised through a composed, doubled suffix", () => {
+  const id = newLocalDraftId();
+  eq(isDraftPaperId(`${id}_A_A`), true);
+  eq(persistablePaperId(`${id}_A_A`), null);
 });
 
 if (failures.length > 0) {

@@ -540,7 +540,7 @@ export default function SavedQuestionsPage() {
       <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <ListChecks className="h-5 w-5 text-indigo-500" />
+            <ListChecks className="h-5 w-5 text-primary" />
             <h1 className="text-lg font-semibold tracking-tight">
               Question Bank
             </h1>
@@ -654,22 +654,22 @@ export default function SavedQuestionsPage() {
 
       {/* ── Selection action bar ──────────────────────────────────────── */}
       {selectedIds.size > 0 && (
-        <div className="flex shrink-0 items-center gap-3 border-b border-indigo-200 bg-indigo-50 px-4 py-2 text-sm dark:border-indigo-900 dark:bg-indigo-950/40 sm:px-6">
-          <FileText className="h-4 w-4 text-indigo-500" />
-          <span className="text-indigo-700 dark:text-indigo-300">
+        <div className="flex shrink-0 items-center gap-3 border-b border-primary/20 bg-primary/5 px-4 py-2 text-sm sm:px-6">
+          <FileText className="h-4 w-4 text-primary" />
+          <span className="text-foreground">
             {selectedIds.size} selected
           </span>
           <button
             type="button"
             onClick={() => setSelectedIds(new Set())}
-            className="text-xs text-indigo-600/70 hover:text-indigo-600 dark:text-indigo-400/70 dark:hover:text-indigo-400"
+            className="text-xs text-primary/70 hover:text-primary"
           >
             Clear
           </button>
           <button
             type="button"
             onClick={handleInsertSelected}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <FileText className="h-3.5 w-3.5" />
             Insert into Editor ({selectedIds.size})
@@ -697,7 +697,7 @@ export default function SavedQuestionsPage() {
               <button
                 type="button"
                 onClick={clearFilters}
-                className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                className="text-xs font-medium text-primary hover:underline"
               >
                 Clear filters
               </button>
@@ -717,7 +717,7 @@ export default function SavedQuestionsPage() {
                     aria-label="Select all visible"
                     checked={allVisibleSelected}
                     onChange={toggleSelectAllVisible}
-                    className="h-3.5 w-3.5 cursor-pointer accent-indigo-600"
+                    className="h-3.5 w-3.5 cursor-pointer accent-primary"
                   />
                 </th>
                 <SortHeader label="Question" col="content" sort={sortState} className="min-w-[22rem]" />
@@ -742,7 +742,7 @@ export default function SavedQuestionsPage() {
                     onClick={() => toggleSelect(q.id)}
                     className={cn(
                       "cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/40",
-                      isSelected && "bg-indigo-50/60 dark:bg-indigo-950/30",
+                      isSelected && "bg-accent/60",
                       isDeleting && "pointer-events-none opacity-40",
                     )}
                   >
@@ -753,7 +753,7 @@ export default function SavedQuestionsPage() {
                         checked={isSelected}
                         onChange={() => toggleSelect(q.id)}
                         onClick={(e) => e.stopPropagation()}
-                        className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-indigo-600"
+                        className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-primary"
                       />
                     </td>
                     <td className="px-2.5 py-1.5 align-top">
@@ -865,7 +865,7 @@ function FilterSelect({
       <SelectTrigger
         className={cn(
           "h-7 w-auto gap-1 px-2 text-xs",
-          active && "border-indigo-500/60 text-foreground",
+          active && "border-primary/60 text-foreground",
         )}
       >
         <span className="text-muted-foreground">{label}:</span>

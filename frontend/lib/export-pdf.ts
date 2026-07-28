@@ -6,6 +6,11 @@ import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
 // Tailwind v4 / shadcn use oklch() color functions everywhere.
 // html2canvas only understands rgb/hex, so we override every CSS custom
 // property with its plain-hex equivalent inside the cloned document.
+//
+// These are the LIGHT theme's tokens flattened to hex — an export is always a
+// white page, whatever theme the app is in. Kept in step with the theme kit in
+// `app/globals.css` (ink #282d3c, sand #D7C3A3): if they drift, chrome that
+// leaks into a PDF is tinted with the previous palette.
 // ---------------------------------------------------------------------------
 const OKLCH_OVERRIDES = `
   :root, .dark, * {
@@ -15,26 +20,26 @@ const OKLCH_OVERRIDES = `
     --card-foreground:            #09090b !important;
     --popover:                    #ffffff !important;
     --popover-foreground:         #09090b !important;
-    --primary:                    #18181b !important;
-    --primary-foreground:         #fafafa !important;
-    --secondary:                  #f4f4f5 !important;
-    --secondary-foreground:       #18181b !important;
-    --muted:                      #f4f4f5 !important;
-    --muted-foreground:           #71717a !important;
-    --accent:                     #f4f4f5 !important;
-    --accent-foreground:          #18181b !important;
+    --primary:                    #282d3c !important;
+    --primary-foreground:         #ffffff !important;
+    --secondary:                  #f7f2ea !important;
+    --secondary-foreground:       #282d3c !important;
+    --muted:                      #f7f2ea !important;
+    --muted-foreground:           #6b6f7a !important;
+    --accent:                     #efe4d2 !important;
+    --accent-foreground:          #282d3c !important;
     --destructive:                #dc2626 !important;
-    --border:                     #e4e4e7 !important;
-    --input:                      #e4e4e7 !important;
-    --ring:                       #a1a1aa !important;
+    --border:                     #e5e0d6 !important;
+    --input:                      #e5e0d6 !important;
+    --ring:                       #282d3c !important;
     --sidebar:                    #fafafa !important;
     --sidebar-foreground:         #09090b !important;
-    --sidebar-primary:            #18181b !important;
-    --sidebar-primary-foreground: #fafafa !important;
-    --sidebar-accent:             #f4f4f5 !important;
-    --sidebar-accent-foreground:  #18181b !important;
-    --sidebar-border:             #e4e4e7 !important;
-    --sidebar-ring:               #a1a1aa !important;
+    --sidebar-primary:            #282d3c !important;
+    --sidebar-primary-foreground: #ffffff !important;
+    --sidebar-accent:             #efe4d2 !important;
+    --sidebar-accent-foreground:  #282d3c !important;
+    --sidebar-border:             #e5e0d6 !important;
+    --sidebar-ring:               #282d3c !important;
   }
 `;
 

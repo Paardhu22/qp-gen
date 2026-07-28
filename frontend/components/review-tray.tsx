@@ -305,7 +305,7 @@ export function ReviewTray() {
                             )}
                             {isSyntheticImage && (
                               <Badge
-                                className="bg-violet-100 text-violet-700 hover:bg-violet-100 dark:bg-violet-900/40 dark:text-violet-300 border-none"
+                                className="bg-accent text-accent-foreground hover:bg-accent border-none"
                                 title="The diagram in this question was drawn by AI. Check it before using this paper in an exam."
                               >
                                 <ImageIcon className="h-3 w-3 mr-1" />

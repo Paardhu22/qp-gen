@@ -242,7 +242,7 @@ export default function BuildPaperPage() {
         <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <Hammer className="h-5 w-5 text-indigo-500" />
+              <Hammer className="h-5 w-5 text-primary" />
               <h1 className="text-lg font-semibold tracking-tight">
                 Builder
               </h1>
@@ -307,7 +307,7 @@ export default function BuildPaperPage() {
                       aria-label="Select all visible"
                       checked={allVisibleSelected}
                       onChange={toggleSelectAllVisible}
-                      className="h-3.5 w-3.5 cursor-pointer accent-indigo-600"
+                      className="h-3.5 w-3.5 cursor-pointer accent-primary"
                     />
                   </th>
                   <th className="px-2.5 py-2 font-semibold text-muted-foreground">
@@ -334,7 +334,7 @@ export default function BuildPaperPage() {
                       onClick={() => toggle(key)}
                       className={cn(
                         "cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/40",
-                        isSelected && "bg-indigo-50/60 dark:bg-indigo-950/30",
+                        isSelected && "bg-accent/60",
                       )}
                     >
                       <td className="px-2.5 py-1.5">
@@ -344,7 +344,7 @@ export default function BuildPaperPage() {
                           checked={isSelected}
                           onChange={() => toggle(key)}
                           onClick={(e) => e.stopPropagation()}
-                          className="h-3.5 w-3.5 cursor-pointer accent-indigo-600"
+                          className="h-3.5 w-3.5 cursor-pointer accent-primary"
                         />
                       </td>
                       <td className="px-2.5 py-1.5 font-medium text-foreground">
@@ -416,7 +416,7 @@ export default function BuildPaperPage() {
                   className={cn(
                     "flex-1 rounded-md border px-2 py-1.5 text-sm font-medium transition-colors",
                     numSets === n
-                      ? "border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+                      ? "border-primary bg-primary/10 text-primary"
                       : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >
@@ -443,7 +443,7 @@ export default function BuildPaperPage() {
                 <span className="text-sm font-medium text-foreground">
                   CBSE Board pattern
                 </span>
-                <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
+                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
                   Auto
                 </span>
               </div>
@@ -497,7 +497,7 @@ export default function BuildPaperPage() {
                     </div>
                     <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
                       <div
-                        className="h-full rounded-full bg-indigo-500/70"
+                        className="h-full rounded-full bg-primary/70"
                         style={{
                           width: `${Math.max(
                             6,
@@ -527,7 +527,7 @@ export default function BuildPaperPage() {
             type="button"
             onClick={handleBuild}
             disabled={isBuilding || selectedRows.length === 0 || isMixed}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isBuilding ? (
               <>

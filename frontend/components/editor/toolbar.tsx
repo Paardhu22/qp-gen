@@ -577,8 +577,8 @@ const InsertBlockDropdown: React.FC<InsertBlockDropdownProps> = ({
     },
     {
       label: "Grouped OR",
-      color: "text-violet-500",
-      hoverBg: "hover:bg-violet-500/10",
+      color: "text-primary",
+      hoverBg: "hover:bg-primary/10",
       action: () => {
         const groupedBranch = () => ({
           type: "groupedQuestionBlock",

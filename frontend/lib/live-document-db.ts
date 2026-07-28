@@ -1,3 +1,5 @@
+import { isExpiredDraft } from "@/lib/drafts";
+
 export type LiveSyncStatus = "pending" | "synced" | "failed";
 
 export interface LiveEditorDocument {
@@ -130,6 +132,67 @@ export async function getLatestLiveDocumentForUser(
       resolve(latest || null);
     };
   });
+}
+
+/** Every live document belonging to a user, newest first. Excludes nothing —
+ *  callers decide what counts as a draft. */
+export async function listLiveDocumentsForUser(
+  userId: string,
+): Promise<LiveEditorDocument[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, "readonly");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.getAll();
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const documents = (request.result || []) as LiveEditorDocument[];
+      resolve(
+        documents
+          .filter((document) => document.userId === userId)
+          .sort((a, b) => b.updatedAt - a.updatedAt),
+      );
+    };
+  });
+}
+
+/**
+ * Delete unsaved drafts last touched more than `DRAFT_RETENTION_DAYS` ago.
+ *
+ * What counts as expired is `isExpiredDraft` in `lib/drafts.ts` — kept there so
+ * the policy is unit-testable without an IndexedDB, and so this file stays a
+ * store rather than a place that decides what to throw away.
+ *
+ * Returns the number of documents deleted. Best-effort: individual failures are
+ * logged, never thrown, so a purge can't block the page that triggered it.
+ */
+export async function purgeExpiredDrafts(
+  userId: string,
+  now: number = Date.now(),
+): Promise<number> {
+  let documents: LiveEditorDocument[];
+  try {
+    documents = await listLiveDocumentsForUser(userId);
+  } catch (error) {
+    console.error("Failed to read drafts for purge:", error);
+    return 0;
+  }
+
+  const expired = documents.filter((document) => isExpiredDraft(document, now));
+
+  let deleted = 0;
+  await Promise.all(
+    expired.map(async (document) => {
+      try {
+        await deleteLiveDocument(document.id);
+        deleted += 1;
+      } catch (error) {
+        console.error("Failed to purge expired draft:", document.id, error);
+      }
+    }),
+  );
+  return deleted;
 }
 
 export async function deleteLiveDocument(id: string): Promise<void> {

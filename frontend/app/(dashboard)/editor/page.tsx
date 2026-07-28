@@ -42,8 +42,12 @@ import {
 import {
   basePaperId,
   withSetSuffix,
+  isDraftPaperId,
+  newLocalDraftId,
+  persistablePaperId,
   DRAFT_PAPER_ID,
 } from "@/lib/paper-id";
+import { draftScopeOfDocument } from "@/lib/drafts";
 import { resolveTabContent } from "@/lib/set-content";
 
 export default function EditorPage() {
@@ -150,20 +154,19 @@ export default function EditorPage() {
   const resetToNewPaper = useCallback(async () => {
     const userId = sessionData?.user?.id;
 
-    // 1. Purge every per-set live draft for BOTH the previously-open paper
-    //    scope and the unsaved "current" scope. Best-effort: a failed delete
-    //    must not block the reset. This must complete before the editor
-    //    remounts, otherwise its load effect (which prefers the IndexedDB
-    //    draft over initialContent) could re-hydrate the old Set A/B/C.
+    // 1. Purge only the LEGACY shared draft scope. Every unsaved paper used to
+    //    write to `current_A|B|C`, so starting a new one had to delete those
+    //    keys or the fresh editor would rehydrate the old paper — which meant
+    //    "New paper" destroyed unsaved work. Drafts now get an id of their own
+    //    (`newLocalDraftId`), so there is nothing to clear: the previous draft
+    //    stays put under its own keys and is listed on the Papers page. Only
+    //    the shared `current` scope still needs clearing, and only because
+    //    drafts written before this change live there.
+    //
+    //    A per-draft scope is deliberately NOT deleted, including the paper
+    //    that was open a moment ago.
     if (userId) {
-      const scopes = new Set<string>([DRAFT_PAPER_ID]);
-      const prevId = basePaperId(currentPaperIdRef.current);
-      if (prevId) scopes.add(prevId);
-      await Promise.all(
-        [...scopes].map((scope) =>
-          deleteLiveDocumentsForPaper(userId, scope),
-        ),
-      );
+      await deleteLiveDocumentsForPaper(userId, DRAFT_PAPER_ID);
     }
 
     // 2. Drop the multi-set references so the Set B/C tabs disappear and their
@@ -381,144 +384,78 @@ export default function EditorPage() {
     // `action` from the URL so it cannot re-trigger.
   }, [actionParam, paperLoading, paperError]);
 
-  const [resumeDoc, setResumeDoc] = useState<any>(null);
-  const [showResumePrompt, setShowResumePrompt] = useState(false);
+  // Guards the open-a-document effect below so it runs once per mount.
   const [checkedResume, setCheckedResume] = useState(false);
 
-  // ISSUE 1: Resolve the current browser-session id so we can tell in-app
-  // nav (same session) apart from a genuine "previous browser session"
-  // resume. The TipTap editor writes the same id into every IDB save
-  // (see browserSessionIdRef in tiptap-editor.tsx). We compute it inside
-  // a useEffect (not useMemo) so the impure Date.now/Math.random calls
-  // don't run during render.
-  const [browserSessionId, setBrowserSessionId] = useState<string>("");
+  // ── Open the right document, without asking ───────────────────────────
+  // Opening `/editor` with no `?paperId=` used to pop "Resume previous paper?"
+  // whenever the latest draft came from a different browser session. A word
+  // processor does not interrogate you about your own unsaved work: it opens it.
+  // So this always resolves silently — the drafts themselves are now listed,
+  // openable and deletable on the Papers page, which is where a teacher chooses
+  // between them deliberately instead of in a modal they did not ask for.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const KEY = "qp-gen:editor-session-id";
-    let id = sessionStorage.getItem(KEY);
-    if (!id) {
-      id = `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      sessionStorage.setItem(KEY, id);
-    }
-    setBrowserSessionId(id);
-  }, []);
-
-  // Check for resume doc on mount if no explicit paperId is selected and not creating a new paper
-  useEffect(() => {
-    // Wait until the browser-session id is resolved — otherwise the
-    // session-match check below would always fail and the resume modal
-    // would pop on in-app navigation.
-    if (!browserSessionId) return;
     if (!sessionData?.user?.id || paperId || checkedResume || isNew) return;
 
-    // A paper generated on the dashboard arrives here with no `?paperId=`,
-    // which is precisely the shape this effect treats as "the teacher wandered
-    // back to the editor". It would then either silently redirect to
-    // `?paperId=current` — loading the PREVIOUS draft's content and metadata
-    // over the paper that was just generated — or pop "Resume previous paper?"
-    // on top of it. The generation is the intent; there is nothing to resume.
+    // A paper generated on the dashboard arrives here with no `?paperId=`, which
+    // is the same shape as "wandered back to the editor". Redirecting to the
+    // previous draft would load its content and metadata over the paper that was
+    // just generated. The generation is the intent; there is nothing to resume.
     if (awaitingGeneratedPaper) {
       consumeGeneratedPaperHandoff();
       setCheckedResume(true);
       return;
     }
 
-    const checkResume = async () => {
+    let active = true;
+    (async () => {
       try {
         const latestDoc = await getLatestLiveDocumentForUser(
           sessionData.user.id,
         );
-        if (!latestDoc) {
-          setCheckedResume(true);
-          return;
-        }
-
-        // ISSUE 1: if the latest live doc was written by THIS browser
-        // session (i.e. the user just left the editor and came back),
-        // restore silently — no modal, no friction. Only show the
-        // "Resume previous paper?" prompt when the latest doc was
-        // written in a different session.
-        if (latestDoc.sessionId && latestDoc.sessionId === browserSessionId) {
-          // Older live documents stored the composed "{id}_A" form here.
-          router.replace(
-            `/editor?paperId=${basePaperId(latestDoc.paperId) ?? DRAFT_PAPER_ID}`,
-          );
-          setCheckedResume(true);
-          return;
-        }
-
-        setResumeDoc(latestDoc);
-        setShowResumePrompt(true);
+        if (!active) return;
+        // Older live documents stored the composed "{id}_A" form in `paperId`.
+        // No draft at all: mint an id for this one so it becomes a draft of its
+        // own rather than sharing the single legacy `current` scope with every
+        // other unsaved paper the teacher will ever start.
+        const target = latestDoc
+          ? (basePaperId(latestDoc.paperId) ??
+            draftScopeOfDocument(latestDoc) ??
+            DRAFT_PAPER_ID)
+          : newLocalDraftId();
+        router.replace(`/editor?paperId=${target}`);
       } catch (error) {
-        console.error("Failed to check for resume doc:", error);
+        console.error("Failed to resolve the draft to open:", error);
       } finally {
-        setCheckedResume(true);
+        if (active) setCheckedResume(true);
       }
+    })();
+    return () => {
+      active = false;
     };
-
-    checkResume();
   }, [
     sessionData?.user?.id,
     paperId,
     checkedResume,
     isNew,
-    browserSessionId,
     router,
     awaitingGeneratedPaper,
     consumeGeneratedPaperHandoff,
   ]);
 
-  const handleContinueEditing = () => {
-    setShowResumePrompt(false);
-    if (resumeDoc) {
-      // A null/`current` id means there is no backend row yet — the editor's
-      // load effect rehydrates the local draft from IndexedDB.
-      router.replace(
-        `/editor?paperId=${basePaperId(resumeDoc.paperId) ?? DRAFT_PAPER_ID}`,
-      );
-    }
-  };
-
-  const handleCreateNewPaper = async () => {
-    setShowResumePrompt(false);
-    // ISSUE 1: "Create New Paper" must NEVER silently destroy unsaved
-    // work — the old behaviour `deleteLiveDocument(resumeDoc.id)` deleted
-    // the only copy of an unsaved draft. Instead, archive the draft by
-    // re-saving it under an `archived:{userId}:{ts}` id so it stays in
-    // IndexedDB (and out of `getLatestLiveDocumentForUser`'s "latest"
-    // result, since it goes through the same store but the user can
-    // recover it through the paper library if it had a backend paperId).
-    if (sessionData?.user?.id && resumeDoc) {
-      try {
-        const archivedId = `archived:${sessionData.user.id}:${Date.now()}`;
-        const { saveLiveDocument: saveLD } = await import(
-          "@/lib/live-document-db"
-        );
-        await saveLD({ ...resumeDoc, id: archivedId });
-        await deleteLiveDocument(resumeDoc.id);
-        toast.message("Previous draft archived. It's still in your browser.");
-      } catch (err) {
-        console.error("Failed to archive previous draft:", err);
-        // On failure, keep the original draft alive rather than deleting
-        // it — never destroy unsaved work on a best-effort cleanup.
-      }
-    }
-    // Reset ALL sets (A/B/C), not just Set A. The previous draft was already
-    // archived above, so purging the per-set drafts here is safe.
-    await resetToNewPaper();
-  };
-
   useEffect(() => {
     let active = true;
 
     if (isNew) {
-      setCheckedResume(true); // Bypass resume prompt for explicitly new papers
-      // Reset EVERY set before dropping the `new=true` flag. Runs async so the
-      // per-set IndexedDB drafts are purged first; only then do we navigate,
-      // so the remounted editor cannot rehydrate the previous paper's B/C.
+      setCheckedResume(true);
+      // Give the new paper a scope of its own and land on it. Nothing is
+      // deleted: the previous draft keeps its own ids and shows up under Saved
+      // Drafts on the Papers page. That is what replaced the old archive dance
+      // — "New paper" used to purge the `current_*` keys outright, which was
+      // the only copy of whatever the teacher had not saved.
       (async () => {
         await resetToNewPaper();
-        if (active) router.replace("/editor");
+        if (active) router.replace(`/editor?paperId=${newLocalDraftId()}`);
       })();
       return () => {
         active = false;
@@ -538,7 +475,10 @@ export default function EditorPage() {
       };
     }
 
-    if (paperId && paperId.startsWith("current")) {
+    // `isDraftPaperId`, not `startsWith("current")`: per-draft ids (`draft-…`)
+    // are local-only too and must take the IndexedDB path, not be sent to
+    // `getPaperAction` as if they were backend rows.
+    if (paperId && isDraftPaperId(paperId)) {
       const loadLocalDraft = async () => {
         const userId = sessionData?.user?.id;
         if (!userId) return;
@@ -668,16 +608,32 @@ export default function EditorPage() {
     };
   }, [paperId, isNew, sessionData?.user?.id, router, resetToNewPaper]);
 
+  // Once a draft has been saved it IS a paper, and papers are listed from the
+  // backend. Its draft-scoped IndexedDB rows have to go, or the Papers page
+  // shows the same work twice — once as a saved paper and once as an unsaved
+  // draft that can never be reconciled with it. Only ever called after the
+  // backend row exists, so this is not the last copy of anything.
+  const discardDraftScope = useCallback(
+    async (scope: string | null) => {
+      const uid = sessionData?.user?.id;
+      if (!uid || !scope || !isDraftPaperId(scope)) return;
+      await deleteLiveDocumentsForPaper(uid, scope);
+    },
+    [sessionData?.user?.id],
+  );
+
   const handleLivePaperCreated = useCallback(
     (newPaperId: string) => {
+      const previousScope = basePaperId(currentPaperIdRef.current);
       setCurrentPaperId(newPaperId);
       setLoadedPaperTitle(
         (title) => title || paperExamName.trim() || "Untitled Paper",
       );
       setPaperUpdatedAt(new Date().toISOString());
       router.replace(`/editor?paperId=${newPaperId}`);
+      void discardDraftScope(previousScope);
     },
-    [paperExamName, router],
+    [paperExamName, router, discardDraftScope],
   );
 
   const handleSavePaper = async () => {
@@ -785,16 +741,18 @@ export default function EditorPage() {
         sets: setsPayload,
       };
 
-      // "current" is a sentinel for an unsaved local draft; treat it as null
-      // so we create a real backend paper instead of trying to PUT /papers/current/.
-      const realPaperId =
-        currentPaperId && currentPaperId !== "current" ? currentPaperId : null;
+      // `persistablePaperId`, not a bare `!== "current"` check: an unsaved paper
+      // now carries a per-draft id (`draft-…`) as well, and PUTting that would
+      // 404 against a row that never existed.
+      const realPaperId = persistablePaperId(currentPaperId);
       if (realPaperId) {
         await updatePaperAction(realPaperId, payload);
       } else {
+        const previousScope = basePaperId(currentPaperId);
         const result = await savePaperAction(payload);
         router.replace(`/editor?paperId=${result.paperId}`);
         setCurrentPaperId(result.paperId);
+        void discardDraftScope(previousScope);
       }
 
       setLoadedPaperTitle(paperExamName.trim());
@@ -1295,88 +1253,6 @@ export default function EditorPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Resume Session Dialog */}
-      <Dialog
-        open={showResumePrompt}
-        onOpenChange={(open) => {
-          if (!open) {
-            setShowResumePrompt(false);
-          }
-        }}
-      >
-        <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Resume previous paper?</DialogTitle>
-            <DialogDescription className="text-muted-foreground">
-              We found a previous active paper session. Would you like to
-              continue editing it?
-            </DialogDescription>
-          </DialogHeader>
-          {resumeDoc && (
-            <div className="py-4 px-4 bg-muted/30 border border-border rounded-lg space-y-1 my-2">
-              <p className="text-sm font-semibold text-foreground">
-                {resumeDoc.metadata?.title ||
-                  resumeDoc.title ||
-                  "Untitled Paper"}
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                Class: {resumeDoc.metadata?.className || "Not set yet"} |{" "}
-                Subject: {resumeDoc.metadata?.subject || "Not set yet"}
-              </p>
-              {(() => {
-                // Surface marks/questions if we can extract them from the
-                // saved doc — gives the user a real signal about which
-                // paper this resume points at.
-                let questionCount = 0;
-                let totalMarks = 0;
-                try {
-                  const visit = (node: any) => {
-                    if (!node) return;
-                    if (
-                      node.type === "questionBlock" ||
-                      node.type === "groupedQuestionBlock"
-                    ) {
-                      questionCount += 1;
-                      totalMarks += Number(node.attrs?.marks) || 0;
-                    }
-                    (node.content || []).forEach(visit);
-                  };
-                  visit(resumeDoc.editorJSON);
-                } catch {
-                  /* old/legacy doc shapes — skip the count */
-                }
-                if (questionCount > 0) {
-                  return (
-                    <p className="text-[11px] text-muted-foreground">
-                      {questionCount} question{questionCount === 1 ? "" : "s"} ·{" "}
-                      {totalMarks} mark{totalMarks === 1 ? "" : "s"}
-                    </p>
-                  );
-                }
-                return null;
-              })()}
-              <p className="text-[11px] text-muted-foreground">
-                Last active: {new Date(resumeDoc.updatedAt).toLocaleString()}
-              </p>
-            </div>
-          )}
-          <DialogFooter className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:space-x-0">
-            <Button
-              variant="outline"
-              onClick={handleCreateNewPaper}
-              className="w-full border-border text-foreground hover:bg-muted"
-            >
-              Create New Paper
-            </Button>
-            <Button
-              onClick={handleContinueEditing}
-              className="bg-primary hover:bg-primary/90 text-white w-full"
-            >
-              Continue Editing
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

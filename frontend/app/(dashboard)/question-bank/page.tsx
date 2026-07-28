@@ -53,7 +53,15 @@ import {
   deleteLiveDocument,
   clearLiveDocumentsForUser,
   getLiveDocumentId,
+  listLiveDocumentsForUser,
+  purgeExpiredDrafts,
 } from "@/lib/live-document-db";
+import {
+  summarizeDrafts,
+  daysUntilExpiry,
+  DRAFT_RETENTION_DAYS,
+  type DraftSummary,
+} from "@/lib/drafts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -147,6 +155,10 @@ export default function QuestionBankPage() {
   // Answer script generation
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
 
+  // Unsaved drafts, read straight from IndexedDB.
+  const [drafts, setDrafts] = useState<DraftSummary[]>([]);
+  const [draftsLoading, setDraftsLoading] = useState(true);
+
   // ---- fetch list ----
   useEffect(() => {
     setIsLoading(true);
@@ -155,6 +167,42 @@ export default function QuestionBankPage() {
       .catch(() => toast.error("Failed to load saved papers."))
       .finally(() => setIsLoading(false));
   }, []);
+
+  // ---- drafts: purge what has expired, then list the rest ----
+  // Purging here rather than on a timer: this is the one page that shows drafts,
+  // so it is also the page where a stale one would be visible. Drafts never
+  // reach the backend, so nothing server-side can expire them.
+  const userId = sessionData?.user?.id;
+  useEffect(() => {
+    if (!userId) return;
+    let active = true;
+    (async () => {
+      try {
+        await purgeExpiredDrafts(userId);
+        const documents = await listLiveDocumentsForUser(userId);
+        if (active) setDrafts(summarizeDrafts(documents));
+      } catch (error) {
+        console.error("Failed to load drafts:", error);
+      } finally {
+        if (active) setDraftsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  async function deleteDraft(draft: DraftSummary) {
+    setDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+    await Promise.all(
+      draft.documentIds.map((id) =>
+        deleteLiveDocument(id).catch((error) =>
+          console.error("Failed to delete draft:", id, error),
+        ),
+      ),
+    );
+    toast.success("Draft deleted.");
+  }
 
   const parsedPapers = useMemo(() => papers.map(parsePaper), [papers]);
 
@@ -612,6 +660,103 @@ export default function QuestionBankPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Saved drafts ────────────────────────────────────────────
+          Papers live on the server; drafts do not. Until a paper is saved it
+          exists only as an IndexedDB document in this browser, which used to
+          make it reachable solely through a "Resume previous paper?" modal.
+          This is that modal's replacement: the drafts are just listed, and the
+          teacher picks one — or none. Scrolls horizontally so it never pushes
+          the saved-papers table off screen. */}
+      {!draftsLoading && drafts.length > 0 && (
+        <div className="shrink-0 border-b border-border bg-muted/20 px-4 py-3 sm:px-6">
+          <div className="mb-2 flex items-baseline gap-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Saved Drafts
+            </h2>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+              {drafts.length}
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              unsaved · kept {DRAFT_RETENTION_DAYS} days in this browser
+            </span>
+          </div>
+
+          <div className="flex gap-3 overflow-x-auto pb-1 custom-scrollbar">
+            {drafts.map((draft) => {
+              const daysLeft = daysUntilExpiry(draft.expiresAt);
+              return (
+                <div
+                  key={draft.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => router.push(`/editor?paperId=${draft.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      router.push(`/editor?paperId=${draft.id}`);
+                    }
+                  }}
+                  className="group relative w-56 shrink-0 cursor-pointer rounded-lg border border-border bg-background p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/40"
+                >
+                  <div className="flex items-start gap-2">
+                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {draft.title || "Untitled draft"}
+                      </p>
+                      <p className="truncate text-[11px] text-muted-foreground">
+                        {[draft.className, draft.subject]
+                          .filter(Boolean)
+                          .join(" · ") || "No class or subject yet"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                    {draft.questionCount > 0 && (
+                      <span className="tabular-nums">
+                        {draft.questionCount} q · {draft.totalMarks} m
+                      </span>
+                    )}
+                    {draft.setLabels.length > 1 && (
+                      <span>Sets {draft.setLabels.join("/")}</span>
+                    )}
+                    <span className="tabular-nums">
+                      {formatDate(new Date(draft.updatedAt).toISOString())}
+                    </span>
+                  </div>
+
+                  {/* Retention has to be visible. A draft vanishing on day 10
+                      with no warning is indistinguishable from data loss. */}
+                  <p
+                    className={cn(
+                      "mt-1.5 text-[10.5px]",
+                      daysLeft <= 2 ? "text-destructive" : "text-muted-foreground/70",
+                    )}
+                  >
+                    {daysLeft === 0
+                      ? "Deletes today unless saved"
+                      : `Deletes in ${daysLeft} day${daysLeft === 1 ? "" : "s"} unless saved`}
+                  </p>
+
+                  <button
+                    type="button"
+                    aria-label={`Delete draft ${draft.title || "Untitled draft"}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void deleteDraft(draft);
+                    }}
+                    className="absolute right-1.5 top-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Table ───────────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-auto">
