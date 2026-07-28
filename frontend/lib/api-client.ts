@@ -784,13 +784,14 @@ export interface PdfValidationMismatch {
 
 export interface PdfValidationReport {
   valid: boolean;
-  errorType?: "SUBJECT_MISMATCH" | "CHAPTER_MISMATCH" | "BOARD_MISMATCH" | "CLASS_MISMATCH" | "UNSUPPORTED_DOCUMENT" | "LOW_CONFIDENCE";
+  errorType?: "SUBJECT_MISMATCH" | "BOARD_MISMATCH" | "CLASS_MISMATCH" | "UNSUPPORTED_DOCUMENT" | "LOW_CONFIDENCE";
   message?: string;
   mismatches: PdfValidationMismatch[];
   subject?: string | null;
   board?: string | null;
   class?: string | null;
   chapter?: string | null;
+  chapters?: string[];
 }
 
 export async function analyzePdfDocument(file: File): Promise<PdfAnalysisResult> {
