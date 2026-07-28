@@ -530,3 +530,152 @@ class AnswerScriptDualWriteTests(TestCase):
         from services.answer_script_service import _read_primary_set_content
 
         self.assertIn("electrical resistance", _read_primary_set_content(self.paper))
+
+
+class QuestionImagePersistenceTests(TestCase):
+    """A diagram question must keep its diagram, in and out of the bank.
+
+    The failure this pins: a question generated with a figure showed the image
+    while it streamed, then lost it the moment it came back out of the question
+    bank. Two independent gaps, both silent —
+
+      * `QuestionSerializer` listed neither `image_url` nor `explanation`, so
+        the READ dropped them. `buildFigureNode` received `undefined` and
+        skipped the figure, leaving "using the given figure…" above nothing.
+      * `save_questions_to_bank` never passed them to `Question(...)`, so the
+        WRITE discarded them too — that one is unrecoverable, the column went
+        in NULL.
+
+    The pool's own auto-save (`PoolQuestion.to_model_kwargs`) always wrote
+    both, which is why the image was still in the DB for pool-generated rows
+    and the symptom looked like a rendering bug.
+    """
+
+    IMAGE = "/media/generated_diagrams/punnett-square-f2.png"
+
+    def setUp(self):
+        # `ProjectListView` caches the nested response for 30s under a
+        # per-user key, and LocMemCache outlives the per-test database. Without
+        # this, one test's listing is served to the next one.
+        cache.clear()
+        self.user = _make_user("u-img", "img@example.com")
+        self.project = Project.objects.create(name="Class 10 — Science", user=self.user)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _question(self, **overrides):
+        from apps.projects.models import Question
+
+        defaults = dict(
+            content="Using the given figure showing the inheritance pattern…",
+            answer="3:1",
+            options=[],
+            marks=3,
+            project=self.project,
+            image_url=self.IMAGE,
+            explanation="The F2 ratio follows from independent assortment.",
+            bloom_taxonomy="ANALYZE",
+        )
+        defaults.update(overrides)
+        return Question.objects.create(**defaults)
+
+    def test_the_serializer_carries_the_image_and_explanation(self):
+        from apps.projects.serializers import QuestionSerializer
+
+        data = QuestionSerializer(self._question()).data
+        self.assertEqual(data["image_url"], self.IMAGE)
+        self.assertIn("independent assortment", data["explanation"])
+
+    def test_a_question_without_an_image_serialises_without_one(self):
+        from apps.projects.serializers import QuestionSerializer
+
+        data = QuestionSerializer(self._question(image_url=None, explanation=None)).data
+        self.assertIn("image_url", data, "the key must exist even when empty")
+        self.assertIsNone(data["image_url"])
+
+    def test_the_bank_listing_includes_the_image(self):
+        # The path the editor's "insert from bank" reads. Without the image the
+        # inserted block is a question about a figure that is not there.
+        self._question()
+        response = self.client.get("/api/projects/?withQuestions=true")
+        self.assertEqual(response.status_code, 200)
+
+        payload = response.json()
+        projects = payload if isinstance(payload, list) else payload.get("results", [])
+        images = [
+            question.get("image_url")
+            for project in projects
+            for question in project.get("questions", [])
+        ]
+        self.assertIn(self.IMAGE, images)
+
+    def test_saving_questions_by_hand_keeps_the_image(self):
+        from apps.projects.models import Question
+        from services.project_service import save_questions_to_project
+
+        save_questions_to_project(
+            self.user,
+            "Class 10 — Science",
+            [
+                {
+                    "content": "Identify the labelled part in the diagram.",
+                    "answer": "Xylem",
+                    "type": None,
+                    "marks": 2,
+                    "options": [],
+                    "grade_class": "10",
+                    "subject": "Science",
+                    "image_url": self.IMAGE,
+                    "explanation": "Xylem carries water upward.",
+                    "bloom_taxonomy": "UNDERSTAND",
+                }
+            ],
+        )
+
+        saved = Question.objects.get(content="Identify the labelled part in the diagram.")
+        self.assertEqual(saved.image_url, self.IMAGE, "the write path dropped the image")
+        self.assertEqual(saved.explanation, "Xylem carries water upward.")
+        self.assertEqual(saved.bloom_taxonomy, "UNDERSTAND")
+
+    def test_a_hand_saved_question_without_an_image_still_saves(self):
+        from apps.projects.models import Question
+        from services.project_service import save_questions_to_project
+
+        save_questions_to_project(
+            self.user,
+            "Class 10 — Science",
+            [{"content": "Define osmosis.", "type": None, "marks": 1}],
+        )
+        saved = Question.objects.get(content="Define osmosis.")
+        self.assertIsNone(saved.image_url)
+
+    def test_the_image_survives_a_full_write_then_read(self):
+        # The round trip that was broken end to end: save a diagram question,
+        # read it back the way the editor does, and still have the figure.
+        from services.project_service import save_questions_to_project
+
+        save_questions_to_project(
+            self.user,
+            "Class 10 — Science",
+            [
+                {
+                    "content": "Study the ray diagram and state the image type.",
+                    "type": None,
+                    "marks": 3,
+                    "grade_class": "10",
+                    "subject": "Science",
+                    "image_url": self.IMAGE,
+                }
+            ],
+        )
+
+        response = self.client.get("/api/projects/?withQuestions=true")
+        payload = response.json()
+        projects = payload if isinstance(payload, list) else payload.get("results", [])
+        match = next(
+            question
+            for project in projects
+            for question in project.get("questions", [])
+            if question["content"].startswith("Study the ray diagram")
+        )
+        self.assertEqual(match["image_url"], self.IMAGE)
