@@ -160,3 +160,105 @@ class ConfirmUploadView(APIView):
 
         warnings = getattr(pdf_source, "warnings", []) or []
         return Response({"pdfSourceId": pdf_source.id, "warnings": warnings})
+
+
+class DetectSubjectView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Accepts either a multipart file ('file') or 'pdfSourceId' and analyzes the
+        first 2-5 pages of the PDF to auto-detect its educational subject.
+
+        Returns:
+          {
+            "detected": bool,
+            "subject": str | None,
+            "confidence": float,
+            "error": str | None
+          }
+        """
+        from services.subject_detection_service import detect_subject_from_pdf_buffer
+        from apps.documents.models import PdfSource
+
+        uploaded_file = request.FILES.get("file")
+        source_id = request.data.get("pdfSourceId")
+
+        buffer = None
+
+        if uploaded_file:
+            try:
+                buffer = uploaded_file.read()
+            except Exception as exc:
+                return Response({"detected": False, "subject": None, "confidence": 0.0, "error": f"Failed reading file: {exc}"}, status=400)
+        elif source_id:
+            pdf_source = PdfSource.objects.filter(id=source_id, user=request.user).first()
+            if pdf_source and pdf_source.file:
+                try:
+                    with pdf_source.file.open("rb") as f:
+                        buffer = f.read()
+                except Exception as exc:
+                    return Response({"detected": False, "subject": None, "confidence": 0.0, "error": f"Failed reading source file: {exc}"}, status=400)
+
+        if not buffer:
+            return Response({"detected": False, "subject": None, "confidence": 0.0, "error": "No file or pdfSourceId provided"}, status=400)
+
+        res = detect_subject_from_pdf_buffer(buffer)
+        return Response(res)
+
+
+class AnalyzePdfView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Analyzes an uploaded PDF buffer using GPT-4.1 Mini, with SHA-256 caching and
+        smart page skipping.
+
+        Request: multipart upload with 'file' or JSON with 'pdfSourceId'.
+        """
+        from services.pdf_analysis_service import analyze_pdf_buffer
+        from apps.documents.models import PdfSource
+
+        uploaded_file = request.FILES.get("file")
+        source_id = request.data.get("pdfSourceId")
+
+        buffer = None
+        file_name = "document.pdf"
+
+        if uploaded_file:
+            try:
+                buffer = uploaded_file.read()
+                file_name = uploaded_file.name
+            except Exception as exc:
+                return Response({"error": f"Failed reading file: {exc}"}, status=400)
+        elif source_id:
+            pdf_source = PdfSource.objects.filter(id=source_id, user=request.user).first()
+            if pdf_source and pdf_source.file:
+                try:
+                    with pdf_source.file.open("rb") as f:
+                        buffer = f.read()
+                    file_name = pdf_source.filename or "document.pdf"
+                except Exception as exc:
+                    return Response({"error": f"Failed reading source file: {exc}"}, status=400)
+
+        if not buffer:
+            return Response({"error": "No file or pdfSourceId provided"}, status=400)
+
+        res = analyze_pdf_buffer(buffer, file_name=file_name)
+        return Response(res)
+
+
+class ValidateMetadataView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Cross-validates metadata across multiple uploaded PDFs.
+
+        Request JSON: { "documents": [ { fileName, subject, board, class, chapter, documentType, confidence, isEducational } ] }
+        """
+        from services.pdf_validation_service import validate_pdf_metadata_list
+
+        documents = request.data.get("documents") or []
+        report = validate_pdf_metadata_list(documents)
+        return Response(report)
+
+
