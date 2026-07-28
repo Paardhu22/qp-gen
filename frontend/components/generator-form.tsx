@@ -1345,14 +1345,14 @@ export const GeneratorForm = ({
                   Your Instructions <span className="text-red-500">*</span>
                 </>
               ) : (
-                "General Instructions"
+                "General Instructions (optional)"
               )}
             </label>
             <Textarea
               placeholder={
                 currentQpType === "general_instructions"
                   ? "Describe exactly what you want.\nExample: 5 MCQs, 3 short answers of 2 marks each, 2 long answers."
-                  : "e.g. Section A: 4 short answer questions (2 marks each)\nSection B: 4 long answer questions (5 marks each)"
+                  : "Follows default board pattern. You may add custom instructions (e.g. Section A: 4 short answer questions of 2 marks each)..."
               }
               className={`bg-background border-border text-foreground placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-primary ${
                 currentQpType === "general_instructions"
@@ -1364,8 +1364,8 @@ export const GeneratorForm = ({
             />
             <p className="text-[11px] text-zinc-400 dark:text-muted-foreground">
               {currentQpType === "general_instructions"
-                ? "The AI will follow these instructions exactly. Be specific about question types, counts, and marks."
-                : "Describe section structure and question types. The AI will follow these instructions."}
+                ? "The AI will follow these written instructions exactly — no board patterns."
+                : "Follows the default board pattern structure for the selected Board, Class, and Subject. Add custom instructions here to customize specific sections."}
             </p>
           </div>
 
