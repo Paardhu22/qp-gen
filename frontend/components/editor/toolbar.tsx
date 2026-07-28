@@ -560,8 +560,8 @@ const InsertBlockDropdown: React.FC<InsertBlockDropdownProps> = ({
     },
     {
       label: "OR Group",
-      color: "text-purple-500",
-      hoverBg: "hover:bg-purple-500/10",
+      color: "text-primary",
+      hoverBg: "hover:bg-primary/10",
       action: () => {
         const emptyBranch = (marks: number) => ({
           type: "questionBlock",

@@ -150,8 +150,8 @@ function ChangePasswordModal({
             className={cn(
               "flex items-center justify-center h-7 w-7 rounded-full text-xs font-bold transition-colors",
               step === "verify"
-                ? "bg-primary text-white"
-                : "bg-green-500 text-white",
+                ? "bg-primary text-primary-foreground"
+                : "bg-success text-success-foreground",
             )}
           >
             {step === "verify" ? "1" : <Check className="h-3.5 w-3.5" />}

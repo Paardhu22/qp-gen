@@ -255,7 +255,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
         <button
           onClick={() => setShowReplace(!showReplace)}
           className={cn(
-            "h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors",
+            "h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground hover:bg-muted dark:hover:bg-card transition-colors",
             showReplace && "text-primary bg-primary/10 dark:text-primary dark:bg-primary/30"
           )}
           title="Toggle Replace"
@@ -268,7 +268,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
             onClose();
           }}
           title="Close (Esc)"
-          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground hover:bg-muted dark:hover:bg-card transition-colors"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -289,14 +289,14 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
           <button
             onClick={replaceOne}
             disabled={matchCount === 0}
-            className="h-6 px-2.5 text-[10px] font-medium text-zinc-600 dark:text-muted-foreground hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded disabled:opacity-30 transition-colors"
+            className="h-6 px-2.5 text-[10px] font-medium text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground hover:bg-muted dark:hover:bg-card rounded disabled:opacity-30 transition-colors"
           >
             Replace
           </button>
           <button
             onClick={replaceAll}
             disabled={matchCount === 0}
-            className="h-6 px-2.5 text-[10px] font-medium text-zinc-600 dark:text-muted-foreground hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded disabled:opacity-30 transition-colors"
+            className="h-6 px-2.5 text-[10px] font-medium text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground hover:bg-muted dark:hover:bg-card rounded disabled:opacity-30 transition-colors"
           >
             All
           </button>
