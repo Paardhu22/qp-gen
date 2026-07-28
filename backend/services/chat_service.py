@@ -57,6 +57,11 @@ SPEC_FIELDS = (
     "numberOfQuestions",
     "numberOfSets",
     "chapters",
+    # Free-form structure the teacher described in their own words ("5 MCQs,
+    # 3 short answers of 2 marks"). Its presence is what switches the paper
+    # from the CBSE blueprint to General Instructions Mode, where
+    # `services/paper_design.py` reads it and lays the paper out accordingly.
+    "instructions",
 )
 
 # The four the pipeline genuinely cannot start without. Question counts,
@@ -103,6 +108,16 @@ _SPEC_SCHEMA = {
             "items": {"type": "string"},
             "description": "Chapter or topic names the teacher named.",
         },
+        "instructions": {
+            "type": ["string", "null"],
+            "description": (
+                "The paper's structure in the teacher's OWN WORDS, verbatim, "
+                "if they described one — question counts, types, marks, "
+                "sections, or a named template like 'same as our weekly "
+                "test'. Null if they did not describe a structure and just "
+                "want a standard board-pattern paper."
+            ),
+        },
         "isPaperRequest": {
             "type": "boolean",
             "description": (
@@ -130,6 +145,11 @@ Generate. Your job is to pin down what it needs:
   helpful    chapters or an uploaded PDF, difficulty, question count, and
              how many parallel sets (1-3)
 
+If the teacher describes the paper's SHAPE themselves — "5 MCQs and 3 short \
+answers", "same as last week's test", "two sections" — that is their template, \
+not a board paper. Keep their words; do not talk them into a CBSE pattern they \
+did not ask for, and do not add Bloom's-taxonomy targets to it.
+
 While setting a paper up:
 - Ask for ONE thing at a time. The interface renders your question as buttons \
 the teacher can tap, so a single clear ask beats a paragraph of them.
@@ -155,7 +175,9 @@ value you proposed and they ignored is NOT agreed.
 - Carry forward everything already in the current spec unless the teacher \
 changed it.
 - Use null for anything still unknown.
-- academicClass and marks are bare number strings ("10", "80"), no words.\
+- academicClass and marks are bare number strings ("10", "80"), no words.
+- instructions is the teacher's own description of the paper's structure, \
+copied as they wrote it. Do not summarise, tidy or invent it.\
 """
 
 

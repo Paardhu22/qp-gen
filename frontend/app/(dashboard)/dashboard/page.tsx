@@ -40,6 +40,8 @@ import {
   type PressStageId,
 } from "@/components/dashboard/press-check";
 import { ChatBackdrop } from "@/components/dashboard/chat-backdrop";
+import { PaperDesignPanel } from "@/components/paper-design-panel";
+import { usePaperDesign } from "@/lib/use-paper-design";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/store/editor-store";
@@ -439,10 +441,60 @@ export default function DashboardPage() {
     [activeId],
   );
 
+  // ── General Instructions Mode ─────────────────────────────────────────
+  // The assistant records a structure the teacher described in their own words
+  // ("5 MCQs and 3 short answers", "same as our weekly test") into
+  // `spec.instructions`. Its presence is what turns this from a board-pattern
+  // paper into one laid out purely from what they asked for.
+  const customInstructions = String(spec.instructions || "").trim();
+  const [gapOverrides, setGapOverrides] = React.useState<Record<string, string>>(
+    {},
+  );
+
+  // Answers given in the panel win over the spec — they are the teacher's
+  // latest word, and the assistant has no way to hear a button press.
+  const designSettings = React.useMemo(
+    () => ({
+      board: String(spec.board || ""),
+      academicClass: String(spec.academicClass || ""),
+      subject: String(spec.subject || ""),
+      difficulty: String(spec.difficulty || ""),
+      marks: String(spec.marks || ""),
+      numberOfSets: String(spec.numberOfSets || ""),
+      ...gapOverrides,
+    }),
+    [spec, gapOverrides],
+  );
+
+  const paperDesign = usePaperDesign({
+    instructions: customInstructions,
+    settings: designSettings,
+    pdfSourceIds: sourceIds,
+    enabled: Boolean(customInstructions),
+  });
+
+  // Everything the generation call should use: what was agreed in chat, plus
+  // the panel's answers, plus the assumed defaults the backend filled in.
+  const resolvedSpec = React.useMemo(
+    () => ({ ...designSettings, ...paperDesign.resolvedSettings, ...gapOverrides }),
+    [designSettings, paperDesign.resolvedSettings, gapOverrides],
+  );
+
+  const resolveDesignGap = React.useCallback((field: string, value: string) => {
+    if (field === "sources") return;
+    setGapOverrides((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
+  // A described structure has its own readiness: the panel's required gaps,
+  // not the assistant's four-field check.
+  const readyToGenerate = customInstructions
+    ? paperDesign.ready && sourceIds.length > 0
+    : canGenerate;
+
   // ── Generation ────────────────────────────────────────────────────────
 
   const handleGenerate = React.useCallback(async () => {
-    if (!canGenerate || generation.running) return;
+    if (!readyToGenerate || generation.running) return;
 
     setGeneration({ ...IDLE, running: true, status: "Starting the press…" });
     if (activeId) void setConversationStatus(activeId, "generating");
@@ -460,18 +512,29 @@ export default function DashboardPage() {
           count: spec.numberOfQuestions ? Number(spec.numberOfQuestions) : -1,
           countType: spec.numberOfQuestions ? "custom" : "cbse",
           countVariation: spec.numberOfQuestions ? "custom" : "cbse",
-          difficulty: spec.difficulty || "medium",
-          instructions: (spec.chapters || []).length
-            ? `Chapters: ${(spec.chapters || []).join(", ")}`
-            : "",
+          difficulty: resolvedSpec.difficulty || "medium",
+          // In General Instructions Mode the teacher's own description IS the
+          // blueprint, so it is sent whole. Otherwise the only instruction is
+          // which chapters to draw from.
+          instructions: customInstructions
+            ? customInstructions
+            : (spec.chapters || []).length
+              ? `Chapters: ${(spec.chapters || []).join(", ")}`
+              : "",
           board: spec.board || "CBSE",
-          subject: spec.subject || "",
-          class: spec.academicClass || "",
-          qp_type: "board",
+          subject: resolvedSpec.subject || "",
+          class: resolvedSpec.academicClass || "",
+          marks: resolvedSpec.marks || "",
+          qp_type: customInstructions ? "general_instructions" : "board",
+          // The structure shown in the confirm card. Sending it means the
+          // paper the teacher approved is the paper that gets generated.
+          ...(customInstructions && paperDesign.design?.sections.length
+            ? { design: paperDesign.design }
+            : {}),
           mathLevel: "standard",
           include_vi_alternatives: false,
           contentScopePolicy: "strict",
-          sets: Number(spec.numberOfSets || "1"),
+          sets: Number(resolvedSpec.numberOfSets || "1"),
         },
         (event, data) => {
           if (event === "status") {
@@ -762,7 +825,24 @@ export default function DashboardPage() {
                     />
                   )}
 
-                  {canGenerate && !isStreaming && (
+                  {/* A structure described in the teacher's own words gets
+                      shown back to them before three minutes are spent on it,
+                      along with anything it left open. */}
+                  {customInstructions && !isStreaming && (
+                    <PaperDesignPanel
+                      design={paperDesign.design}
+                      gaps={paperDesign.gaps}
+                      loading={paperDesign.loading}
+                      onResolve={resolveDesignGap}
+                      sourceAction={
+                        <p className="mt-1.5 text-[11px] text-muted-foreground">
+                          Attach the chapter PDF with the paperclip below.
+                        </p>
+                      }
+                    />
+                  )}
+
+                  {readyToGenerate && !isStreaming && (
                     <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4">
                       <div className="flex items-center gap-2">
                         <h3 className="text-sm font-semibold">
@@ -770,8 +850,12 @@ export default function DashboardPage() {
                         </h3>
                       </div>
                       <p className="mt-1.5 text-sm text-muted-foreground">
-                        {spec.subject} · Class {spec.academicClass} ·{" "}
-                        {spec.marks} marks · {sourceIds.length} source
+                        {resolvedSpec.subject} · Class{" "}
+                        {resolvedSpec.academicClass} ·{" "}
+                        {customInstructions && paperDesign.design
+                          ? `${paperDesign.design.totalMarks} marks`
+                          : `${spec.marks} marks`}{" "}
+                        · {sourceIds.length} source
                         {sourceIds.length === 1 ? "" : "s"}. This takes three to
                         four minutes.
                       </p>

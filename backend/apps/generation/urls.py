@@ -1,6 +1,11 @@
 from django.conf import settings
 from django.urls import path
 
+from .design_views import (
+    DesignPaperView,
+    PaperTemplateDetailView,
+    PaperTemplateListView,
+)
 from .views import (
     AnswerKeyView,
     AnswerScriptGenerateView,
@@ -19,6 +24,16 @@ urlpatterns = [
     # Regenerate exactly one question, preserving its blueprint slot.
     path("replace-question", ReplaceQuestionView.as_view(), name="replace-question"),
     path("bank-summary", QuestionBankSummaryView.as_view(), name="bank-summary"),
+    # General Instructions Mode: turn prose into a paper structure, and report
+    # the constraints it did not settle. Cheap, writes nothing, safe to call
+    # while the teacher is still typing.
+    path("design-paper", DesignPaperView.as_view(), name="design-paper"),
+    path("templates", PaperTemplateListView.as_view(), name="paper-templates"),
+    path(
+        "templates/<str:template_id>",
+        PaperTemplateDetailView.as_view(),
+        name="paper-template-detail",
+    ),
     path("answer-key", AnswerKeyView.as_view(), name="answer-key"),
     path("history", GenerationHistoryListView.as_view(), name="generation-history"),
     path("papers/<str:paper_id>/generate-answer-script/", AnswerScriptGenerateView.as_view(), name="generate-answer-script"),
