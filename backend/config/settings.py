@@ -416,15 +416,28 @@ OPENAI_IMAGE_CONCURRENCY = _int_env("OPENAI_IMAGE_CONCURRENCY", 1, minimum=1, ma
 
 OPENAI_IMAGE_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
 OPENAI_IMAGE_SIZE = os.environ.get("OPENAI_IMAGE_SIZE", "1024x1024")
-# Cheapest suitable quality tier for educational diagrams. gpt-image-1 accepts
-# low|medium|high; "low" is ~4-8x cheaper than "high" and remains legible for
-# schematic figures (ray diagrams, circuits). Bump to "medium" via env if a
-# subject needs finer detail.
-OPENAI_IMAGE_QUALITY = os.environ.get("OPENAI_IMAGE_QUALITY", "low").strip().lower()
+# gpt-image-1 accepts low|medium|high.
+#
+# This was "low" on cost grounds, and it showed: a low-tier diagram renders
+# labels as approximate letter shapes, which is useless on the one kind of
+# figure a science paper actually needs — a labelled one. A student cannot
+# answer "identify the part marked B" when B is a smudge, so a cheap image on
+# a diagram question is not a cheaper question, it is a broken one.
+#
+# "high" is the default now. The cost lever is IMAGE_QUESTIONS_PER_POOL, which
+# controls HOW MANY images a paper gets — that is the right place to spend
+# less, because fewer good diagrams beat more unusable ones. Reuse of real
+# chapter figures (IMAGE_QUESTION_STRATEGY=hybrid, the default) already keeps
+# most image questions off the generator entirely.
+OPENAI_IMAGE_QUALITY = os.environ.get("OPENAI_IMAGE_QUALITY", "high").strip().lower()
 
 # Used only to report an estimated spend on the SSE `pool` event so the cost of
 # a generation is visible in the UI rather than discovered on the invoice.
-IMAGE_COST_USD_PER_IMAGE = float(os.environ.get("IMAGE_COST_USD_PER_IMAGE", "0.04"))
+# Tracks OPENAI_IMAGE_QUALITY — it was 0.04 (the low tier) and would have
+# under-reported a high-tier run roughly four-fold, which is the opposite of
+# what an estimate shown to stop invoice surprises is for. Override alongside
+# the quality tier if you change one.
+IMAGE_COST_USD_PER_IMAGE = float(os.environ.get("IMAGE_COST_USD_PER_IMAGE", "0.17"))
 
 # ---------------------------------------------------------------------------
 # Cache — Elasticache-ready (statelessness pass P3).
