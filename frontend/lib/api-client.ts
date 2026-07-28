@@ -743,3 +743,67 @@ export async function waitForPdfSource(
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 }
+
+export interface DetectSubjectResponse {
+  detected: boolean;
+  subject: string | null;
+  confidence: number;
+  error?: string | null;
+}
+
+export async function detectPdfSubject(file: File): Promise<DetectSubjectResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return fetchForm<DetectSubjectResponse>("/api/documents/detect-subject", formData);
+}
+
+export interface PdfAnalysisResult {
+  fileName: string;
+  hash: string;
+  subject: string | null;
+  board: string | null;
+  class: string | null;
+  chapter: string | null;
+  documentType: string;
+  confidence: number;
+  isEducational: boolean;
+  pagesAnalyzed: number;
+  error?: string | null;
+  fromCache?: boolean;
+}
+
+export interface PdfValidationMismatch {
+  file?: string;
+  subject?: string;
+  board?: string;
+  class?: string;
+  chapter?: string;
+  documentType?: string;
+  reason?: string;
+}
+
+export interface PdfValidationReport {
+  valid: boolean;
+  errorType?: "SUBJECT_MISMATCH" | "CHAPTER_MISMATCH" | "BOARD_MISMATCH" | "CLASS_MISMATCH" | "UNSUPPORTED_DOCUMENT" | "LOW_CONFIDENCE";
+  message?: string;
+  mismatches: PdfValidationMismatch[];
+  subject?: string | null;
+  board?: string | null;
+  class?: string | null;
+  chapter?: string | null;
+}
+
+export async function analyzePdfDocument(file: File): Promise<PdfAnalysisResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return fetchForm<PdfAnalysisResult>("/api/documents/analyze-pdf", formData);
+}
+
+export async function validatePdfMetadata(documents: PdfAnalysisResult[]): Promise<PdfValidationReport> {
+  return fetchJson<PdfValidationReport>("/api/documents/validate-metadata", {
+    method: "POST",
+    body: JSON.stringify({ documents }),
+  });
+}
+
+

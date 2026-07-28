@@ -33,7 +33,16 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { fetchForm, fetchJson, streamSse } from "@/lib/api-client";
+import {
+  analyzePdfDocument,
+  detectPdfSubject,
+  fetchForm,
+  fetchJson,
+  streamSse,
+  validatePdfMetadata,
+  type PdfAnalysisResult,
+  type PdfValidationReport,
+} from "@/lib/api-client";
 import { ReviewTray } from "@/components/review-tray";
 import {
   HsatSourcePicker,
@@ -88,7 +97,21 @@ const FORM_SUBJECT_VALUES = [
   "English",
   "Hindi",
   "Telugu",
+  "Sanskrit",
+  "Computer Science",
 ];
+
+const ALL_SUBJECT_OPTIONS: { value: string; label: string }[] = [
+  { value: "Science", label: "Science" },
+  { value: "Social Science", label: "Social Science" },
+  { value: "Mathematics", label: "Mathematics Standard (Code 041)" },
+  { value: "English", label: "English Language & Literature (Code 184)" },
+  { value: "Hindi", label: "Hindi Course B (Code 085)" },
+  { value: "Telugu", label: "Telugu Telangana (Code 089)" },
+  { value: "Sanskrit", label: "Sanskrit" },
+  { value: "Computer Science", label: "Computer Science" },
+];
+
 const FORM_CLASS_VALUES = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 
 interface GeneratorFormProps {
@@ -130,6 +153,43 @@ export const GeneratorForm = ({
   const [generatedResult, setGeneratedResult] = useState<any>(null);
   const [uploadingDocs, setUploadingDocs] = useState<UploadingDoc[]>([]);
   const [isHsatPickerOpen, setIsHsatPickerOpen] = useState(false);
+  const [detectedSubject, setDetectedSubject] = useState<string | null>(null);
+  const [isDetectingSubject, setIsDetectingSubject] = useState<boolean>(false);
+  const [pdfAnalysisMap, setPdfAnalysisMap] = useState<Map<string, PdfAnalysisResult>>(new Map());
+  const [analysisProgressMap, setAnalysisProgressMap] = useState<Map<string, string>>(new Map());
+  const [validationReport, setValidationReport] = useState<PdfValidationReport | null>(null);
+
+  const revalidatePdfResults = async (results: PdfAnalysisResult[]) => {
+    if (results.length === 0) {
+      setValidationReport(null);
+      setDetectedSubject(null);
+      return;
+    }
+    try {
+      const report = await validatePdfMetadata(results);
+      setValidationReport(report);
+      if (report.valid) {
+        if (report.subject) {
+          setDetectedSubject(report.subject);
+          form.setValue("subject", report.subject);
+          toast.success(`✓ Subject detected: ${report.subject}`);
+        }
+        if (report.board && ["CBSE"].includes(report.board)) {
+          form.setValue("board", report.board);
+        }
+        if (report.class && FORM_CLASS_VALUES.includes(report.class)) {
+          form.setValue("academicClass", report.class);
+        }
+      } else {
+        setDetectedSubject(null);
+        if (report.message) {
+          toast.error(report.message);
+        }
+      }
+    } catch (err) {
+      console.warn("Validation failed:", err);
+    }
+  };
   // Issue 3 — the draft instructions live in the zustand store directly so a
   // refresh, route change, or browser-close-and-back doesn't drop what the
   // teacher typed. The store is persisted via zustand `persist`, so the
@@ -272,6 +332,30 @@ export const GeneratorForm = ({
       newTotalSize += file.size;
       newDocCount += 1;
 
+      // Trigger automatic intelligent PDF analysis for PDF files
+      if (file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") {
+        setIsDetectingSubject(true);
+        setAnalysisProgressMap((prev) => new Map(prev).set(file.name, "Extracting Text..."));
+
+        void analyzePdfDocument(file)
+          .then((res) => {
+            setAnalysisProgressMap((prev) => new Map(prev).set(file.name, "Detection Complete ✓"));
+            setPdfAnalysisMap((prev) => {
+              const nextMap = new Map(prev);
+              nextMap.set(file.name, res);
+              void revalidatePdfResults(Array.from(nextMap.values()));
+              return nextMap;
+            });
+          })
+          .catch((err) => {
+            console.warn("Automatic PDF analysis failed:", err);
+            setAnalysisProgressMap((prev) => new Map(prev).set(file.name, "Analysis failed"));
+          })
+          .finally(() => {
+            setIsDetectingSubject(false);
+          });
+      }
+
       const tempId = `${Date.now()}-${Math.random()}`;
       const fileSize = file.size;
       setUploadingDocs((prev) => [
@@ -322,8 +406,22 @@ export const GeneratorForm = ({
     setUploadingDocs((prev) => prev.filter((d) => d.tempId !== tempId));
   };
 
-  const removeDoc = (id: string) => {
-    setUploadedDocs((prev) => prev.filter((d) => d.id !== id));
+  const removeDoc = (id: string, name?: string) => {
+    setUploadedDocs((prev) => {
+      const nextDocs = prev.filter((d) => d.id !== id);
+      setPdfAnalysisMap((prevMap) => {
+        const nextMap = new Map(prevMap);
+        const targetName = name || prev.find((d) => d.id === id)?.name;
+        if (targetName) nextMap.delete(targetName);
+        void revalidatePdfResults(Array.from(nextMap.values()));
+        return nextMap;
+      });
+      if (nextDocs.length === 0 && hsatSources.length === 0) {
+        setDetectedSubject(null);
+        setValidationReport(null);
+      }
+      return nextDocs;
+    });
   };
 
   const handleHsatApply = (source: AppliedHsatSource) => {
@@ -409,7 +507,13 @@ export const GeneratorForm = ({
   }, [hasPendingHsat]);
 
   const removeHsatSource = (id: string) => {
-    setHsatSources((prev) => prev.filter((s) => s.id !== id));
+    setHsatSources((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      if (next.length === 0 && uploadedDocs.length === 0) {
+        setDetectedSubject(null);
+      }
+      return next;
+    });
   };
 
   // ── Async PDF upload: poll ingest status until ready ──────────────────────
@@ -615,7 +719,7 @@ export const GeneratorForm = ({
           countType: isGIM ? "custom" : values.countType,
           countVariation: isGIM ? "custom" : values.countType,
           difficulty: values.difficulty,
-          instructions: generalInstructions || "",
+          instructions: isGIM ? generalInstructions || "" : "",
           board: isGIM ? "" : values.board,
           subject: values.subject,
           class: values.academicClass,
@@ -986,18 +1090,47 @@ export const GeneratorForm = ({
             >
               <div className="flex items-center gap-2 min-w-0">
                 <FileCheck className="h-4 w-4 text-green-500 flex-shrink-0" />
-                <span className="text-xs text-foreground truncate">
-                  {doc.name}
-                </span>
+                <div className="min-w-0">
+                  <span className="text-xs text-foreground truncate block">
+                    {doc.name}
+                  </span>
+                  {analysisProgressMap.get(doc.name) && (
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium block">
+                      {analysisProgressMap.get(doc.name)}
+                    </span>
+                  )}
+                </div>
               </div>
               <button
-                onClick={() => removeDoc(doc.id)}
+                onClick={() => removeDoc(doc.id, doc.name)}
                 className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"
               >
                 <Trash2 className="h-3 w-3" />
               </button>
             </div>
           ))}
+
+          {/* Multi-PDF Validation Error Card */}
+          {validationReport && !validationReport.valid && (
+            <div className="p-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 text-red-900 dark:text-red-200 space-y-2">
+              <div className="flex items-center gap-1.5 font-semibold text-xs text-red-700 dark:text-red-400">
+                <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+                {validationReport.message || "PDF Metadata Validation Error"}
+              </div>
+              {validationReport.mismatches && validationReport.mismatches.length > 0 && (
+                <div className="space-y-1 text-xs border-t border-red-200 dark:border-red-800/60 pt-2">
+                  {validationReport.mismatches.map((m, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-[11px]">
+                      <span className="font-medium truncate max-w-[180px]">{m.file || `PDF ${idx + 1}`}</span>
+                      <span className="bg-red-100 dark:bg-red-900/60 text-red-800 dark:text-red-300 px-1.5 py-0.5 rounded font-mono text-[10px]">
+                        {m.subject || m.chapter || m.board || m.class || m.reason || "Mismatch"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Applied HSAT sources — visually distinct: book icon + HSAT label */}
           {hsatSources.map((source) => {
@@ -1148,19 +1281,38 @@ export const GeneratorForm = ({
             render={({ field }) => (
               <FormItem>
                 <FormLabel className="text-foreground">Subject</FormLabel>
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={!!detectedSubject}
+                >
                   <FormControl>
-                    <SelectTrigger className="w-full bg-background border-border text-foreground"><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectTrigger className="w-full bg-background border-border text-foreground">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
                   </FormControl>
                   <SelectContent alignItemWithTrigger={false} className="bg-background border-border text-foreground">
-                    <SelectItem value="Science">Science</SelectItem>
-                    <SelectItem value="Social Science">Social Science</SelectItem>
-                    <SelectItem value="Mathematics">Mathematics Standard (Code 041)</SelectItem>
-                    <SelectItem value="English">English Language &amp; Literature (Code 184)</SelectItem>
-                    <SelectItem value="Hindi">Hindi Course B (Code 085)</SelectItem>
-                    <SelectItem value="Telugu">Telugu Telangana (Code 089)</SelectItem>
+                    {detectedSubject ? (
+                      <SelectItem value={detectedSubject}>{detectedSubject}</SelectItem>
+                    ) : (
+                      ALL_SUBJECT_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
+                {detectedSubject && (
+                  <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1">
+                    ✓ Subject detected: {detectedSubject}
+                  </p>
+                )}
+                {isDetectingSubject && (
+                  <p className="text-[11px] text-primary dark:text-primary mt-1 flex items-center gap-1 animate-pulse">
+                    <Loader2 className="h-3 w-3 animate-spin inline" /> Analyzing PDF subject…
+                  </p>
+                )}
                 <FormMessage />
               </FormItem>
             )}
@@ -1337,37 +1489,23 @@ export const GeneratorForm = ({
             )}
           />
 
-          {/* General Instructions / Your Instructions */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">
-              {currentQpType === "general_instructions" ? (
-                <>
-                  Your Instructions <span className="text-red-500">*</span>
-                </>
-              ) : (
-                "General Instructions (optional)"
-              )}
-            </label>
-            <Textarea
-              placeholder={
-                currentQpType === "general_instructions"
-                  ? "Describe exactly what you want.\nExample: 5 MCQs, 3 short answers of 2 marks each, 2 long answers."
-                  : "Follows default board pattern. You may add custom instructions (e.g. Section A: 4 short answer questions of 2 marks each)..."
-              }
-              className={`bg-background border-border text-foreground placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-primary ${
-                currentQpType === "general_instructions"
-                  ? "min-h-[120px] border-primary/30 dark:border-primary ring-1 ring-primary/40 dark:ring-primary/50"
-                  : "min-h-[90px]"
-              }`}
-              value={generalInstructions}
-              onChange={(e) => setGeneralInstructions(e.target.value)}
-            />
-            <p className="text-[11px] text-zinc-400 dark:text-muted-foreground">
-              {currentQpType === "general_instructions"
-                ? "The AI will follow these written instructions exactly — no board patterns."
-                : "Follows the default board pattern structure for the selected Board, Class, and Subject. Add custom instructions here to customize specific sections."}
-            </p>
-          </div>
+          {/* Your Instructions — shown ONLY in General Instructions Mode */}
+          {currentQpType === "general_instructions" && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Your Instructions <span className="text-red-500">*</span>
+              </label>
+              <Textarea
+                placeholder="Describe exactly what you want.\nExample: 5 MCQs, 3 short answers of 2 marks each, 2 long answers."
+                className="bg-background border-border text-foreground placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-primary min-h-[120px] border-primary/30 dark:border-primary ring-1 ring-primary/40 dark:ring-primary/50"
+                value={generalInstructions}
+                onChange={(e) => setGeneralInstructions(e.target.value)}
+              />
+              <p className="text-[11px] text-zinc-400 dark:text-muted-foreground">
+                The AI will follow these written instructions exactly — no board patterns.
+              </p>
+            </div>
+          )}
 
           <div className="pt-4 sticky bottom-0 bg-background pb-4">
             <Button
@@ -1380,7 +1518,8 @@ export const GeneratorForm = ({
               // itself, a toast can.
               disabled={
                 isGenerating ||
-                (uploadedDocs.length === 0 && hsatSources.length === 0)
+                (uploadedDocs.length === 0 && hsatSources.length === 0) ||
+                (validationReport !== null && !validationReport.valid)
               }
               className="w-full bg-primary hover:bg-primary/90 text-white shadow-lg gap-2"
             >
