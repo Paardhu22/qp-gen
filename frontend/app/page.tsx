@@ -15,14 +15,17 @@ export default function Home() {
   }, []);
 
   return (
-    <main
-      className="relative min-h-dvh overflow-hidden bg-neutral-950 text-neutral-900"
-    >
+    // The Grainient covers the whole viewport, so the base colour is only ever
+    // seen in the instant before WebGL comes up (and permanently on a machine
+    // that cannot give us a context). `bg-neutral-950` put near-black there
+    // under `text-neutral-900` text — dark on dark, unreadable in exactly the
+    // case the fallback exists for. Sand matches what the shader paints.
+    <main className="relative min-h-dvh overflow-hidden bg-[#efe4d2] text-[#282d3c]">
       <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
         <Grainient
           color1="#fcfcfc"
-          color2="#b39de3"
-          color3="#f6edff"
+          color2="#D7C3A3"
+          color3="#efe4d2"
           timeSpeed={0.95}
           colorBalance={0.0}
           warpStrength={1.0}
@@ -69,13 +72,13 @@ export default function Home() {
             >
               <Link
                 href="/login"
-                className="rounded-full border border-neutral-200 px-4 py-2 text-sm text-neutral-700 transition hover:border-neutral-400 hover:text-neutral-900"
+                className="rounded-full border border-[#282d3c]/20 px-4 py-2 text-sm text-[#282d3c]/80 transition hover:border-[#282d3c]/50 hover:text-[#282d3c]"
               >
                 Login
               </Link>
               <Link
                 href="/register"
-                className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white transition hover:bg-neutral-800"
+                className="rounded-full bg-[#282d3c] px-4 py-2 text-sm text-white transition hover:bg-[#333a4d]"
               >
                 Sign up
               </Link>
@@ -105,7 +108,7 @@ export default function Home() {
             >
               <Link
                 href={isAuthenticated ? "/dashboard" : "/login"}
-                className="inline-block rounded-full bg-neutral-900 px-8 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800"
+                className="inline-block rounded-full bg-[#282d3c] px-8 py-3 text-sm font-semibold text-white transition hover:bg-[#333a4d]"
               >
                 Get started →
               </Link>

@@ -230,6 +230,15 @@ def _find_or_create_section(result: Dict[str, Any], title: str) -> Dict[str, Any
     return section
 
 
+def _int_or_none(value: Any) -> Optional[int]:
+    """A positive int, or None. Forms send "", "80", 80 and None for the same field."""
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
 def _resolve_num_sets(payload: dict) -> int:
     """Clamp the requested set count to the supported 1–3 range.
 
@@ -567,6 +576,12 @@ def _allocate_image_targets(
     return allocation
 
 
+# The most images one paper may draw, however many DIAGRAM slots the blueprint
+# declares. Matches the upper bound on IMAGE_QUESTIONS_PER_POOL, so an explicit
+# request can exceed the configured default but never the hard limit.
+EXPLICIT_IMAGE_SLOT_CEILING = 40
+
+
 def _plan_image_slots(plan: Sequence[Any]) -> int:
     return sum(
         1
@@ -589,12 +604,21 @@ def _contextual_image_total(
     or hammering the image API.
     """
     cap = max(0, int(configured_cap or 0))
+    # A configured cap of zero is the deliberate off switch — no images at all,
+    # however many the plan asks for. Honour it before anything else.
     if cap <= 0 or not plan:
         return 0
 
     diagram_slots = _plan_image_slots(plan)
     if diagram_slots:
-        return min(cap, diagram_slots)
+        # An explicitly requested figure slot is not the same thing as a
+        # supplemental one. `IMAGE_QUESTIONS_PER_POOL` exists to stop images the
+        # teacher never asked for from dominating the bill; clamping an explicit
+        # ask to it means someone who types "10 image based questions" silently
+        # gets eight, with nothing saying why. The blueprint is the teacher's,
+        # so it wins — bounded by the hard ceiling that keeps a runaway plan
+        # from becoming a runaway invoice.
+        return min(EXPLICIT_IMAGE_SLOT_CEILING, diagram_slots)
 
     subject = (subject_norm or "").strip().lower()
     if subject in {"english", "hindi", "telugu", "sanskrit"}:
@@ -908,16 +932,41 @@ def stream_pool_questions(
             )
             return
 
-        exact_count = count if count and count > 0 else None
-        parsed = _parse_gim_instructions(
-            instructions, len(pdf_source_ids) + len(hsat_source_ids), exact_count
+        # The design may already have been computed by `/design-paper` while
+        # the teacher was reviewing it. Reusing it keeps the paper they
+        # approved — re-designing here would spend a second model call and
+        # could return a different structure than the one they said yes to.
+        from services.paper_design import (
+            PaperDesign,
+            _design_from_raw,
+            design_paper,
+            design_to_slot_specs,
+            header_lines,
+            validate_design,
         )
+
+        exact_count = count if count and count > 0 else None
+        approved = payload.get("design") or payload.get("paperDesign")
+        if isinstance(approved, dict) and approved.get("sections"):
+            design: PaperDesign = validate_design(_design_from_raw(approved))
+        else:
+            design = design_paper(
+                instructions,
+                subject=subject_raw,
+                academic_class=str(class_num),
+                total_marks=_int_or_none(payload.get("marks")),
+                exact_count=exact_count,
+                source_count=len(pdf_source_ids) + len(hsat_source_ids),
+                user=user,
+            )
+
+        parsed = design_to_slot_specs(design)
         if not parsed:
             yield _sse(
                 {
-                    "error": "Could not parse any question specifications from "
-                    "your instructions. Please be more specific (e.g. '5 MCQs, "
-                    "3 short answers of 2 marks each')."
+                    "error": "Could not work out a paper from those instructions. "
+                    "Try naming what you want — for example '5 MCQs and 3 short "
+                    "answers of 2 marks each'."
                 },
                 event="error",
             )
@@ -941,14 +990,16 @@ def stream_pool_questions(
             f"General Instructions Mode: {len(plan)} questions, "
             f"{sum(s.marks for s in plan)} marks"
         )
-        general_instructions = [
-            f"There are {len(plan)} questions. All questions are compulsory.",
-            instructions.strip(),
-        ]
+        general_instructions = header_lines(design, {"instructions": instructions})
         summary = {
             "total_questions": len(plan),
             "total_marks": sum(s.marks for s in plan),
         }
+        # Anything the validator had to correct is the teacher's to see — a
+        # paper that quietly came out 3 marks short is worse than one that
+        # says so.
+        for correction in design.corrections:
+            yield _sse({"message": correction}, event="notice")
         subject_label = subject_raw
     else:
         if not should_use_new_engine(payload):

@@ -167,6 +167,18 @@ def filter_pool(
 # ── Stage 2: constraint-satisfying candidate set ────────────────────────
 
 
+def _slot_wants_image(slot: Any) -> bool:
+    """Whether this slot is supposed to carry a figure.
+
+    Two ways a slot says so: the blueprint's explicit `requires_image` flag, or
+    a DIAGRAM question type — which is what General Instructions Mode emits
+    when a teacher asks for image-based questions.
+    """
+    if bool(getattr(slot, "requires_image", False)):
+        return True
+    return str(getattr(slot, "question_type", "") or "").upper() == "DIAGRAM"
+
+
 def _score_question(
     question: PoolQuestion,
     *,
@@ -179,9 +191,24 @@ def _score_question(
     rng: random.Random,
     vi_required: bool = False,
     asset_type: str = "",
+    image_required: bool = False,
 ) -> float:
     """Higher is better. Every term pushes toward a well-spread paper."""
     score = 0.0
+
+    # A figure slot needs a figure. Weighted above every other term because
+    # this is the one mismatch a student sees immediately: "study the given
+    # figure" printed above nothing at all.
+    #
+    # It is not hypothetical. Model 1 writes text from chapter markdown and
+    # cannot draw, so a DIAGRAM batch yields questions that REFER to a figure
+    # they do not carry; the image stage produces the handful that really have
+    # one. Both land in the same pool typed DIAGRAM, and the text-only ones
+    # outnumber the real ones several times over — so with no preference here,
+    # a paper of ten "image based questions" reliably drew ten questions with
+    # no images.
+    if image_required:
+        score += 12.0 if (question.image or "").strip() else -12.0
 
     # Asset type — the blueprint's declared shape for this slot. Eligibility
     # stays loose (a slot short of its exact shape is better filled than left
@@ -291,6 +318,7 @@ def build_candidates(
         *,
         vi_required: bool = False,
         asset_type: str = "",
+        image_required: bool = False,
     ) -> List[PoolQuestion]:
         return sorted(
             candidates,
@@ -305,6 +333,7 @@ def build_candidates(
                 rng=rng,
                 vi_required=vi_required,
                 asset_type=asset_type,
+                image_required=image_required,
             ),
             reverse=True,
         )
@@ -327,6 +356,7 @@ def build_candidates(
             available,
             vi_required=bool(getattr(slot, "vi_required", False)),
             asset_type=str(getattr(slot, "asset_type", "") or ""),
+            image_required=_slot_wants_image(slot),
         )[0]
         used_ids.add(chosen.id)
         used_topics[(chosen.topic or "").strip().lower()] += 1
@@ -358,8 +388,13 @@ def build_candidates(
         if not spare:
             continue
 
+        # Alternates and OR branches are offered as replacements for the chosen
+        # question, so they have to satisfy the same slot. An alternate with no
+        # figure on a figure slot is a swap that silently breaks the paper.
         picked = _rank(
-            spare, asset_type=str(getattr(assignment.slot, "asset_type", "") or "")
+            spare,
+            asset_type=str(getattr(assignment.slot, "asset_type", "") or ""),
+            image_required=_slot_wants_image(assignment.slot),
         )[:wanted]
         if needs_choice and picked:
             # The OR alternative is held out of `alternates` so the review

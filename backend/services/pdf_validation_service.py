@@ -56,11 +56,16 @@ def validate_pdf_metadata_list(pdf_results: List[Dict[str, Any]]) -> Dict[str, A
         }
 
     first = pdf_results[0]
+    all_chapters = [d.get("chapter") for d in pdf_results if d.get("chapter")]
+    unique_chapters_list = list(dict.fromkeys(all_chapters))
+    chapter_summary = ", ".join(unique_chapters_list) if unique_chapters_list else None
+
     return {
         "valid": True,
         "subject": first.get("subject"),
         "board": first.get("board") or "CBSE",
         "class": first.get("class") or "10",
-        "chapter": first.get("chapter"),
+        "chapter": chapter_summary,
+        "chapters": unique_chapters_list,
         "mismatches": [],
     }

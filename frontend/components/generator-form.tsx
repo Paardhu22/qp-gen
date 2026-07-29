@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo, useEffect } from "react";
+import { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -23,6 +23,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useEditorStore, type TrayItem } from "@/store/editor-store";
+import { PaperDesignPanel } from "@/components/paper-design-panel";
+import { TemplatePicker } from "@/components/template-picker";
+import { usePaperDesign } from "@/lib/use-paper-design";
 import { toast } from "sonner";
 import {
   AlertCircle,
@@ -174,12 +177,6 @@ export const GeneratorForm = ({
           form.setValue("subject", report.subject);
           toast.success(`✓ Subject detected: ${report.subject}`);
         }
-        if (report.board && ["CBSE"].includes(report.board)) {
-          form.setValue("board", report.board);
-        }
-        if (report.class && FORM_CLASS_VALUES.includes(report.class)) {
-          form.setValue("academicClass", report.class);
-        }
       } else {
         setDetectedSubject(null);
         if (report.message) {
@@ -199,6 +196,86 @@ export const GeneratorForm = ({
   );
   const setGeneralInstructions = useEditorStore(
     (s) => s.setGeneralInstructionsDraft,
+  );
+
+  // ── General Instructions Mode: live design + gap resolution ───────────
+  // The settings the designer needs, read off the form so a value the teacher
+  // already picked is never asked for again. `useMemo` on the watched values
+  // rather than the whole form object, which is a new identity every render
+  // and would restart the debounce on every keystroke anywhere in the form.
+  const watchedClass = form.watch("academicClass");
+  const watchedSubject = form.watch("subject");
+  const watchedDifficulty = form.watch("difficulty");
+  const watchedMarks = form.watch("marks");
+  const watchedSets = form.watch("numberOfSets");
+  const watchedBoard = form.watch("board");
+  const designSettings = useMemo(
+    () => ({
+      board: watchedBoard || "",
+      academicClass: watchedClass || "",
+      subject: watchedSubject || "",
+      difficulty: watchedDifficulty || "",
+      marks: watchedMarks || "",
+      numberOfSets: watchedSets || "",
+    }),
+    [
+      watchedBoard,
+      watchedClass,
+      watchedSubject,
+      watchedDifficulty,
+      watchedMarks,
+      watchedSets,
+    ],
+  );
+
+  const isGimMode = currentQpType === "general_instructions";
+  const paperDesign = usePaperDesign({
+    instructions: generalInstructions,
+    settings: designSettings,
+    pdfSourceIds: useMemo(
+      () => uploadedDocs.map((d) => d.id).filter(Boolean) as string[],
+      [uploadedDocs],
+    ),
+    hsatSourceIds: useMemo(
+      () => hsatSources.map((s) => s.id).filter(Boolean) as string[],
+      [hsatSources],
+    ),
+    enabled: isGimMode,
+  });
+
+  // Answering a gap writes straight into the form, which is what the generator
+  // submits — so the panel and the form can never disagree about what the
+  // teacher chose. `sources` is the exception: it is satisfied by uploading,
+  // not by picking a value.
+  const resolveDesignGap = useCallback(
+    (field: string, value: string) => {
+      if (field === "sources") return;
+      form.setValue(field as Parameters<typeof form.setValue>[0], value as never, {
+        shouldDirty: true,
+      });
+    },
+    [form],
+  );
+
+  const applyTemplate = useCallback(
+    (template: { instructions: string; settings: Record<string, string> }) => {
+      setGeneralInstructions(template.instructions);
+      // The saved answers, so re-using a template does not re-ask for
+      // difficulty or set count. Only fields the template actually recorded.
+      for (const [field, value] of Object.entries(template.settings || {})) {
+        const text = String(value ?? "").trim();
+        if (!text) continue;
+        form.setValue(
+          field as Parameters<typeof form.setValue>[0],
+          text as never,
+          { shouldDirty: true },
+        );
+      }
+      // A template is a paper described in prose, so it only makes sense in
+      // the mode that reads prose.
+      form.setValue("qpType", "general_instructions");
+    },
+    [form, setGeneralInstructions],
   );
   // Requirements gathered by the dashboard assistant, if the teacher arrived
   // from there. Applied once and then cleared: without the clear, every later
@@ -313,8 +390,25 @@ export const GeneratorForm = ({
       0,
     );
     let newTotalSize = currentTotalSize;
+    let newDocCount = uploadedDocs.length + uploadingDocs.length;
 
     for (const file of files) {
+      if (newDocCount >= 5) {
+        toast.error("Maximum of 5 sources allowed.");
+        break;
+      }
+
+      // Duplicate PDF Detection: check if identical file is already uploaded or uploading
+      const isDuplicate =
+        uploadedDocs.some(
+          (d) => d.name === file.name && (d.size === file.size || !d.size),
+        ) || uploadingDocs.some((d) => d.name === file.name);
+
+      if (isDuplicate) {
+        toast.warning("This PDF has already been uploaded.");
+        continue;
+      }
+
       if (file.size > 100 * 1024 * 1024) {
         toast.error(`File ${file.name} exceeds 100MB limit.`);
         continue;
@@ -325,6 +419,7 @@ export const GeneratorForm = ({
       }
 
       newTotalSize += file.size;
+      newDocCount += 1;
 
       // Trigger automatic intelligent PDF analysis for PDF files
       if (file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") {
@@ -723,6 +818,13 @@ export const GeneratorForm = ({
           include_vi_alternatives: false,
           contentScopePolicy: values.contentScopePolicy,
           sets: parseInt(values.numberOfSets, 10),
+          // The structure the teacher just reviewed in the panel. Sending it
+          // means the paper they approved is the paper they get — and saves a
+          // second design call. Omitted outside General Instructions Mode,
+          // where the blueprint decides the structure.
+          ...(isGIM && paperDesign.design?.sections.length
+            ? { design: paperDesign.design, marks: values.marks }
+            : {}),
         },
         (event, data) => {
           if (event === "error") {
@@ -1215,7 +1317,7 @@ export const GeneratorForm = ({
                     <SelectItem value="general_instructions" label="General Instructions Mode">General Instructions Mode</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-0.5">
+                <p className="text-[10px] text-muted-foreground mt-0.5">
                   {field.value === "board"
                     ? "Uses CBSE/board-specific structure, sections, and Bloom's taxonomy."
                     : "The AI follows your written instructions exactly — no board patterns."}
@@ -1395,7 +1497,7 @@ export const GeneratorForm = ({
                     <SelectItem value="3" label="3 Sets (A, B, C)">3 Sets (A, B, C)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-1 leading-snug">
+                <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
                   {field.value === "1"
                     ? "A single paper (Set A)."
                     : `Set A plus ${field.value === "2" ? "one variant (Set B)" : "two variants (Sets B & C)"}. Each variant keeps ~70% of Set A, swaps ~30% for parallel questions from the same pool, and reshuffles within sections. MCQs stay the same across all sets.`}
@@ -1452,7 +1554,7 @@ export const GeneratorForm = ({
                     />
                   </FormControl>
                   {currentQpType === "general_instructions" && (
-                    <p className="text-[10px] text-zinc-400 dark:text-muted-foreground">
+                    <p className="text-[10px] text-muted-foreground">
                       Leave empty if your instructions specify the count.
                     </p>
                   )}
@@ -1482,7 +1584,7 @@ export const GeneratorForm = ({
                     <SelectItem value="source_only" label="Strict to Source Material (Source Only)">Strict to Source Material (Source Only)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[10px] text-zinc-400 dark:text-muted-foreground mt-1 leading-snug">
+                <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
                   {field.value === "strict" 
                     ? "If uploaded chapters lack coverage for certain blueprint topics, the AI will generate those questions from general CBSE curriculum knowledge."
                     : "Questions are generated STRICTLY from your source material. Blueprint slots missing from your PDF will be skipped, which may result in a shorter paper."}
@@ -1495,18 +1597,51 @@ export const GeneratorForm = ({
           {/* Your Instructions — shown ONLY in General Instructions Mode */}
           {currentQpType === "general_instructions" && (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">
-                Your Instructions <span className="text-red-500">*</span>
-              </label>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-sm font-medium text-foreground">
+                  Your Instructions <span className="text-red-500">*</span>
+                </label>
+                <TemplatePicker
+                  instructions={generalInstructions}
+                  settings={designSettings}
+                  onApply={applyTemplate}
+                />
+              </div>
               <Textarea
-                placeholder="Describe exactly what you want.\nExample: 5 MCQs, 3 short answers of 2 marks each, 2 long answers."
-                className="bg-background border-border text-foreground placeholder:text-zinc-400 dark:placeholder:text-zinc-600 text-sm resize-none focus:ring-primary min-h-[120px] border-primary/30 dark:border-primary ring-1 ring-primary/40 dark:ring-primary/50"
+                placeholder={
+                  "Describe the paper in your own words.\n" +
+                  "Example: Weekly test on Light, 20 marks — 5 MCQs, " +
+                  "3 short answers of 2 marks, 1 long answer of 5."
+                }
+                className="bg-background border-border text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground text-sm resize-none focus:ring-primary min-h-[120px] border-primary/30 dark:border-primary ring-1 ring-primary/40 dark:ring-primary/50"
                 value={generalInstructions}
                 onChange={(e) => setGeneralInstructions(e.target.value)}
               />
-              <p className="text-[11px] text-zinc-400 dark:text-muted-foreground">
-                The AI will follow these written instructions exactly — no board patterns.
+              <p className="text-[11px] text-muted-foreground">
+                Written in plain words. The paper follows these instructions —
+                no board pattern, no Bloom&apos;s targets.
               </p>
+
+              {/* What the instructions actually describe, and what they left
+                  open — before spending three minutes finding out. */}
+              <PaperDesignPanel
+                design={paperDesign.design}
+                gaps={paperDesign.gaps}
+                loading={paperDesign.loading}
+                onResolve={resolveDesignGap}
+                sourceAction={
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    Use “Add Source” above to upload a PDF or apply a textbook
+                    chapter.
+                  </p>
+                }
+              />
+              {paperDesign.error && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                  {paperDesign.error} You can still generate — the preview is
+                  just unavailable.
+                </p>
+              )}
             </div>
           )}
 
@@ -1555,7 +1690,7 @@ export const GeneratorForm = ({
             className={`flex-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
               insertionMode === "review"
                 ? "border-primary bg-primary/10 dark:bg-primary/10 text-primary dark:text-primary font-medium"
-                : "border-border text-muted-foreground hover:border-zinc-400"
+                : "border-border text-muted-foreground hover:border-border"
             }`}
           >
             Review before inserting
@@ -1566,7 +1701,7 @@ export const GeneratorForm = ({
             className={`flex-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
               insertionMode === "auto"
                 ? "border-primary bg-primary/10 dark:bg-primary/10 text-primary dark:text-primary font-medium"
-                : "border-border text-muted-foreground hover:border-zinc-400"
+                : "border-border text-muted-foreground hover:border-border"
             }`}
           >
             Auto-insert all
@@ -1597,10 +1732,10 @@ export const GeneratorForm = ({
                       className="p-3 bg-muted/50 border border-border rounded-xl space-y-2"
                     >
                       <div className="flex justify-between items-start gap-2">
-                        <p className="font-medium text-sm text-zinc-800 dark:text-zinc-100">
+                        <p className="font-medium text-sm text-foreground">
                           {q.content}
                         </p>
-                        <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-600 dark:text-zinc-400 font-mono">
+                        <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-mono">
                           {q.marks}m
                         </span>
                       </div>
@@ -1609,7 +1744,7 @@ export const GeneratorForm = ({
                           {q.options.map((opt: string, oIdx: number) => (
                             <div
                               key={oIdx}
-                              className="text-[11px] text-muted-foreground dark:text-zinc-400 border border-border p-1.5 rounded bg-background/50"
+                              className="text-[11px] text-muted-foreground border border-border p-1.5 rounded bg-background/50"
                             >
                               {String.fromCharCode(65 + oIdx)}. {opt}
                             </div>
@@ -1659,7 +1794,7 @@ export const GeneratorForm = ({
                 </Button>
                 <Button
                   variant="ghost"
-                  className="w-full text-zinc-400 dark:text-muted-foreground hover:text-zinc-600 dark:hover:text-zinc-300"
+                  className="w-full text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground"
                   onClick={() => setGeneratedResult(null)}
                 >
                   Clear Results
@@ -1718,7 +1853,7 @@ export const GeneratorForm = ({
                 </Button>
                 <Button
                   variant="ghost"
-                  className="w-full text-zinc-400 dark:text-muted-foreground hover:text-zinc-600 dark:hover:text-zinc-300"
+                  className="w-full text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground"
                   onClick={() => {
                     setGeneratedResult(null);
                     setVariantSets([]);

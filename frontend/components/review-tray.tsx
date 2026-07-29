@@ -158,16 +158,16 @@ export function ReviewTray() {
   const insertedCount = tray.length - pending.length;
 
   return (
-    <div className="mt-6 border-t border-zinc-200 dark:border-zinc-800 pt-6">
+    <div className="mt-6 border-t border-border pt-6">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+          <h3 className="text-base font-bold text-foreground flex items-center gap-2">
             Review tray
-            <span className="text-[11px] font-normal text-zinc-500">
+            <span className="text-[11px] font-normal text-muted-foreground">
               {pending.length} pending · {insertedCount} inserted
             </span>
           </h3>
-          <p className="text-[11px] text-zinc-500">
+          <p className="text-[11px] text-muted-foreground">
             Pick which generated questions go into your paper. Inserted items
             stay here as a record — use Undo to pull one back out.
           </p>
@@ -200,7 +200,7 @@ export function ReviewTray() {
             setSelected(new Set());
             toast.message("Cleared the review tray.");
           }}
-          className="h-8 text-zinc-500 hover:text-zinc-700"
+          className="h-8 text-muted-foreground hover:text-foreground"
         >
           Clear tray
         </Button>
@@ -214,7 +214,7 @@ export function ReviewTray() {
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-semibold text-primary dark:text-primary uppercase tracking-wider">
                   {title}{" "}
-                  <span className="text-zinc-400 normal-case font-normal">
+                  <span className="text-muted-foreground normal-case font-normal">
                     ({sectionPendingCount} pending · {items.length - sectionPendingCount} inserted)
                   </span>
                 </h4>
@@ -248,7 +248,7 @@ export function ReviewTray() {
                           ? "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/20 opacity-90"
                           : isSelected
                             ? "border-primary bg-primary/60 dark:bg-primary/10"
-                            : "border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40"
+                            : "border-border bg-muted/60 dark:bg-card/40"
                       }`}
                     >
                       <div className="flex items-start gap-3">
@@ -263,7 +263,7 @@ export function ReviewTray() {
                         ) : (
                           <input
                             type="checkbox"
-                            className="mt-1 rounded border-zinc-300 text-primary focus:ring-primary"
+                            className="mt-1 rounded border-border text-primary focus:ring-primary"
                             checked={isSelected}
                             onChange={() => toggleSelect(item.id)}
                           />
@@ -272,20 +272,20 @@ export function ReviewTray() {
                           <div className="flex flex-wrap items-center gap-1.5 text-[10px] mb-1.5">
                             <Badge
                               variant="outline"
-                              className="font-mono bg-white dark:bg-zinc-950"
+                              className="font-mono bg-white dark:bg-card"
                             >
                               {item.question.marks}m
                             </Badge>
                             <Badge
                               variant="outline"
-                              className="bg-white dark:bg-zinc-950"
+                              className="bg-white dark:bg-card"
                             >
                               {item.question.type || "—"}
                             </Badge>
                             {item.question.bloom && (
                               <Badge
                                 variant="outline"
-                                className="bg-white dark:bg-zinc-950"
+                                className="bg-white dark:bg-card"
                               >
                                 {item.question.bloom}
                               </Badge>
@@ -317,7 +317,7 @@ export function ReviewTray() {
                               </Badge>
                             )}
                           </div>
-                          <p className="text-sm text-zinc-800 dark:text-zinc-100 line-clamp-3">
+                          <p className="text-sm text-foreground line-clamp-3">
                             {item.question.content}
                           </p>
                           {item.question.options && item.question.options.length > 0 && (
@@ -325,7 +325,7 @@ export function ReviewTray() {
                               {item.question.options.map((opt, idx) => (
                                 <div
                                   key={idx}
-                                  className="text-[11px] text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 p-1 rounded bg-white/70 dark:bg-zinc-950/40"
+                                  className="text-[11px] text-muted-foreground border border-border p-1 rounded bg-white/70 dark:bg-card/40"
                                 >
                                   {String.fromCharCode(65 + idx)}. {opt}
                                 </div>
@@ -339,7 +339,7 @@ export function ReviewTray() {
                               size="sm"
                               variant="ghost"
                               onClick={() => undoInsert(item)}
-                              className="h-7 px-2 text-xs text-zinc-500 hover:text-amber-600"
+                              className="h-7 px-2 text-xs text-muted-foreground hover:text-amber-600"
                             >
                               <Undo2 className="h-3.5 w-3.5 mr-1" />
                               Undo
@@ -359,7 +359,7 @@ export function ReviewTray() {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => dismiss(item.id)}
-                                className="h-7 px-2 text-xs text-zinc-500 hover:text-red-600"
+                                className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
                               >
                                 <X className="h-3.5 w-3.5 mr-1" />
                                 Dismiss
@@ -378,7 +378,7 @@ export function ReviewTray() {
       </div>
 
       {insertedCount > 0 && pending.length === 0 && (
-        <div className="mt-4 text-xs text-zinc-500 italic">
+        <div className="mt-4 text-xs text-muted-foreground italic">
           All generated questions are in the paper.{" "}
           <button
             className="underline text-primary hover:text-primary"

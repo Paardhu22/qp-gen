@@ -1106,19 +1106,19 @@ export default function EditorPage() {
                   >
                     <div className="flex justify-between mb-2">
                       <div className="flex gap-2">
-                        <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded"></div>
-                        <div className="h-4 w-16 bg-zinc-200 dark:bg-zinc-800 rounded"></div>
+                        <div className="h-4 w-12 bg-muted rounded"></div>
+                        <div className="h-4 w-16 bg-muted rounded"></div>
                         <div className="h-4 w-20 bg-primary/10 dark:bg-primary/30 rounded"></div>
                       </div>
-                      <div className="h-4 w-10 bg-zinc-200 dark:bg-zinc-800 rounded"></div>
+                      <div className="h-4 w-10 bg-muted rounded"></div>
                     </div>
-                    <div className="h-3 w-full bg-zinc-100 dark:bg-zinc-800 rounded mt-1"></div>
-                    <div className="h-3 w-5/6 bg-zinc-100 dark:bg-zinc-800 rounded mt-1"></div>
+                    <div className="h-3 w-full bg-muted rounded mt-1"></div>
+                    <div className="h-3 w-5/6 bg-muted rounded mt-1"></div>
                   </div>
                 ))}
               </div>
             ) : browserQuestions.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-zinc-500">
+              <div className="flex items-center justify-center h-full text-muted-foreground">
                 No questions found.
               </div>
             ) : (
@@ -1131,22 +1131,22 @@ export default function EditorPage() {
                     className={`p-3 border rounded-md cursor-pointer transition-colors ${
                       isSelected
                         ? "border-primary bg-primary/10 dark:bg-primary/10"
-                        : "border-border hover:border-zinc-400"
+                        : "border-border hover:border-border"
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2 text-xs font-medium text-zinc-500">
-                        <span className="bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <span className="bg-muted px-2 py-0.5 rounded">
                           {q.class}
                         </span>
-                        <span className="bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
+                        <span className="bg-muted px-2 py-0.5 rounded">
                           {q.subject}
                         </span>
                         <span className="bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary px-2 py-0.5 rounded">
                           {q.topic}
                         </span>
                       </div>
-                      <span className="text-xs font-bold text-zinc-400">
+                      <span className="text-xs font-bold text-muted-foreground">
                         {q.marks} Marks
                       </span>
                     </div>

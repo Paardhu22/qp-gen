@@ -145,23 +145,63 @@ class ImageBudgetTests(TestCase):
             0,
         )
 
-    def test_explicit_diagram_slots_are_honoured_up_to_the_configured_cap(self):
+    def test_an_explicit_diagram_ask_beats_the_configured_default(self):
+        # `IMAGE_QUESTIONS_PER_POOL` guards against images the teacher never
+        # asked for. Clamping an EXPLICIT ask to it meant someone who wrote
+        # "10 image based questions" silently got eight, with nothing saying
+        # why — so a blueprint that declares DIAGRAM slots wins.
         from services.pool.pipeline import _contextual_image_total
 
-        plan = [
-            FakeSlot(1, 3, "DIAGRAM", "DIAGRAM"),
-            FakeSlot(2, 3, "DIAGRAM", "DIAGRAM"),
-            FakeSlot(3, 2, "SHORT_ANSWER", "SHORT"),
-        ]
+        plan = [FakeSlot(i, 3, "DIAGRAM", "DIAGRAM") for i in range(1, 11)]
+        plan.append(FakeSlot(11, 2, "SHORT_ANSWER", "SHORT"))
 
         self.assertEqual(
             _contextual_image_total(
                 plan=plan,
                 chapters=[],
                 subject_norm="science",
-                configured_cap=1,
+                configured_cap=8,
             ),
-            1,
+            10,
+            "ten requested figures must produce ten, not the default cap of 8",
+        )
+
+    def test_an_explicit_ask_is_still_bounded_by_the_hard_ceiling(self):
+        # An explicit ask beating the default must not mean unbounded: a
+        # runaway plan would be a runaway image bill.
+        from services.pool.pipeline import (
+            EXPLICIT_IMAGE_SLOT_CEILING,
+            _contextual_image_total,
+        )
+
+        plan = [FakeSlot(i, 3, "DIAGRAM", "DIAGRAM") for i in range(500)]
+
+        self.assertEqual(
+            _contextual_image_total(
+                plan=plan,
+                chapters=[],
+                subject_norm="science",
+                configured_cap=8,
+            ),
+            EXPLICIT_IMAGE_SLOT_CEILING,
+        )
+
+    def test_a_zero_cap_still_disables_images_entirely(self):
+        # IMAGE_QUESTIONS_PER_POOL=0 is the deliberate off switch — the one
+        # setting that must survive an explicit ask, or there is no way to run
+        # the product with images turned off.
+        from services.pool.pipeline import _contextual_image_total
+
+        plan = [FakeSlot(i, 3, "DIAGRAM", "DIAGRAM") for i in range(1, 11)]
+
+        self.assertEqual(
+            _contextual_image_total(
+                plan=plan,
+                chapters=[],
+                subject_norm="science",
+                configured_cap=0,
+            ),
+            0,
         )
 
     def test_image_slots_prefer_figure_rich_chapters_but_can_repeat(self):

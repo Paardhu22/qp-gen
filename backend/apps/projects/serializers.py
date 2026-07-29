@@ -51,7 +51,20 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Question
-        fields = ["id", "type", "content", "answer", "options", "marks", "bloom_taxonomy", "grade_class", "subject", "inferred_topic", "inferred_chapter", "source_pdf", "difficulty", "created_at", "updated_at"]
+        # `image_url` and `explanation` are on this list for a reason. Both are
+        # written by the pool's auto-save (`PoolQuestion.to_model_kwargs`) and
+        # both were absent here, so every question read back out of the bank
+        # arrived without its diagram — `buildFigureNode` got `undefined` and
+        # skipped the figure, leaving a question that says "using the given
+        # figure" above nothing. This serializer is also the WRITE path for
+        # manual "Save Questions", so their absence silently discarded them on
+        # the way in as well.
+        fields = [
+            "id", "type", "content", "answer", "options", "marks",
+            "bloom_taxonomy", "grade_class", "subject", "inferred_topic",
+            "inferred_chapter", "source_pdf", "difficulty", "image_url",
+            "explanation", "created_at", "updated_at",
+        ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
 

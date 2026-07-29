@@ -486,6 +486,13 @@ export interface PaperSpec {
   numberOfQuestions?: string;
   numberOfSets?: string;
   chapters?: string[];
+  /**
+   * A paper structure the teacher described in their own words ("5 MCQs and
+   * 3 short answers", "same as our weekly test"). Its presence switches
+   * generation from the CBSE blueprint to General Instructions Mode, where
+   * `services/paper_design.py` lays the paper out from this text alone.
+   */
+  instructions?: string;
 }
 
 export interface ChatAttachment {
@@ -784,13 +791,14 @@ export interface PdfValidationMismatch {
 
 export interface PdfValidationReport {
   valid: boolean;
-  errorType?: "SUBJECT_MISMATCH" | "CHAPTER_MISMATCH" | "BOARD_MISMATCH" | "CLASS_MISMATCH" | "UNSUPPORTED_DOCUMENT" | "LOW_CONFIDENCE";
+  errorType?: "SUBJECT_MISMATCH" | "BOARD_MISMATCH" | "CLASS_MISMATCH" | "UNSUPPORTED_DOCUMENT" | "LOW_CONFIDENCE";
   message?: string;
   mismatches: PdfValidationMismatch[];
   subject?: string | null;
   board?: string | null;
   class?: string | null;
   chapter?: string | null;
+  chapters?: string[];
 }
 
 export async function analyzePdfDocument(file: File): Promise<PdfAnalysisResult> {
@@ -807,3 +815,123 @@ export async function validatePdfMetadata(documents: PdfAnalysisResult[]): Promi
 }
 
 
+
+// ── General Instructions Mode: designing a paper from prose ─────────────
+//
+// `/design-paper` reads free-form instructions and returns the paper they
+// describe plus the constraints they did not settle. Cheap (one small model
+// call), writes nothing, and safe to call while the teacher is still typing —
+// callers debounce it. See `services/paper_design.py`.
+
+export interface DesignGroup {
+  type: string;
+  marks: number;
+  count: number;
+  topic: string;
+  choice: boolean;
+  totalMarks: number;
+}
+
+export interface DesignSection {
+  title: string;
+  instruction: string;
+  groups: DesignGroup[];
+  totalMarks: number;
+  totalQuestions: number;
+}
+
+export interface PaperDesign {
+  title: string;
+  duration: string;
+  sections: DesignSection[];
+  generalInstructions: string[];
+  totalMarks: number;
+  totalQuestions: number;
+  /** What the validator had to correct. Shown, never swallowed. */
+  corrections: string[];
+  /** True when the designer was unavailable and a simpler parse was used. */
+  degraded: boolean;
+}
+
+export interface DesignGap {
+  field: string;
+  label: string;
+  /** "required" blocks generation; "assumed" is filled and changeable. */
+  kind: "required" | "assumed";
+  options: { value: string; label: string }[];
+  value: string;
+  note: string;
+}
+
+export interface DesignResponse {
+  design: PaperDesign;
+  gaps: DesignGap[];
+  /** The stated settings plus every assumed default, ready to generate with. */
+  settings: Record<string, string>;
+  ready: boolean;
+  generalInstructions: string[];
+}
+
+export async function designPaper(body: {
+  instructions: string;
+  settings?: Record<string, string>;
+  pdfSourceIds?: string[];
+  hsatSourceIds?: string[];
+  numberOfQuestions?: string;
+  signal?: AbortSignal;
+}): Promise<DesignResponse> {
+  const { signal, ...payload } = body;
+  return fetchJson<DesignResponse>("/api/generation/design-paper", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal,
+  });
+}
+
+export interface PaperTemplate {
+  id: string;
+  name: string;
+  instructions: string;
+  settings: Record<string, string>;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchPaperTemplates(): Promise<PaperTemplate[]> {
+  const data = await fetchJson<{ templates: PaperTemplate[] }>(
+    "/api/generation/templates",
+    { method: "GET" },
+  );
+  return data.templates ?? [];
+}
+
+/** Save, or overwrite the template of the same name. */
+export async function savePaperTemplate(body: {
+  name: string;
+  instructions: string;
+  settings?: Record<string, string>;
+}): Promise<PaperTemplate> {
+  const data = await fetchJson<{ template: PaperTemplate }>(
+    "/api/generation/templates",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+  return data.template;
+}
+
+/** Fetch a template's contents and mark it as used (drives picker ordering). */
+export async function applyPaperTemplate(
+  templateId: string,
+): Promise<PaperTemplate> {
+  const data = await fetchJson<{ template: PaperTemplate }>(
+    `/api/generation/templates/${templateId}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return data.template;
+}
+
+export async function deletePaperTemplate(templateId: string): Promise<void> {
+  await fetchJson<void>(`/api/generation/templates/${templateId}`, {
+    method: "DELETE",
+  });
+}

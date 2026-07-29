@@ -66,6 +66,14 @@ def save_questions_to_project(user, project_name: str, questions: List[dict]) ->
                     inferred_chapter=question.get("inferred_chapter"),
                     source_pdf=question.get("source_pdf"),
                     difficulty=question.get("difficulty"),
+                    # Both columns exist and the pool's own auto-save writes
+                    # them; this path did not, so a diagram question saved by
+                    # hand lost its figure permanently — the row went in with
+                    # image_url NULL and the picture was never recoverable from
+                    # it. `bloom_taxonomy` was dropped the same way.
+                    image_url=question.get("image_url"),
+                    explanation=question.get("explanation"),
+                    bloom_taxonomy=question.get("bloom_taxonomy"),
                 )
             )
         Question.objects.bulk_create(question_objects)

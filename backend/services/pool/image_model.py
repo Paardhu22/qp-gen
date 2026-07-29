@@ -290,8 +290,57 @@ def _propose_reuse_questions(
 
 
 def _diagram_storage_path(prompt: str) -> str:
-    digest = hashlib.sha256(prompt.strip().encode("utf-8")).hexdigest()[:32]
+    """Cache key for a rendered diagram.
+
+    Hashes what actually determines the pixels — the drawing style, the model,
+    the size and the quality tier, not just the content description. Keying on
+    the description alone meant a stored PNG outlived the settings that drew
+    it: raising the quality tier changed nothing on any chapter generated
+    before, because every prompt still hit its old low-tier image. Old renders
+    are orphaned rather than deleted; storage is cheap and an unreachable file
+    is not a regression.
+    """
+    fingerprint = "\n".join(
+        [
+            _RENDER_STYLE,
+            prompt.strip(),
+            _image_model(),
+            _image_size(),
+            _image_quality(),
+        ]
+    )
+    digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:32]
     return f"{_DIAGRAM_PREFIX}/{digest}.png"
+
+
+# What the spec model writes describes the diagram's CONTENT. This says how it
+# should be drawn, and is the same for every figure — so it lives here rather
+# than being re-derived (and re-worded, and forgotten) per spec.
+#
+# The constraints are the ones image models get wrong on exam figures: they
+# drift toward glossy 3D renders, they invent decorative captions and titles,
+# and their label text degrades into letter-shaped noise the moment the line
+# weight drops. A figure whose labels cannot be read is not a cheaper figure,
+# it is an unanswerable question.
+_RENDER_STYLE = (
+    "Draw this as a flat two-dimensional line drawing in the style of an "
+    "Indian school science textbook: uniform black strokes on a pure white "
+    "background, no colour fills, no shading, no gradients, no drop shadows, "
+    "no 3D perspective, no photorealism, no background scenery.\n"
+    "Every label must be crisp, horizontal, upright English text in a plain "
+    "sans-serif face, large enough to read at half size, placed clear of the "
+    "lines it names and joined to it by a thin leader line where needed.\n"
+    "Draw ONLY the figure described. Add no title, no caption, no figure "
+    "number, no watermark, no border, no legend, and no label that was not "
+    "asked for.\n"
+    "Leave a small even margin around the drawing.\n\n"
+    "The figure to draw:\n"
+)
+
+
+def _render_prompt(diagram_prompt: str) -> str:
+    """The spec's content description wrapped in the house drawing style."""
+    return f"{_RENDER_STYLE}{diagram_prompt.strip()}"
 
 
 def _generate_diagram(prompt: str, *, user=None) -> tuple[Optional[str], bool, Optional[str]]:
@@ -316,13 +365,12 @@ def _generate_diagram(prompt: str, *, user=None) -> tuple[Optional[str], bool, O
         client = get_openai_client()
         generate_kwargs: Dict[str, Any] = {
             "model": _image_model(),
-            "prompt": prompt,
+            "prompt": _render_prompt(prompt),
             "size": _image_size(),
             "n": 1,
         }
-        # gpt-image-1 exposes a low|medium|high quality tier; "low" is the
-        # cheapest and stays legible for schematic diagrams. dall-e models use a
-        # different vocabulary (standard|hd), so only pass quality for
+        # gpt-image-1 exposes a low|medium|high quality tier. dall-e models use
+        # a different vocabulary (standard|hd), so only pass quality for
         # gpt-image-1 to avoid a BadRequestError on other image models.
         if _image_model().startswith("gpt-image"):
             generate_kwargs["quality"] = _image_quality()
