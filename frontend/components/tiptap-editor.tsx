@@ -787,11 +787,22 @@ export const TiptapEditor = ({
               // them here (updatePaperAction wraps content into a lone Set A)
               // would 404 on the non-existent "{id}_B" row AND clobber Set A.
               // A bare id with no suffix (legacy) syncs as-is.
-              const { base: syncBase, set: syncSet } =
-                splitPaperId(currentPaperId);
+              //
+              // `persistablePaperId` (not a hand-rolled `!== DRAFT_PAPER_ID`
+              // check) is what excludes BOTH kinds of unsaved draft: the
+              // legacy "current" sentinel and a per-draft "draft-…" id (new
+              // papers get one of these the moment they're created, before
+              // any backend row exists — see `newLocalDraftId` in
+              // editor/page.tsx). The check here used to only exclude
+              // "current", so a brand-new "Untitled Paper" — still
+              // "draft-xxxx", never saved — synced straight into a PUT
+              // against a paper id the backend had never heard of, throwing
+              // an unhandled 404 "Paper not found" the instant a generated
+              // section was inserted and flushed a live sync.
+              const { set: syncSet } = splitPaperId(currentPaperId);
               const syncedPaperId =
-                syncBase && syncBase !== DRAFT_PAPER_ID && (syncSet ?? "A") === "A"
-                  ? syncBase
+                (syncSet ?? "A") === "A"
+                  ? persistablePaperId(currentPaperId)
                   : null;
               if (syncedPaperId) {
                 await updatePaperAction(

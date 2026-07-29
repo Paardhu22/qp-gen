@@ -390,14 +390,8 @@ export const GeneratorForm = ({
       0,
     );
     let newTotalSize = currentTotalSize;
-    let newDocCount = uploadedDocs.length + uploadingDocs.length;
 
     for (const file of files) {
-      if (newDocCount >= 5) {
-        toast.error("Maximum of 5 sources allowed.");
-        break;
-      }
-
       // Duplicate PDF Detection: check if identical file is already uploaded or uploading
       const isDuplicate =
         uploadedDocs.some(
@@ -419,7 +413,6 @@ export const GeneratorForm = ({
       }
 
       newTotalSize += file.size;
-      newDocCount += 1;
 
       // Trigger automatic intelligent PDF analysis for PDF files
       if (file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") {
@@ -463,11 +456,26 @@ export const GeneratorForm = ({
 
         if (data.status === "ready") {
           // Deduped/cached source — already ingested. Promote immediately.
+          //
+          // The backend keys `pdfSourceId` on content hash, so two uploads
+          // with identical content (the same file re-selected, or a duplicate
+          // under a different name that the earlier by-name/size check can't
+          // catch) both come back "ready" with the SAME id. Pushing
+          // unconditionally gave `uploadedDocs` two rows sharing one id,
+          // which React's `key={doc.id}` list then renders with a duplicate
+          // key. The async polling path below already guards against this;
+          // this synchronous "instantly cached" path needs the same guard.
           setUploadingDocs((prev) => prev.filter((d) => d.tempId !== tempId));
-          setUploadedDocs((prev) => [
-            ...prev,
-            { id: data.pdfSourceId, name: file.name, size: fileSize },
-          ]);
+          setUploadedDocs((prev) => {
+            if (prev.some((d) => d.id === data.pdfSourceId)) {
+              toast.warning("This PDF has already been uploaded.");
+              return prev;
+            }
+            return [
+              ...prev,
+              { id: data.pdfSourceId, name: file.name, size: fileSize },
+            ];
+          });
         } else {
           // Async ingest in progress — keep the row (spinner) and let the
           // polling effect below promote it to uploadedDocs once ready.
