@@ -70,14 +70,16 @@ QUESTION_TYPES = (
     "FILL_BLANK",
     "TRUE_FALSE",
     "MATCH_FOLLOWING",
-    # A question built on a figure. This vocabulary is the entire menu the
-    # designer is shown, so leaving DIAGRAM off it did not merely lose the
-    # label — a teacher who wrote "10 image based questions" got ten CASE_STUDY
-    # slots, because CASE_STUDY was the nearest thing on offer. Downstream it
-    # is also the signal that DECIDES whether images are drawn at all:
-    # `pipeline._plan_image_slots` counts DIAGRAM slots, and
-    # `_contextual_image_total` honours that count before falling back to a
-    # small supplemental budget. No DIAGRAM slot, no images.
+    # A drawing question. This vocabulary is the entire menu the designer is
+    # shown, so leaving DIAGRAM off it did not merely lose the label — a
+    # teacher who wrote "10 image based questions" got ten CASE_STUDY slots,
+    # because CASE_STUDY was the nearest thing on offer.
+    #
+    # It no longer causes any image to be produced: the image stage is gone
+    # from the pipeline. A DIAGRAM slot now means what it means on a printed
+    # CBSE paper — the STUDENT draws or labels — and Model 1 is instructed to
+    # write such questions self-contained, never referring to a figure the
+    # paper does not carry.
     "DIAGRAM",
 )
 

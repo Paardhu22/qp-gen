@@ -424,14 +424,16 @@ class BloomTests(TestCase):
 
 
 class DiagramTypeTests(TestCase):
-    """"10 image based questions" must produce ten figure questions.
+    """"10 image based questions" must produce ten DIAGRAM questions.
 
     The failure this pins: DIAGRAM was missing from `QUESTION_TYPES`, which is
     the entire menu the designer is shown. A teacher who asked for image-based
-    questions got CASE_STUDY slots — the nearest thing on offer — and because
-    `pipeline._plan_image_slots` counts DIAGRAM slots to decide the image
-    budget, a paper with no DIAGRAM slot draws no figures at all. Two symptoms,
-    one missing enum member.
+    questions got CASE_STUDY slots — the nearest thing on offer.
+
+    DIAGRAM no longer causes any figure to be drawn (the image stage was
+    removed from the pipeline); it now means the student draws or labels, which
+    is what it means on a printed CBSE paper. The type still has to survive the
+    designer intact, which is what these tests check.
     """
 
     def test_the_phrases_teachers_actually_type_resolve_to_diagram(self):
@@ -477,8 +479,9 @@ class DiagramTypeTests(TestCase):
         self.assertEqual(d.total_questions, 10)
 
     def test_diagram_slots_reach_the_pipeline_as_diagram(self):
-        # `_plan_image_slots` matches on question_type == "DIAGRAM"; anything
-        # else and the image stage never runs for this paper.
+        # The type must survive `design_to_slot_specs` verbatim — Model 1's
+        # recipe is derived from these slots in General Instructions Mode, so a
+        # type that mutates here changes what gets written.
         specs = design_to_slot_specs(
             validate_design(
                 design(
@@ -506,8 +509,6 @@ class DiagramTypeTests(TestCase):
     def test_a_full_image_paper_reaches_the_pipeline_intact(self):
         # End to end on the reported instruction: ten one-mark figure
         # questions, still ten DIAGRAM slots by the time the pipeline sees it.
-        from services.pool.pipeline import _plan_image_slots
-
         d = validate_design(
             design(
                 DesignSection(
@@ -528,4 +529,7 @@ class DiagramTypeTests(TestCase):
             for _ in range(spec["count"])
         ]
         self.assertEqual(len(slots), 10)
-        self.assertEqual(_plan_image_slots(slots), 10)
+        self.assertEqual(
+            sum(1 for s in slots if s.question_type == "DIAGRAM"),
+            10,
+        )

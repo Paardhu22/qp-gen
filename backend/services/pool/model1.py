@@ -8,10 +8,16 @@ batch and writes questions with knowledge of the whole thing, which is both
 ~10× cheaper and produces a pool that covers the chapter evenly instead of
 clustering wherever retrieval happened to point.
 
-Batching exists for one reason: output length. ~84 questions is 15-20k
-completion tokens, past the point where a single response stays reliable, so
-the recipe splits the pool by question shape into four calls that run in
-parallel.
+Batching exists for one reason: output length. A pool of 80-90 questions is
+15-20k completion tokens, past the point where a single response stays
+reliable, so the recipe splits the pool by question shape into four calls that
+run in parallel. Batch count is fixed at four whatever the target, so raising
+the pool size costs completion tokens but never extra API calls.
+
+No question this module writes carries an image: the image stage that used to
+run after it was removed from the pipeline. System-prompt rule 7 is what keeps
+that honest — it forbids any question that depends on a figure being printed
+alongside it, including the DIAGRAM questions that used to rely on one.
 
 Cost note: every batch carries the full chapter, so the chapter is sent 4×.
 The prompt is ordered chapter-first precisely so OpenAI's automatic prefix
@@ -122,11 +128,18 @@ def _system_prompt(subject: str, class_num: int, difficulty: str) -> str:
         "added automatically.\n"
         "6. Case-study questions carry a short stimulus followed by sub-parts "
         "numbered (i), (ii), (iii) inside the question text.\n"
-        f"7. Calibrate overall difficulty to '{difficulty}', but still include a "
+        "7. NO question may depend on a figure, image, diagram, map or graph "
+        "being printed with it — the paper carries no such artwork. A DIAGRAM "
+        "question asks the STUDENT to draw or label ('Draw a labelled diagram "
+        "of the human eye and mark the retina'); it must never say 'study the "
+        "given figure', 'in the diagram shown', 'observe the map above' or "
+        "anything else that points at a picture. If a concept can only be "
+        "assessed by supplying a picture, write a different question.\n"
+        f"8. Calibrate overall difficulty to '{difficulty}', but still include a "
         "spread — a paper of uniformly identical difficulty is not usable.\n"
-        "8. `answer` is what a marking scheme accepts. `explanation` is why it "
+        "9. `answer` is what a marking scheme accepts. `explanation` is why it "
         "is correct. Both are required for every question.\n"
-        "9. Write in the language of the chapter.\n\n"
+        "10. Write in the language of the chapter.\n\n"
         "Return ONLY a JSON array. No prose, no markdown fence, no wrapper "
         "object. Each element:\n"
         "{\n"

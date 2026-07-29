@@ -9,16 +9,15 @@ import json
 from dataclasses import dataclass
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import TestCase
 
 from apps.accounts.models import User
 from apps.documents.models import DocumentChunk, PdfSource
 from apps.projects.models import Project, Question
-from services.chapter_markdown import Figure
 from services.pool import store
 from services.pool.chapters import Chapter
 from services.pool.model1 import PoolGenerationResult
-from services.pool.image_model import ImageQuestionResult
 from services.pool.schema import PoolQuestion, compute_content_hash
 
 
@@ -65,166 +64,112 @@ _POOL_SHAPES = [
 ]
 
 
-class ImageBudgetTests(TestCase):
-    def test_science_gets_a_small_contextual_image_budget(self):
-        from services.pool.pipeline import _contextual_image_total
+class PoolTargetTests(TestCase):
+    """How many questions Model 1 is asked to write.
 
-        plan = [
-            FakeSlot(i, 1, "MCQ", "MCQ")
-            for i in range(1, 39)
-        ]
-        chapters = [
+    The floor used to be a flat 40. It is now contextual: never below
+    POOL_TARGET_MIN, climbing toward POOL_TARGET_MAX as the run gains context,
+    and always at least two questions per slot so Model 2 has an alternative
+    for everything it places.
+    """
+
+    def _chapters(self, count):
+        return [
             Chapter(
-                number=1,
-                title="Light",
-                markdown="light",
-                figures=[
-                    Figure(url="/m/f1.png", caption="ray diagram"),
-                    Figure(url="/m/f2.png", caption="lens diagram"),
-                    Figure(url="/m/f3.png", caption="mirror diagram"),
-                ],
-                char_count=1200,
-            )
-        ]
-
-        self.assertEqual(
-            _contextual_image_total(
-                plan=plan,
-                chapters=chapters,
-                subject_norm="science",
-                configured_cap=8,
-            ),
-            3,
-        )
-
-    def test_social_science_uses_only_one_supporting_image_by_default(self):
-        from services.pool.pipeline import _contextual_image_total
-
-        plan = [FakeSlot(i, 1, "MCQ", "MCQ") for i in range(1, 39)]
-        chapters = [
-            Chapter(
-                number=1,
-                title="French Revolution",
-                markdown="history",
-                figures=[Figure(url="/m/f1.png", caption="political cartoon")],
-                char_count=1000,
-            )
-        ]
-
-        self.assertEqual(
-            _contextual_image_total(
-                plan=plan,
-                chapters=chapters,
-                subject_norm="social science",
-                configured_cap=8,
-            ),
-            1,
-        )
-
-    def test_language_papers_do_not_get_supplemental_image_questions(self):
-        from services.pool.pipeline import _contextual_image_total
-
-        plan = [FakeSlot(i, 2, "SHORT_ANSWER", "SHORT") for i in range(1, 11)]
-        chapters = [
-            Chapter(
-                number=1,
-                title="Poem",
-                markdown="poem",
-                figures=[Figure(url="/m/f1.png", caption="illustration")],
-                char_count=800,
-            )
-        ]
-
-        self.assertEqual(
-            _contextual_image_total(
-                plan=plan,
-                chapters=chapters,
-                subject_norm="english",
-                configured_cap=8,
-            ),
-            0,
-        )
-
-    def test_an_explicit_diagram_ask_beats_the_configured_default(self):
-        # `IMAGE_QUESTIONS_PER_POOL` guards against images the teacher never
-        # asked for. Clamping an EXPLICIT ask to it meant someone who wrote
-        # "10 image based questions" silently got eight, with nothing saying
-        # why — so a blueprint that declares DIAGRAM slots wins.
-        from services.pool.pipeline import _contextual_image_total
-
-        plan = [FakeSlot(i, 3, "DIAGRAM", "DIAGRAM") for i in range(1, 11)]
-        plan.append(FakeSlot(11, 2, "SHORT_ANSWER", "SHORT"))
-
-        self.assertEqual(
-            _contextual_image_total(
-                plan=plan,
-                chapters=[],
-                subject_norm="science",
-                configured_cap=8,
-            ),
-            10,
-            "ten requested figures must produce ten, not the default cap of 8",
-        )
-
-    def test_an_explicit_ask_is_still_bounded_by_the_hard_ceiling(self):
-        # An explicit ask beating the default must not mean unbounded: a
-        # runaway plan would be a runaway image bill.
-        from services.pool.pipeline import (
-            EXPLICIT_IMAGE_SLOT_CEILING,
-            _contextual_image_total,
-        )
-
-        plan = [FakeSlot(i, 3, "DIAGRAM", "DIAGRAM") for i in range(500)]
-
-        self.assertEqual(
-            _contextual_image_total(
-                plan=plan,
-                chapters=[],
-                subject_norm="science",
-                configured_cap=8,
-            ),
-            EXPLICIT_IMAGE_SLOT_CEILING,
-        )
-
-    def test_a_zero_cap_still_disables_images_entirely(self):
-        # IMAGE_QUESTIONS_PER_POOL=0 is the deliberate off switch — the one
-        # setting that must survive an explicit ask, or there is no way to run
-        # the product with images turned off.
-        from services.pool.pipeline import _contextual_image_total
-
-        plan = [FakeSlot(i, 3, "DIAGRAM", "DIAGRAM") for i in range(1, 11)]
-
-        self.assertEqual(
-            _contextual_image_total(
-                plan=plan,
-                chapters=[],
-                subject_norm="science",
-                configured_cap=0,
-            ),
-            0,
-        )
-
-    def test_image_slots_prefer_figure_rich_chapters_but_can_repeat(self):
-        from services.pool.pipeline import _build_generation_units
-
-        chapters = [
-            Chapter(number=1, title="No Figures", markdown="text", char_count=1000),
-            Chapter(
-                number=2,
-                title="Figures",
+                number=i + 1,
+                title=f"Chapter {i + 1}",
                 markdown="text",
-                figures=[
-                    Figure(url="/m/f1.png", caption="figure 1"),
-                    Figure(url="/m/f2.png", caption="figure 2"),
-                ],
-                char_count=1000,
-            ),
+                char_count=4000,
+            )
+            for i in range(count)
         ]
 
-        units = _build_generation_units(chapters, target_total=12, image_total=3)
-        figure_unit = next(unit for unit in units if unit.bank_chapter == "Figures")
+    def test_the_narrowest_possible_run_sits_exactly_on_the_minimum(self):
+        # One chapter, one slot: as little context as a generation can have.
+        from services.pool.pipeline import _contextual_pool_target
 
-        self.assertGreaterEqual(figure_unit.image_count, 2)
+        self.assertEqual(
+            _contextual_pool_target(slot_count=1, chapters=self._chapters(1)),
+            settings.POOL_TARGET_MIN,
+        )
+
+    def test_slot_count_alone_interpolates_within_the_band(self):
+        # Pins the interpolation itself, so a change to the curve is a visible
+        # test edit rather than a silent shift in what every paper costs.
+        # 10 of 40 slots is a quarter of the way up a 10-question band.
+        from services.pool.pipeline import _contextual_pool_target
+
+        self.assertEqual(
+            _contextual_pool_target(slot_count=10, chapters=self._chapters(1)),
+            82,
+        )
+        self.assertEqual(
+            _contextual_pool_target(slot_count=20, chapters=self._chapters(1)),
+            85,
+        )
+
+    def test_the_floor_never_drops_below_the_configured_minimum(self):
+        # The regression this pins: the old flat floor of 40 meant a 12-slot
+        # test drew on a pool of 40, which is not enough spread for Model 2 to
+        # be selecting rather than accepting.
+        from services.pool.pipeline import _contextual_pool_target
+
+        for slots in (1, 5, 12, 20):
+            self.assertGreaterEqual(
+                _contextual_pool_target(
+                    slot_count=slots, chapters=self._chapters(1)
+                ),
+                settings.POOL_TARGET_MIN,
+                f"{slots} slots fell below the floor",
+            )
+
+    def test_more_chapters_widen_the_floor_toward_the_maximum(self):
+        from services.pool.pipeline import _contextual_pool_target
+
+        one = _contextual_pool_target(slot_count=1, chapters=self._chapters(1))
+        two = _contextual_pool_target(slot_count=1, chapters=self._chapters(2))
+        three = _contextual_pool_target(slot_count=1, chapters=self._chapters(3))
+        six = _contextual_pool_target(slot_count=1, chapters=self._chapters(6))
+
+        self.assertEqual(one, settings.POOL_TARGET_MIN)
+        self.assertEqual(three, settings.POOL_TARGET_MAX)
+        self.assertLess(one, two)
+        self.assertLess(two, three)
+        # Three chapters is already as wide as the floor cares about.
+        self.assertEqual(six, three)
+
+    def test_a_full_board_paper_reaches_the_maximum_on_slots_alone(self):
+        # 40 slots is a full board paper. Even from a single chapter it needs
+        # the wider pool, because the same questions must cover far more slots.
+        from services.pool.pipeline import _contextual_pool_target
+
+        self.assertEqual(
+            _contextual_pool_target(slot_count=40, chapters=self._chapters(1)),
+            max(80, settings.POOL_TARGET_MAX),
+        )
+
+    def test_two_per_slot_wins_when_the_paper_is_larger_than_the_floor(self):
+        # A 60-slot paper needs 120, not the 90 ceiling — the floor is a floor,
+        # never a cap.
+        from services.pool.pipeline import _contextual_pool_target
+
+        self.assertEqual(
+            _contextual_pool_target(slot_count=60, chapters=self._chapters(2)),
+            120,
+        )
+
+    def test_the_target_is_within_the_configured_band_for_normal_papers(self):
+        # The band the product actually asks for: 80-90 for anything up to a
+        # full board paper.
+        from services.pool.pipeline import _contextual_pool_target
+
+        for slots in (10, 20, 30, 38, 40):
+            for chapters in (1, 2, 3, 6):
+                target = _contextual_pool_target(
+                    slot_count=slots, chapters=self._chapters(chapters)
+                )
+                self.assertGreaterEqual(target, 80)
+                self.assertLessEqual(target, 90)
 
 
 def _realistic_pool(size, **overrides):
@@ -436,20 +381,10 @@ class PipelineStreamTests(TestCase):
                 pdf_source=self.source,
             )
 
-    def _run(self, *, pool_size=60, image_count=0):
+    def _run(self, *, pool_size=60):
         from services.pool.pipeline import stream_pool_questions
 
         pool = _realistic_pool(pool_size)
-        # DIAGRAM questions must be shaped like something the CBSE blueprint
-        # actually asks for, or Model 2 has no slot to put them in and the
-        # synthetic-image path is never exercised.
-        images = [
-            _pool_question(f"img{i}", qtype="SHORT_ANSWER", marks=3,
-                           topic=f"figure{i}", source_type="synthetic_image")
-            for i in range(image_count)
-        ]
-        for question in images:
-            question.image = f"/media/generated_diagrams/{question.id}.png"
 
         def fake_model1(**kwargs):
             on_question = kwargs.get("on_question")
@@ -458,17 +393,7 @@ class PipelineStreamTests(TestCase):
                     on_question(question)
             return PoolGenerationResult(pool_id="pool1", questions=list(pool))
 
-        def fake_images(**kwargs):
-            on_question = kwargs.get("on_question")
-            for question in images:
-                if on_question:
-                    on_question(question)
-            return ImageQuestionResult(
-                questions=list(images), generated_count=len(images)
-            )
-
         with patch("services.pool.pipeline.generate_question_pool", side_effect=fake_model1), \
-             patch("services.pool.pipeline.generate_image_questions", side_effect=fake_images), \
              patch("services.pool.model2._run_review", return_value=(False, 0, "stubbed")):
             chunks = list(
                 stream_pool_questions(
@@ -573,7 +498,6 @@ class PipelineStreamTests(TestCase):
             )
 
         with patch("services.pool.pipeline.generate_question_pool", side_effect=fake_model1), \
-             patch("services.pool.pipeline.generate_image_questions", return_value=ImageQuestionResult()), \
              patch("services.pool.model2._run_review", return_value=(False, 0, "stubbed")):
             events = _parse_sse(list(stream_pool_questions(
                 user=self.user,
@@ -600,13 +524,42 @@ class PipelineStreamTests(TestCase):
         self.assertIn("blooms", row.metadata)
         self.assertIn("marks", row.metadata)
 
-    def test_synthetic_image_questions_are_flagged_in_a_notice(self):
-        events = self._run(image_count=6)
+    def test_no_image_questions_are_produced_at_all(self):
+        # The image stage was removed from the cycle. Nothing in a fresh pool
+        # carries a figure, and the AI-diagram warning that existed for them
+        # must not appear on a paper that has none.
+        events = self._run()
+
         notices = [data for name, data in events if name == "notice"]
-        self.assertTrue(
+        self.assertFalse(
             any("AI-generated diagram" in n.get("message", "") for n in notices),
-            f"expected a synthetic-image notice, got {notices}",
+            f"a synthetic-image notice survived the removal: {notices}",
         )
+
+        update = next(data for name, data in events if name == "update")
+        self.assertNotIn("syntheticImageCount", update["meta"])
+        self.assertEqual(update["meta"]["footerNotes"], [])
+
+        questions = [
+            q
+            for section in update["sections"]
+            for q in section["questions"]
+        ]
+        self.assertTrue(questions, "expected a paper")
+        self.assertTrue(
+            all(not q.get("image_url") for q in questions),
+            "a generated question carried an image_url",
+        )
+
+        pool_event = next(data for name, data in events if name == "pool")
+        for gone in (
+            "imageStrategy",
+            "imagesGenerated",
+            "imagesReused",
+            "imageCacheHits",
+            "estimatedImageCostUsd",
+        ):
+            self.assertNotIn(gone, pool_event)
 
     def test_chunkless_source_is_rejected_by_readiness_gate(self):
         # A source marked "ready" but with NO persisted chunks is a data anomaly

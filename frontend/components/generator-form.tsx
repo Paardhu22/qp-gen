@@ -393,8 +393,8 @@ export const GeneratorForm = ({
     let newDocCount = uploadedDocs.length + uploadingDocs.length;
 
     for (const file of files) {
-      if (newDocCount >= 5) {
-        toast.error("Maximum of 5 sources allowed.");
+      if (newDocCount >= 20) {
+        toast.error("Maximum of 20 sources allowed.");
         break;
       }
 
@@ -496,21 +496,21 @@ export const GeneratorForm = ({
   };
 
   const removeDoc = (id: string, name?: string) => {
-    setUploadedDocs((prev) => {
-      const nextDocs = prev.filter((d) => d.id !== id);
-      setPdfAnalysisMap((prevMap) => {
-        const nextMap = new Map(prevMap);
-        const targetName = name || prev.find((d) => d.id === id)?.name;
-        if (targetName) nextMap.delete(targetName);
-        void revalidatePdfResults(Array.from(nextMap.values()));
-        return nextMap;
-      });
-      if (nextDocs.length === 0 && hsatSources.length === 0) {
-        setDetectedSubject(null);
-        setValidationReport(null);
-      }
-      return nextDocs;
+    const targetName = name || uploadedDocs.find((d) => d.id === id)?.name;
+
+    setUploadedDocs((prev) => prev.filter((d) => d.id !== id));
+
+    setPdfAnalysisMap((prevMap) => {
+      const nextMap = new Map(prevMap);
+      if (targetName) nextMap.delete(targetName);
+      void revalidatePdfResults(Array.from(nextMap.values()));
+      return nextMap;
     });
+
+    if (uploadedDocs.filter((d) => d.id !== id).length === 0 && hsatSources.length === 0) {
+      setDetectedSubject(null);
+      setValidationReport(null);
+    }
   };
 
   const handleHsatApply = (source: AppliedHsatSource) => {

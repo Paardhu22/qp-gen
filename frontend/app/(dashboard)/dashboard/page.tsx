@@ -669,7 +669,7 @@ export default function DashboardPage() {
 
   return (
     <PromptTooltipProvider>
-      <div className="flex h-full min-h-0 w-full">
+      <div className="flex flex-1 min-h-0 w-full">
         <aside
           className={cn(
             "absolute inset-y-0 left-0 z-30 w-64 shrink-0 border-r border-border bg-background",

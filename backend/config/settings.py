@@ -304,12 +304,11 @@ if not OPENAI_API_KEY:
 # request into that ceiling. Defaults are gpt-4.1-mini: a large-context, high-
 # TPM model that comfortably fits a per-chapter prompt.
 #
-#   POOL_MODEL      — Model 1 (pool generation) + image-spec proposal
+#   POOL_MODEL      — Model 1 (pool generation)
 #   REVIEW_MODEL    — Model 2 (paper assembly review)
 #   ANSWER_MODEL    — answer-key + answer-script generation
 #   CHAT_MODEL      — the dashboard assistant (conversation only, never
 #                     generates questions; see services/chat_service.py)
-#   OPENAI_IMAGE_MODEL     — diagram image generation (gpt-image-1)
 #   OPENAI_EMBEDDING_MODEL — retrieval embeddings (text-embedding-3-small)
 #   OPENAI_MODEL    — legacy/blueprint fallback ONLY; nothing above inherits it.
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
@@ -394,50 +393,30 @@ CHAPTER_MD_MAX_CHARS = _int_env(
     "CHAPTER_MD_MAX_CHARS", 240_000, minimum=10_000, maximum=2_000_000
 )
 
-# How image-bearing questions are produced:
-#   generate — synthesise new diagrams with OPENAI_IMAGE_MODEL
-#   reuse    — write questions about figures extracted from the uploaded PDF
-#   hybrid   — reuse the chapter's own figures first, synthesise the remainder (default)
+# ─── How big a pool Model 1 writes ─────────────────────────────────────────
+# Model 2 selects; it never writes. So the only thing that decides whether it
+# has real choice is how far the pool over-provisions the blueprint. The target
+# is never below two questions per textbook slot, and never below the floor
+# here — which itself climbs from POOL_TARGET_MIN to POOL_TARGET_MAX with how
+# much context the run actually has (chapter count, paper size). More source
+# material and more slots both mean the pool has to spread further before a
+# selection is genuinely a selection.
 #
-# `generate` is the most expensive option by a wide margin (see
-# IMAGE_COST_USD_PER_IMAGE) and an AI-drawn circuit or ray diagram can be
-# subtly wrong, so every synthesised question is tagged for teacher review.
-# `hybrid` keeps images available where they help without forcing every image
-# question through the image-generation endpoint.
-IMAGE_QUESTION_STRATEGY = os.environ.get("IMAGE_QUESTION_STRATEGY", "hybrid").strip().lower()
+# These replace the previous flat floor of 40. Raising them costs Model 1
+# completion tokens roughly linearly and does NOT change the number of API
+# calls (the recipe is always four parallel batches), so the marginal cost of
+# a bigger pool is small — and every question lands in the user's bank, where
+# "Create Paper from Saved Questions" reuses it for free.
+POOL_TARGET_MIN = _int_env("POOL_TARGET_MIN", 80, minimum=1, maximum=400)
+POOL_TARGET_MAX = _int_env("POOL_TARGET_MAX", 90, minimum=1, maximum=400)
+# A max below the min is a typo, not an instruction.
+POOL_TARGET_MAX = max(POOL_TARGET_MIN, POOL_TARGET_MAX)
 
-# Hard upper cap on image questions per pool. The pipeline still computes a
-# smaller contextual budget from the paper/subject so images appear only where
-# they are useful.
-IMAGE_QUESTIONS_PER_POOL = _int_env(
-    "IMAGE_QUESTIONS_PER_POOL", 8, minimum=0, maximum=40
-)
-OPENAI_IMAGE_CONCURRENCY = _int_env("OPENAI_IMAGE_CONCURRENCY", 1, minimum=1, maximum=4)
-
-OPENAI_IMAGE_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
-OPENAI_IMAGE_SIZE = os.environ.get("OPENAI_IMAGE_SIZE", "1024x1024")
-# gpt-image-1 accepts low|medium|high.
-#
-# This was "low" on cost grounds, and it showed: a low-tier diagram renders
-# labels as approximate letter shapes, which is useless on the one kind of
-# figure a science paper actually needs — a labelled one. A student cannot
-# answer "identify the part marked B" when B is a smudge, so a cheap image on
-# a diagram question is not a cheaper question, it is a broken one.
-#
-# "high" is the default now. The cost lever is IMAGE_QUESTIONS_PER_POOL, which
-# controls HOW MANY images a paper gets — that is the right place to spend
-# less, because fewer good diagrams beat more unusable ones. Reuse of real
-# chapter figures (IMAGE_QUESTION_STRATEGY=hybrid, the default) already keeps
-# most image questions off the generator entirely.
-OPENAI_IMAGE_QUALITY = os.environ.get("OPENAI_IMAGE_QUALITY", "high").strip().lower()
-
-# Used only to report an estimated spend on the SSE `pool` event so the cost of
-# a generation is visible in the UI rather than discovered on the invoice.
-# Tracks OPENAI_IMAGE_QUALITY — it was 0.04 (the low tier) and would have
-# under-reported a high-tier run roughly four-fold, which is the opposite of
-# what an estimate shown to stop invoice surprises is for. Override alongside
-# the quality tier if you change one.
-IMAGE_COST_USD_PER_IMAGE = float(os.environ.get("IMAGE_COST_USD_PER_IMAGE", "0.17"))
+# NOTE: image-bearing question generation was removed from the generation
+# cycle. The settings that configured it (IMAGE_QUESTION_STRATEGY,
+# IMAGE_QUESTIONS_PER_POOL, OPENAI_IMAGE_*, IMAGE_COST_USD_PER_IMAGE) are gone
+# along with services/pool/image_model.py; nothing reads them. If they are
+# still set in a deployment's .env they are simply ignored.
 
 # ---------------------------------------------------------------------------
 # Cache — Elasticache-ready (statelessness pass P3).

@@ -41,7 +41,18 @@ export default function RootLayout({
     >
       <body className="font-sans bg-background text-foreground">
         <Providers>{children}</Providers>
-        <Toaster position="top-right" richColors theme="system" />
+        <Toaster 
+          position="top-right" 
+          theme="system" 
+          toastOptions={{
+            classNames: {
+              toast: "bg-background text-foreground border-border shadow-lg",
+              description: "text-muted-foreground",
+              actionButton: "bg-primary text-primary-foreground",
+              cancelButton: "bg-muted text-muted-foreground",
+            },
+          }} 
+        />
       </body>
     </html>
   );

@@ -458,8 +458,16 @@ def normalize_pool_question(
     if marks < 1 or marks > 10:
         marks = max(1, min(10, marks))
 
-    image = raw.get("image") or raw.get("image_url") or None
-    image = str(image).strip() if image else None
+    # Deliberately NOT read from the model's response. Image generation was
+    # removed from the pipeline, so there is no such thing as a legitimate
+    # image URL coming back from an LLM — a model that emits one has invented
+    # it, and an invented URL renders as a broken image on a printed paper.
+    #
+    # Rule 7 of Model 1's system prompt already forbids figure-dependent
+    # questions; this makes it structural rather than a matter of the model
+    # complying. Banked questions keep their images: they are rebuilt by
+    # `PoolQuestion.from_model`, which does not come through here.
+    image = None
 
     vi_raw = raw.get("vi_alternative") or raw.get("viAlternative")
     vi_alternative = (

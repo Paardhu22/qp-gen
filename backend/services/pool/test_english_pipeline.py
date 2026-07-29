@@ -19,7 +19,6 @@ from apps.documents.models import DocumentChunk, PdfSource
 from apps.projects.models import Question
 from services.assets.base import AssetBatchResult
 from services.pool.model1 import PoolGenerationResult
-from services.pool.image_model import ImageQuestionResult
 from services.pool.schema import PoolQuestion, compute_content_hash
 from services.pool.test_pipeline import _parse_sse
 from utils.ids import generate_id
@@ -144,11 +143,7 @@ class EnglishPipelineTests(TestCase):
                     on_question(question)
             return PoolGenerationResult(pool_id="pool1", questions=list(pool))
 
-        def fake_images(**kwargs):
-            return ImageQuestionResult()
-
         with patch("services.pool.pipeline.generate_question_pool", side_effect=fake_model1), \
-             patch("services.pool.pipeline.generate_image_questions", side_effect=fake_images), \
              patch("services.pool.pipeline.generate_assets_for_plan", side_effect=assets), \
              patch("services.pool.model2._run_review", return_value=(False, 0, "stubbed")):
             chunks = list(
@@ -270,8 +265,6 @@ class EnglishPipelineTests(TestCase):
         from services.pool.pipeline import stream_pool_questions
 
         with patch("services.pool.pipeline.generate_question_pool", side_effect=fake_model1), \
-             patch("services.pool.pipeline.generate_image_questions",
-                   side_effect=lambda **k: ImageQuestionResult()), \
              patch("services.pool.pipeline.generate_assets_for_plan", side_effect=_fake_assets), \
              patch("services.pool.model2._run_review", return_value=(False, 0, "stubbed")):
             list(

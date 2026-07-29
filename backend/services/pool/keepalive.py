@@ -2,9 +2,8 @@
 
 The generation pipeline goes quiet for minutes at a time. Model 1 emits
 nothing until a whole batch of ~20 questions comes back; Model 2's assembly
-call and its review pass are single non-streaming requests; the image stage
-draws diagrams one at a time. Between those the socket carries no bytes at
-all.
+call and its review pass are single non-streaming requests. Between those the
+socket carries no bytes at all.
 
 Nothing in the app notices, but everything between the app and the browser
 does. nginx closes a proxied upstream that has been silent for

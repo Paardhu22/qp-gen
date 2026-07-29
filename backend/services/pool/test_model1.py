@@ -14,7 +14,7 @@ from django.test import TestCase, override_settings
 from services.chapter_markdown import ChapterMarkdown
 from services.pool.model1 import generate_question_pool
 from services.pool.recipes import Batch, TypeQuota, batches_for_subject
-from services.pool.schema import compute_content_hash
+from services.pool.schema import compute_content_hash, normalize_pool_question
 from services.pool.streaming import (
     JsonObjectStreamExtractor,
     parse_question_payload,
@@ -93,6 +93,54 @@ class ParsePayloadFallbackTests(TestCase):
 
     def test_empty_input_returns_empty(self):
         self.assertEqual(parse_question_payload(""), [])
+
+
+class NoImagesFromTheModelTests(TestCase):
+    """A model response can never put an image on a question.
+
+    Image generation was removed from the pipeline, so there is no legitimate
+    source for an image URL in an LLM response — a model that emits one has
+    invented it, and an invented URL prints as a broken image. Model 1's
+    system-prompt rule 7 asks for this; the parser is what guarantees it.
+    """
+
+    def _normalise(self, raw):
+        return normalize_pool_question(
+            raw,
+            subject="Science",
+            chapter="Light",
+            pool_id="pool1",
+        )
+
+    def test_an_image_key_in_the_response_is_dropped(self):
+        question = self._normalise({
+            "topic": "Refraction",
+            "type": "DIAGRAM",
+            "blooms": "APPLY",
+            "difficulty": "medium",
+            "marks": 3,
+            "question": "Draw a labelled ray diagram for a convex lens.",
+            "answer": "A ray diagram showing convergence at the focus.",
+            "explanation": "Parallel rays converge at F.",
+            "image": "https://example.invalid/hallucinated.png",
+        })
+        self.assertIsNone(question.image)
+
+    def test_an_image_url_key_is_dropped_too(self):
+        # The wire name as well as the internal one — a model shown the wire
+        # shape in a previous turn may echo either.
+        question = self._normalise({
+            "topic": "Reflection",
+            "type": "DIAGRAM",
+            "blooms": "UNDERSTAND",
+            "difficulty": "easy",
+            "marks": 3,
+            "question": "Draw the image formed by a plane mirror.",
+            "answer": "Virtual, erect, same size.",
+            "explanation": "Plane mirrors form virtual images.",
+            "image_url": "/media/generated_diagrams/abc.png",
+        })
+        self.assertIsNone(question.image)
 
 
 class RecipeTests(TestCase):

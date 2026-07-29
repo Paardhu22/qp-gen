@@ -8,11 +8,10 @@
               │                                        │
    services.assets.runner                      chapter Markdown
    (reading / grammar / writing,                       │
-    run in parallel, NO uploads)                   Model 1  ─────────┐
+    run in parallel, NO uploads)                   Model 1
               │                                        │   (parallel batches)
-              │                                  image stage ────────┤
-              │                                        │             │
-              └───────────────┬────────────────────────┴─────────────┘
+              │                                        │
+              └───────────────┬────────────────────────┘
                               ▼
                       merged Question Pool ──→ auto-saved to the user's bank
                               │
@@ -41,6 +40,16 @@ The SSE contract is preserved exactly (`plan`, `question`, `update`, `notice`,
 review tray and auto-insert paths keep working without frontend changes. The
 `plan` event gained an additive `routing` key; consumers that do not read it
 are unaffected.
+
+Image-bearing questions are NOT produced. There was a stage between Model 1
+and Model 2 that either reused figures extracted from the upload or drew new
+ones with `gpt-image-1`; it has been removed from the cycle along with
+`services/pool/image_model.py`, and no question this pipeline writes carries an
+`image_url`. DIAGRAM remains a question TYPE — a CBSE "draw a labelled diagram
+of the human eye" is answered by the student drawing it, and needs no figure in
+the paper — so Model 1 is instructed to keep such questions self-contained and
+never to refer to a figure the paper does not print. Questions banked before
+this change keep their images and still surface through `from_bank`.
 """
 
 from __future__ import annotations
@@ -66,11 +75,6 @@ from services.assets import (
 from services.assets.registry import routing_summary
 from services.pool import store
 from services.pool.chapters import Chapter, build_chapters, split_chapter
-from services.pool.image_model import (
-    ImageQuestionResult,
-    generate_image_questions,
-    resolve_strategy,
-)
 from services.pool.model1 import PoolGenerationResult, generate_question_pool
 from services.pool.model2 import PaperAssemblyError, assemble_paper
 from services.pool.rendering import or_label_for, printable_content
@@ -115,7 +119,6 @@ class _PoolGenerationUnit:
     chapter: Chapter
     bank_chapter: str
     target_total: int
-    image_count: int = 0
 
 
 def _legacy_type_for(question_type: str) -> str:
@@ -299,23 +302,11 @@ def _render_variant_result(
         for s in result["sections"]
         for w in s["questions"]
     )
-    synthetic_count = sum(
-        1
-        for a in variant.assignments
-        if a.question.source_type == "synthetic_image"
-    )
-
     carried = {
         k: v
         for k, v in (base_meta or {}).items()
         if k in ("poolId", "chapter", "poolSize", "fromBank", "bankSize")
     }
-    footer_notes: List[str] = []
-    if synthetic_count:
-        footer_notes.append(
-            "‡ Questions marked with a double dagger use an AI-generated "
-            "diagram. Review the figure before using this paper in an exam."
-        )
     result["meta"] = {
         **carried,
         "setLabel": variant.label,
@@ -325,8 +316,7 @@ def _render_variant_result(
         "replacedCount": variant.replaced_count,
         "retainedCount": variant.retained_count,
         "fixedCount": variant.fixed_count,
-        "syntheticImageCount": synthetic_count,
-        "footerNotes": footer_notes,
+        "footerNotes": [],
     }
     return result
 
@@ -381,7 +371,7 @@ def _build_pool_streaming(
     user,
     plan: Optional[Sequence[Any]] = None,
 ) -> Iterable[Any]:
-    """Run per-chapter Model 1 + image stages on workers, yielding progress.
+    """Run per-chapter Model 1 on workers, yielding progress.
 
     Each unit is already bounded by `split_chapter`. Units run with bounded
     chapter concurrency; inside each unit Model 1 still uses its process-wide
@@ -419,33 +409,20 @@ def _build_pool_streaming(
             plan=plan,
         )
 
-        image_result = generate_image_questions(
-            chapter=unit.chapter,
-            subject=subject,
-            chapter_name=unit.bank_chapter,
-            class_num=class_num,
-            pool_id=pool_id,
-            difficulty=difficulty,
-            count=unit.image_count,
-            user=user,
-            question_metadata=metadata,
-            on_question=progress.put,
-        )
-        # Both stages record API usage, so this thread has opened its own
+        # Model 1 records API usage, so this thread has opened its own
         # connection. With CONN_MAX_AGE=600 Django hands it back to the pool
         # rather than closing it, and a thread that exits without this call
         # abandons a live Postgres backend — a few dozen generations is enough
         # to hit max_connections. services/hsat_service.py and
         # services/document_service.py do the same in their worker threads.
         close_old_connections()
-        return unit, result, image_result
+        return unit, result
 
     def _worker():
         try:
             merged = PoolGenerationResult(
                 pool_id=pool_id, subject=subject, chapter="Unified Question Bank"
             )
-            merged_images = ImageQuestionResult()
 
             workers = max(1, int(getattr(settings, "POOL_CHAPTER_CONCURRENCY", 3)))
             with ThreadPoolExecutor(max_workers=min(workers, max(1, len(units)))) as executor:
@@ -453,7 +430,7 @@ def _build_pool_streaming(
                 for future in as_completed(futures):
                     unit = futures[future]
                     try:
-                        unit, result, image_result = future.result()
+                        unit, result = future.result()
                     except Exception as exc:
                         logger.error(
                             "Pool unit failed for %r: %s",
@@ -473,18 +450,7 @@ def _build_pool_streaming(
                     merged.duplicates_dropped += result.duplicates_dropped
                     merged.invalid_dropped += result.invalid_dropped
 
-                    merged_images.questions.extend(image_result.questions)
-                    merged_images.generated_count += image_result.generated_count
-                    merged_images.reused_count += image_result.reused_count
-                    merged_images.cache_hits += image_result.cache_hits
-                    merged_images.failures.extend(
-                        f"{unit.bank_chapter}: {failure}"
-                        for failure in image_result.failures
-                    )
-                    merged_images.estimated_cost_usd += image_result.estimated_cost_usd
-
             outcome["pool"] = merged
-            outcome["images"] = merged_images
         except Exception as exc:  # pragma: no cover - defensive
             logger.error("Pool worker crashed: %s", exc, exc_info=True)
             outcome["error"] = str(exc)
@@ -544,103 +510,48 @@ def _allocate_targets(
     return allocation
 
 
-def _image_weight(chapter: Chapter) -> int:
-    return max(1, len(getattr(chapter, "figures", []) or []))
-
-
-def _allocate_image_targets(
-    units: Sequence["_PoolGenerationUnit"], *, total: int
-) -> List[int]:
-    """Prefer units that actually carry textbook figures for image questions."""
-    if not units:
-        return []
-    if total <= 0:
-        return [0 for _ in units]
-
-    allocation = [0 for _ in units]
-    order = sorted(
-        range(len(units)),
-        key=lambda index: (
-            _image_weight(units[index].chapter),
-            _unit_weight(units[index].chapter),
-        ),
-        reverse=True,
-    )
-    for offset in range(total):
-        allocation[order[offset % len(order)]] += 1
-    return allocation
-
-
-# The most images one paper may draw, however many DIAGRAM slots the blueprint
-# declares. Matches the upper bound on IMAGE_QUESTIONS_PER_POOL, so an explicit
-# request can exceed the configured default but never the hard limit.
-EXPLICIT_IMAGE_SLOT_CEILING = 40
-
-
-def _plan_image_slots(plan: Sequence[Any]) -> int:
-    return sum(
-        1
-        for slot in plan
-        if str(getattr(slot, "question_type", "") or "").upper() == "DIAGRAM"
-    )
-
-
-def _contextual_image_total(
-    *,
-    plan: Sequence[Any],
-    chapters: Sequence[Chapter],
-    subject_norm: str,
-    configured_cap: int,
+def _contextual_pool_target(
+    *, slot_count: int, chapters: Sequence[Chapter]
 ) -> int:
-    """Pick a small, subject-aware image budget for the pool.
+    """How many questions Model 1 should write for this generation.
 
-    Explicit DIAGRAM slots are honoured first. Otherwise image questions are
-    supplemental, so they should help the final paper without dominating cost
-    or hammering the image API.
+    Two rules, and the larger wins:
+
+    * never fewer than two questions per textbook slot, so Model 2 always has
+      an alternative for everything it places; and
+    * never below a floor that climbs from ``POOL_TARGET_MIN`` (80) to
+      ``POOL_TARGET_MAX`` (90) with how much context this run actually has.
+
+    The floor is contextual rather than flat because "enough choice" is not a
+    constant. One short chapter feeding a 20-slot test needs a smaller pool to
+    be well covered than six chapters feeding a full board paper, where the
+    same number of questions has to spread across far more ground before any
+    single slot has a real alternative to pick from.
+
+    Two signals drive it, and the stronger one wins: how much source material
+    there is (chapter count) and how big the paper is (slot count). Either
+    alone being large is enough to want the wider pool.
     """
-    cap = max(0, int(configured_cap or 0))
-    # A configured cap of zero is the deliberate off switch — no images at all,
-    # however many the plan asks for. Honour it before anything else.
-    if cap <= 0 or not plan:
-        return 0
+    floor_min = max(1, int(getattr(settings, "POOL_TARGET_MIN", 80)))
+    floor_max = max(floor_min, int(getattr(settings, "POOL_TARGET_MAX", 90)))
 
-    diagram_slots = _plan_image_slots(plan)
-    if diagram_slots:
-        # An explicitly requested figure slot is not the same thing as a
-        # supplemental one. `IMAGE_QUESTIONS_PER_POOL` exists to stop images the
-        # teacher never asked for from dominating the bill; clamping an explicit
-        # ask to it means someone who types "10 image based questions" silently
-        # gets eight, with nothing saying why. The blueprint is the teacher's,
-        # so it wins — bounded by the hard ceiling that keeps a runaway plan
-        # from becoming a runaway invoice.
-        return min(EXPLICIT_IMAGE_SLOT_CEILING, diagram_slots)
+    # Both normalised to 0.0–1.0. One chapter is the narrowest context there
+    # is; three or more is as wide as the floor cares about. Likewise 40 slots
+    # is a full board paper — past that the two-per-slot rule takes over anyway.
+    chapter_signal = min(1.0, max(0, len(chapters) - 1) / 2.0)
+    slot_signal = min(1.0, max(0, slot_count) / 40.0)
+    context = max(chapter_signal, slot_signal)
 
-    subject = (subject_norm or "").strip().lower()
-    if subject in {"english", "hindi", "telugu", "sanskrit"}:
-        return 0
-
-    available_figures = sum(
-        len(getattr(chapter, "figures", []) or []) for chapter in chapters
-    )
-    if subject in {"science", "mathematics", "maths", "math"}:
-        desired = max(1, min(3, len(plan) // 12))
-    elif subject == "social science":
-        desired = 1 if available_figures else 0
-    else:
-        desired = 1 if available_figures else 0
-
-    if available_figures:
-        desired = min(desired, available_figures)
-    return min(cap, desired)
+    floor = floor_min + int(round((floor_max - floor_min) * context))
+    return max(slot_count * 2, floor)
 
 
 def _build_generation_units(
-    chapters: Sequence[Chapter], *, target_total: int, image_total: int
+    chapters: Sequence[Chapter], *, target_total: int
 ) -> List[_PoolGenerationUnit]:
-    """Split oversized chapters and assign text/image quotas to each unit."""
-    min_per_chapter = max(
-        1, int(getattr(settings, "POOL_MIN_QUESTIONS_PER_CHAPTER", 12))
-    )
+    """Split oversized chapters and assign a question quota to each unit."""
+    default_min = int(getattr(settings, "POOL_MIN_QUESTIONS_PER_CHAPTER", 12))
+    min_per_chapter = max(1, min(default_min, target_total // max(1, len(chapters))))
     chapter_targets = _allocate_targets(
         chapters, total=target_total, min_each=min_per_chapter
     )
@@ -660,9 +571,6 @@ def _build_generation_units(
                 )
             )
 
-    image_targets = _allocate_image_targets(units, total=image_total)
-    for unit, image_count in zip(units, image_targets):
-        unit.image_count = image_count
     return units
 
 
@@ -1034,24 +942,19 @@ def stream_pool_questions(
 
     # ── Generation stage ────────────────────────────────────────────────
     # The textbook pool is sized to over-provision its own slots so Model 2 has
-    # real choice; a 38-slot board paper draws on ~84 questions. That total is
-    # allocated across detected chapters instead of sending the whole upload to
-    # Model 1. Sizing off `textbook_slots` rather than the whole plan is what
-    # stops an English paper generating 84 Literature questions for the six
+    # real choice — see `_contextual_pool_target`. That total is allocated
+    # across detected chapters instead of sending the whole upload to Model 1.
+    # Sizing off `textbook_slots` rather than the whole plan is what stops an
+    # English paper generating a full pool of Literature questions for the six
     # slots that can actually use them.
     pool_id = generate_id()
-    target_total = max(len(textbook_slots) * 2, 40) if textbook_slots else 0
-    configured_image_cap = max(0, int(getattr(settings, "IMAGE_QUESTIONS_PER_POOL", 8)))
-    image_total = _contextual_image_total(
-        plan=textbook_slots,
-        chapters=chapters,
-        subject_norm=subject_norm,
-        configured_cap=configured_image_cap,
+    target_total = (
+        _contextual_pool_target(slot_count=len(textbook_slots), chapters=chapters)
+        if textbook_slots
+        else 0
     )
     units = (
-        _build_generation_units(
-            chapters, target_total=target_total, image_total=image_total
-        )
+        _build_generation_units(chapters, target_total=target_total)
         if textbook_slots and chapters
         else []
     )
@@ -1223,7 +1126,6 @@ def stream_pool_questions(
         return
 
     pool_result = outcome.get("pool")
-    image_result = outcome.get("images")
     pool_id = getattr(pool_result, "pool_id", "") or pool_id
 
     summary_stats = pool_summary(pool_questions)
@@ -1241,15 +1143,9 @@ def stream_pool_questions(
                 for chapter in chapters
             ],
             "generationUnits": len(units),
+            "poolTarget": target_total,
             **summary_stats,
             "assetGenerators": asset_reports,
-            "imageStrategy": resolve_strategy(),
-            "imagesGenerated": getattr(image_result, "generated_count", 0),
-            "imagesReused": getattr(image_result, "reused_count", 0),
-            "imageCacheHits": getattr(image_result, "cache_hits", 0),
-            "estimatedImageCostUsd": round(
-                getattr(image_result, "estimated_cost_usd", 0.0), 4
-            ),
         },
         event="pool",
     )
@@ -1369,9 +1265,6 @@ def stream_pool_questions(
             requested_count=len(plan),
         )
 
-    synthetic_count = sum(
-        1 for a in paper.assignments if a.question.source_type == "synthetic_image"
-    )
     result["meta"] = {
         "poolId": pool_id,
         "chapter": chapter_name,
@@ -1381,7 +1274,6 @@ def stream_pool_questions(
         "unfilledSlots": len(paper.unfilled),
         "reviewApplied": paper.review_applied,
         "reviewSwaps": paper.review_swaps,
-        "syntheticImageCount": synthetic_count,
         "savedToBank": persist.saved,
         "routing": routing,
         "assetGenerators": asset_reports,
@@ -1390,12 +1282,6 @@ def stream_pool_questions(
         ),
         "footerNotes": [],
     }
-
-    if synthetic_count:
-        result["meta"]["footerNotes"].append(
-            "‡ Questions marked with a double dagger use an AI-generated "
-            "diagram. Review the figure before using this paper in an exam."
-        )
 
     yield _sse(result, event="update")
 
@@ -1440,21 +1326,6 @@ def stream_pool_questions(
             },
             event="notice",
         )
-
-    if synthetic_count:
-        yield _sse(
-            {
-                "message": (
-                    f"{synthetic_count} question(s) use an AI-generated diagram. "
-                    "Check each figure before using this paper in an exam."
-                ),
-                "syntheticImageCount": synthetic_count,
-            },
-            event="notice",
-        )
-
-    if image_result and image_result.failures:
-        logger.warning("Image stage reported failures: %s", image_result.failures)
 
     # ── Additional sets (B, C) ──────────────────────────────────────────
     # Derived from Set A's selection and the same pool — no new questions,
@@ -1505,6 +1376,7 @@ def stream_pool_questions(
                 "hsatSourceIds": hsat_source_ids,
                 "instructions": instructions,
                 "poolSize": len(pool_questions),
+                "poolTarget": target_total,
                 "blueprintTotal": len(plan),
                 "textbookSlots": len(textbook_slots),
                 "assetSlots": len(asset_slots),
@@ -1514,8 +1386,6 @@ def stream_pool_questions(
                 "duplicatesSkipped": persist.duplicates_skipped,
                 "reviewApplied": paper.review_applied,
                 "reviewSwaps": paper.review_swaps,
-                "imageStrategy": resolve_strategy(),
-                "syntheticImageCount": synthetic_count,
                 "numberOfSets": num_sets,
             },
             result=result,

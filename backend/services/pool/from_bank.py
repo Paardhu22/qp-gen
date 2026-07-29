@@ -379,6 +379,12 @@ def stream_paper_from_bank(
             requested_count=len(plan),
         )
 
+    # Image-bearing questions are no longer GENERATED (the image stage was
+    # removed from the pipeline), but questions banked before that change still
+    # carry AI-drawn diagrams and are still selectable here. The warning is
+    # about what is in the paper, not about what produced it, so it stays: a
+    # teacher printing a synthesised ray diagram needs to check it whether it
+    # was drawn last week or last year. New pools contribute nothing here.
     synthetic_count = sum(
         1 for a in paper.assignments if a.question.source_type == "synthetic_image"
     )

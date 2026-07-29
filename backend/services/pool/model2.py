@@ -196,17 +196,20 @@ def _score_question(
     """Higher is better. Every term pushes toward a well-spread paper."""
     score = 0.0
 
-    # A figure slot needs a figure. Weighted above every other term because
-    # this is the one mismatch a student sees immediately: "study the given
-    # figure" printed above nothing at all.
+    # A figure slot prefers a question that actually carries a figure.
     #
-    # It is not hypothetical. Model 1 writes text from chapter markdown and
-    # cannot draw, so a DIAGRAM batch yields questions that REFER to a figure
-    # they do not carry; the image stage produces the handful that really have
-    # one. Both land in the same pool typed DIAGRAM, and the text-only ones
-    # outnumber the real ones several times over — so with no preference here,
-    # a paper of ten "image based questions" reliably drew ten questions with
-    # no images.
+    # This term no longer fires on a freshly generated pool: the image stage
+    # was removed from the pipeline, so nothing Model 1 writes has an image and
+    # every candidate for a DIAGRAM slot takes the same -12. A constant offset
+    # across a slot's candidates does not reorder them, so fresh generations
+    # are unaffected.
+    #
+    # It still earns its place on `from_bank` runs, where the bank may hold
+    # image-bearing questions from before the change: there the term correctly
+    # steers a DIAGRAM slot to a question that has a real figure rather than
+    # one that only talks about one. Kept for that reason — deleting it would
+    # regress bank assembly, which is not what removing image GENERATION asked
+    # for.
     if image_required:
         score += 12.0 if (question.image or "").strip() else -12.0
 

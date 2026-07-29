@@ -109,7 +109,7 @@ export const TopNavbar = () => {
                   className={cn(
                     "flex flex-col items-center justify-center gap-0.5 px-4 py-1.5 rounded-lg text-xs font-medium transition-colors select-none",
                     active
-                      ? "bg-foreground text-background"
+                      ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent",
                   )}
                 >
@@ -238,7 +238,7 @@ export const TopNavbar = () => {
                       className={cn(
                         "flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors",
                         active
-                          ? "bg-foreground text-background"
+                          ? "bg-primary text-primary-foreground"
                           : "text-muted-foreground hover:text-foreground hover:bg-accent",
                       )}
                     >

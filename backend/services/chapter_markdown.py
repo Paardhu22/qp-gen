@@ -239,8 +239,8 @@ def build_chapter_markdown(
 
     # Figures are appended as a labelled inventory rather than interleaved:
     # their page numbers locate them well enough, and a trailing block keeps
-    # the prose readable for the model while giving the image stage a clean
-    # list to work from.
+    # the prose readable for the model while keeping a clean inventory of what
+    # the chapter illustrates.
     if figures:
         figure_lines = ["\n\n## Figures in this chapter\n"]
         for index, figure in enumerate(figures, start=1):

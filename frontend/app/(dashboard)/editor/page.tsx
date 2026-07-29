@@ -387,6 +387,31 @@ export default function EditorPage() {
   // Guards the open-a-document effect below so it runs once per mount.
   const [checkedResume, setCheckedResume] = useState(false);
 
+  // ── Is the document target still undecided? ───────────────────────────
+  // Arriving at `/editor` with no `?paperId=` (the nav bar links there
+  // bare) leaves `paperId` null until the resume effect below reads
+  // IndexedDB and redirects. During that window nothing has decided which
+  // document this tab shows, and the editor must be told exactly that.
+  //
+  // The distinction is load-bearing and documented in `lib/set-content.ts`:
+  // `undefined` means "no content decided here", so `TiptapEditor` bails out
+  // of its load effect and leaves `documentLoadedRef` false; `""` means "an
+  // empty document", which it will happily load. The `!paperId` branch of the
+  // load effect below sets `paperContent` to `""` — correct once the resume
+  // check has finished and there is genuinely nothing to open, but fatal
+  // before it has: the editor loads a blank page, flips `documentLoadedRef`
+  // true, and the pending `sectionsToAppend` / `questionsToAppend` queued by a
+  // generation drain into that blank page and are cleared. The redirect then
+  // lands, the editor reloads the pre-insertion draft from IndexedDB, and the
+  // questions are gone. (Worse, the post-insert `debouncedLiveSync.flush()`
+  // writes them under the legacy `current_A` key — `withSetSuffix(null, "A")`
+  // — which nothing reads back, so they are orphaned rather than merely raced.)
+  //
+  // `checkedResume` is set in every path out of the resume effect, so this can
+  // never latch on: the redirect path sets it in `finally`, the
+  // dashboard-handoff path sets it inline, and `isNew` sets it directly.
+  const documentTargetUnresolved = !isNew && !paperId && !checkedResume;
+
   // ── Open the right document, without asking ───────────────────────────
   // Opening `/editor` with no `?paperId=` used to pop "Resume previous paper?"
   // whenever the latest draft came from a different browser session. A word
@@ -463,6 +488,12 @@ export default function EditorPage() {
     }
 
     if (!paperId) {
+      // `""` (an empty document), NOT `undefined` — this branch is also the
+      // dashboard-handoff landing, where the editor must load a blank page so
+      // the generated sections have somewhere to be inserted. It is only wrong
+      // BEFORE the resume check has decided whether to redirect, and that
+      // window is held open by `documentTargetUnresolved` at the call site
+      // rather than by second-guessing the value here.
       setPaperContent("");
       setLoadedPaperTitle(null);
       setPaperError(null);
@@ -991,13 +1022,22 @@ export default function EditorPage() {
           key={`${editorInstanceKey}-${activeSetTab}-${approvedAt}`}
           // Precedence lives in `lib/set-content.ts` — see the note there on
           // why an approved set is the only source that carries Set A.
-          initialContent={resolveTabContent({
-            activeSetTab,
-            approvedSets,
-            comparisonSets,
-            loadedSets,
-            paperContent,
-          })}
+          //
+          // `undefined` while the document target is undecided: it holds the
+          // editor's load effect (and therefore any pending question
+          // insertion) until we know which document this tab is showing. See
+          // `documentTargetUnresolved` above.
+          initialContent={
+            documentTargetUnresolved
+              ? undefined
+              : resolveTabContent({
+                  activeSetTab,
+                  approvedSets,
+                  comparisonSets,
+                  loadedSets,
+                  paperContent,
+                })
+          }
           paperId={withSetSuffix(currentPaperId, activeSetTab)}
           // Approving is an explicit "use this paper" instruction, so it has to
           // beat the IndexedDB draft the tab may already hold from an earlier

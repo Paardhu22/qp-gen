@@ -371,7 +371,8 @@ class FigureSlotTests(TestCase):
 
     The pool is the reason. Model 1 writes text from chapter markdown and
     cannot draw, so a DIAGRAM batch yields questions that REFER to a figure
-    they do not carry; the image stage produces the few that really have one.
+    they do not carry. Only the bank (from questions written before image
+    generation was removed) still holds any that really have one.
     Both land in the same pool typed DIAGRAM, and the text-only ones outnumber
     the real ones several times over — 60 against 10 in the reported run. With
     no preference in the scorer, Model 2 picked from the majority.
