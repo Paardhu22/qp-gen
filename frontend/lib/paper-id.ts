@@ -104,3 +104,25 @@ export function persistablePaperId(id: string | null | undefined): string | null
   const base = basePaperId(id);
   return isDraftPaperId(base) ? null : base;
 }
+
+/**
+ * The backend row an editor tab autosaves to, or null when it has none.
+ *
+ * Null for two different reasons, and both mean "there is nothing to PUT":
+ *
+ *   * an unsaved draft — no row exists yet; creating one is the teacher's
+ *     explicit "Save" action, never an autosave; and
+ *   * set tabs B and C — the base row IS Set A, and B/C live inside that
+ *     paper's `sets` array. PUTting "{id}_B" would 404 on a row that does not
+ *     exist AND clobber Set A on the way.
+ *
+ * This is the single definition of that rule. It used to be inline in the sync
+ * path only, which left the status display with no way to ask the same
+ * question — so a tab with no backend row still showed "Sync failed" for a
+ * network sync it was never going to attempt.
+ */
+export function backendSyncTarget(id: string | null | undefined): string | null {
+  const { base, set } = splitPaperId(id);
+  if (!base || isDraftPaperId(base)) return null;
+  return (set ?? "A") === "A" ? base : null;
+}

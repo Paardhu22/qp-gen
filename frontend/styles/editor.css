@@ -3,8 +3,23 @@
           display: flex;
           flex-direction: column;
           align-items: center;
+          /* `safe` centring, because the page is a fixed 794px and the canvas
+             between the two panels is not. Plain `center` overflows in BOTH
+             directions once the container is narrower than the sheet, and the
+             overflow above/left of the start edge is unreachable — the sheet's
+             left margin gets clipped with no way to scroll to it. `safe` falls
+             back to start-alignment exactly when that would happen. Declared
+             second so browsers that cannot parse it keep the line above. */
+          align-items: safe center;
+          /* The gap between sheets, and the margin around them. The top value
+             is the one that matters: a page butted against the toolbar reads
+             as a text area with a border, while a clear band above it reads as
+             a sheet lying on a desk. Every word processor leaves this room —
+             it is the cheapest single thing that makes a document window look
+             like one. Kept larger than the inter-page gap so the first page is
+             not mistaken for a continuation of the chrome. */
           gap: 24px;
-          padding: 28px 0 96px;
+          padding: 40px 0 96px;
           background: transparent;
           color: #000000;
           font-family: "Times New Roman", Times, serif;
@@ -28,10 +43,22 @@
           min-height: 1123px;
           height: 1123px;
           background: #ffffff;
-          border: 1px solid #000000;
+          /* A hairline, not a 1px black rule. The page used to be outlined
+             like a wireframe; a printed sheet has no outline, it has an edge
+             you infer from its shadow. The stacked shadow does that work —
+             a tight contact shadow plus a wide soft one, which is what makes
+             a surface read as lifted rather than as drawn.
+
+             Both are stripped for print AND for the PDF export (html2canvas
+             renders screen styles, so the export clone neutralises them
+             explicitly — see lib/export-pdf.ts). */
+          border: 1px solid rgb(0 0 0 / 0.08);
           overflow: hidden;
           box-sizing: border-box;
-          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+          box-shadow:
+            0 1px 2px -1px rgb(15 23 42 / 0.12),
+            0 8px 16px -8px rgb(15 23 42 / 0.14),
+            0 28px 56px -28px rgb(15 23 42 / 0.28);
         }
 
         .document-editor .doc-page-inner {

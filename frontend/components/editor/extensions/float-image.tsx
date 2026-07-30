@@ -53,6 +53,18 @@ export function resolveFigureSrc(src: string | null | undefined): string {
   return src;
 }
 
+/**
+ * Size presets, in px, measured against the A4 content column.
+ *
+ * The printable width of the A4 page is 794px less its margins, which leaves
+ * ~680px — the same ceiling the drag handle already clamps to. "Full" is a
+ * little under that so a full-width figure still breathes inside the text
+ * block rather than butting against both margins.
+ */
+export const SIZE_SMALL = 200;
+export const SIZE_HALF = 340;
+export const SIZE_FULL = 660;
+
 const FloatImageComponent = ({
   node,
   updateAttributes,
@@ -135,8 +147,37 @@ const FloatImageComponent = ({
             maxWidth: "100%",
           }}
         >
-          {/* Alignment + delete toolbar */}
+          {/* Size + alignment + delete toolbar */}
           <div className="float-image-controls float-image-hide-in-pdf">
+            {/* Size presets.
+                Free-drag resizing already exists (the corner handle), but a
+                teacher laying out a paper wants "half the page", not 340
+                pixels — and dragging every figure to roughly-the-same-width by
+                eye is how a paper ends up with six slightly different column
+                widths. The presets are measured against the A4 content column
+                so "Full" means full, not "as wide as I could drag it". */}
+            {(
+              [
+                ["S", SIZE_SMALL, "Small"],
+                ["½", SIZE_HALF, "Half width"],
+                ["W", SIZE_FULL, "Full width"],
+              ] as [string, number, string][]
+            ).map(([label, px, title]) => (
+              <button
+                key={title}
+                className={`float-img-btn${width === px ? " active" : ""}`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  updateAttributes({ width: px });
+                }}
+                title={title}
+              >
+                <span className="text-[10px] font-semibold leading-none">
+                  {label}
+                </span>
+              </button>
+            ))}
+            <span className="float-img-divider" />
             {(
               [
                 ["left", <AlignLeft key="l" className="w-3 h-3" />],

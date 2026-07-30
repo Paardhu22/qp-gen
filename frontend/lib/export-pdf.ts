@@ -63,11 +63,31 @@ const OKLCH_TO_HEX: Record<string, string> = {
   "oklch(1 0 0 / 15%)": "rgba(255,255,255,0.15)",
 };
 
+/**
+ * Screen chrome that must never reach the PDF.
+ *
+ * html2canvas renders SCREEN styles, not print styles — so the page's on-screen
+ * border and drop shadow would be rasterised into the exported document as a
+ * grey outline and a smudge along every page edge. The `@media print` rules in
+ * editor.css already strip them, but that media query never applies here.
+ *
+ * The canvas tint behind the sheets is not listed: it sits on the scroll
+ * container, which is an ancestor of the capture root rather than part of it,
+ * so it never reaches the clone in the first place.
+ */
+const PAGE_CHROME_RESET = `
+  .doc-page {
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+  }
+`;
+
 /** Patch a cloned document so html2canvas can parse all CSS colours. */
 function patchClonedDocument(clonedDoc: Document): void {
   // 1. Inject CSS-variable overrides (highest priority)
   const override = clonedDoc.createElement("style");
-  override.textContent = OKLCH_OVERRIDES;
+  override.textContent = OKLCH_OVERRIDES + PAGE_CHROME_RESET;
   clonedDoc.head.insertBefore(override, clonedDoc.head.firstChild);
 
   // 2. Text-replace oklch / lab / lch in every existing <style> block

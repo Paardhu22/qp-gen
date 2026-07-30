@@ -622,3 +622,21 @@ html[data-auth-page] *.dark {
     animation: empty-breathe 4s ease-in-out infinite;
   }
 }
+
+/* ── The editor canvas ───────────────────────────────────────────────────
+   The surface the A4 sheet sits on. A word processor needs the page to read
+   as a physical object on a desk, and that only works if the surround is a
+   shade the paper is clearly brighter than — which is why this is a tint
+   rather than the plain `--background` the chrome uses.
+
+   Deliberately derived from `--muted` (the palette's warm sand) instead of a
+   literal grey: a neutral grey beside this app's ink-and-sand kit reads as a
+   different product. In dark mode the relationship inverts — the canvas goes
+   *under* the chrome rather than over it, so the panels still lift off it. */
+.editor-canvas {
+  background: color-mix(in oklab, var(--muted) 60%, var(--background));
+}
+
+.dark .editor-canvas {
+  background: color-mix(in oklab, var(--background) 90%, black);
+}

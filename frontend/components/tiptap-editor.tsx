@@ -32,6 +32,9 @@ import {
   GroupedQuestionBlock,
 } from "./editor/extensions/nodes";
 import { PaperHeaderBlock as PaperHeaderBlockExt } from "./editor/extensions/header-node";
+import { QuestionHoverMenu } from "./editor/question-hover-menu";
+import { ImageStyleDialog } from "./editor/image-style-dialog";
+import { useQuestionMenu } from "@/lib/use-question-menu";
 import { OrGroupInvariant } from "./editor/extensions/or-group-invariant";
 import { MathBlock, InlineMath } from "./editor/extensions/math-nodes";
 // DrawingBlock intentionally removed — feature retired in this round.
@@ -70,6 +73,7 @@ import {
   type LiveEditorDocument,
 } from "@/lib/live-document-db";
 import {
+  backendSyncTarget,
   basePaperId,
   splitPaperId,
   withSetSuffix,
@@ -572,6 +576,18 @@ type TiptapEditorProps = {
    * twice still triggers a reload.
    */
   contentVersion?: number;
+  /**
+   * Panels flanking the page, rendered BELOW the toolbar and beside the
+   * scrolling canvas — the layout every word processor uses.
+   *
+   * They are passed in rather than owned here because their state has to
+   * outlive this component: the editor remounts on every set-tab switch (see
+   * the `key` at the call site), and a panel that collapsed itself each time
+   * the teacher changed tabs would be unusable. The page holds the open/closed
+   * state; this only positions them.
+   */
+  leftPanel?: React.ReactNode;
+  rightPanel?: React.ReactNode;
 };
 
 export const TiptapEditor = ({
@@ -585,6 +601,8 @@ export const TiptapEditor = ({
   exportType = "question_paper",
   forceInitialContent = false,
   contentVersion = 0,
+  leftPanel,
+  rightPanel,
 }: TiptapEditorProps) => {
   const [isClient, setIsClient] = useState(false);
   const template = useEditorStore((state) => state.template);
@@ -787,12 +805,7 @@ export const TiptapEditor = ({
               // them here (updatePaperAction wraps content into a lone Set A)
               // would 404 on the non-existent "{id}_B" row AND clobber Set A.
               // A bare id with no suffix (legacy) syncs as-is.
-              const { base: syncBase, set: syncSet } =
-                splitPaperId(currentPaperId);
-              const syncedPaperId =
-                syncBase && syncBase !== DRAFT_PAPER_ID && (syncSet ?? "A") === "A"
-                  ? syncBase
-                  : null;
+              const syncedPaperId = backendSyncTarget(currentPaperId);
               if (syncedPaperId) {
                 await updatePaperAction(
                   syncedPaperId,
@@ -806,18 +819,27 @@ export const TiptapEditor = ({
                   },
                   syncAbortController.signal,
                 );
-                await saveLiveDocument({
-                  ...liveDocument,
-                  sync: {
-                    status: "synced",
-                    lastSyncedAt: new Date().getTime(),
-                    error: null,
-                  },
-                });
               }
-              // For unsaved drafts (syncedPaperId = null): IDB save already
-              // happened above.  Show "Saved" to indicate the draft is safe
-              // locally even though no backend row exists yet.
+              // Record the success either way.
+              //
+              // This used to be inside the `if` above, so a tab with no backend
+              // row (an unsaved draft, or set tab B/C) left its stored status on
+              // "pending" forever — and "pending" is indistinguishable from "a
+              // sync that never finished". Nothing then existed to clear an
+              // older "failed", so a single historical failure was displayed on
+              // every subsequent load of that draft until the teacher happened
+              // to type something.
+              //
+              // For those tabs the local IndexedDB write IS the whole job, and
+              // it just succeeded, so "synced" is the honest record.
+              await saveLiveDocument({
+                ...liveDocument,
+                sync: {
+                  status: "synced",
+                  lastSyncedAt: new Date().getTime(),
+                  error: null,
+                },
+              });
               setSaveState("saved");
             } catch (error: any) {
               // A newer sync cancelled this one — not an error, just move on.
@@ -1168,6 +1190,11 @@ export const TiptapEditor = ({
     (state) => state.clearInstructionsToAppend,
   );
 
+  // Floating question actions (Generate image / Swap / Delete). Driven by DOM
+  // delegation over the editor rather than callbacks threaded through every
+  // NodeView — see lib/use-question-menu.ts.
+  const questionMenu = useQuestionMenu(editor);
+
   const lastLoadedContentRef = useRef<string | null>(null);
   // documentLoadedRef / documentLoadedSignal: guard for deferred insertions
   // (questionsToAppend, sectionsToAppend) that must not run until the IDB
@@ -1302,10 +1329,18 @@ export const TiptapEditor = ({
         setPages(pages);
         setEditorContent(JSON.stringify(contentPayload));
         updateSectionSummaries(editor);
+        // A stored "failed" is history, not current state, and it is only
+        // meaningful for a tab that actually has a backend row to push to.
+        // Showing it on an unsaved draft (or on set tab B/C) reports the
+        // failure of a request that is never attempted for those tabs — the
+        // draft is safely in IndexedDB, which is all "saved" claims.
+        const staleFailure =
+          liveDocument?.sync.status === "failed" &&
+          Boolean(backendSyncTarget(currentPaperId));
         setSaveState(
           typeof navigator !== "undefined" && !navigator.onLine
             ? "offline"
-            : liveDocument?.sync.status === "failed"
+            : staleFailure
               ? "failed"
               : "saved",
         );
@@ -1535,15 +1570,56 @@ export const TiptapEditor = ({
           onClose={() => setShowFindReplace(false)}
         />
       )}
-      <div
-        className={`flex-1 overflow-auto overscroll-contain custom-scrollbar bg-transparent print:p-0${
-          isEnglishSubject(paperMetadata?.subject) ? " is-english-paper" : ""
-        }`}
-      >
-        <EditorContent editor={editor} className="h-full pb-32" />
+      {/* Toolbar spans the full width above; the panels flank the canvas
+          below it. `min-h-0` on the row is what lets the canvas scroll
+          instead of the whole column growing past the viewport. */}
+      <div className="flex min-h-0 flex-1">
+        {leftPanel}
+        <div
+          // `data-editor-scroll` is the handle the document panel's scroll spy
+          // looks for — it needs THIS element, not the window, and finding it
+          // by class would break the first time these utilities are edited.
+          data-editor-scroll=""
+          className={`editor-canvas min-w-0 flex-1 overflow-auto overscroll-contain custom-scrollbar print:bg-white print:p-0${
+            isEnglishSubject(paperMetadata?.subject) ? " is-english-paper" : ""
+          }`}
+        >
+          <EditorContent editor={editor} className="h-full pb-32" />
+        </div>
+        {rightPanel}
       </div>
       {editor && <StatusBar editor={editor} />}
 
+      {/* Floating actions for whichever question the teacher is pointing at,
+          plus the style picker it opens. Both are portalled to the body, so
+          neither is clipped by the editor's scroll container and neither ends
+          up rasterised into a PDF export. */}
+      <QuestionHoverMenu
+        target={
+          questionMenu.active
+            ? {
+                element: questionMenu.active.element,
+                text: questionMenu.active.text,
+                canReplace: questionMenu.active.canReplace,
+                onReplace: questionMenu.handleReplace,
+                onDelete: questionMenu.handleDelete,
+                onGenerateImage: questionMenu.openImageDialog,
+                replacing: questionMenu.replacing,
+                generatingImage: questionMenu.generatingImage,
+              }
+            : null
+        }
+        onMenuEnter={questionMenu.onMenuEnter}
+        onMenuLeave={questionMenu.onMenuLeave}
+      />
+      <ImageStyleDialog
+        open={questionMenu.styleDialogOpen}
+        onOpenChange={questionMenu.setStyleDialogOpen}
+        styles={questionMenu.styles}
+        questionText={questionMenu.active?.text ?? ""}
+        generating={questionMenu.generatingImage}
+        onGenerate={questionMenu.handleGenerateImage}
+      />
     </div>
   );
 };

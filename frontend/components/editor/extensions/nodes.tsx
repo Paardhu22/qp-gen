@@ -5,7 +5,7 @@ import {
   NodeViewContent,
 } from "@tiptap/react";
 import React, { useState } from "react";
-import { GripVertical, Trash, Plus, RefreshCw, Loader2 } from "lucide-react";
+import { GripVertical, Trash, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError, replaceQuestion } from "@/lib/api-client";
 import {
@@ -28,7 +28,7 @@ import {
  * nothing else in the document is read or touched, which is the whole point:
  * a teacher who dislikes question 7 should not have to regenerate the paper.
  */
-async function replaceQuestionNode({
+export async function replaceQuestionNode({
   editor,
   getPos,
   node,
@@ -143,12 +143,16 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode, editor, getPos 
     : "";
 
   // Replace is offered only on generated questions: a hand-written one has no
-  // blueprint slot to regenerate against.
-  const [replacing, setReplacing] = useState(false);
+  // blueprint slot to regenerate against. The block advertises this; the
+  // floating menu reads it and shows or hides the Swap action accordingly.
   const canReplace = Boolean(parseSlotMeta(node.attrs?.slotMeta));
 
   return (
-    <NodeViewWrapper className="question-block group">
+    <NodeViewWrapper
+      className="question-block group"
+      data-question-block="true"
+      data-can-replace={canReplace ? "true" : "false"}
+    >
       {editor?.isEditable && (
         <div
           data-drag-handle
@@ -197,40 +201,11 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode, editor, getPos 
           <span className="question-marks-label">M</span>
         </div>
       </div>
-      {editor?.isEditable && (
-        <div className="question-controls" contentEditable={false}>
-          {canReplace && (
-            <button
-              onClick={() =>
-                replaceQuestionNode({
-                  editor,
-                  getPos,
-                  node,
-                  onBusy: setReplacing,
-                })
-              }
-              onMouseDown={(e) => e.preventDefault()}
-              disabled={replacing}
-              className="question-replace"
-              title="Replace this question — same marks, type and section"
-            >
-              {replacing ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <RefreshCw className="w-3 h-3" />
-              )}
-            </button>
-          )}
-          <button
-            onClick={deleteNode}
-            onMouseDown={(e) => e.preventDefault()}
-            className="question-delete"
-            title="Delete question"
-          >
-            <Trash className="w-3 h-3" />
-          </button>
-        </div>
-      )}
+      {/* Actions live in the floating menu (components/editor/question-hover-menu.tsx),
+          not in a permanent icon column beside every question. See the note
+          there on why. The block advertises what the menu needs via data
+          attributes so the editor can drive it by DOM delegation rather than
+          threading callbacks through every NodeView. */}
     </NodeViewWrapper>
   );
 };
@@ -383,6 +358,8 @@ const GroupedQuestionComponent = ({ node, updateAttributes, deleteNode, editor, 
   return (
     <NodeViewWrapper
       className="question-block grouped-question-block group"
+      data-question-block="true"
+      data-can-replace="false"
       data-label-style={labelStyle}
     >
       {editor?.isEditable && (
@@ -464,14 +441,10 @@ const GroupedQuestionComponent = ({ node, updateAttributes, deleteNode, editor, 
           >
             <Plus className="w-3 h-3" />
           </button>
-          <button
-            onClick={deleteNode}
-            onMouseDown={(e) => e.preventDefault()}
-            className="question-delete"
-            title="Delete question"
-          >
-            <Trash className="w-3 h-3" />
-          </button>
+          {/* Delete lives in the floating menu, so both question kinds are
+              deleted the same way. The two controls above stay: they are
+              structural and specific to a grouped question, with no
+              equivalent action on a plain one. */}
         </div>
       )}
     </NodeViewWrapper>

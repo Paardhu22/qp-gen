@@ -1,6 +1,12 @@
 "use client";
 
-import { GeneratorForm } from "@/components/generator-form";
+import { BlueprintModal, type BlueprintSubmission } from "@/components/blueprint/blueprint-modal";
+import { ReviewTray } from "@/components/review-tray";
+import { DocumentOutline } from "@/components/editor/document-outline";
+import { GenerateDock } from "@/components/editor/generate-dock";
+import { HsatSourcePicker } from "@/components/hsat-source-picker";
+import { usePaperGeneration } from "@/lib/use-paper-generation";
+import { useSourceUploads } from "@/lib/use-source-uploads";
 import { TiptapEditor, normalizeInitialContent } from "@/components/tiptap-editor";
 import { ComparisonWorkspace } from "@/components/comparison-workspace";
 import { useEditorStore } from "@/store/editor-store";
@@ -20,8 +26,7 @@ import { Label } from "@/components/ui/label";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2, PanelLeftOpen, Zap, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { X } from "lucide-react";
 import {
   savePaperAction,
   updatePaperAction,
@@ -137,6 +142,10 @@ export default function EditorPage() {
   const [editorInstanceKey, setEditorInstanceKey] = useState(0);
 
   const clearComparisonSets = useEditorStore((s) => s.clearComparisonSets);
+  // Drives the review tray's visibility. Read here rather than inside the tray
+  // so an empty tray costs nothing to render.
+  const insertionMode = useEditorStore((s) => s.insertionMode);
+  const generatedTray = useEditorStore((s) => s.generatedTray);
   const setGlobalSaveState = useEditorStore((s) => s.setSaveState);
   const awaitingGeneratedPaper = useEditorStore((s) => s.awaitingGeneratedPaper);
   const consumeGeneratedPaperHandoff = useEditorStore(
@@ -192,81 +201,90 @@ export default function EditorPage() {
     setEditorInstanceKey((k) => k + 1);
   }, [sessionData?.user?.id, clearComparisonSets, setGlobalSaveState]);
 
-  // Resizable sidebar
-  const SIDEBAR_MIN = 260;
-  const SIDEBAR_MAX = 600;
-  const SIDEBAR_DEFAULT = 360;
-  const STORAGE_KEY = "editor-sidebar-width";
+  // ── The Blueprint Builder ─────────────────────────────────────────────
+  // The resizable generator sidebar and its mobile drawer are gone: paper
+  // configuration is a modal over the editor now, so the page below is full
+  // width and there is exactly one place a paper is set up.
+  const [blueprintOpen, setBlueprintOpen] = useState(false);
+  const [hsatPickerOpen, setHsatPickerOpen] = useState(false);
+  // A plain-English brief typed into the Studio dock, handed to the Builder so
+  // it opens on a resolved blueprint instead of an empty template picker.
+  const [builderBrief, setBuilderBrief] = useState("");
 
-  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
-    if (typeof window === "undefined") return SIDEBAR_DEFAULT;
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const n = parseInt(saved, 10);
-      if (!isNaN(n) && n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) return n;
-    }
-    return SIDEBAR_DEFAULT;
+  // ── Panel state ───────────────────────────────────────────────────────
+  // Held here, not inside the panels: the editor remounts on every set-tab
+  // switch and would otherwise reset them. Both default open — the point of
+  // the layout is that the document's structure and the way to generate one
+  // are visible without hunting.
+  const [outlineOpen, setOutlineOpen] = useState(true);
+  const [dockOpen, setDockOpen] = useState(true);
+
+  const openBuilder = useCallback((brief?: string) => {
+    setBuilderBrief(brief ?? "");
+    setBlueprintOpen(true);
+  }, []);
+
+  // Uploads live on the page, not in the modal: a teacher who starts a large
+  // upload and closes the Builder must come back to a finished upload.
+  const uploads = useSourceUploads(uploadedDocs, setUploadedDocs);
+
+  const generation = usePaperGeneration({
+    onSourcesNotReady: uploads.reconcileNotReady,
   });
 
-  // Mobile (< lg): the generator panel is an off-canvas left drawer toggled
-  // from the editor status bar instead of an inline resizable sidebar.
-  const [genDrawerOpen, setGenDrawerOpen] = useState(false);
+  // Streamed questions waiting on a decision. They render inside the Studio
+  // dock (see its `review` prop) rather than in a floating panel, so the
+  // effect below opens the dock — otherwise a run that finishes while the
+  // rail is collapsed would stage questions into a surface nobody can see.
+  // Multi-set runs review in the Comparison Workspace instead, so the two
+  // never compete for the screen.
+  const reviewPending =
+    insertionMode === "review" &&
+    !generation.multiSetMode &&
+    generatedTray.length > 0;
+
   useEffect(() => {
-    if (!genDrawerOpen) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setGenDrawerOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = previous;
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [genDrawerOpen]);
+    if (reviewPending) setDockOpen(true);
+  }, [reviewPending]);
 
-  const isDragging = useRef(false);
-  const dragStartX = useRef(0);
-  const dragStartWidth = useRef(0);
+  const handleGenerate = useCallback(
+    async (submission: BlueprintSubmission) => {
+      if (uploads.isBusy) {
+        toast.error(
+          "A source is still being prepared. Wait for it to finish, then generate.",
+        );
+        return;
+      }
+      const notReadyHsat = hsatSources.find((s) => s.status !== "ready");
+      if (notReadyHsat) {
+        toast.error(
+          `${notReadyHsat.book} is still being prepared. Wait for it to finish, then generate.`,
+        );
+        return;
+      }
 
-  const onDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      isDragging.current = true;
-      dragStartX.current = e.clientX;
-      dragStartWidth.current = sidebarWidth;
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
+      // Close before streaming, not after: generation runs for minutes and
+      // the questions land in the editor behind the modal. Holding the
+      // overlay open would hide the very thing the teacher is waiting for.
+      setBlueprintOpen(false);
+
+      await generation.generate({
+        pdfSourceIds: uploadedDocs.map((d) => d.id),
+        hsatSourceIds: hsatSources.map((s) => s.id),
+        subject: submission.settings.subject,
+        academicClass: submission.settings.academicClass,
+        board: submission.settings.board,
+        difficulty: submission.settings.difficulty,
+        numberOfSets: submission.settings.numberOfSets,
+        mathLevel: submission.settings.mathLevel,
+        instructions: submission.instructions,
+        blueprint: { slots: submission.blueprint.slots },
+        templateId: submission.templateId,
+      });
     },
-    [sidebarWidth],
+    [generation, hsatSources, uploadedDocs, uploads.isBusy],
   );
 
-  useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isDragging.current) return;
-      const delta = e.clientX - dragStartX.current;
-      const next = Math.min(
-        SIDEBAR_MAX,
-        Math.max(SIDEBAR_MIN, dragStartWidth.current + delta),
-      );
-      setSidebarWidth(next);
-    };
-    const onMouseUp = () => {
-      if (!isDragging.current) return;
-      isDragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      setSidebarWidth((prev) => {
-        localStorage.setItem(STORAGE_KEY, String(prev));
-        return prev;
-      });
-    };
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, []);
 
   const searchParams = useSearchParams();
   // The URL must only ever carry a BASE paper id. A set suffix reaching it
@@ -893,129 +911,122 @@ export default function EditorPage() {
     );
   };
 
+  // ── Document tabs ─────────────────────────────────────────────────────
+  // The A/B/C sets, as the document panel lists them. Always at least one:
+  // a single-set paper still has a tab, exactly as a Docs document does, so
+  // the panel never renders a heading over nothing.
+  const setTabs = (() => {
+    const activeSets =
+      comparisonSets.length > 0 ? comparisonSets : loadedSets;
+    if (activeSets.length > 1) {
+      return activeSets.map((set: any) => {
+        const id = set.label.replace("Set ", "");
+        return { id, label: `Set ${id}` };
+      });
+    }
+    return [{ id: "A", label: "Set A" }];
+  })();
+
   return (
-    <div className="flex h-full min-h-0 w-full overflow-hidden bg-background">
+    <div className="relative isolate flex h-full min-h-0 w-full overflow-hidden bg-background">
       {/* Comparison Workspace — full-screen overlay for multi-set review.
           Self-gates on store state (comparisonOpen && >=2 sets); inserts route
           through the same store append plumbing as the editor below. */}
       <ComparisonWorkspace />
 
-      {/* Mobile backdrop for the generator drawer */}
-      {genDrawerOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
-          onClick={() => setGenDrawerOpen(false)}
-          aria-hidden="true"
-        />
-      )}
+      {/* The review tray's small-screen home. Below `lg` the Studio dock is a
+          rail with no panel to hold it (there is no room for one beside a
+          794px page), so it falls back to the docked sheet it used to be.
+          `ReviewTray` reads the store and runs no mount effects, so having it
+          in both places costs nothing but the markup — and exactly one of them
+          is ever visible. */}
+      {reviewPending ? (
+        <aside className="fixed bottom-0 right-0 z-40 flex max-h-[70vh] w-full flex-col overflow-y-auto border-l border-t border-border bg-background shadow-2xl sm:w-[380px] sm:rounded-tl-xl lg:hidden">
+          <ReviewTray />
+        </aside>
+      ) : null}
 
-      {/* Left Panel: Generator Form — inline resizable sidebar on lg+,
-          off-canvas drawer below lg. The dynamic px width is applied via a
-          CSS var (`--sb-w`) so the `lg:` width utility wins without an inline
-          `width` clobbering the mobile `w-[88%]`. */}
-      <div
-        className={cn(
-          "bg-background flex flex-col overflow-hidden",
-          "fixed inset-y-0 left-0 z-50 w-[88%] max-w-sm shadow-2xl transition-transform duration-300 ease-out pt-safe pb-safe",
-          genDrawerOpen ? "translate-x-0" : "-translate-x-full",
-          "lg:static lg:z-auto lg:h-full lg:w-[var(--sb-w)] lg:max-w-none lg:flex-shrink-0 lg:translate-x-0 lg:shadow-none lg:pt-0 lg:pb-0",
-        )}
-        style={{ "--sb-w": `${sidebarWidth}px` } as React.CSSProperties}
-      >
-        {/* Mobile-only drawer header with close */}
-        <div className="flex items-center justify-between gap-2 border-b border-border px-4 h-14 shrink-0 lg:hidden">
-          <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <Zap className="h-4 w-4 text-primary" />
-            Generate &amp; Sources
-          </span>
-          <button
-            type="button"
-            onClick={() => setGenDrawerOpen(false)}
-            aria-label="Close generator panel"
-            className="inline-flex items-center justify-center h-10 w-10 -mr-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="flex-1 min-h-0">
-          <GeneratorForm
-            uploadedDocs={uploadedDocs}
-            setUploadedDocs={setUploadedDocs}
-            hsatSources={hsatSources}
-            setHsatSources={setHsatSources}
-          />
-        </div>
-      </div>
+      {/* The Blueprint Builder — the one place a paper is configured.
+          Mounted here rather than inside the editor so it survives the editor
+          remounting between set tabs, and so an upload started inside it
+          continues when it closes. */}
+      <BlueprintModal
+        open={blueprintOpen}
+        onOpenChange={setBlueprintOpen}
+        initialInstructions={builderBrief}
+        onGenerate={handleGenerate}
+        generating={generation.isGenerating}
+        uploadedDocs={uploadedDocs}
+        uploadingDocs={uploads.uploadingDocs}
+        hsatSources={hsatSources}
+        onFiles={uploads.uploadFiles}
+        onRemoveDoc={uploads.removeDoc}
+        onDismissUpload={uploads.dismissUpload}
+        onRemoveHsat={(id) =>
+          setHsatSources((prev) => prev.filter((s) => s.id !== id))
+        }
+        onOpenHsatPicker={() => setHsatPickerOpen(true)}
+      />
 
-      {/* Drag handle — desktop only */}
-      <div
-        onMouseDown={onDragStart}
-        className="hidden lg:block flex-shrink-0 w-px h-full cursor-col-resize group relative z-20 bg-border hover:bg-primary/50 transition-colors"
-        title="Drag to resize"
-      >
-        <div className="absolute inset-y-0 -left-2 -right-2 z-0" />
-        <div className="z-10 w-1.5 h-8 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border/50 opacity-0 group-hover:opacity-100 group-hover:bg-primary/50 transition-all pointer-events-none" />
-      </div>
+      {/* The library picker, opened from inside the Builder's Sources step.
+          It is no longer a top-level toolbar button: an HSAT book and an
+          uploaded PDF both end up as DocumentChunk rows, so presenting them
+          as different kinds of action made one thing look like two. */}
+      <HsatSourcePicker
+        open={hsatPickerOpen}
+        onOpenChange={setHsatPickerOpen}
+        paperId={currentPaperId}
+        appliedIds={hsatSources.map((s) => s.id)}
+        onApply={(source) =>
+          setHsatSources((prev) => [
+            ...prev.filter((s) => s.id !== source.id),
+            source,
+          ])
+        }
+      />
 
-      {/* Right Panel: Tiptap Editor */}
-      <div className="flex-1 min-w-0 bg-muted/30 h-full flex flex-col overflow-hidden">
-        <div className="h-10 min-h-10 px-2 sm:px-4 flex items-center gap-2 border-b border-border bg-muted/50 text-[10px] uppercase tracking-wider font-medium text-muted-foreground flex-shrink-0">
-          {/* Mobile: open the generator/sources drawer */}
-          <button
-            type="button"
-            onClick={() => setGenDrawerOpen(true)}
-            className="lg:hidden inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-semibold normal-case tracking-normal text-primary dark:text-primary hover:bg-accent"
-          >
-            <PanelLeftOpen className="h-3.5 w-3.5" />
-            Generate
-          </button>
-          <span className="truncate min-w-0">
-          {paperLoading ? (
-            <span className="inline-flex items-center gap-2">
-              <span className="h-3 w-24 bg-muted rounded animate-pulse" />
-            </span>
-          ) : paperError ? (
-            <span className="text-destructive">{paperError}</span>
-          ) : loadedPaperTitle ? (
-            <>
-              <span className="text-muted-foreground mr-2">Editing:</span>
-              <span className="text-foreground">
-                {loadedPaperTitle}
+      {/* The editor. A document window, in the order a word processor builds
+          one: the document's name, then the toolbar (rendered inside
+          TiptapEditor), then the page flanked by its panels. */}
+      <div className="relative z-10 flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Document name. Its own row above the toolbar, the way every editor
+            does it — not a status line squeezed into small caps. */}
+        <div className="flex h-11 min-h-11 flex-shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:px-4">
+          <span className="min-w-0 truncate text-[14px]">
+            {paperLoading ? (
+              <span className="block h-3.5 w-40 animate-pulse rounded bg-muted" />
+            ) : paperError ? (
+              <span className="text-destructive">{paperError}</span>
+            ) : (
+              <span className="font-medium text-foreground">
+                {loadedPaperTitle || "Untitled paper"}
               </span>
-            </>
-          ) : (
-            "New Document"
-          )}
+            )}
           </span>
         </div>
-        
-        {(() => {
-          const activeSets = comparisonSets.length > 0 ? comparisonSets : loadedSets;
-          if (activeSets.length > 1) {
-            return (
-              <div className="flex items-center gap-2 px-2 bg-muted/20 border-b border-border overflow-x-auto custom-scrollbar flex-shrink-0">
-                {activeSets.map(set => {
-                  const labelNormalized = set.label.replace("Set ", "");
-                  return (
-                    <button
-                      key={labelNormalized}
-                      onClick={() => setActiveSetTab(labelNormalized)}
-                      className={cn(
-                        "px-4 py-2 text-[13px] font-semibold border-b-2 transition-colors",
-                        activeSetTab === labelNormalized ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                      )}
-                    >
-                      Set {labelNormalized}
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          }
-          return null;
-        })()}
 
         <TiptapEditor
+          leftPanel={
+            <DocumentOutline
+              tabs={setTabs}
+              activeTab={activeSetTab}
+              onSelectTab={setActiveSetTab}
+              open={outlineOpen}
+              onOpenChange={setOutlineOpen}
+            />
+          }
+          rightPanel={
+            <GenerateDock
+              open={dockOpen}
+              onOpenChange={setDockOpen}
+              onOpenBuilder={openBuilder}
+              generating={generation.isGenerating}
+              status={generation.poolStatus}
+              insertedCount={generation.liveInsertedCount}
+              sourceCount={uploadedDocs.length + hsatSources.length}
+              review={reviewPending ? <ReviewTray /> : null}
+            />
+          }
           // `approvedAt` is part of the key so approving a NEW generation
           // remounts the editor. Without it the tab keeps the previous
           // paper's document and the approval appears to do nothing.

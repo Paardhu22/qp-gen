@@ -888,14 +888,185 @@ export async function designPaper(body: {
   });
 }
 
+// ── Templates & blueprints ─────────────────────────────────────────────────
+//
+// A template is now the ONLY way a paper's structure is chosen — "QP Type" is
+// gone, and what used to be Board Mode / General Instructions Mode are two
+// entries in the same picker. See backend `services/templates.py`.
+
+/** Where one question slot's content comes from. */
+export type SlotSource = "generate" | "saved";
+
+/** One question position, as the Blueprint Builder edits it. */
+export interface BlueprintSlot {
+  index: number;
+  sectionTitle: string;
+  questionType: string;
+  marks: number;
+  source: SlotSource;
+  choiceRequired: boolean;
+  /** Engine fields the Builder does not show. Round-trip untouched. */
+  passthrough?: Record<string, unknown>;
+}
+
+/**
+ * Totals arrive computed from the slots — the backend never echoes back a
+ * total the client sent. Treat them as read-only: to change a total, change
+ * the slots.
+ */
+export interface Blueprint {
+  slots: BlueprintSlot[];
+  totalQuestions: number;
+  totalMarks: number;
+  generatedCount: number;
+  savedCount: number;
+  byType: Record<string, number>;
+  bySection: { title: string; questions: number; marks: number }[];
+}
+
+export const EMPTY_BLUEPRINT: Blueprint = {
+  slots: [],
+  totalQuestions: 0,
+  totalMarks: 0,
+  generatedCount: 0,
+  savedCount: 0,
+  byType: {},
+  bySection: [],
+};
+
+/** A built-in starting point. Generated server-side; never a stored row. */
+export interface BuiltinTemplate {
+  id: string;
+  name: string;
+  description: string;
+  kind: "cbse_blueprint" | "blank" | "instructions";
+  builtin: true;
+  board: string;
+  academicClass: string;
+  subject: string;
+  settings: Record<string, string>;
+}
+
 export interface PaperTemplate {
   id: string;
   name: string;
   instructions: string;
   settings: Record<string, string>;
+  blueprint: Blueprint;
+  /** True when the teacher edited slots, so the stored blueprint is authoritative. */
+  pinned: boolean;
+  builtin: false;
+  base_template_id: string;
+  source_config: Record<string, unknown>;
   last_used_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Anything the picker can show. Switch on `builtin` to tell them apart. */
+export type PickableTemplate = BuiltinTemplate | PaperTemplate;
+
+export interface QuestionTypeOption {
+  code: string;
+  label: string;
+  group: string;
+  defaultMarks: number;
+}
+
+/** Built-ins and the teacher's own, in one call — the picker shows one grid. */
+export async function fetchTemplateCatalog(params?: {
+  subject?: string;
+  academicClass?: string;
+}): Promise<{ templates: PaperTemplate[]; builtin: BuiltinTemplate[] }> {
+  const query = new URLSearchParams();
+  if (params?.subject) query.set("subject", params.subject);
+  if (params?.academicClass) query.set("class", params.academicClass);
+  const suffix = query.toString() ? `?${query}` : "";
+  const data = await fetchJson<{
+    templates: PaperTemplate[];
+    builtin: BuiltinTemplate[];
+  }>(`/api/generation/templates${suffix}`, { method: "GET" });
+  return { templates: data.templates ?? [], builtin: data.builtin ?? [] };
+}
+
+/**
+ * Compile a template into an editable blueprint. Writes nothing, so browsing
+ * the picker never commits the teacher to anything.
+ */
+export async function resolveTemplate(body: {
+  templateId: string;
+  subject?: string;
+  academicClass?: string;
+  difficulty?: string;
+  instructions?: string;
+  savedCount?: number;
+}): Promise<{ blueprint: Blueprint; template?: PaperTemplate }> {
+  return fetchJson<{ blueprint: Blueprint; template?: PaperTemplate }>(
+    "/api/generation/templates/resolve",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * The per-slot type menu for the Blueprint Builder. Served so the
+ * subject-appropriate mapping can change server-side.
+ *
+ * Distinct from `fetchQuestionTypes` above, which returns the `QuestionType`
+ * DB vocabulary used for classifying saved questions. Same words, different
+ * jobs: this one is a menu a teacher picks from.
+ */
+export async function fetchQuestionTypeMenu(
+  subject?: string,
+): Promise<QuestionTypeOption[]> {
+  const suffix = subject ? `?subject=${encodeURIComponent(subject)}` : "";
+  const data = await fetchJson<{ questionTypes: QuestionTypeOption[] }>(
+    `/api/generation/question-types${suffix}`,
+    { method: "GET" },
+  );
+  return data.questionTypes ?? [];
+}
+
+// ── On-demand question images ──────────────────────────────────────────────
+
+export type QuestionImageStyle = "line_art" | "realistic" | "cartoon";
+
+export interface QuestionImageStyleOption {
+  value: QuestionImageStyle;
+  label: string;
+  description: string;
+}
+
+/** The style picker's options. Served so adding one needs no frontend release. */
+export async function fetchQuestionImageStyles(): Promise<
+  QuestionImageStyleOption[]
+> {
+  const data = await fetchJson<{ styles: QuestionImageStyleOption[] }>(
+    "/api/generation/question-image",
+    { method: "GET" },
+  );
+  return data.styles ?? [];
+}
+
+/**
+ * Draw a figure for one question.
+ *
+ * Slow — image generation is tens of seconds — so the caller must show
+ * progress. `timeoutMs` is raised well above the default for that reason: the
+ * default would abort a request that was going to succeed.
+ */
+export async function generateQuestionImage(body: {
+  questionText: string;
+  style: QuestionImageStyle;
+}): Promise<{ imageUrl: string; style: QuestionImageStyle; cached: boolean }> {
+  return fetchJson<{
+    imageUrl: string;
+    style: QuestionImageStyle;
+    cached: boolean;
+  }>("/api/generation/question-image", {
+    method: "POST",
+    body: JSON.stringify(body),
+    timeoutMs: 180_000,
+  });
 }
 
 export async function fetchPaperTemplates(): Promise<PaperTemplate[]> {
@@ -906,11 +1077,19 @@ export async function fetchPaperTemplates(): Promise<PaperTemplate[]> {
   return data.templates ?? [];
 }
 
-/** Save, or overwrite the template of the same name. */
+/**
+ * Save, or overwrite the template of the same name.
+ *
+ * Either `instructions` or `blueprint` is required — a teacher who edited
+ * slots should not also have to write prose describing what they did.
+ */
 export async function savePaperTemplate(body: {
   name: string;
-  instructions: string;
+  instructions?: string;
   settings?: Record<string, string>;
+  blueprint?: { slots: BlueprintSlot[] };
+  baseTemplateId?: string;
+  sourceConfig?: Record<string, unknown>;
 }): Promise<PaperTemplate> {
   const data = await fetchJson<{ template: PaperTemplate }>(
     "/api/generation/templates",
