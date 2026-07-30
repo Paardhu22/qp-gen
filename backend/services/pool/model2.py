@@ -192,9 +192,24 @@ def _score_question(
     vi_required: bool = False,
     asset_type: str = "",
     image_required: bool = False,
+    prefer_source: str = "",
+    is_from_bank: bool = False,
 ) -> float:
     """Higher is better. Every term pushes toward a well-spread paper."""
     score = 0.0
+
+    # The teacher's saved-vs-generated split, expressed per slot.
+    #
+    # A PREFERENCE, not a filter, and deliberately so: a hard filter turns a
+    # thin bank into unfilled slots, and a teacher who asked for "12 from my
+    # bank" wants twelve questions far more than they want twelve provably
+    # banked ones. Weighted above the diversity terms so it wins whenever the
+    # bank can actually supply the slot, and the pipeline reports what it
+    # managed so the teacher is never misled about which they got.
+    if prefer_source == "saved":
+        score += 8.0 if is_from_bank else -8.0
+    elif prefer_source == "generate":
+        score += 8.0 if not is_from_bank else -8.0
 
     # A figure slot prefers a question that actually carries a figure.
     #
@@ -276,6 +291,7 @@ def build_candidates(
     alternates: int = DEFAULT_ALTERNATES,
     difficulty: str = "medium",
     seed: Optional[int] = None,
+    fresh_pool_id: str = "",
 ) -> Tuple[List[SlotAssignment], List[UnfilledSlot]]:
     """Assign a question to every slot, plus `alternates` runners-up.
 
@@ -297,6 +313,11 @@ def build_candidates(
     A slot may end up with fewer than `alternates` alternates (or none) when
     the pool is thin. That is deliberate: an unfillable alternate is not worth
     starving a slot for.
+
+    `fresh_pool_id` identifies questions written by THIS run; everything else
+    in the pool came from the user's bank. That is what lets a slot honour the
+    Blueprint Builder's per-slot source without the pool carrying a second
+    provenance field.
     """
     rng = random.Random(seed if seed is not None else 0xA05)
 
@@ -316,12 +337,20 @@ def build_candidates(
     unfilled: List[UnfilledSlot] = []
     total_slots = max(1, len(plan))
 
+    def _is_from_bank(question: PoolQuestion) -> bool:
+        # No fresh pool id means every question came from the bank (the
+        # paper-from-bank path), so nothing is "fresh" to prefer.
+        if not fresh_pool_id:
+            return True
+        return question.pool_id != fresh_pool_id
+
     def _rank(
         candidates: List[PoolQuestion],
         *,
         vi_required: bool = False,
         asset_type: str = "",
         image_required: bool = False,
+        prefer_source: str = "",
     ) -> List[PoolQuestion]:
         return sorted(
             candidates,
@@ -337,6 +366,8 @@ def build_candidates(
                 vi_required=vi_required,
                 asset_type=asset_type,
                 image_required=image_required,
+                prefer_source=prefer_source,
+                is_from_bank=_is_from_bank(q),
             ),
             reverse=True,
         )
@@ -360,6 +391,7 @@ def build_candidates(
             vi_required=bool(getattr(slot, "vi_required", False)),
             asset_type=str(getattr(slot, "asset_type", "") or ""),
             image_required=_slot_wants_image(slot),
+            prefer_source=str(getattr(slot, "source", "") or ""),
         )[0]
         used_ids.add(chosen.id)
         used_topics[(chosen.topic or "").strip().lower()] += 1
@@ -589,6 +621,7 @@ def assemble_paper(
     seed: Optional[int] = None,
     model: Optional[str] = None,
     user=None,
+    fresh_pool_id: str = "",
 ) -> AssembledPaper:
     """Select and order questions from `pool` to satisfy `plan`.
 
@@ -608,7 +641,12 @@ def assemble_paper(
         )
 
     assignments, unfilled = build_candidates(
-        eligible, plan, alternates=alternates, difficulty=difficulty, seed=seed
+        eligible,
+        plan,
+        alternates=alternates,
+        difficulty=difficulty,
+        seed=seed,
+        fresh_pool_id=fresh_pool_id,
     )
 
     paper = AssembledPaper(assignments=assignments, unfilled=unfilled)

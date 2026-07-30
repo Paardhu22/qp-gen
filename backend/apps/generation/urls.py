@@ -5,6 +5,9 @@ from .design_views import (
     DesignPaperView,
     PaperTemplateDetailView,
     PaperTemplateListView,
+    QuestionImageView,
+    QuestionTypeCatalogView,
+    TemplateResolveView,
 )
 from .views import (
     AnswerKeyView,
@@ -29,6 +32,13 @@ urlpatterns = [
     # while the teacher is still typing.
     path("design-paper", DesignPaperView.as_view(), name="design-paper"),
     path("templates", PaperTemplateListView.as_view(), name="paper-templates"),
+    # Compile a template (built-in or saved) into an editable blueprint. Writes
+    # nothing — browsing the picker must not commit the teacher to anything.
+    path("templates/resolve", TemplateResolveView.as_view(), name="template-resolve"),
+    # The per-slot question-type menu for the Blueprint Builder.
+    path("question-types", QuestionTypeCatalogView.as_view(), name="question-types"),
+    # Draw a figure for one question, on request from the editor's hover menu.
+    path("question-image", QuestionImageView.as_view(), name="question-image"),
     path(
         "templates/<str:template_id>",
         PaperTemplateDetailView.as_view(),

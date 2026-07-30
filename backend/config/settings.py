@@ -394,29 +394,42 @@ CHAPTER_MD_MAX_CHARS = _int_env(
 )
 
 # ─── How big a pool Model 1 writes ─────────────────────────────────────────
-# Model 2 selects; it never writes. So the only thing that decides whether it
-# has real choice is how far the pool over-provisions the blueprint. The target
-# is never below two questions per textbook slot, and never below the floor
-# here — which itself climbs from POOL_TARGET_MIN to POOL_TARGET_MAX with how
-# much context the run actually has (chapter count, paper size). More source
-# material and more slots both mean the pool has to spread further before a
-# selection is genuinely a selection.
+# Exactly what the paper needs, plus only the spares something requires: one
+# per OR-choice slot, enough to derive Sets B/C when more than one set is
+# asked for, and this margin. See `pipeline._exact_pool_target`.
 #
-# These replace the previous flat floor of 40. Raising them costs Model 1
-# completion tokens roughly linearly and does NOT change the number of API
-# calls (the recipe is always four parallel batches), so the marginal cost of
-# a bigger pool is small — and every question lands in the user's bank, where
-# "Create Paper from Saved Questions" reuses it for free.
-POOL_TARGET_MIN = _int_env("POOL_TARGET_MIN", 80, minimum=1, maximum=400)
-POOL_TARGET_MAX = _int_env("POOL_TARGET_MAX", 90, minimum=1, maximum=400)
-# A max below the min is a typo, not an instruction.
-POOL_TARGET_MAX = max(POOL_TARGET_MIN, POOL_TARGET_MAX)
+# The margin is not padding. Model 1 output is normalised before it enters the
+# pool — malformed objects dropped, duplicates dropped by content hash, a batch
+# able to fail all its retries — so asking for exactly N reliably yields
+# slightly under N. A paper that is silently three questions short is a worse
+# outcome than a few unused questions, and unused ones are banked for reuse
+# rather than wasted.
+#
+# Set to 0 for literally-exact generation, accepting occasional short papers.
+POOL_EXACT_MARGIN_PERCENT = _int_env(
+    "POOL_EXACT_MARGIN_PERCENT", 15, minimum=0, maximum=100
+)
 
-# NOTE: image-bearing question generation was removed from the generation
-# cycle. The settings that configured it (IMAGE_QUESTION_STRATEGY,
-# IMAGE_QUESTIONS_PER_POOL, OPENAI_IMAGE_*, IMAGE_COST_USD_PER_IMAGE) are gone
-# along with services/pool/image_model.py; nothing reads them. If they are
-# still set in a deployment's .env they are simply ignored.
+# ─── On-demand question images (services/question_image.py) ────────────────
+# Nothing is drawn during generation. A teacher picks a question in the editor,
+# chooses a style, and pays for exactly that one image — so there is no
+# per-pool cap to configure and no strategy to pick. The speculative image
+# stage that used to run between Model 1 and Model 2 (IMAGE_QUESTION_STRATEGY,
+# IMAGE_QUESTIONS_PER_POOL, IMAGE_COST_USD_PER_IMAGE) is gone; those settings
+# are ignored if still present in a deployment's .env.
+#
+# Quality is `high` deliberately. A low-tier render draws label text as
+# approximate letter shapes, and a student cannot answer "identify the part
+# marked B" when B is a smudge — a cheap image on a labelled figure is not a
+# cheaper question, it is a broken one. Cost is now bounded by the teacher
+# asking, which is the right lever.
+OPENAI_IMAGE_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
+OPENAI_IMAGE_SIZE = os.environ.get("OPENAI_IMAGE_SIZE", "1024x1024")
+OPENAI_IMAGE_QUALITY = os.environ.get("OPENAI_IMAGE_QUALITY", "high").strip().lower()
+# Process-wide ceiling on concurrent image requests. Image generation is slow
+# and expensive; a burst from one impatient teacher is the fastest way to hit
+# the org's rate limit.
+OPENAI_IMAGE_CONCURRENCY = _int_env("OPENAI_IMAGE_CONCURRENCY", 1, minimum=1, maximum=4)
 
 # ---------------------------------------------------------------------------
 # Cache — Elasticache-ready (statelessness pass P3).

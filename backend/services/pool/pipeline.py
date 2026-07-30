@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import queue
 import threading
 import time
@@ -510,40 +511,66 @@ def _allocate_targets(
     return allocation
 
 
-def _contextual_pool_target(
-    *, slot_count: int, chapters: Sequence[Chapter]
-) -> int:
-    """How many questions Model 1 should write for this generation.
+def _exact_pool_target(*, slots: Sequence[Any], num_sets: int = 1) -> int:
+    """Exactly what the paper needs, plus only the spares something requires.
 
-    Two rules, and the larger wins:
+    This replaced a pool of 80-90. Over-provisioning existed so Model 2 could
+    *select*, but with the Blueprint Builder the teacher has already decided
+    what each slot is — so writing 90 questions to place 38 was paying for 52
+    questions nobody asked for.
 
-    * never fewer than two questions per textbook slot, so Model 2 always has
-      an alternative for everything it places; and
-    * never below a floor that climbs from ``POOL_TARGET_MIN`` (80) to
-      ``POOL_TARGET_MAX`` (90) with how much context this run actually has.
+    Three things genuinely need a spare, and nothing else does:
 
-    The floor is contextual rather than flat because "enough choice" is not a
-    constant. One short chapter feeding a 20-slot test needs a smaller pool to
-    be well covered than six chapters feeding a full board paper, where the
-    same number of questions has to spread across far more ground before any
-    single slot has a real alternative to pick from.
+    ``base``
+        one question per slot routed to generation.
+    ``or_spares``
+        one more for every slot the blueprint marks ``choice_required``. A CBSE
+        internal choice ("attempt Q27 OR Q27a") is a second question, and a
+        slot that promises one without having it is a broken paper.
+    ``variant_spares``
+        Sets B and C are derived by swapping roughly
+        ``DEFAULT_REPLACE_FRACTION`` of the non-fixed slots for unused pool
+        questions. No spares, no Set B — so they are budgeted only when more
+        than one set is actually requested.
 
-    Two signals drive it, and the stronger one wins: how much source material
-    there is (chapter count) and how big the paper is (slot count). Either
-    alone being large is enough to want the wider pool.
+    ``margin`` is the one concession to reality rather than arithmetic. Model 1
+    output is normalised before it enters the pool: malformed objects are
+    dropped, duplicates are dropped by content hash, and a batch can fail all
+    its retries. Asking for exactly N reliably yields slightly under N, and a
+    paper that is silently three questions short is a worse outcome than a few
+    unused questions — which are banked for reuse anyway, so they are not
+    wasted, only early.
     """
-    floor_min = max(1, int(getattr(settings, "POOL_TARGET_MIN", 80)))
-    floor_max = max(floor_min, int(getattr(settings, "POOL_TARGET_MAX", 90)))
+    from services.pool.set_variants import (
+        DEFAULT_FIXED_TYPES,
+        DEFAULT_REPLACE_FRACTION,
+    )
 
-    # Both normalised to 0.0–1.0. One chapter is the narrowest context there
-    # is; three or more is as wide as the floor cares about. Likewise 40 slots
-    # is a full board paper — past that the two-per-slot rule takes over anyway.
-    chapter_signal = min(1.0, max(0, len(chapters) - 1) / 2.0)
-    slot_signal = min(1.0, max(0, slot_count) / 40.0)
-    context = max(chapter_signal, slot_signal)
+    base = len(slots)
+    if base <= 0:
+        return 0
 
-    floor = floor_min + int(round((floor_max - floor_min) * context))
-    return max(slot_count * 2, floor)
+    or_spares = sum(
+        1 for slot in slots if bool(getattr(slot, "choice_required", False))
+    )
+
+    variant_spares = 0
+    extra_sets = max(0, int(num_sets) - 1)
+    if extra_sets:
+        replaceable = sum(
+            1
+            for slot in slots
+            if str(getattr(slot, "question_type", "") or "").upper()
+            not in DEFAULT_FIXED_TYPES
+        )
+        variant_spares = (
+            math.ceil(replaceable * DEFAULT_REPLACE_FRACTION) * extra_sets
+        )
+
+    margin_percent = max(0, int(getattr(settings, "POOL_EXACT_MARGIN_PERCENT", 15)))
+    margin = math.ceil(base * margin_percent / 100)
+
+    return base + or_spares + variant_spares + margin
 
 
 def _build_generation_units(
@@ -684,6 +711,29 @@ def stream_pool_questions(
             yield _sse(build_not_ready_payload(pending_sources), event="error")
             return
 
+    # ── An edited blueprint wins over everything ────────────────────────
+    # The Blueprint Builder sends the slot list the teacher actually reviewed.
+    # When it is present nothing else decides the structure — not the CBSE
+    # engine, not the prose designer — because re-deriving here could return a
+    # different paper than the one they approved, and silently discard every
+    # slot they changed.
+    #
+    # This is what replaced "QP Type". `qp_type` is still read below for
+    # clients that predate the Builder; it is no longer sent by the app.
+    submitted_blueprint = payload.get("blueprint")
+    resolved_plan: Optional[List[Any]] = None
+    if isinstance(submitted_blueprint, dict) and submitted_blueprint.get("slots"):
+        from services.templates import TemplateBlueprint, blueprint_to_plan
+
+        resolved_plan = blueprint_to_plan(
+            TemplateBlueprint.from_dict(submitted_blueprint)
+        )
+        logger.info(
+            "Using the submitted blueprint: %d slots, %d marks.",
+            len(resolved_plan),
+            sum(int(getattr(s, "marks", 0) or 0) for s in resolved_plan),
+        )
+
     qp_type = str(
         payload.get("qp_type") or payload.get("qpType") or ""
     ).strip().lower()
@@ -712,7 +762,32 @@ def stream_pool_questions(
     subject_norm = normalize_subject(subject_raw)
 
     # ── Blueprint ───────────────────────────────────────────────────────
-    if is_gim:
+    if resolved_plan is not None:
+        plan = list(resolved_plan)
+        subject_label = (
+            "Social Science" if subject_norm == "social science" else subject_raw
+        )
+        master_blueprint = (
+            f"{len(plan)} questions, "
+            f"{sum(int(getattr(s, 'marks', 0) or 0) for s in plan)} marks"
+        )
+        summary = {
+            "total_questions": len(plan),
+            "total_marks": sum(int(getattr(s, "marks", 0) or 0) for s in plan),
+        }
+        # The engine's instruction builder reads slot attributes `ResolvedSlot`
+        # provides, so a Builder-authored paper still gets a proper printed
+        # instruction block rather than a bare list of questions.
+        try:
+            general_instructions = build_general_instructions(
+                plan, subject_raw, class_num, instructions=instructions
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not build instructions for the submitted blueprint: %s", exc
+            )
+            general_instructions = []
+    elif is_gim:
         if not instructions.strip():
             yield _sse(
                 {
@@ -941,21 +1016,29 @@ def stream_pool_questions(
     )
 
     # ── Generation stage ────────────────────────────────────────────────
-    # The textbook pool is sized to over-provision its own slots so Model 2 has
-    # real choice — see `_contextual_pool_target`. That total is allocated
-    # across detected chapters instead of sending the whole upload to Model 1.
-    # Sizing off `textbook_slots` rather than the whole plan is what stops an
-    # English paper generating a full pool of Literature questions for the six
-    # slots that can actually use them.
+    # Only slots the Builder marked "generate" are written; slots marked
+    # "saved" are filled from the teacher's bank below, and paying Model 1 to
+    # write questions for them would defeat the point of asking.
+    #
+    # A slot with no `source` (every plan the blueprint engine compiles, and
+    # every pre-Builder client) counts as "generate", so nothing changes for a
+    # request that never heard of the split.
+    generate_slots = [
+        slot
+        for slot in textbook_slots
+        if str(getattr(slot, "source", "") or "generate") != "saved"
+    ]
+    bank_slots = [slot for slot in textbook_slots if slot not in generate_slots]
+
     pool_id = generate_id()
     target_total = (
-        _contextual_pool_target(slot_count=len(textbook_slots), chapters=chapters)
-        if textbook_slots
+        _exact_pool_target(slots=generate_slots, num_sets=num_sets)
+        if generate_slots
         else 0
     )
     units = (
         _build_generation_units(chapters, target_total=target_total)
-        if textbook_slots and chapters
+        if generate_slots and chapters
         else []
     )
     max_prompt_tokens = max((unit.chapter.estimated_tokens for unit in units), default=0)
@@ -1040,9 +1123,14 @@ def stream_pool_questions(
         # per-subject recipes never produce. Deriving Model 1's recipe from the
         # plan itself guarantees the pool can fill every slot. The tuned
         # Science/Maths/Social recipes still win for their board papers.
+        # `generate_slots`, not every textbook slot: a slot the teacher
+        # assigned to their bank must not also appear in Model 1's quota, or
+        # the "exact" count silently includes questions nobody will place.
         recipe_plan = (
-            textbook_slots
-            if is_gim or subject_norm in {"english", "hindi", "telugu", "sanskrit"}
+            generate_slots
+            if is_gim
+            or resolved_plan is not None
+            or subject_norm in {"english", "hindi", "telugu", "sanskrit"}
             else None
         )
 
@@ -1114,6 +1202,52 @@ def stream_pool_questions(
         yield _sse({"error": outcome["error"]}, event="error")
         return
 
+    # ── Saved questions ─────────────────────────────────────────────────
+    # Slots the teacher assigned to their bank. Loaded AFTER generation so the
+    # bank read cannot delay the expensive stage, and merged into one pool so
+    # Model 2 keeps a single input — the per-slot `source` preference is what
+    # steers each slot to the right half (see `model2._score_question`).
+    #
+    # Loaded broadly (subject + class, not chapter): a saved question is worth
+    # reusing whatever chapter it came from, and narrowing to this run's
+    # chapters is what would make a well-stocked bank look empty.
+    # Snapshot before the bank is merged in: only what this run WROTE gets
+    # persisted. Bank questions are already rows — re-saving them would be
+    # dedup work for no gain, and would touch `updated_at` on questions this
+    # paper merely borrowed.
+    generated_questions: List[PoolQuestion] = list(pool_questions)
+
+    bank_questions: List[PoolQuestion] = []
+    if bank_slots:
+        yield _sse(
+            {
+                "stage": "loading_bank",
+                "message": f"Finding {len(bank_slots)} question(s) in your bank…",
+            },
+            event="status",
+        )
+        try:
+            bank_questions = store.load_bank(
+                user=user, subject=subject_label, class_num=class_num
+            )
+        except Exception as exc:
+            logger.warning("Could not read the question bank: %s", exc, exc_info=True)
+
+        if not bank_questions:
+            yield _sse(
+                {
+                    "message": (
+                        f"Your bank has no saved {subject_label} questions for "
+                        f"Class {class_num} yet, so the {len(bank_slots)} slot(s) "
+                        "set to use it will be filled with newly written "
+                        "questions instead."
+                    )
+                },
+                event="warning",
+            )
+        else:
+            pool_questions.extend(bank_questions)
+
     if not pool_questions:
         yield _sse(
             {
@@ -1156,7 +1290,7 @@ def stream_pool_questions(
     # "Create Paper from Saved Questions" worth having.
     persist = _persist_pool_by_chapter(
         user=user,
-        questions=pool_questions,
+        questions=generated_questions,
         subject=subject_label,
         class_num=class_num,
     )
@@ -1201,6 +1335,9 @@ def stream_pool_questions(
             class_num=class_num,
             difficulty=difficulty,
             user=user,
+            # Tells Model 2 which questions this run wrote, so a slot the
+            # teacher marked "from my bank" can prefer one that genuinely is.
+            fresh_pool_id=pool_id,
         )
     except PaperAssemblyError as exc:
         yield _sse({"error": str(exc)}, event="error")
@@ -1256,14 +1393,28 @@ def stream_pool_questions(
             )
 
     if not is_gim:
-        result["generalInstructions"] = build_realized_general_instructions(
-            result,
-            subject_raw,
-            class_num,
-            scope_policy="strict",
-            fallback_count=0,
-            requested_count=len(plan),
-        )
+        # Rebuild the printed instructions from what was actually realized, so
+        # the header never claims a section the paper does not contain.
+        #
+        # Wrapped for the Builder path: this reads subject-specific structure
+        # the CBSE engine guarantees, and a teacher-authored blueprint can be
+        # any shape at all — five sections named after chapters, say. A header
+        # that could not be rebuilt is worth losing; the paper is not.
+        try:
+            result["generalInstructions"] = build_realized_general_instructions(
+                result,
+                subject_raw,
+                class_num,
+                scope_policy="strict",
+                fallback_count=0,
+                requested_count=len(plan),
+            )
+        except Exception as exc:
+            if resolved_plan is None:
+                raise
+            logger.warning(
+                "Keeping the planned instructions for a Builder blueprint: %s", exc
+            )
 
     result["meta"] = {
         "poolId": pool_id,
@@ -1279,6 +1430,13 @@ def stream_pool_questions(
         "assetGenerators": asset_reports,
         "textbookQuestions": sum(
             1 for a in paper.assignments if a.question.uses_uploaded_content
+        ),
+        # What the saved-vs-generated split ACTUALLY produced, not what was
+        # asked for. The split is a preference (a thin bank must not leave
+        # slots empty), so the honest number is the one counted afterwards.
+        "requestedFromBank": len(bank_slots),
+        "filledFromBank": sum(
+            1 for a in paper.assignments if a.question.pool_id != pool_id
         ),
         "footerNotes": [],
     }
@@ -1379,6 +1537,9 @@ def stream_pool_questions(
                 "poolTarget": target_total,
                 "blueprintTotal": len(plan),
                 "textbookSlots": len(textbook_slots),
+                "generateSlots": len(generate_slots),
+                "bankSlots": len(bank_slots),
+                "poolTarget": target_total,
                 "assetSlots": len(asset_slots),
                 "assetGenerators": asset_reports,
                 "realizedTotal": paper.total_questions,

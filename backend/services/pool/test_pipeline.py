@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.accounts.models import User
 from apps.documents.models import DocumentChunk, PdfSource
@@ -28,6 +28,9 @@ class FakeSlot:
     question_type: str
     legacy_type: str
     section_title: str = "Section A"
+    choice_required: bool = False
+    #: "generate" | "saved" — the Blueprint Builder's per-slot source.
+    source: str = "generate"
 
 
 def _pool_question(qid, *, subject="Science", chapter="Electricity", topic=None,
@@ -64,112 +67,95 @@ _POOL_SHAPES = [
 ]
 
 
-class PoolTargetTests(TestCase):
+class ExactPoolTargetTests(TestCase):
     """How many questions Model 1 is asked to write.
 
-    The floor used to be a flat 40. It is now contextual: never below
-    POOL_TARGET_MIN, climbing toward POOL_TARGET_MAX as the run gains context,
-    and always at least two questions per slot so Model 2 has an alternative
-    for everything it places.
+    Exactly what the paper needs, plus only the spares something requires.
+    This replaced a flat pool of 80-90 — over-provisioning existed so Model 2
+    could select, and with the Blueprint Builder the teacher has already
+    decided what each slot is.
     """
 
-    def _chapters(self, count):
+    def _slots(self, count, *, question_type="SHORT_ANSWER", choice=False):
         return [
-            Chapter(
-                number=i + 1,
-                title=f"Chapter {i + 1}",
-                markdown="text",
-                char_count=4000,
-            )
-            for i in range(count)
+            FakeSlot(i, 2, question_type, "SHORT", choice_required=choice)
+            for i in range(1, count + 1)
         ]
 
-    def test_the_narrowest_possible_run_sits_exactly_on_the_minimum(self):
-        # One chapter, one slot: as little context as a generation can have.
-        from services.pool.pipeline import _contextual_pool_target
+    @override_settings(POOL_EXACT_MARGIN_PERCENT=0)
+    def test_with_no_margin_the_target_is_literally_exact(self):
+        from services.pool.pipeline import _exact_pool_target
 
-        self.assertEqual(
-            _contextual_pool_target(slot_count=1, chapters=self._chapters(1)),
-            settings.POOL_TARGET_MIN,
+        self.assertEqual(_exact_pool_target(slots=self._slots(20)), 20)
+
+    @override_settings(POOL_EXACT_MARGIN_PERCENT=0)
+    def test_an_empty_plan_asks_for_nothing(self):
+        from services.pool.pipeline import _exact_pool_target
+
+        self.assertEqual(_exact_pool_target(slots=[]), 0)
+
+    @override_settings(POOL_EXACT_MARGIN_PERCENT=0)
+    def test_each_or_slot_costs_exactly_one_spare(self):
+        # A slot promising "attempt Q27 OR Q27a" needs a second question, or
+        # the paper offers a choice it cannot honour.
+        from services.pool.pipeline import _exact_pool_target
+
+        slots = self._slots(10) + self._slots(4, choice=True)
+        self.assertEqual(_exact_pool_target(slots=slots), 14 + 4)
+
+    @override_settings(POOL_EXACT_MARGIN_PERCENT=0)
+    def test_a_single_set_budgets_no_variant_spares(self):
+        from services.pool.pipeline import _exact_pool_target
+
+        self.assertEqual(_exact_pool_target(slots=self._slots(30), num_sets=1), 30)
+
+    @override_settings(POOL_EXACT_MARGIN_PERCENT=0)
+    def test_extra_sets_budget_spares_to_swap_from(self):
+        # Sets B and C are derived by swapping unused pool questions in. With
+        # no spares there is nothing to swap and multi-set silently produces
+        # three identical papers.
+        from services.pool.pipeline import _exact_pool_target
+
+        one = _exact_pool_target(slots=self._slots(30), num_sets=1)
+        two = _exact_pool_target(slots=self._slots(30), num_sets=2)
+        three = _exact_pool_target(slots=self._slots(30), num_sets=3)
+
+        self.assertGreater(two, one)
+        self.assertGreater(three, two)
+        # 30 replaceable slots x 30% = 9 per extra set.
+        self.assertEqual(two, 30 + 9)
+        self.assertEqual(three, 30 + 18)
+
+    @override_settings(POOL_EXACT_MARGIN_PERCENT=0)
+    def test_mcq_slots_are_fixed_across_sets_so_cost_no_spares(self):
+        # `set_variants.DEFAULT_FIXED_TYPES` keeps MCQs identical across sets,
+        # so budgeting replacements for them would buy questions never used.
+        from services.pool.pipeline import _exact_pool_target
+
+        mcqs = [FakeSlot(i, 1, "MCQ", "MCQ") for i in range(1, 21)]
+        self.assertEqual(_exact_pool_target(slots=mcqs, num_sets=3), 20)
+
+    def test_the_margin_absorbs_normalisation_losses(self):
+        # Model 1 output is normalised on the way in — malformed dropped,
+        # duplicates dropped by content hash — so asking for exactly N
+        # reliably yields slightly under N.
+        from services.pool.pipeline import _exact_pool_target
+
+        target = _exact_pool_target(slots=self._slots(40))
+        self.assertGreater(target, 40)
+        self.assertEqual(target, 40 + 6)  # 15% of 40, rounded up
+
+    def test_a_board_paper_costs_far_less_than_the_old_flat_pool(self):
+        # The regression this guards: the previous behaviour generated 80-90
+        # questions to place 38, whatever the paper actually needed.
+        from services.pool.pipeline import _exact_pool_target
+
+        slots = self._slots(32) + self._slots(6, choice=True)
+        target = _exact_pool_target(slots=slots, num_sets=1)
+        self.assertLess(
+            target, 60, "exact generation must be well under the old 80-90 pool"
         )
-
-    def test_slot_count_alone_interpolates_within_the_band(self):
-        # Pins the interpolation itself, so a change to the curve is a visible
-        # test edit rather than a silent shift in what every paper costs.
-        # 10 of 40 slots is a quarter of the way up a 10-question band.
-        from services.pool.pipeline import _contextual_pool_target
-
-        self.assertEqual(
-            _contextual_pool_target(slot_count=10, chapters=self._chapters(1)),
-            82,
-        )
-        self.assertEqual(
-            _contextual_pool_target(slot_count=20, chapters=self._chapters(1)),
-            85,
-        )
-
-    def test_the_floor_never_drops_below_the_configured_minimum(self):
-        # The regression this pins: the old flat floor of 40 meant a 12-slot
-        # test drew on a pool of 40, which is not enough spread for Model 2 to
-        # be selecting rather than accepting.
-        from services.pool.pipeline import _contextual_pool_target
-
-        for slots in (1, 5, 12, 20):
-            self.assertGreaterEqual(
-                _contextual_pool_target(
-                    slot_count=slots, chapters=self._chapters(1)
-                ),
-                settings.POOL_TARGET_MIN,
-                f"{slots} slots fell below the floor",
-            )
-
-    def test_more_chapters_widen_the_floor_toward_the_maximum(self):
-        from services.pool.pipeline import _contextual_pool_target
-
-        one = _contextual_pool_target(slot_count=1, chapters=self._chapters(1))
-        two = _contextual_pool_target(slot_count=1, chapters=self._chapters(2))
-        three = _contextual_pool_target(slot_count=1, chapters=self._chapters(3))
-        six = _contextual_pool_target(slot_count=1, chapters=self._chapters(6))
-
-        self.assertEqual(one, settings.POOL_TARGET_MIN)
-        self.assertEqual(three, settings.POOL_TARGET_MAX)
-        self.assertLess(one, two)
-        self.assertLess(two, three)
-        # Three chapters is already as wide as the floor cares about.
-        self.assertEqual(six, three)
-
-    def test_a_full_board_paper_reaches_the_maximum_on_slots_alone(self):
-        # 40 slots is a full board paper. Even from a single chapter it needs
-        # the wider pool, because the same questions must cover far more slots.
-        from services.pool.pipeline import _contextual_pool_target
-
-        self.assertEqual(
-            _contextual_pool_target(slot_count=40, chapters=self._chapters(1)),
-            max(80, settings.POOL_TARGET_MAX),
-        )
-
-    def test_two_per_slot_wins_when_the_paper_is_larger_than_the_floor(self):
-        # A 60-slot paper needs 120, not the 90 ceiling — the floor is a floor,
-        # never a cap.
-        from services.pool.pipeline import _contextual_pool_target
-
-        self.assertEqual(
-            _contextual_pool_target(slot_count=60, chapters=self._chapters(2)),
-            120,
-        )
-
-    def test_the_target_is_within_the_configured_band_for_normal_papers(self):
-        # The band the product actually asks for: 80-90 for anything up to a
-        # full board paper.
-        from services.pool.pipeline import _contextual_pool_target
-
-        for slots in (10, 20, 30, 38, 40):
-            for chapters in (1, 2, 3, 6):
-                target = _contextual_pool_target(
-                    slot_count=slots, chapters=self._chapters(chapters)
-                )
-                self.assertGreaterEqual(target, 80)
-                self.assertLessEqual(target, 90)
+        self.assertGreaterEqual(target, 38, "every slot still needs a question")
 
 
 def _realistic_pool(size, **overrides):
@@ -667,3 +653,83 @@ class PaperFromBankTests(TestCase):
         errors = [data for name, data in events if name == "error"]
         self.assertTrue(errors)
         self.assertIn("No saved questions match", errors[0]["error"])
+
+
+class SavedVsGeneratedSplitTests(TestCase):
+    """The Blueprint Builder's per-slot source has to mean something.
+
+    A modal that lets a teacher say "12 of these from my bank" and then writes
+    all 38 fresh is worse than one that never offered the control.
+    """
+
+    def _pool(self, *, fresh_ids, bank_ids):
+        pool = []
+        for qid in fresh_ids:
+            pool.append(_pool_question(qid, qtype="MCQ", marks=1, pool_id="fresh"))
+        for qid in bank_ids:
+            pool.append(_pool_question(qid, qtype="MCQ", marks=1, pool_id="old-run"))
+        return pool
+
+    def test_a_saved_slot_prefers_a_banked_question(self):
+        from services.pool.model2 import build_candidates
+
+        pool = self._pool(fresh_ids=["f1"], bank_ids=["b1"])
+        slot = FakeSlot(1, 1, "MCQ", "MCQ", source="saved")
+
+        assignments, unfilled = build_candidates(
+            pool, [slot], alternates=0, fresh_pool_id="fresh"
+        )
+        self.assertEqual(unfilled, [])
+        self.assertEqual(assignments[0].question.id, "b1")
+
+    def test_a_generate_slot_prefers_a_fresh_question(self):
+        from services.pool.model2 import build_candidates
+
+        pool = self._pool(fresh_ids=["f1"], bank_ids=["b1"])
+        slot = FakeSlot(1, 1, "MCQ", "MCQ", source="generate")
+
+        assignments, unfilled = build_candidates(
+            pool, [slot], alternates=0, fresh_pool_id="fresh"
+        )
+        self.assertEqual(unfilled, [])
+        self.assertEqual(assignments[0].question.id, "f1")
+
+    def test_a_saved_slot_still_fills_when_the_bank_is_empty(self):
+        # A preference, not a filter. A teacher who asked for bank questions
+        # wants a complete paper far more than they want provably banked ones.
+        from services.pool.model2 import build_candidates
+
+        pool = self._pool(fresh_ids=["f1"], bank_ids=[])
+        slot = FakeSlot(1, 1, "MCQ", "MCQ", source="saved")
+
+        assignments, unfilled = build_candidates(
+            pool, [slot], alternates=0, fresh_pool_id="fresh"
+        )
+        self.assertEqual(unfilled, [], "an empty bank must not leave the slot blank")
+        self.assertEqual(assignments[0].question.id, "f1")
+
+    def test_a_slot_with_no_source_is_unaffected(self):
+        # Every plan the blueprint engine compiles, and every pre-Builder
+        # client, has no `source` — those must behave exactly as before.
+        from services.pool.model2 import build_candidates
+
+        pool = self._pool(fresh_ids=["f1"], bank_ids=["b1"])
+        slot = FakeSlot(1, 1, "MCQ", "MCQ")
+        slot.source = ""
+
+        assignments, unfilled = build_candidates(
+            pool, [slot], alternates=0, fresh_pool_id="fresh"
+        )
+        self.assertEqual(unfilled, [])
+        self.assertIn(assignments[0].question.id, {"f1", "b1"})
+
+    def test_with_no_fresh_pool_id_everything_counts_as_banked(self):
+        # The paper-from-bank path passes no fresh id: nothing was written
+        # this run, so there is no "fresh" half to prefer.
+        from services.pool.model2 import build_candidates
+
+        pool = self._pool(fresh_ids=[], bank_ids=["b1", "b2"])
+        slot = FakeSlot(1, 1, "MCQ", "MCQ", source="saved")
+
+        assignments, unfilled = build_candidates(pool, [slot], alternates=0)
+        self.assertEqual(unfilled, [])

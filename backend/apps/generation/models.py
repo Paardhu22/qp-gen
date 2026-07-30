@@ -53,6 +53,36 @@ class PaperTemplate(TimeStampedModel):
     # copy rather than a translation — the same contract `Conversation.spec`
     # keeps with the dashboard assistant.
     settings = models.JSONField(default=dict, blank=True)
+    # The edited slot list, when there is one. See services/templates.py for
+    # why a template has two kinds:
+    #
+    #   empty    — instruction-driven. Re-resolved from `instructions` +
+    #              `settings` on every use, so "Weekly Test" applied to next
+    #              week's chapter produces next week's paper. This is what the
+    #              class docstring above argues for, and it is still the
+    #              default.
+    #   present  — pinned. The teacher opened the Blueprint Builder and changed
+    #              slots; re-deriving from prose would silently discard that,
+    #              so the stored blueprint wins.
+    #
+    # Shape is `{"slots": [...]}` per `TemplateBlueprint.as_dict()`. Totals are
+    # NOT stored — they are recomputed from the slots on read, because a stored
+    # total is a second source of truth that can disagree with the slots it
+    # claims to describe.
+    blueprint = models.JSONField(default=dict, blank=True)
+    # Which built-in this was customised from, for provenance in the picker
+    # ("based on CBSE Class 10 Science"). A free-form catalog id rather than an
+    # FK: the catalog is generated code, not rows.
+    base_template_id = models.CharField(
+        max_length=64, blank=True, default="", db_column="baseTemplateId"
+    )
+    # Where questions come from and which sources feed them: the saved-vs-
+    # generated split plus the selected uploads/HSAT books. Kept beside the
+    # blueprint because "40 from my bank, 20 fresh, from these two chapters" is
+    # part of the recipe a teacher is saving, not part of one run.
+    source_config = models.JSONField(
+        default=dict, blank=True, db_column="sourceConfig"
+    )
     # Ordering signal for the picker: the template someone reaches for weekly
     # should not sink under one they made once and abandoned.
     last_used_at = models.DateTimeField(null=True, blank=True, db_column="lastUsedAt")

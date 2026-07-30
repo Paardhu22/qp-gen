@@ -299,3 +299,137 @@ class PaperTemplateTests(DesignApiTestCase):
             anonymous.post(self.URL, {"name": "x", "instructions": "y"}).status_code,
             (401, 403),
         )
+
+
+class TemplateCatalogApiTests(DesignApiTestCase):
+    """The picker endpoint: built-ins and saved templates in one response."""
+
+    LIST_URL = "/api/generation/templates"
+    RESOLVE_URL = "/api/generation/templates/resolve"
+    TYPES_URL = "/api/generation/question-types"
+
+    def test_the_list_returns_builtins_alongside_saved_templates(self):
+        PaperTemplate.objects.create(
+            user=self.user, name="Weekly Test", instructions="20 mark recap"
+        )
+        response = self.client.get(self.LIST_URL)
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(len(response.data["templates"]), 1)
+        self.assertEqual(response.data["templates"][0]["name"], "Weekly Test")
+        # Both old modes have to be reachable from the one picker.
+        builtin_ids = {entry["id"] for entry in response.data["builtin"]}
+        self.assertIn("describe-it-yourself", builtin_ids)
+        self.assertIn("cbse-science-10", builtin_ids)
+
+    def test_resolve_needs_a_template_id(self):
+        response = self.client.post(self.RESOLVE_URL, {}, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_an_unknown_template_is_a_404_not_a_500(self):
+        response = self.client.post(
+            self.RESOLVE_URL, {"templateId": "nope"}, format="json"
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_resolving_blank_returns_an_empty_editable_blueprint(self):
+        response = self.client.post(
+            self.RESOLVE_URL, {"templateId": "blank"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["blueprint"]["slots"], [])
+        self.assertEqual(response.data["blueprint"]["totalMarks"], 0)
+
+    def test_resolving_a_board_template_produces_slots_with_totals(self):
+        response = self.client.post(
+            self.RESOLVE_URL,
+            {"templateId": "cbse-science-10", "subject": "Science", "class": "10"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        blueprint = response.data["blueprint"]
+        self.assertGreater(len(blueprint["slots"]), 0)
+        # Totals must agree with the slots they describe.
+        self.assertEqual(blueprint["totalQuestions"], len(blueprint["slots"]))
+        self.assertEqual(
+            blueprint["totalMarks"], sum(s["marks"] for s in blueprint["slots"])
+        )
+        # Every slot must carry a type the Builder can render in its menu.
+        for slot in blueprint["slots"]:
+            self.assertTrue(slot["questionType"])
+            self.assertIn(slot["source"], ("generate", "saved"))
+
+    def test_the_saved_ratio_can_be_applied_at_resolve_time(self):
+        response = self.client.post(
+            self.RESOLVE_URL,
+            {"templateId": "cbse-science-10", "savedCount": 5},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["blueprint"]["savedCount"], 5)
+
+    def test_a_pinned_template_resolves_from_its_stored_blueprint(self):
+        # The whole point of pinning: an edited slot survives, rather than
+        # being re-derived from prose that never mentioned it.
+        PaperTemplate.objects.create(
+            user=self.user,
+            name="Pinned",
+            instructions="anything",
+            blueprint={
+                "slots": [
+                    {"questionType": "MCQ", "marks": 1, "sectionTitle": "A"},
+                    {"questionType": "LONG_ANSWER", "marks": 5, "sectionTitle": "B"},
+                ]
+            },
+        )
+        template = PaperTemplate.objects.get(user=self.user, name="Pinned")
+        response = self.client.post(
+            self.RESOLVE_URL, {"templateId": template.id}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        slots = response.data["blueprint"]["slots"]
+        self.assertEqual([s["questionType"] for s in slots], ["MCQ", "LONG_ANSWER"])
+        self.assertEqual(response.data["blueprint"]["totalMarks"], 6)
+
+    def test_another_teachers_template_id_is_not_resolvable(self):
+        other = User.objects.create(email="other@example.com", name="O")
+        theirs = PaperTemplate.objects.create(
+            user=other, name="Theirs", blueprint={"slots": [{"questionType": "MCQ"}]}
+        )
+        response = self.client.post(
+            self.RESOLVE_URL, {"templateId": theirs.id}, format="json"
+        )
+        # Falls through to the built-in path and finds nothing — never another
+        # teacher's paper recipe.
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_blueprint_only_template_can_be_saved_without_instructions(self):
+        # A teacher who dragged slots around should not also have to write
+        # prose describing what they just did.
+        response = self.client.post(
+            self.LIST_URL,
+            {
+                "name": "My Midterm",
+                "blueprint": {"slots": [{"questionType": "MCQ", "marks": 1}]},
+                "baseTemplateId": "cbse-science-10",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data["template"]["pinned"])
+        self.assertEqual(
+            response.data["template"]["base_template_id"], "cbse-science-10"
+        )
+
+    def test_a_template_with_neither_instructions_nor_blueprint_is_rejected(self):
+        response = self.client.post(
+            self.LIST_URL, {"name": "Empty"}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_the_question_type_menu_is_served(self):
+        response = self.client.get(self.TYPES_URL, {"subject": "Science"})
+        self.assertEqual(response.status_code, 200)
+        codes = {option["code"] for option in response.data["questionTypes"]}
+        self.assertIn("MCQ", codes)
+        self.assertIn("LONG_ANSWER", codes)
