@@ -23,6 +23,22 @@ export interface SectionToAppend {
   setLabel?: string;
 }
 
+export interface UploadedDoc {
+  id: string;
+  name: string;
+  size: number;
+}
+
+export interface AppliedHsatSource {
+  id: string;
+  grade: string;
+  subject: string;
+  book: string;
+  status: "not_ingested" | "pending" | "processing" | "ready" | "error";
+  chunkCount: number;
+  selectedChapterCount?: number;
+}
+
 /**
  * A staged generated question awaiting the teacher's decision.
  *
@@ -147,6 +163,10 @@ interface EditorState {
   comparisonSets: ComparisonSet[];
   /** Whether the full-screen Comparison Workspace overlay is open. */
   comparisonOpen: boolean;
+  /** Persisted user uploads for the current generation session */
+  uploadedDocs: UploadedDoc[];
+  /** Persisted library sources for the current generation session */
+  hsatSources: AppliedHsatSource[];
   /**
    * Sets the teacher has approved, keyed by label ("A" | "B" | "C").
    *
@@ -237,6 +257,9 @@ interface EditorState {
   /** One-shot: the editor calls this on mount to take the pending handoff. */
   consumeGeneratedPaperHandoff: () => void;
   clearApprovedSets: () => void;
+
+  setUploadedDocs: (docs: UploadedDoc[] | ((prev: UploadedDoc[]) => UploadedDoc[])) => void;
+  setHsatSources: (sources: AppliedHsatSource[] | ((prev: AppliedHsatSource[]) => AppliedHsatSource[])) => void;
 }
 
 /**
@@ -332,6 +355,8 @@ export const useEditorStore = create<EditorState>()(
       generatorContext: initialGeneratorContext,
       generalInstructionsDraft: "",
       paperSpecHandoff: null,
+      uploadedDocs: [],
+      hsatSources: [],
 
       // ── Actions ─────────────────────────────────────────────────────
       appendQuestions: (questions) =>
@@ -505,8 +530,17 @@ export const useEditorStore = create<EditorState>()(
       consumeGeneratedPaperHandoff: () =>
         set({ awaitingGeneratedPaper: false }),
 
-      clearApprovedSets: () =>
-        set({ approvedSets: {}, approvedAt: 0, awaitingGeneratedPaper: false }),
+      clearApprovedSets: () => set({ approvedSets: {}, approvedAt: 0, awaitingGeneratedPaper: false }),
+
+      setUploadedDocs: (docs) =>
+        set((state) => ({
+          uploadedDocs: typeof docs === "function" ? docs(state.uploadedDocs) : docs,
+        })),
+      
+      setHsatSources: (sources) =>
+        set((state) => ({
+          hsatSources: typeof sources === "function" ? sources(state.hsatSources) : sources,
+        })),
     }),
     {
       // The persistence key is namespaced so callers (auth signOut, account

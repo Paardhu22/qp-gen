@@ -1,5 +1,6 @@
 from django.test import TestCase
 
+from apps.generation.serializers import QuestionGenerationSerializer
 from services import hsat_catalog
 from services.generation_router import (
     build_blueprint_instructions,
@@ -18,6 +19,64 @@ from services.syllabus_scope import (
 class GenerationTests(TestCase):
     def test_placeholder(self):
         self.assertTrue(True)
+
+
+class QuestionGenerationSerializerContractTests(TestCase):
+    """The request shape the Blueprint Builder actually sends.
+
+    `count` was required-with-no-default while the Builder's payload omitted
+    it (the structure decides the count, so there is nothing to send), so every
+    generation from the editor 400'd before a single question was written.
+    These lock the contract from both ends: the Builder's payload is accepted,
+    and the limits that matter are still enforced.
+    """
+
+    def _payload(self, **overrides):
+        payload = {
+            "pdfSourceIds": ["source-1"],
+            "hsatSourceIds": [],
+            "subject": "Science",
+            "class": "10",
+            "board": "CBSE",
+            "difficulty": "medium",
+            "sets": 1,
+            "instructions": "",
+            "blueprint": {"slots": [{"marks": 1}]},
+            "templateId": "cbse-science-10",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_blueprint_payload_without_count_is_valid(self):
+        serializer = QuestionGenerationSerializer(data=self._payload())
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        # -1 is the sentinel the pipeline reads as "the blueprint decides".
+        self.assertEqual(serializer.validated_data["count"], -1)
+
+    def test_difficulty_is_optional_and_defaults(self):
+        payload = self._payload()
+        payload.pop("difficulty")
+        serializer = QuestionGenerationSerializer(data=payload)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["difficulty"], "medium")
+
+    def test_explicit_count_is_still_honoured(self):
+        """The dashboard sends a real count; the default must not clobber it."""
+        serializer = QuestionGenerationSerializer(data=self._payload(count=20))
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["count"], 20)
+
+    def test_out_of_range_count_is_still_rejected(self):
+        serializer = QuestionGenerationSerializer(data=self._payload(count=999))
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("count", serializer.errors)
+
+    def test_a_source_is_still_required(self):
+        serializer = QuestionGenerationSerializer(
+            data=self._payload(pdfSourceIds=[], hsatSourceIds=[])
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("pdfSourceIds", serializer.errors)
 
 
 class GenerationHistoryStatelessnessTests(TestCase):

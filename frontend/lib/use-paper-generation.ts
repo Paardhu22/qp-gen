@@ -199,6 +199,11 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
           class: request.academicClass,
           board: request.board,
           difficulty: request.difficulty,
+          // -1 = "the blueprint decides how many questions". The Builder always
+          // has a structure, so there is never a free-standing count to send.
+          // Sent explicitly rather than left to the serializer's default so the
+          // intent is on the wire and readable in a request log.
+          count: -1,
           sets: parseInt(request.numberOfSets, 10),
           mathLevel: request.mathLevel || "standard",
           instructions: request.instructions || "",

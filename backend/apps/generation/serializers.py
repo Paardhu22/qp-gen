@@ -17,8 +17,18 @@ class QuestionGenerationSerializer(serializers.Serializer):
         child=serializers.CharField(), allow_empty=True, required=False, default=list
     )
     topic = serializers.CharField(required=False, allow_blank=True, default="")
-    count = serializers.IntegerField(min_value=-1, max_value=50)
-    difficulty = serializers.CharField()
+    #: -1 means "the blueprint decides", which is the normal case: a request
+    #: carrying a blueprint (or the CBSE board pattern) has no free-standing
+    #: question count to send. This was required-with-no-default until the
+    #: Blueprint Builder shipped a payload that legitimately omits it, and the
+    #: resulting 400 surfaced on the client as an unexplained stream failure.
+    #: `PaperFromBankSerializer` has always defaulted it this way — match it.
+    count = serializers.IntegerField(
+        min_value=-1, max_value=50, required=False, default=-1
+    )
+    difficulty = serializers.CharField(
+        required=False, allow_blank=True, default="medium"
+    )
     instructions = serializers.CharField(required=False, allow_blank=True, default="")
     board = serializers.CharField(required=False, allow_blank=True, default="")
     subject = serializers.CharField(required=False, allow_blank=True, default="")

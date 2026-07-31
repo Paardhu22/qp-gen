@@ -59,8 +59,10 @@ export default function EditorPage() {
   const router = useRouter();
   const { data: sessionData } = useSession();
 
-  const [hsatSources, setHsatSources] = useState<AppliedHsatSource[]>([]);
-  const [uploadedDocs, setUploadedDocs] = useState<{ id: string; name: string; size: number }[]>([]);
+  const hsatSources = useEditorStore((state) => state.hsatSources);
+  const setHsatSources = useEditorStore((state) => state.setHsatSources);
+  const uploadedDocs = useEditorStore((state) => state.uploadedDocs);
+  const setUploadedDocs = useEditorStore((state) => state.setUploadedDocs);
 
   // Modals state from store
   const savePaperModalOpen = useEditorStore(

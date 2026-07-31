@@ -33,6 +33,53 @@ export class SyncCancelledError extends Error {
   }
 }
 
+/**
+ * Turn a failed Response into the most specific message the server offered.
+ *
+ * Three shapes have to be handled, and missing any one of them turns a stated
+ * cause into a mystery:
+ *
+ *   * `{ detail }` / `{ error }` — DRF's APIException and our own views.
+ *   * `{ field: ["msg"] }` — DRF *serializer validation*, which has no
+ *     top-level key at all. A required field the client forgot to send lands
+ *     here, so swallowing this shape reports "request failed" for a fault that
+ *     the body named exactly.
+ *   * Not JSON at all — nginx's HTML 502/504, or a Django debug traceback.
+ *     `.json()` rejects, and the status is the only real information; say so
+ *     instead of pretending the server explained itself.
+ */
+async function errorMessageFrom(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    // Non-JSON error page — the status line is all we have.
+    return `${fallback} (HTTP ${response.status}${
+      response.statusText ? ` ${response.statusText}` : ""
+    })`;
+  }
+
+  if (typeof body === "string" && body.trim()) return body;
+  if (typeof body !== "object" || body === null) return fallback;
+
+  const record = body as Record<string, unknown>;
+  if (typeof record.detail === "string" && record.detail) return record.detail;
+  if (typeof record.error === "string" && record.error) return record.error;
+
+  const fields = Object.entries(record)
+    .map(([field, msgs]) => {
+      const text = Array.isArray(msgs) ? msgs.join(", ") : String(msgs ?? "");
+      return text ? `${field}: ${text}` : "";
+    })
+    .filter(Boolean)
+    .join(" | ");
+
+  return fields || fallback;
+}
+
 export async function fetchJson<T>(
   path: string,
   options: FetchJsonOptions = {},
@@ -101,22 +148,10 @@ export async function fetchJson<T>(
   }
 
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({}));
-    // DRF can return field-level errors as { fieldName: ["msg"] } with no top-level
-    // "detail" or "error" key. Flatten those into a readable string.
-    const message =
-      errorBody?.detail ||
-      errorBody?.error ||
-      (typeof errorBody === "object" && errorBody !== null
-        ? Object.entries(errorBody)
-            .map(
-              ([field, msgs]) =>
-                `${field}: ${Array.isArray(msgs) ? msgs.join(", ") : msgs}`,
-            )
-            .join(" | ")
-        : null) ||
-      "Request failed";
-    throw new ApiError(message, response.status);
+    throw new ApiError(
+      await errorMessageFrom(response, "Request failed"),
+      response.status,
+    );
   }
 
   // 204 No Content (or any empty body) — nothing to parse.
@@ -158,20 +193,10 @@ export async function fetchForm<T>(
   }
 
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({}));
-    const message =
-      errorBody?.detail ||
-      errorBody?.error ||
-      (typeof errorBody === "object" && errorBody !== null
-        ? Object.entries(errorBody)
-            .map(
-              ([field, msgs]) =>
-                `${field}: ${Array.isArray(msgs) ? msgs.join(", ") : msgs}`,
-            )
-            .join(" | ")
-        : null) ||
-      "Request failed";
-    throw new ApiError(message, response.status);
+    throw new ApiError(
+      await errorMessageFrom(response, "Request failed"),
+      response.status,
+    );
   }
 
   return response.json() as Promise<T>;
@@ -211,11 +236,24 @@ export async function streamSse(
     }
   }
 
-  if (!response.ok || !response.body) {
-    const errorBody = await response.json().catch(() => ({}));
-    const message =
-      errorBody?.detail || errorBody?.error || "Stream request failed";
-    throw new ApiError(message, response.status);
+  if (!response.ok) {
+    // A rejected stream is almost always a serializer complaint naming the
+    // exact field that is missing or wrong. Report that, not "it failed".
+    throw new ApiError(
+      await errorMessageFrom(response, "Stream request failed"),
+      response.status,
+    );
+  }
+
+  if (!response.body) {
+    // 2xx with no readable body: not a server rejection, so there is no error
+    // payload to quote. Distinguish it — it means the transport dropped the
+    // stream, not that the request was invalid.
+    throw new ApiError(
+      "The server accepted the request but returned no stream. Check that no " +
+        "proxy is buffering text/event-stream responses.",
+      response.status,
+    );
   }
 
   const reader = response.body.getReader();
