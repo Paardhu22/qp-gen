@@ -18,8 +18,15 @@
       gone behind the text.
 
    Under `prefers-reduced-motion` the component still paints one static frame,
-   so this stays a gradient rather than becoming a blank panel. */
-.grainient-backdrop {
+   so this stays a gradient rather than becoming a blank panel.
+
+   Written as `.grainient-container.grainient-backdrop` rather than
+   `.grainient-backdrop` alone. The element always carries both classes, so this
+   selects the same node — but at a specificity a bare `.grainient-container`
+   rule cannot beat, whatever order the stylesheets happen to land in. The
+   overriding property is `position`, and losing it does not degrade the
+   backdrop, it re-flows the whole chat column. */
+.grainient-container.grainient-backdrop {
   position: absolute;
   inset: 0;
   /* Negative, paired with `isolate` on the parent column. Within that stacking
@@ -46,17 +53,17 @@
 
 /* On ink, the sand gradient reads much hotter against light text — the same
    opacity that looks like a whisper on white looks like a spotlight here. */
-.dark .grainient-backdrop {
+.dark .grainient-container.grainient-backdrop {
   opacity: 0.24;
 }
 
 /* Small screens put the prompt box and the message list edge to edge, so there
    is no margin for the field to live in. Pull it back further. */
 @media (max-width: 640px) {
-  .grainient-backdrop {
+  .grainient-container.grainient-backdrop {
     opacity: 0.34;
   }
-  .dark .grainient-backdrop {
+  .dark .grainient-container.grainient-backdrop {
     opacity: 0.18;
   }
 }

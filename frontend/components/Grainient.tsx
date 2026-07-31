@@ -2,7 +2,18 @@
 
 import { useEffect, useRef } from "react";
 import { Renderer, Program, Mesh, Triangle } from "ogl";
-import "./Grainient.css";
+
+// `.grainient-container` lives in `styles/grainient.css`, imported once from
+// `app/layout.tsx`. It used to be duplicated in a local `./Grainient.css`, and
+// a second copy of the rule is not harmless: this component is only used by the
+// landing page, so its stylesheet was injected *after* the layout's. That put
+// `.grainient-container { position: relative }` later in the cascade than the
+// dashboard's `.grainient-backdrop { position: absolute }` — equal specificity,
+// so source order decided it. Any client navigation from `/` to `/dashboard`
+// dropped the chat backdrop into normal flow, where its `height: 100%` ate a
+// full column and pushed the prompt box off the bottom of the screen. A hard
+// reload of `/dashboard` never loaded this file, which is why the same page
+// looked correct the second time.
 
 const hexToRgb = (hex: string): [number, number, number] => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);

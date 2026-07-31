@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
@@ -21,14 +21,16 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
   // shell optimistically while useSession resolves in the background,
   // instead of blocking every cold load on the /api/auth/profile HTTP
   // round-trip (the brief's TOP suspect for app-wide slowness).
-  // localStorage is client-only, so initial render (server + first client
-  // pass) returns false; the effect flips state on the very first client
-  // tick, giving a one-frame spinner that immediately yields to the
-  // optimistic shell. The actual session HTTP still runs in useSession;
-  // a verified failure (no user) drops us through the /login redirect
-  // path below — the optimism is purely about *when* we paint.
+  // Next.js SSRs this component, and the server has no localStorage, so
+  // the initial state must start `false` on both server and client to
+  // keep hydration consistent (an initializer that reads localStorage
+  // here causes a hydration mismatch — React then discards the whole
+  // tree and re-renders client-side, which is what produced the
+  // half-painted page on cold loads). Instead we flip the flag in
+  // useLayoutEffect, which runs synchronously before the browser paints
+  // the hydrated frame, so real users never see the interim spinner.
   const [hasRefreshToken, setHasRefreshToken] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setHasRefreshToken(Boolean(getRefreshToken()));
   }, [data?.user, isLoading, error]);
 
