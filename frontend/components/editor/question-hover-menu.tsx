@@ -115,11 +115,10 @@ function MenuButton({
       )}
     >
       {busy ? (
-        <Loader2 className="size-3.5 animate-spin" />
+        <Loader2 className="size-4 animate-spin" />
       ) : (
-        <Icon className="size-3.5" />
+        <Icon className="size-4" />
       )}
-      <span className="hidden sm:inline">{label}</span>
     </button>
   );
 }
@@ -132,12 +131,10 @@ export function QuestionHoverMenu({ target, onMenuEnter, onMenuLeave }: Props) {
 
   if (!mounted || !target || !rect) return null;
 
-  // Sit just above the block's top-right. Flipped below when the question is
-  // near the top of the viewport, so the menu never lands off-screen on the
-  // first question of a page.
-  const MENU_HEIGHT = 34;
-  const flipBelow = rect.top < MENU_HEIGHT + 12;
-  const top = flipBelow ? rect.top + 6 : rect.top - MENU_HEIGHT - 4;
+  const MENU_WIDTH = 40; // Approximate width for icon-only or vertical layout
+  const top = rect.top + (rect.height / 2) - 50; // Roughly center vertically (menu is taller now)
+  // Float inside the right edge to avoid a hover gap
+  const left = rect.right - MENU_WIDTH - 8;
 
   return createPortal(
     <div
@@ -148,11 +145,11 @@ export function QuestionHoverMenu({ target, onMenuEnter, onMenuLeave }: Props) {
       style={{
         position: "fixed",
         top,
-        left: Math.max(8, rect.right - 232),
+        left,
         zIndex: 60,
       }}
       className={cn(
-        "flex items-center gap-0.5 rounded-lg border border-border bg-popover p-1 shadow-lg",
+        "flex flex-col items-center gap-1 rounded-lg border border-border bg-popover p-1.5 shadow-lg",
         "animate-in fade-in-0 zoom-in-95 duration-100",
         // Never printed and never rasterised into an export: this is chrome,
         // not paper. Matches the existing `.float-image-hide-in-pdf` rule.
@@ -173,7 +170,7 @@ export function QuestionHoverMenu({ target, onMenuEnter, onMenuLeave }: Props) {
           busy={target.replacing}
         />
       ) : null}
-      <div className="mx-0.5 h-4 w-px bg-border" />
+      <div className="my-0.5 h-px w-full bg-border" />
       <MenuButton
         icon={Trash}
         label="Delete"

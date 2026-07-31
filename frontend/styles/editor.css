@@ -491,6 +491,19 @@
 
         .question-cell {
           padding: 6px 8px;
+          /* A grid item defaults to `min-width: auto`, which means the `1fr`
+             track is only a *lower* bound — wide content stretches it past its
+             share and blows the whole row out through the page margin, carrying
+             the marks column with it. A 660px "full width" figure did exactly
+             that: the body cell grew to 677px and the marks border landed 70px
+             outside the printable area.
+
+             `min-width: 0` lets the track hold its computed width, which is
+             what makes the `max-width: 100%` already set on the figure (and on
+             tables, and on long unbroken strings) actually resolve against the
+             column instead of against a cell that grew to fit. Same fix as the
+             one on `.question-body ul li` below. */
+          min-width: 0;
         }
 
         .question-cell + .question-cell {
@@ -540,6 +553,14 @@
 
         .question-body {
           line-height: 1.35;
+          /* `min-width: 0` on the cell stops the *track* being stretched, but a
+             single unbreakable token — a long URL, a chemistry string, a
+             pasted equation with no spaces — still runs straight through the
+             cell and out over the marks column, because there is no wrap
+             opportunity for the line breaker to take. Measured at 650px of
+             overflow before this rule. `break-word` only applies when the word
+             genuinely cannot fit, so ordinary prose is unaffected. */
+          overflow-wrap: break-word;
         }
 
         .question-marks {
@@ -1074,7 +1095,7 @@
         /* Alignment + delete toolbar — sits above the image */
         .float-image-controls {
           position: absolute;
-          top: -28px;
+          top: 6px;
           left: 50%;
           transform: translateX(-50%);
           display: flex;

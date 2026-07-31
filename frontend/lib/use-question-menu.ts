@@ -30,7 +30,44 @@ import { replaceQuestionNode } from "@/components/editor/extensions/nodes";
 import { SIZE_HALF } from "@/components/editor/extensions/float-image";
 
 /** Long enough to cross the gap to the menu, short enough not to feel stuck. */
-const CLOSE_DELAY_MS = 180;
+const CLOSE_DELAY_MS = 500;
+
+/**
+ * The child types that hold a question's *answers* rather than its stem.
+ *
+ * Both `questionBlock` and `groupedQuestionBlock` are
+ * `(paragraph | bulletList | orderedList | mathBlock | floatImage)+`, and in
+ * both the same shape holds: the stem comes first as paragraphs (and the odd
+ * `mathBlock`), then a single list carries the MCQ options or the case-study
+ * sub-questions.
+ */
+const ANSWER_LISTS = new Set(["bulletList", "orderedList"]);
+
+/**
+ * Where a generated figure belongs inside a question: after the stem, before
+ * the options.
+ *
+ * Appending at the end of the node put the picture underneath the options of an
+ * MCQ and underneath every sub-question of a case-study block — so the figure
+ * the question depends on appeared after the choices that depend on it, which
+ * on a printed paper reads as belonging to whatever comes next.
+ *
+ * Returning the position of the first answer list puts the figure directly
+ * below the stem. A question with no list at all (SHORT / LONG) has no options
+ * to come before, so it keeps the old end-of-content position.
+ */
+function figureInsertPos(node: any, nodePos: number): number {
+  // +1 steps past the question node's own opening token into its content.
+  let offset = nodePos + 1;
+
+  for (let i = 0; i < node.childCount; i += 1) {
+    const child = node.child(i);
+    if (ANSWER_LISTS.has(child.type?.name)) return offset;
+    offset += child.nodeSize;
+  }
+
+  return nodePos + node.nodeSize - 1;
+}
 
 interface ActiveQuestion {
   element: HTMLElement;
@@ -247,13 +284,13 @@ export function useQuestionMenu(editor: any) {
           return;
         }
 
-        // Insert at the END of the question's own content, so the figure sits
-        // under its question rather than after the whole block — which would
-        // orphan it from the question it illustrates when questions reorder.
+        // Inside the question's own content (never after the whole block, which
+        // would orphan the figure when questions reorder) and above the options
+        // it illustrates. See `figureInsertPos`.
         editor
           .chain()
           .focus()
-          .insertContentAt(target.pos + node.nodeSize - 1, {
+          .insertContentAt(figureInsertPos(node, target.pos), {
             type: "floatImage",
             attrs: {
               src: imageUrl,

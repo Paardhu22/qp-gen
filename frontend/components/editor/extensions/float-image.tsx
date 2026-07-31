@@ -54,12 +54,21 @@ export function resolveFigureSrc(src: string | null | undefined): string {
 }
 
 /**
- * Size presets, in px, measured against the A4 content column.
+ * Size presets, in px, expressed against the widest place a figure can sit:
+ * the A4 page's own content box (794px less its 56px margins ≈ 680px).
  *
- * The printable width of the A4 page is 794px less its margins, which leaves
- * ~680px — the same ceiling the drag handle already clamps to. "Full" is a
- * little under that so a full-width figure still breathes inside the text
- * block rather than butting against both margins.
+ * These are intents, not final widths. The rendered container pairs its pixel
+ * width with `max-width: 100%`, so a figure always shrinks to whatever column
+ * actually holds it — ~533px inside a question's middle grid cell, the full
+ * ~680px for one placed directly on the page. That is why "Full" stays at 680
+ * rather than being re-pinned to the narrower question column: hardcoding the
+ * question width here would silently cap page-level figures at two-thirds size,
+ * and would drift the moment the grid template changes.
+ *
+ * For the clamp to work the containing grid cell needs `min-width: 0` — without
+ * it the cell stretches to fit and `max-width: 100%` resolves against the
+ * stretched width, which is the bug that let a "full width" figure overflow the
+ * marks column. See `.question-cell` in styles/editor.css.
  */
 export const SIZE_SMALL = 200;
 export const SIZE_HALF = 340;
