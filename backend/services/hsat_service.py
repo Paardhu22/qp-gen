@@ -290,13 +290,8 @@ def ingest_hsat_book(
                 .filter(grade=grade, subject=subject, book=book)
                 .first()
             )
-            # Because we already hold ``lock`` for this (grade, subject,
-            # book), nobody else is racing us. A row that's currently
-            # "processing" therefore means *we* are the worker — either
-            # the async helper bumped it just before spawning us, or a
-            # previous worker crashed and left it in that state. In
-            # both cases we proceed; we don't bail out on
-            # status == "processing".
+            # We already hold ``lock`` for this (grade, subject, book), so
+            # nobody is racing us for the row.
             if source is None:
                 source = HsatSource.objects.create(
                     grade=grade,
@@ -304,38 +299,13 @@ def ingest_hsat_book(
                     book=book,
                     status="processing",
                 )
-            elif source.status == "ready" and not force:
-                # Partial top-ups: if the user picked specific chapters and
-                # any of them aren't represented yet, fall through and
-                # ingest just those keys.
-                if not chapter_keys:
-                    logger.info(
-                        "ingest_hsat_book no-op (already ready): %s/%s/%s",
-                        grade, subject, book,
-                    )
-                    return source
-                missing = _missing_chapter_keys(source, keys)
-                if not missing:
-                    logger.info(
-                        "ingest_hsat_book no-op (chapters already ingested): "
-                        "%s/%s/%s keys=%d",
-                        grade, subject, book, len(keys),
-                    )
-                    return source
-                keys = missing
-                logger.info(
-                    "ingest_hsat_book top-up: %s/%s/%s adding %d new chapter(s)",
-                    grade, subject, book, len(keys),
-                )
-                source.status = "processing"
-                source.error = None
-                source.save(update_fields=["status", "error", "updated_at"])
             else:
-                # Either the row was already "processing" (we own it via
-                # ``lock``) or it was previously errored and is being
-                # retried. Either way, reset the error state and clear
-                # any per-chapter errors for the keys we're about to
-                # re-attempt.
+                # The row is either already "processing" (we own it via
+                # ``lock`` — the async helper bumps it just before spawning
+                # us, or a previous worker crashed), "ready" and being
+                # topped up, or errored and being retried. In every case we
+                # take ownership and reset the error state for the keys
+                # we're about to attempt.
                 source.status = "processing"
                 source.error = None
                 if not chapter_keys:
@@ -351,6 +321,38 @@ def ingest_hsat_book(
             source.chunks.all().delete()
             source.chunk_count = 0
             source.save(update_fields=["chunk_count", "updated_at"])
+        else:
+            # Never re-read a chapter whose chunks are already persisted.
+            #
+            # This has to key off the CHUNKS, not off the book's status. The
+            # only caller from the API is ``ingest_hsat_book_async``, which
+            # flips the row to "processing" before it spawns us — so a
+            # status-based skip is dead code by construction, and every
+            # apply used to re-download, re-parse, re-embed and bulk_create
+            # a SECOND copy of chunks it already had. That is what made
+            # "apply this source" slow on a book that was already indexed,
+            # and it fed Model 1 the same chapter twice.
+            already = set(_ingested_chapter_keys(source, keys))
+            if already:
+                keys = [k for k in keys if k not in already]
+                logger.info(
+                    "ingest_hsat_book skipping %d already-ingested chapter(s): "
+                    "%s/%s/%s",
+                    len(already), grade, subject, book,
+                )
+            if not keys:
+                source.status = "ready"
+                source.error = None
+                source.processed_at = tz.now()
+                source.save(
+                    update_fields=["status", "error", "processed_at", "updated_at"]
+                )
+                logger.info(
+                    "ingest_hsat_book no-op (every requested chapter is already "
+                    "ingested): %s/%s/%s",
+                    grade, subject, book,
+                )
+                return source
 
         # Per-chapter results — collected from the worker pool.
         chapter_errors: Dict[str, str] = dict(source.chapter_errors or {})
@@ -461,21 +463,30 @@ def ingest_hsat_book(
         lock.release()
 
 
-def _missing_chapter_keys(
+def _ingested_chapter_keys(
     source: HsatSource, requested: Sequence[str]
 ) -> List[str]:
-    """Return the subset of ``requested`` whose chunks have not been
-    persisted yet. Used to top-up a book that already has *some* chapters
-    ingested without re-doing the ones that succeeded."""
+    """Return the subset of ``requested`` that already has persisted chunks.
+
+    HSAT chunks have carried ``metadata.s3_key`` since the feature's first
+    commit, so chunk presence is a complete record of what has been read —
+    which is why this, and not the book's status, is what decides whether a
+    chapter needs ingesting.
+    """
     from apps.documents.models import DocumentChunk
 
-    seen = set(
-        DocumentChunk.objects.filter(
-            hsat_source=source,
-            metadata__s3_key__in=list(requested),
-        ).values_list("metadata__s3_key", flat=True)
+    if not requested:
+        return []
+    return list(
+        {
+            key
+            for key in DocumentChunk.objects.filter(
+                hsat_source=source,
+                metadata__s3_key__in=list(requested),
+            ).values_list("metadata__s3_key", flat=True)
+            if key
+        }
     )
-    return [k for k in requested if k not in seen]
 
 
 def ingest_hsat_book_async(
@@ -500,9 +511,20 @@ def ingest_hsat_book_async(
     """
     source = get_or_create_source(grade, subject, book)
 
-    # Fast path: full-book request and the book is already ready.
-    if source.status == "ready" and not force and not chapter_keys:
-        return source
+    # Fast path: the book is ready and nothing the caller asked for is
+    # missing. Checking BEFORE the status flip below is the point — flipping
+    # a ready book to "processing" and letting the worker sort it out shows
+    # the teacher a "Preparing this book…" row, and blocks generation, for a
+    # book that was already fully readable.
+    if source.status == "ready" and not force:
+        requested = list(chapter_keys) if chapter_keys else list(
+            hsat_catalog.get_book_keys(grade, subject, book)
+        )
+        if not [
+            k for k in requested
+            if k not in set(_ingested_chapter_keys(source, requested))
+        ]:
+            return source
 
     if source.status != "processing":
         source.status = "processing"

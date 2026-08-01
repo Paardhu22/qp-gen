@@ -6,6 +6,7 @@ from .hsat_views import (
     HsatChaptersView,
     HsatIngestView,
     HsatPaperSourcesView,
+    HsatSourceStatusView,
 )
 
 urlpatterns = [
@@ -13,6 +14,11 @@ urlpatterns = [
     path("chapters/", HsatChaptersView.as_view(), name="hsat-chapters"),
     path("ingest/", HsatIngestView.as_view(), name="hsat-ingest"),
     path("apply/", HsatApplyView.as_view(), name="hsat-apply"),
+    path(
+        "sources/<str:source_id>/status/",
+        HsatSourceStatusView.as_view(),
+        name="hsat-source-status",
+    ),
     path(
         "papers/<str:paper_id>/sources/",
         HsatPaperSourcesView.as_view(),

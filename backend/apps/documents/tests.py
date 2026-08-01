@@ -11,7 +11,7 @@ the client omits the Content-Type header.
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.accounts.models import User
 from apps.documents.models import PdfSource
@@ -185,3 +185,108 @@ class UploadErrorLoggingTests(TestCase):
         self.assertEqual(response.status_code, 500)
         self.assertIn("confirm failed", logs.output[0])
         self._assert_no_log_file()
+
+
+@override_settings(HSAT_CHAPTER_CONCURRENCY=1)
+class HsatReingestTests(TestCase):
+    """Applying a book must never re-read chapters it has already read.
+
+    Chapter concurrency is pinned to 1 because the test database is
+    in-memory SQLite, which locks under the ThreadPoolExecutor the real
+    ingest uses against Postgres. Nothing here is about concurrency.
+
+    ``ingest_hsat_book_async`` flips the row to "processing" before it
+    spawns its worker, which made every status-based skip inside
+    ``ingest_hsat_book`` unreachable from the API: each apply re-downloaded
+    and re-parsed every selected chapter and bulk_created a SECOND copy of
+    its chunks. That is what made "apply this source" slow on an already
+    indexed book, and it handed Model 1 the same chapter twice.
+
+    The skip now keys off persisted chunks, so it holds no matter what the
+    book's status says.
+    """
+
+    KEYS = [
+        "input-pdfs/class 10/Science/Science/CH1 - Reactions.pdf",
+        "input-pdfs/class 10/Science/Science/CH2 - Acids.pdf",
+    ]
+
+    def _fake_extract(self, **kwargs):
+        from apps.documents.models import DocumentChunk
+
+        DocumentChunk.objects.create(
+            content="chapter text",
+            chunk_index=0,
+            hsat_source=kwargs["hsat_source"],
+            metadata={"s3_key": kwargs["extra_metadata"]["s3_key"]},
+        )
+        return {"total_chunks": 1, "text_chunks": 1, "image_chunks": 0}
+
+    def setUp(self) -> None:
+        patchers = [
+            patch("services.hsat_catalog.get_book_keys", return_value=self.KEYS),
+            patch("services.hsat_service.is_configured", return_value=True),
+            patch("services.hsat_service.download_to_buffer", return_value=b"pdf"),
+            patch(
+                "services.hsat_service.extract_and_persist_chunks",
+                side_effect=self._fake_extract,
+            ),
+        ]
+        started = [p.start() for p in patchers]
+        for p in patchers:
+            self.addCleanup(p.stop)
+        #: The stubbed chapter reader — how many times it ran, and with what.
+        self.extract = started[-1]
+
+    def _own_and_ingest(self, chapter_keys):
+        """Reproduce what the async helper does before spawning its worker."""
+        from services.hsat_service import get_or_create_source, ingest_hsat_book
+
+        source = get_or_create_source("10", "Science", "Science")
+        if source.status != "processing":
+            source.status = "processing"
+            source.save(update_fields=["status"])
+        return ingest_hsat_book(
+            "10", "Science", "Science", chapter_keys=chapter_keys
+        )
+
+    def test_reapplying_the_same_chapters_writes_no_duplicate_chunks(self) -> None:
+        from apps.documents.models import DocumentChunk
+
+        self._own_and_ingest(self.KEYS)
+        self.assertEqual(DocumentChunk.objects.count(), 2)
+        first_calls = self.extract.call_count
+
+        source = self._own_and_ingest(self.KEYS)
+
+        self.assertEqual(self.extract.call_count, first_calls)
+        self.assertEqual(DocumentChunk.objects.count(), 2)
+        self.assertEqual(source.status, "ready")
+
+    def test_a_newly_picked_chapter_is_topped_up_alone(self) -> None:
+        from apps.documents.models import DocumentChunk
+
+        self._own_and_ingest([self.KEYS[0]])
+        self.assertEqual(DocumentChunk.objects.count(), 1)
+
+        # Now the teacher also ticks chapter 2. Only chapter 2 is read.
+        self._own_and_ingest(self.KEYS)
+
+        keys_read = [
+            c.kwargs["extra_metadata"]["s3_key"]
+            for c in self.extract.call_args_list
+        ]
+        self.assertEqual(keys_read, [self.KEYS[0], self.KEYS[1]])
+        self.assertEqual(DocumentChunk.objects.count(), 2)
+
+    def test_async_helper_leaves_a_fully_ingested_book_ready(self) -> None:
+        """A re-apply must not park a readable book in "processing" — that
+        row is what blocks generation and shows "Preparing this book…"."""
+        from services.hsat_service import ingest_hsat_book_async
+
+        self._own_and_ingest(self.KEYS)
+        source = ingest_hsat_book_async(
+            "10", "Science", "Science", chapter_keys=self.KEYS
+        )
+
+        self.assertEqual(source.status, "ready")
