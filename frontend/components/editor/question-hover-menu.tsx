@@ -140,6 +140,7 @@ export function QuestionHoverMenu({ target, onMenuEnter, onMenuLeave }: Props) {
     <div
       role="toolbar"
       aria-label="Question actions"
+      data-question-menu="true"
       onMouseEnter={onMenuEnter}
       onMouseLeave={onMenuLeave}
       style={{
