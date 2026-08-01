@@ -172,15 +172,32 @@ def extract_and_persist_chunks(
 
     text_chunk_count = len(chunks)
 
-    image_chunks = _build_image_chunks(
-        pdf_source=pdf_source,
-        hsat_source=hsat_source,
-        file_name=file_name,
-        images=images,
-        pages=pages,
-        start_index=len(chunks),
-        user=user,
-    )
+    # Figure chunks cost one S3 PUT each, up to PDF_IMAGE_MAX_CAPTIONS per
+    # chapter, and they are the reason "apply this source" felt like an
+    # upload rather than a selection. Nothing in the paper pipeline reads
+    # them (see INGEST_EXTRACT_FIGURES), so by default we skip them —
+    # unless the document has no extractable text at all, in which case the
+    # figures ARE the document and dropping them would turn a scanned
+    # chapter into a failed ingest.
+    text_only = not extracted_text.strip()
+    if getattr(settings, "INGEST_EXTRACT_FIGURES", False) or text_only:
+        image_chunks = _build_image_chunks(
+            pdf_source=pdf_source,
+            hsat_source=hsat_source,
+            file_name=file_name,
+            images=images,
+            pages=pages,
+            start_index=len(chunks),
+            user=user,
+        )
+    else:
+        image_chunks = []
+        if images:
+            logger.debug(
+                "Skipping %d figure(s) in %s — INGEST_EXTRACT_FIGURES is off.",
+                len(images),
+                file_name,
+            )
     chunks.extend(image_chunks)
 
     if not chunks:
@@ -195,12 +212,16 @@ def extract_and_persist_chunks(
     # DocumentChunk rows are being written.
     from django.db.models import F  # local import — avoids circular at top
 
-    batch_size = 50
+    batch_size = int(getattr(settings, "INGEST_EMBED_BATCH_SIZE", 256))
+    embed = bool(getattr(settings, "INGEST_EMBEDDINGS_ENABLED", True))
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
-        embeddings = generate_embeddings(
-            [chunk.content for chunk in batch], user=user
-        )
+        if embed:
+            embeddings = generate_embeddings(
+                [chunk.content for chunk in batch], user=user
+            )
+        else:
+            embeddings = [None] * len(batch)
 
         DocumentChunk.objects.bulk_create(
             [
