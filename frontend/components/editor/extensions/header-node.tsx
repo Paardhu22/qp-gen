@@ -4,9 +4,8 @@ import {
   NodeViewWrapper,
   NodeViewContent,
 } from "@tiptap/react";
-import NextImage from "next/image";
 import React from "react";
-import { Calendar, Image as ImageIcon, Trash, X } from "lucide-react";
+import { Calendar, Trash } from "lucide-react";
 
 // Cluster C.2 — locale-aware date formatter used by both the editor
 // rendering and the printed output. We format from a stable ISO string so
@@ -28,8 +27,6 @@ function formatPaperDate(iso: string): string {
 }
 
 const PaperHeaderComponent = ({ node, updateAttributes, deleteNode, editor }: any) => {
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-
   const showDate = Boolean(node.attrs.showDate);
   const dateValue = node.attrs.dateValue || "";
   // Default the picker to today when the field is being enabled for the
@@ -47,78 +44,9 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode, editor }: an
     updateAttributes({ dateValue: e.target.value });
   };
 
-  const handleLogoClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        updateAttributes({ logoUrl: reader.result });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const removeLogo = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    updateAttributes({ logoUrl: null });
-  };
-
   return (
     <NodeViewWrapper className="paper-header-block group">
       <div className="paper-header-shell">
-        {/* Logo Area */}
-        <div
-          className={`paper-header-logo-area ${
-            node.attrs.logoUrl
-              ? "has-logo"
-              : "is-empty print:hidden"
-          }`}
-          onClick={handleLogoClick}
-          contentEditable={false}
-        >
-          {node.attrs.logoUrl ? (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-2">
-              <NextImage
-                src={node.attrs.logoUrl}
-                alt="School Logo"
-                width={128}
-                height={128}
-                unoptimized
-                className="max-h-24 w-full object-contain"
-              />
-              {editor?.isEditable && (
-                <button
-                  type="button"
-                  className="opacity-0 group-hover:opacity-100 hover:bg-accent rounded p-0.5"
-                  onClick={removeLogo}
-                >
-                  <X className="w-3 h-3 text-muted-foreground" />
-                </button>
-              )}
-            </div>
-          ) : editor?.isEditable ? (
-            <div className="logo-placeholder print:hidden">
-              <ImageIcon className="w-6 h-6" />
-              <span className="text-[10px] uppercase font-bold tracking-wider">
-                Logo
-              </span>
-            </div>
-          ) : null}
-          {editor?.isEditable && (
-            <input
-              type="file"
-              ref={fileInputRef}
-              className="hidden"
-              accept="image/*"
-              onChange={handleFileChange}
-            />
-          )}
-        </div>
-
         {/* Details Area.
             G — date renders ONCE as a formatted span ("Jun 08, 2026").
             The native `<input type="date">` is overlaid invisibly on
@@ -191,7 +119,6 @@ export const PaperHeaderBlock = Node.create({
 
   addAttributes() {
     return {
-      logoUrl: { default: null },
       // Cluster C.2 — optional locale-formatted date field. Persisted as
       // an ISO `YYYY-MM-DD` string so the editor + exports + answer-script
       // generator all read a stable, timezone-neutral value.
@@ -207,7 +134,6 @@ export const PaperHeaderBlock = Node.create({
         getAttrs: (el) => {
           const element = el as HTMLElement;
           return {
-            logoUrl: element.getAttribute("data-logo-url") || null,
             showDate: element.getAttribute("data-show-date") === "true",
             dateValue: element.getAttribute("data-date-value") || "",
           };
@@ -217,7 +143,6 @@ export const PaperHeaderBlock = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
-    const logoUrl = HTMLAttributes.logoUrl as string | null;
     const showDate = Boolean(HTMLAttributes.showDate);
     const dateValue = (HTMLAttributes.dateValue as string) || "";
     const formattedDate = formatPaperDate(dateValue);
@@ -226,7 +151,6 @@ export const PaperHeaderBlock = Node.create({
       "div",
       mergeAttributes(HTMLAttributes, {
         "data-type": "paper-header-block",
-        "data-logo-url": logoUrl,
         "data-show-date": String(showDate),
         "data-date-value": dateValue,
         class: "paper-header-block",
@@ -234,20 +158,6 @@ export const PaperHeaderBlock = Node.create({
       [
         "div",
         { class: "paper-header-layout" },
-        logoUrl
-          ? [
-              "div",
-              { class: "paper-header-logo" },
-              [
-                "img",
-                {
-                  src: logoUrl,
-                  alt: "School Logo",
-                  class: "paper-header-logo-image",
-                },
-              ],
-            ]
-          : ["div", { class: "paper-header-logo paper-header-logo-empty" }],
         [
           "div",
           { class: "paper-header-content-col" },

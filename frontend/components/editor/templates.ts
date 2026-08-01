@@ -1,14 +1,27 @@
 export const templates = {
   cbse: `
     <div data-type="paper-header-block">
-      <h1>COMPUTER APPLICATIONS - CODE 165</h1>
-      <h2>SAMPLE PAPER (THEORY)</h2>
-      <p>CLASS X (2025-26)</p>
+      <h1>PA1 - CENTRAL OFFICE</h1>
+      <h2>CBSE - Question Paper</h2>
       <table>
+        <thead>
+          <tr>
+            <th>SUBJECT</th>
+            <th>GRADE</th>
+            <th>SET</th>
+            <th>MAX MARK</th>
+            <th>TIME</th>
+            <th>DATE</th>
+          </tr>
+        </thead>
         <tbody>
           <tr>
-            <td><strong>Time Allowed:</strong> 2 Hours</td>
-            <td><strong>Maximum Marks:</strong> 50</td>
+            <td>English</td>
+            <td>VI</td>
+            <td>A</td>
+            <td>40</td>
+            <td>90 min</td>
+            <td>________</td>
           </tr>
         </tbody>
       </table>
@@ -55,16 +68,25 @@ export const templates = {
     <div data-type="paper-header-block">
       <h1>GREENWOOD PUBLIC SCHOOL</h1>
       <h2>UNIT TEST - APRIL 2026</h2>
-      <p>Class IX - Science</p>
       <table>
+        <thead>
+          <tr>
+            <th>SUBJECT</th>
+            <th>GRADE</th>
+            <th>SET</th>
+            <th>MAX MARK</th>
+            <th>TIME</th>
+            <th>DATE</th>
+          </tr>
+        </thead>
         <tbody>
           <tr>
-            <td><strong>Time Allowed:</strong> 1 Hour</td>
-            <td><strong>Maximum Marks:</strong> 30</td>
-          </tr>
-          <tr>
-            <td><strong>Academic Year:</strong> 2025-26</td>
-            <td><strong>Date:</strong> 19/04/2026</td>
+            <td>Science</td>
+            <td>IX</td>
+            <td>A</td>
+            <td>30</td>
+            <td>60 min</td>
+            <td>19/04/2026</td>
           </tr>
         </tbody>
       </table>
@@ -93,20 +115,25 @@ export const templates = {
     <div data-type="paper-header-block">
       <h1>UNIVERSITY OF TECHNOLOGY</h1>
       <h2>DEPARTMENT OF COMPUTER SCIENCE</h2>
-      <h3>SEMESTER END EXAMINATION - MAY 2026</h3>
       <table>
+        <thead>
+          <tr>
+            <th>COURSE</th>
+            <th>CODE</th>
+            <th>SEMESTER</th>
+            <th>MAX MARK</th>
+            <th>TIME</th>
+            <th>DATE</th>
+          </tr>
+        </thead>
         <tbody>
           <tr>
-            <td><strong>Course Code:</strong> CS101</td>
-            <td><strong>Date:</strong> 13/05/2026</td>
-          </tr>
-          <tr>
-            <td><strong>Course Name:</strong> Data Structures and Algorithms</td>
-            <td><strong>Max Marks:</strong> 100</td>
-          </tr>
-          <tr>
-            <td><strong>Semester:</strong> III</td>
-            <td><strong>Time:</strong> 3 Hours</td>
+            <td>Data Structures</td>
+            <td>CS101</td>
+            <td>III</td>
+            <td>100</td>
+            <td>3 Hrs</td>
+            <td>13/05/2026</td>
           </tr>
         </tbody>
       </table>
@@ -145,12 +172,25 @@ export const templates = {
     <div data-type="paper-header-block">
       <h1>ALBERT SENIOR SCHOOL</h1>
       <h2>WORKSHEET - ALGEBRA PRACTICE</h2>
-      <p>Class VIII - Mathematics</p>
       <table>
+        <thead>
+          <tr>
+            <th>SUBJECT</th>
+            <th>GRADE</th>
+            <th>SET</th>
+            <th>MAX MARK</th>
+            <th>TIME</th>
+            <th>DATE</th>
+          </tr>
+        </thead>
         <tbody>
           <tr>
-            <td><strong>Duration:</strong> 45 Minutes</td>
-            <td><strong>Total Marks:</strong> 20</td>
+            <td>Mathematics</td>
+            <td>VIII</td>
+            <td>A</td>
+            <td>20</td>
+            <td>45 min</td>
+            <td>________</td>
           </tr>
         </tbody>
       </table>
@@ -179,14 +219,24 @@ export const templates = {
       <h1>NATIONAL COMPETITIVE EXAMINATION</h1>
       <h2>GENERAL APTITUDE TEST - 2026</h2>
       <table>
+        <thead>
+          <tr>
+            <th>PAPER</th>
+            <th>QUESTIONS</th>
+            <th>SET</th>
+            <th>MAX MARK</th>
+            <th>TIME</th>
+            <th>DATE</th>
+          </tr>
+        </thead>
         <tbody>
           <tr>
-            <td><strong>Paper:</strong> Paper I (Quantitative Aptitude)</td>
-            <td><strong>Duration:</strong> 2 Hours</td>
-          </tr>
-          <tr>
-            <td><strong>Total Questions:</strong> 100</td>
-            <td><strong>Max Marks:</strong> 200</td>
+            <td>Paper I</td>
+            <td>100</td>
+            <td>A</td>
+            <td>200</td>
+            <td>2 Hrs</td>
+            <td>________</td>
           </tr>
         </tbody>
       </table>
