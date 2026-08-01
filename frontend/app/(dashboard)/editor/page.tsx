@@ -7,6 +7,7 @@ import { GenerateDock } from "@/components/editor/generate-dock";
 import { HsatSourcePicker } from "@/components/hsat-source-picker";
 import { usePaperGeneration } from "@/lib/use-paper-generation";
 import { useSourceUploads } from "@/lib/use-source-uploads";
+import { useHsatReadiness } from "@/lib/use-hsat-readiness";
 import { TiptapEditor, normalizeInitialContent } from "@/components/tiptap-editor";
 import { ComparisonWorkspace } from "@/components/comparison-workspace";
 import { useEditorStore } from "@/store/editor-store";
@@ -229,6 +230,11 @@ export default function EditorPage() {
   // Uploads live on the page, not in the modal: a teacher who starts a large
   // upload and closes the Builder must come back to a finished upload.
   const uploads = useSourceUploads(uploadedDocs, setUploadedDocs);
+
+  // Same reason, other source kind: the library picker applies a book and
+  // closes instead of blocking on its ingest, so the page is what watches a
+  // still-indexing book turn ready.
+  useHsatReadiness(hsatSources, setHsatSources);
 
   const generation = usePaperGeneration({
     onSourcesNotReady: uploads.reconcileNotReady,

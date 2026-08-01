@@ -284,10 +284,12 @@ export function BlueprintModal({
         if (result.template?.instructions) {
           setInstructions(result.template.instructions);
         }
-        // Land on the step that has something to show. A blank or prose
-        // template has no slots yet, so jumping to Questions would present an
-        // empty list as if something had gone wrong.
-        setStep(result.blueprint.slots.length > 0 ? "questions" : "sources");
+        // Always hand over to Sources. Skipping ahead to Questions when the
+        // template happened to resolve slots was a shortcut that skipped the
+        // one step the paper cannot be generated without — a teacher who
+        // never sees step 2 has no chapter attached, and finds out only when
+        // generation produces nothing.
+        setStep("sources");
       } catch (error: any) {
         console.error("Template resolve failed:", error);
         toast.error(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
   Loader2,
@@ -94,11 +94,6 @@ interface Props {
   onApply: (source: AppliedHsatSource) => void;
 }
 
-// Polling cadence: 10 s → 15 s → 20 s → 30 s (max).
-// Backoff was added because the previous 3 s loop was hammering the
-// catalog endpoint for the entire 8-minute Mathematics ingestion.
-const POLL_INTERVALS_MS = [10_000, 15_000, 20_000, 30_000];
-
 type Step = "select" | "chapters";
 
 export function HsatSourcePicker({
@@ -118,35 +113,17 @@ export function HsatSourcePicker({
   const [chaptersLoading, setChaptersLoading] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [isWorking, setIsWorking] = useState(false);
-  const [workMessage, setWorkMessage] = useState<string>("");
-  // setTimeout (not setInterval) so each tick can use a different delay.
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollStepRef = useRef(0);
-
-  const stopPolling = useCallback(() => {
-    if (pollTimerRef.current) {
-      clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
-    pollStepRef.current = 0;
-  }, []);
-
-  useEffect(() => {
-    return () => stopPolling();
-  }, [stopPolling]);
 
   // Reset transient state every time the modal is closed so a re-open
   // doesn't ship stale selections.
   useEffect(() => {
     if (!open) {
-      stopPolling();
       setIsWorking(false);
-      setWorkMessage("");
       setStep("select");
       setChapters([]);
       setSelectedKeys(new Set());
     }
-  }, [open, stopPolling]);
+  }, [open]);
 
   const fetchCatalog = useCallback(async () => {
     try {
@@ -216,9 +193,18 @@ export function HsatSourcePicker({
         `/api/hsat/chapters/?${params.toString()}`,
       );
       setChapters(data.chapters || []);
-      // Default: every chapter pre-selected. The user can uncheck ones
-      // they don't care about.
-      setSelectedKeys(new Set(data.chapters.map((c) => c.s3_key)));
+      // Nothing is pre-selected. Pre-selecting the whole book meant a
+      // teacher who wanted one chapter kicked off a fourteen-chapter
+      // ingest by pressing the obvious button — the single biggest cause
+      // of "applying a source takes forever". Chapters already indexed
+      // cost nothing to re-tick, so start from what they actually want.
+      setSelectedKeys(
+        new Set(
+          (data.chapters || [])
+            .filter((c) => c.status === "ready")
+            .map((c) => c.s3_key),
+        ),
+      );
     } catch (err) {
       toast.error(
         err instanceof ApiError ? err.message : "Could not load chapter list.",
@@ -271,78 +257,22 @@ export function HsatSourcePicker({
   const deselectAllChapters = () => setSelectedKeys(new Set());
 
   /**
-   * Poll the catalog endpoint until the book reaches `ready` or `error`,
-   * then call `onReady`. Uses exponential backoff (10 s → 15 s → 20 s → 30 s)
-   * via setTimeout chaining so the same component can also be unmounted
-   * without leaking an interval.
+   * Apply the book and get out of the way.
+   *
+   * This used to hold the dialog open — spinner, "Preparing…", disabled
+   * buttons — polling the catalog on a 10-30 s backoff until the whole book
+   * finished indexing, which for a first-use textbook is minutes of a modal
+   * a teacher can do nothing with. Nothing about that wait was necessary:
+   * `/api/hsat/ingest/` already returns the moment the background thread is
+   * spawned, and the source is applied to the paper by id, not by readiness.
+   *
+   * So the dialog now closes immediately. The applied source renders as a
+   * "Preparing this book…" row in the Sources panel, `useHsatReadiness`
+   * flips it to ready when the chunks land, and `services/source_readiness`
+   * remains the authoritative gate that refuses to generate from a source
+   * that isn't there yet. The teacher configures the rest of the paper while
+   * the book indexes instead of watching it.
    */
-  const pollUntilReady = useCallback(
-    (
-      g: string,
-      s: string,
-      b: string,
-      onReady: (entry: HsatBookEntry) => void,
-    ) => {
-      stopPolling();
-
-      const tick = async () => {
-        try {
-          const data = await fetchJson<HsatCatalogResponse>(
-            "/api/hsat/catalog/",
-          );
-          setCatalog(data);
-          const entry = data.tree?.[g]?.[s]?.[b];
-          if (!entry) {
-            stopPolling();
-            setIsWorking(false);
-            setWorkMessage("");
-            return;
-          }
-          if (entry.status === "ready") {
-            stopPolling();
-            onReady(entry);
-            return;
-          }
-          if (entry.status === "error") {
-            stopPolling();
-            setIsWorking(false);
-            setWorkMessage("");
-            toast.error(
-              `Failed to prepare ${b}: ${entry.error ?? "unknown error"}`,
-            );
-            return;
-          }
-          setWorkMessage(
-            `Preparing ${b}… ${entry.chunk_count.toLocaleString()} chunks indexed so far.`,
-          );
-          schedule();
-        } catch (err) {
-          stopPolling();
-          setIsWorking(false);
-          setWorkMessage("");
-          toast.error(
-            err instanceof ApiError
-              ? err.message
-              : "Lost connection while preparing source.",
-          );
-        }
-      };
-
-      const schedule = () => {
-        const idx = Math.min(
-          pollStepRef.current,
-          POLL_INTERVALS_MS.length - 1,
-        );
-        const delay = POLL_INTERVALS_MS[idx];
-        pollStepRef.current = idx + 1;
-        pollTimerRef.current = setTimeout(tick, delay);
-      };
-
-      schedule();
-    },
-    [stopPolling],
-  );
-
   const handleConfirm = async () => {
     if (!grade || !subject || !book) return;
     if (chapters.length > 0 && selectedKeys.size === 0) {
@@ -350,16 +280,21 @@ export function HsatSourcePicker({
       return;
     }
     setIsWorking(true);
-    setWorkMessage("");
 
     const chapterKeysList =
       chapters.length > 0 ? Array.from(selectedKeys) : undefined;
 
-    const finalize = async (
-      hsatSourceId: string,
-      finalStatus: HsatBookStatus,
-      chunkCount: number,
-    ) => {
+    try {
+      const ingest = await fetchJson<HsatIngestResponse>("/api/hsat/ingest/", {
+        method: "POST",
+        body: JSON.stringify({
+          grade,
+          subject,
+          book,
+          chapter_keys: chapterKeysList,
+        }),
+      });
+
       if (paperId) {
         try {
           await fetchJson<HsatIngestResponse>("/api/hsat/apply/", {
@@ -384,59 +319,25 @@ export function HsatSourcePicker({
       }
 
       onApply({
-        id: hsatSourceId,
+        id: ingest.hsat_source_id,
         grade,
         subject,
         book,
-        status: finalStatus,
-        chunkCount,
+        status: ingest.status,
+        chunkCount: ingest.chunk_count,
         selectedChapterCount: chapterKeysList?.length,
       });
-      setIsWorking(false);
-      setWorkMessage("");
-      onOpenChange(false);
-    };
 
-    try {
-      const ingest = await fetchJson<HsatIngestResponse>("/api/hsat/ingest/", {
-        method: "POST",
-        body: JSON.stringify({
-          grade,
-          subject,
-          book,
-          chapter_keys: chapterKeysList,
-        }),
-      });
-
-      if (ingest.status === "ready") {
-        await finalize(ingest.hsat_source_id, ingest.status, ingest.chunk_count);
-        return;
+      if (ingest.status !== "ready") {
+        toast.success(
+          `${book} added — the chapters you picked are being read in the background.`,
+        );
       }
 
-      setWorkMessage(
-        `Preparing ${book}… this happens once per book, takes a minute or two.`,
-      );
-      pollUntilReady(grade, subject, book, () => {
-        void fetchJson<HsatIngestResponse>("/api/hsat/ingest/", {
-          method: "POST",
-          body: JSON.stringify({ grade, subject, book }),
-        })
-          .then((again) =>
-            finalize(again.hsat_source_id, again.status, again.chunk_count),
-          )
-          .catch((err) => {
-            setIsWorking(false);
-            setWorkMessage("");
-            toast.error(
-              err instanceof ApiError
-                ? err.message
-                : "Could not finalize source.",
-            );
-          });
-      });
+      setIsWorking(false);
+      onOpenChange(false);
     } catch (err) {
       setIsWorking(false);
-      setWorkMessage("");
       toast.error(
         err instanceof ApiError ? err.message : "Could not start HSAT ingestion.",
       );
@@ -500,8 +401,8 @@ export function HsatSourcePicker({
           </DialogTitle>
           <DialogDescription>
             {step === "select"
-              ? "Pick a CBSE textbook. First use indexes it once for everyone — subsequent uses are instant."
-              : "Pick only the chapters you need. Fewer chapters = faster ingest."}
+              ? "Pick a CBSE textbook. Each chapter is read once for everyone — after that it is instant."
+              : "Tick only the chapters this paper covers. Ones already read are ticked for you; new ones are read in the background, so you can carry on."}
           </DialogDescription>
         </DialogHeader>
 
@@ -660,12 +561,6 @@ export function HsatSourcePicker({
                 </div>
               </>
             )}
-
-            {workMessage && (
-              <div className="text-xs text-muted-foreground italic">
-                {workMessage}
-              </div>
-            )}
           </div>
         )}
 
@@ -712,12 +607,10 @@ export function HsatSourcePicker({
               {isWorking ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                  Preparing…
+                  Applying…
                 </>
-              ) : selectedBookEntry?.status === "ready" ? (
-                `Apply ${selectedKeys.size} chapter${selectedKeys.size === 1 ? "" : "s"}`
               ) : (
-                `Prepare and apply ${selectedKeys.size} chapter${selectedKeys.size === 1 ? "" : "s"}`
+                `Apply ${selectedKeys.size} chapter${selectedKeys.size === 1 ? "" : "s"}`
               )}
             </Button>
           )}
