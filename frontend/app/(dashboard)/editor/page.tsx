@@ -145,6 +145,8 @@ export default function EditorPage() {
   const [editorInstanceKey, setEditorInstanceKey] = useState(0);
 
   const clearComparisonSets = useEditorStore((s) => s.clearComparisonSets);
+  const comparisonSetsPaperId = useEditorStore((s) => s.comparisonSetsPaperId);
+  const setActiveEditorPaperId = useEditorStore((s) => s.setActiveEditorPaperId);
   // Drives the review tray's visibility. Read here rather than inside the tray
   // so an empty tray costs nothing to render.
   const insertionMode = useEditorStore((s) => s.insertionMode);
@@ -319,6 +321,20 @@ export default function EditorPage() {
       router.replace(`/editor?paperId=${paperId}`);
     }
   }, [rawPaperIdParam, paperId, router]);
+
+  // Sync the currently open paperId so generated sets get stamped with it.
+  useEffect(() => {
+    setActiveEditorPaperId(paperId);
+  }, [paperId, setActiveEditorPaperId]);
+
+  // Prevent volatile generated sets from bleeding into another paper if the teacher
+  // generates sets for paper A, navigates away without approving, and opens paper B.
+  // We also clear if comparisonSetsPaperId is missing (legacy sets from before this fix).
+  useEffect(() => {
+    if (paperId && comparisonSets.length > 0 && comparisonSetsPaperId !== paperId) {
+      clearComparisonSets();
+    }
+  }, [paperId, comparisonSets.length, comparisonSetsPaperId, clearComparisonSets]);
 
   // Deep-link to a specific set (A/B/C) from the Papers page's per-set
   // Preview / Export / Print actions. Only re-applies on an actual navigation

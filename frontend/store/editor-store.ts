@@ -161,6 +161,11 @@ interface EditorState {
   /** All produced sets (A + derived B/C) from the latest multi-set generation.
    *  Drives the Comparison Workspace. Empty = no multi-set result to compare. */
   comparisonSets: ComparisonSet[];
+  /** The ID of the paper that the current comparisonSets belong to. 
+   *  Used to prevent unapproved sets from bleeding when opening a different paper. */
+  comparisonSetsPaperId: string | null;
+  /** The ID of the paper currently loaded in the editor, used to stamp new comparisonSets. */
+  activeEditorPaperId: string | null;
   /** Whether the full-screen Comparison Workspace overlay is open. */
   comparisonOpen: boolean;
   /** Persisted user uploads for the current generation session */
@@ -258,6 +263,8 @@ interface EditorState {
   consumeGeneratedPaperHandoff: () => void;
   clearApprovedSets: () => void;
 
+  setActiveEditorPaperId: (paperId: string | null) => void;
+
   setUploadedDocs: (docs: UploadedDoc[] | ((prev: UploadedDoc[]) => UploadedDoc[])) => void;
   setHsatSources: (sources: AppliedHsatSource[] | ((prev: AppliedHsatSource[]) => AppliedHsatSource[])) => void;
 }
@@ -348,6 +355,8 @@ export const useEditorStore = create<EditorState>()(
       insertionMode: "review",
       generatedTray: [],
       comparisonSets: [],
+      comparisonSetsPaperId: null,
+      activeEditorPaperId: null,
       comparisonOpen: false,
       approvedSets: {},
       approvedAt: 0,
@@ -451,10 +460,13 @@ export const useEditorStore = create<EditorState>()(
 
       clearTray: () => set({ generatedTray: [] }),
 
-      setComparisonSets: (sets) => set({ comparisonSets: sets }),
+      setActiveEditorPaperId: (paperId) => set({ activeEditorPaperId: paperId }),
+
+      setComparisonSets: (sets) => set((state) => ({ comparisonSets: sets, comparisonSetsPaperId: state.activeEditorPaperId })),
       clearComparisonSets: () =>
         set({
           comparisonSets: [],
+          comparisonSetsPaperId: null,
           comparisonOpen: false,
           approvedSets: {},
           approvedAt: 0,
@@ -517,15 +529,16 @@ export const useEditorStore = create<EditorState>()(
       // instruction, so it approves. The sets stay in `comparisonSets` so the
       // review workspace is still reachable afterwards for a multi-set run.
       adoptGeneratedSets: (sets) =>
-        set({
+        set((state) => ({
           comparisonSets: sets,
+          comparisonSetsPaperId: state.activeEditorPaperId,
           approvedSets: Object.fromEntries(
             sets.map((s) => [normalizeSetLabel(s.label), s.result]),
           ),
           approvedAt: Date.now(),
           comparisonOpen: false,
           awaitingGeneratedPaper: true,
-        }),
+        })),
 
       consumeGeneratedPaperHandoff: () =>
         set({ awaitingGeneratedPaper: false }),
@@ -569,6 +582,7 @@ export const useEditorStore = create<EditorState>()(
         // navigation so the Comparison Workspace can be reopened. `comparisonOpen`
         // is transient UI and deliberately NOT persisted.
         comparisonSets: state.comparisonSets,
+        comparisonSetsPaperId: state.comparisonSetsPaperId,
         // Approved sets survive navigation so returning to the editor from
         // another route does not lose the paper the teacher just accepted.
         approvedSets: state.approvedSets,
@@ -607,6 +621,7 @@ export function resetEditorStoreForAccountSwitch(): void {
   useEditorStore.setState({
     generatedTray: [],
     comparisonSets: [],
+    comparisonSetsPaperId: null,
     comparisonOpen: false,
     approvedSets: {},
     approvedAt: 0,
