@@ -1,3 +1,32 @@
+export const defaultHeaderHTML = `
+    <div data-type="paper-header-block">
+      <h1>PA1 - CENTRAL OFFICE</h1>
+      <h2>CBSE - Question Paper</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>SUBJECT</th>
+            <th>GRADE</th>
+            <th>SET</th>
+            <th>MAX MARK</th>
+            <th>TIME</th>
+            <th>DATE</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>English</td>
+            <td>VI</td>
+            <td>A</td>
+            <td>40</td>
+            <td>90 min</td>
+            <td>________</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+`;
+
 export const templates = {
   cbse: `
     <div data-type="paper-header-block">

@@ -45,6 +45,8 @@ import { PaginationEngine } from "./editor/extensions/pagination-engine";
 import { FontSize } from "./editor/extensions/font-size";
 import { LineHeight } from "./editor/extensions/line-height";
 import { Indent as IndentExtension } from "./editor/extensions/indent";
+import { ReviewTray } from "./review-tray";
+import { templates, defaultHeaderHTML } from "./editor/templates";
 import { EditorToolbar } from "./editor/toolbar";
 import { FindReplace } from "./editor/find-replace";
 import {
@@ -1378,22 +1380,36 @@ export const TiptapEditor = ({
     const instructions = [...instructionsToAppend];
     clearInstructionsToAppend();
 
-    const contentToInsert = [
-      {
+    queueMicrotask(() => {
+      if (editor.isDestroyed) return;
+
+      let hasHeader = false;
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "paperHeaderBlock") {
+          hasHeader = true;
+          return false;
+        }
+      });
+
+      const insertPosition = getLastPageInsertPos(editor);
+      
+      const contentToInsert: any[] = [];
+      
+      contentToInsert.push({
         type: "instructionBlock",
         attrs: {
           variant: "generated",
           summaryItems: instructions,
         },
         content: [{ type: "paragraph" }],
-      },
-    ];
+      });
 
-    queueMicrotask(() => {
-      if (editor.isDestroyed) return;
-
-      const insertPosition = getLastPageInsertPos(editor);
       editor.commands.insertContentAt(insertPosition, contentToInsert);
+      
+      if (!hasHeader) {
+        editor.commands.insertContentAt(0, defaultHeaderHTML);
+      }
+
       editor.commands.focus("end");
       scrollToDocumentPosition(editor, insertPosition);
       debouncedLiveSync(editor);
@@ -1416,8 +1432,21 @@ export const TiptapEditor = ({
     queueMicrotask(() => {
       if (editor.isDestroyed) return;
 
+      let hasHeader = false;
+      editor.state.doc.descendants((node: any) => {
+        if (node.type.name === "paperHeaderBlock") {
+          hasHeader = true;
+          return false;
+        }
+      });
+
       const insertPosition = getLastPageInsertPos(editor);
       editor.commands.insertContentAt(insertPosition, contentToInsert);
+      
+      if (!hasHeader) {
+        editor.commands.insertContentAt(0, defaultHeaderHTML);
+      }
+
       editor.commands.focus("end");
       scrollToDocumentPosition(editor, insertPosition);
 
@@ -1481,8 +1510,21 @@ export const TiptapEditor = ({
     queueMicrotask(() => {
       if (editor.isDestroyed) return;
 
+      let hasHeader = false;
+      editor.state.doc.descendants((node: any) => {
+        if (node.type.name === "paperHeaderBlock") {
+          hasHeader = true;
+          return false;
+        }
+      });
+
       const insertPosition = getLastPageInsertPos(editor);
       editor.commands.insertContentAt(insertPosition, contentToInsert);
+      
+      if (!hasHeader) {
+        editor.commands.insertContentAt(0, defaultHeaderHTML);
+      }
+
       editor.commands.focus("end");
       scrollToDocumentPosition(editor, insertPosition);
 
