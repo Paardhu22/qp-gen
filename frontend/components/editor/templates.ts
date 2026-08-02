@@ -1,31 +1,35 @@
-export const defaultHeaderHTML = `
-    <div data-type="paper-header-block">
-      <h1>PA1 - CENTRAL OFFICE</h1>
-      <h2>CBSE - Question Paper</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>SUBJECT</th>
-            <th>GRADE</th>
-            <th>SET</th>
-            <th>MAX MARK</th>
-            <th>TIME</th>
-            <th>DATE</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>English</td>
-            <td>VI</td>
-            <td>A</td>
-            <td>40</td>
-            <td>90 min</td>
-            <td>________</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-`;
+export const defaultHeaderJSON = {
+  type: "paperHeaderBlock",
+  content: [
+    { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "PA1 - CENTRAL OFFICE" }] },
+    { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "CBSE - Question Paper" }] },
+    {
+      type: "table",
+      content: [
+        {
+          type: "tableRow",
+          content: [
+            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "SUBJECT" }] }] },
+            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "GRADE" }] }] },
+            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "SET" }] }] },
+            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "MAX MARK" }] }] },
+            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "TIME" }] }] }
+          ]
+        },
+        {
+          type: "tableRow",
+          content: [
+            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "Subject Name" }] }] },
+            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "X" }] }] },
+            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "A" }] }] },
+            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "40" }] }] },
+            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "90 min" }] }] }
+          ]
+        }
+      ]
+    }
+  ]
+};
 
 export const templates = {
   cbse: `

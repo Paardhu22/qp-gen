@@ -46,7 +46,7 @@ import { FontSize } from "./editor/extensions/font-size";
 import { LineHeight } from "./editor/extensions/line-height";
 import { Indent as IndentExtension } from "./editor/extensions/indent";
 import { ReviewTray } from "./review-tray";
-import { templates, defaultHeaderHTML } from "./editor/templates";
+import { templates, defaultHeaderJSON } from "./editor/templates";
 import { EditorToolbar } from "./editor/toolbar";
 import { FindReplace } from "./editor/find-replace";
 import {
@@ -1407,7 +1407,7 @@ export const TiptapEditor = ({
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       
       if (!hasHeader) {
-        editor.commands.insertContentAt(0, defaultHeaderHTML);
+        editor.commands.insertContentAt(0, defaultHeaderJSON);
       }
 
       editor.commands.focus("end");
@@ -1444,7 +1444,7 @@ export const TiptapEditor = ({
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       
       if (!hasHeader) {
-        editor.commands.insertContentAt(0, defaultHeaderHTML);
+        editor.commands.insertContentAt(0, defaultHeaderJSON);
       }
 
       editor.commands.focus("end");
@@ -1522,7 +1522,7 @@ export const TiptapEditor = ({
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       
       if (!hasHeader) {
-        editor.commands.insertContentAt(0, defaultHeaderHTML);
+        editor.commands.insertContentAt(0, defaultHeaderJSON);
       }
 
       editor.commands.focus("end");
