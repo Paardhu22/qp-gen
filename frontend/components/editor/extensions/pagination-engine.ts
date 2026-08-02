@@ -1,10 +1,35 @@
 import { Extension } from "@tiptap/core";
+import type { Editor } from "@tiptap/core";
 import { Plugin, PluginKey } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { createPageId } from "../pagination-utils";
 import { canPullUp } from "./pagination-fit";
 
 const paginationKey = new PluginKey("paginationEngine");
+
+type PaginationStorage = {
+  /** Set while the plugin view is alive; asks for one more layout pass. */
+  requestPass: (() => void) | null;
+};
+
+/**
+ * Ask the engine to re-measure, for a layout change the document cannot see.
+ *
+ * The plugin re-runs on every doc change, which covers editing. It cannot cover
+ * content that changes size *after* it is in the document — an <img> that has
+ * not decoded yet, a webfont swapping in — because none of that is a
+ * transaction. Those call sites use this.
+ *
+ * Note this is deliberately NOT "dispatch an empty transaction": the plugin's
+ * update handler only schedules when `doc.eq(prevDoc)` is false, so a
+ * meta-only transaction changes nothing and is ignored.
+ */
+export function requestRepagination(editor: Editor | null | undefined) {
+  const storage = (
+    editor?.storage as Record<string, PaginationStorage | undefined> | undefined
+  )?.paginationEngine;
+  storage?.requestPass?.();
+}
 
 type PageEntry = {
   node: any;
@@ -175,17 +200,83 @@ function joinGap(previous: HTMLElement | undefined, incoming: HTMLElement) {
  * plus a pixel, which is a whole 56px of bottom padding too generous, so a
  * block could sit in the page margin and be reported as fitting.
  */
-function findOverflowIndex(contentEl: HTMLElement) {
-  const children = Array.from(contentEl.children) as HTMLElement[];
+function findOverflowIndex(blocks: HTMLElement[], contentEl: HTMLElement) {
   const maxBottom = contentBottom(contentEl);
 
-  for (let i = 0; i < children.length; i += 1) {
-    if (children[i].getBoundingClientRect().bottom > maxBottom + 1) {
+  for (let i = 0; i < blocks.length; i += 1) {
+    if (blocks[i].getBoundingClientRect().bottom > maxBottom + 1) {
       return i;
     }
   }
 
   return null;
+}
+
+/**
+ * The DOM element rendering each of a page's block children, in order.
+ *
+ * This exists because `contentEl.children` is NOT the blocks, and every
+ * measurement that assumed it was has been quietly wrong. A page is a React
+ * NodeView whose `<NodeViewContent />` renders a `div[data-node-view-content]`,
+ * and TipTap then appends its own `div[data-node-view-content-react]` inside
+ * that as the real ProseMirror `contentDOM` (@tiptap/react ~806-810). So
+ * `.doc-page-content` has exactly ONE child — a wrapper — however many
+ * questions the page holds.
+ *
+ * The engine read that single wrapper as if it were the block list, which put
+ * the DOM out of step with the ProseMirror node indices it was reasoning
+ * about. `spanHeight(nextChildren, 0, 1)` then measured the whole of the next
+ * page instead of just its first block, so the pull-up rule compared an entire
+ * page against the space left on the previous one and refused essentially
+ * every time — which is why a short page kept its hole instead of drawing the
+ * next question up. The same collapse capped `runLength` at 1, disabling
+ * keep-together, and made `findOverflowIndex` degrade to "split off the last
+ * block", one block per animation frame (hence a 1200-pass ceiling for what
+ * should take a handful).
+ *
+ * Resolving each child through `view.nodeDOM(pos)` — ProseMirror's own node →
+ * DOM map — guarantees `blocks[i]` renders `pageNode.child(i)` no matter how
+ * many wrappers a node view introduces, so it cannot drift again.
+ */
+function getBlockElements(view: EditorView, pageNode: any, pagePos: number) {
+  const blocks: HTMLElement[] = [];
+  const contentStart = pagePos + 1;
+  let offset = 0;
+
+  for (let i = 0; i < pageNode.childCount; i += 1) {
+    const dom = view.nodeDOM(contentStart + offset);
+    if (!(dom instanceof HTMLElement)) return null;
+    blocks.push(styledBlockElement(dom));
+    offset += pageNode.child(i).nodeSize;
+  }
+
+  return blocks;
+}
+
+/**
+ * The element that actually carries a block's styles.
+ *
+ * `nodeDOM` hands back a React node view's outer `div.react-renderer`, which
+ * is an unstyled box wrapping the `NodeViewWrapper` element that holds the
+ * real class (`.question-block`, `.section-block`, …). Heights are identical
+ * either way — the wrapper has no border or padding, so the two border boxes
+ * coincide — but *margins* are not: the inner element's margins collapse
+ * straight through the wrapper, and `getComputedStyle` reports the collapsed-
+ * through margin as 0 on the outer box. Measuring there would make `joinGap`
+ * return nothing for exactly the blocks whose 10px margins it exists to
+ * account for. Nodes rendered from `renderHTML` rather than a React node view
+ * have no wrapper and are returned unchanged.
+ */
+function styledBlockElement(dom: HTMLElement): HTMLElement {
+  const inner = dom.firstElementChild;
+  if (
+    dom.classList.contains("react-renderer") &&
+    inner instanceof HTMLElement &&
+    inner.hasAttribute("data-node-view-wrapper")
+  ) {
+    return inner;
+  }
+  return dom;
 }
 
 // ── Keep-together ───────────────────────────────────────────────────────
@@ -234,25 +325,19 @@ function splitPageAtIndex(state: any, pagePos: number, pageNode: any, splitIndex
 
   const tr = state.tr;
   const contentStart = pagePos + 1;
-  const from = contentStart + getChildOffset(pageNode, splitIndex);
-  const to = contentStart + pageNode.content.size;
-  const slice = state.doc.slice(from, to);
+  const splitPos = contentStart + getChildOffset(pageNode, splitIndex);
 
-  if (slice.size === 0) return null;
-
-  tr.delete(from, to);
-
-  const insertPos = tr.mapping.map(pagePos + pageNode.nodeSize);
-  const nextPage = tr.doc.nodeAt(insertPos);
+  const nextPagePos = pagePos + pageNode.nodeSize;
+  const nextPage = state.doc.nodeAt(nextPagePos);
 
   if (nextPage && nextPage.type?.name === "page") {
-    tr.insert(insertPos + 1, slice.content);
+    // Join with the next page to combine their blocks seamlessly
+    tr.join(nextPagePos);
+    // Split at the target position, preserving the next page's original attributes
+    tr.split(splitPos, 1, [{ type: pageNode.type, attrs: nextPage.attrs }]);
   } else {
-    const newPage = pageNode.type.create(
-      { pageId: createPageId() },
-      slice.content,
-    );
-    tr.insert(insertPos, newPage);
+    // If there is no next page, just split to create a new one
+    tr.split(splitPos, 1, [{ type: pageNode.type, attrs: { pageId: createPageId() } }]);
   }
 
   return tr;
@@ -278,30 +363,20 @@ function moveLeadingBlocksToPreviousPage(
   if (take <= 0) return null;
 
   const tr = state.tr;
-  const from = nextPagePos + 1;
   let size = 0;
   for (let i = 0; i < take; i += 1) {
     size += nextPageNode.child(i).nodeSize;
   }
-  const to = from + size;
-  const slice = state.doc.slice(from, to);
 
-  if (slice.size === 0) return null;
+  // Join the two pages together (removes the `</page><page>` tags, which are size 2)
+  tr.join(nextPagePos);
 
-  tr.delete(from, to);
-
-  const insertPos = pagePos + 1 + pageNode.content.size;
-  tr.insert(insertPos, slice.content);
-
-  const mappedNextPagePos = tr.mapping.map(nextPagePos);
-  const updatedNextPage = tr.doc.nodeAt(mappedNextPagePos);
-
-  if (
-    updatedNextPage &&
-    updatedNextPage.type?.name === "page" &&
-    updatedNextPage.childCount === 0
-  ) {
-    tr.delete(mappedNextPagePos, mappedNextPagePos + updatedNextPage.nodeSize);
+  // If we aren't pulling the entire page, we need to split it again to recreate the boundary
+  if (take < nextPageNode.childCount) {
+    // The original boundary was after the first `size` tokens in the next page.
+    // Because we deleted the 2 boundary tokens at nextPagePos, the new split position is shifted by -2.
+    const splitPos = nextPagePos - 1 + size;
+    tr.split(splitPos, 1, [{ type: nextPageNode.type, attrs: nextPageNode.attrs }]);
   }
 
   return tr;
@@ -361,7 +436,8 @@ function paginateOnce(view: EditorView) {
       }
     }
 
-    const children = Array.from(contentEl.children) as HTMLElement[];
+    const children = getBlockElements(view, pageNode, pagePos);
+    if (!children) continue;
     const available = usableHeight(contentEl);
 
     // ── Overflow: this page holds more than it can show ─────────────────
@@ -372,7 +448,7 @@ function paginateOnce(view: EditorView) {
           contentBottom(contentEl) + 1);
 
     if (overflows) {
-      const overflowIndex = findOverflowIndex(contentEl);
+      const overflowIndex = findOverflowIndex(children, contentEl);
       const proposed =
         overflowIndex !== null && overflowIndex > 0
           ? overflowIndex
@@ -408,8 +484,8 @@ function paginateOnce(view: EditorView) {
     ) as HTMLElement | null;
     if (!nextContentEl) continue;
 
-    const nextChildren = Array.from(nextContentEl.children) as HTMLElement[];
-    if (nextChildren.length === 0) continue;
+    const nextChildren = getBlockElements(view, nextPage.node, nextPage.pos);
+    if (!nextChildren || nextChildren.length === 0) continue;
 
     // How many of the next page's opening blocks are glued together. A section
     // heading brings its first question with it; anything else moves alone.
@@ -460,7 +536,12 @@ function paginateOnce(view: EditorView) {
 export const PaginationEngine = Extension.create({
   name: "paginationEngine",
 
+  addStorage(): PaginationStorage {
+    return { requestPass: null };
+  },
+
   addProseMirrorPlugins() {
+    const storage = this.storage as PaginationStorage;
     let viewRef: EditorView | null = null;
     let rafId: number | null = null;
     let isDispatching = false;
@@ -481,9 +562,81 @@ export const PaginationEngine = Extension.create({
      * Hitting it is a bug, not a slow document — so it says so, once. Silently
      * stopping is what made the last measurement bug so hard to place: the
      * document simply stayed half laid out with pages ending early.
+     *
+     * It counts passes *since the layout last settled*, not since the last user
+     * edit. That distinction is what makes it safe for the resize observer
+     * below to schedule work: an observer-driven pass must not reset the guard
+     * (an oscillation would then loop forever with the guard disabled), but it
+     * also must not inherit a count run up hours ago by an unrelated edit. A
+     * pass that produces no transaction means the document is stable, which is
+     * the only honest place to zero the counter.
      */
     const MAX_PASSES = 1200;
     let warnedAboutCap = false;
+
+    /**
+     * Blocks currently watched for a size change, and the height each had when
+     * we last looked.
+     *
+     * `observe()` delivers one callback immediately with the element's current
+     * size. Recording the height at observe time makes that first callback a
+     * no-op instead of a scheduled pass, which is what stops re-syncing the
+     * observed set from feeding itself.
+     */
+    const observedBlocks = new Set<Element>();
+    const lastHeight = new WeakMap<Element, number>();
+
+    /**
+     * Watch each page's content wrapper for a height change.
+     *
+     * The observer used to be attached to `view.dom` alone, where it could
+     * essentially never fire: `.doc-page` is a fixed 1123px box and
+     * `.doc-page-content` is `height: 100%; overflow: hidden` (styles/editor.css),
+     * so anything growing or shrinking *inside* a page leaves the editor root
+     * exactly the same height. The one thing that did move it was the page
+     * count — which only changes as a result of the engine's own work. So the
+     * engine had no signal for the case it most needed one: content that
+     * changes size without changing the document.
+     *
+     * That is why a freshly generated image left a hole. It is inserted at zero
+     * height (an <img> with `height: auto` and no intrinsic size yet), the page
+     * is laid out around a block that is not there, and when the bytes arrive
+     * and the block takes its real height nothing tells the engine to look
+     * again.
+     *
+     * The single child of `.doc-page-content` is the node-view content wrapper
+     * (see `getBlockElements` for why it is a wrapper and not the blocks). That
+     * is the ideal thing to observe here: it is unconstrained in height, so it
+     * tracks the page's true content extent even though its fixed-height parent
+     * clips it — and it is one observation per page rather than one per
+     * question.
+     */
+    const syncObservedBlocks = () => {
+      if (!resizeObserver || !viewRef || viewRef.isDestroyed) return;
+
+      const wanted = new Set<Element>();
+      viewRef.dom
+        .querySelectorAll('[data-page-content="true"]')
+        .forEach((contentEl) => {
+          for (const child of Array.from(contentEl.children)) {
+            wanted.add(child);
+          }
+        });
+
+      for (const el of observedBlocks) {
+        if (!wanted.has(el)) {
+          resizeObserver.unobserve(el);
+          observedBlocks.delete(el);
+        }
+      }
+
+      for (const el of wanted) {
+        if (observedBlocks.has(el)) continue;
+        lastHeight.set(el, el.getBoundingClientRect().height);
+        resizeObserver.observe(el);
+        observedBlocks.add(el);
+      }
+    };
 
     const schedule = (reset = false) => {
       if (!viewRef || viewRef.isDestroyed) return;
@@ -511,7 +664,15 @@ export const PaginationEngine = Extension.create({
         passCount += 1;
 
         const tr = paginateOnce(viewRef);
-        if (!tr || !tr.docChanged) return;
+        if (!tr || !tr.docChanged) {
+          // Settled. Zero the hang guard and re-point the observer at the
+          // blocks that now exist — this is the only moment the DOM is known
+          // to be stable, so it is the only moment worth snapshotting.
+          passCount = 0;
+          warnedAboutCap = false;
+          syncObservedBlocks();
+          return;
+        }
 
         // try/finally: a throw here used to leave `isDispatching` stuck true,
         // which permanently muted the plugin's own update handler — pagination
@@ -533,11 +694,29 @@ export const PaginationEngine = Extension.create({
         key: paginationKey,
         view(view) {
           viewRef = view;
+          storage.requestPass = () => schedule();
           schedule(true);
 
           if (typeof ResizeObserver !== "undefined") {
-            resizeObserver = new ResizeObserver(() => schedule(true));
-            resizeObserver.observe(view.dom);
+            resizeObserver = new ResizeObserver((entries) => {
+              let moved = false;
+
+              for (const entry of entries) {
+                const height = entry.target.getBoundingClientRect().height;
+                const previous = lastHeight.get(entry.target);
+                lastHeight.set(entry.target, height);
+                // Sub-pixel jitter is not a layout change. Anything larger is.
+                if (previous === undefined || Math.abs(previous - height) > 0.5) {
+                  moved = true;
+                }
+              }
+
+              // No `reset`: an observer firing on the engine's own output must
+              // not clear the hang guard. See MAX_PASSES.
+              if (moved) schedule();
+            });
+
+            syncObservedBlocks();
           }
 
           return {
@@ -551,6 +730,8 @@ export const PaginationEngine = Extension.create({
               if (rafId !== null) cancelAnimationFrame(rafId);
               resizeObserver?.disconnect();
               resizeObserver = null;
+              observedBlocks.clear();
+              storage.requestPass = null;
               viewRef = null;
             },
           };
