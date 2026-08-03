@@ -32,9 +32,10 @@
  */
 
 import * as React from "react";
-import { ArrowUp, PanelRightClose } from "lucide-react";
+import { ArrowUp, PanelRightClose, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useEditorStore } from "@/store/editor-store";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -58,6 +59,8 @@ interface Props {
    * collapsed rail.
    */
   review?: React.ReactNode;
+  /** Abort the run in flight. Absent while nothing is running. */
+  onCancel?: () => void;
 }
 
 const EXAMPLES = [
@@ -75,8 +78,12 @@ export function GenerateDock({
   insertedCount = 0,
   sourceCount = 0,
   review,
+  onCancel,
 }: Props) {
-  const [brief, setBrief] = React.useState("");
+  // Persisted, not local: a half-typed brief is work, and the teacher who
+  // wanders off to check a chapter mid-sentence should not lose it.
+  const brief = useEditorStore((s) => s.studioBrief);
+  const setBrief = useEditorStore((s) => s.setStudioBrief);
   const fieldRef = React.useRef<HTMLTextAreaElement | null>(null);
 
   const submit = () => {
@@ -199,8 +206,19 @@ export function GenerateDock({
                 </p>
               ) : null}
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/80">
-                This takes a few minutes. You can keep editing while it runs.
+                This takes a few minutes. You can keep editing while it runs, and
+                leaving this page will not stop it.
               </p>
+              {onCancel ? (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="mt-2 inline-flex items-center gap-1 rounded-sm text-[11px] font-medium text-muted-foreground transition-colors hover:text-destructive"
+                >
+                  <X className="size-3" />
+                  Stop generating
+                </button>
+              ) : null}
             </div>
           ) : null}
 

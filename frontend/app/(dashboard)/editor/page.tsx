@@ -223,7 +223,11 @@ export default function EditorPage() {
   // the layout is that the document's structure and the way to generate one
   // are visible without hunting.
   const [outlineOpen, setOutlineOpen] = useState(true);
-  const [dockOpen, setDockOpen] = useState(true);
+  // The dock's open state is persisted rather than local: it is part of the
+  // workspace the teacher arranged, and a run they started here can outlive
+  // this component, so the panel has to come back the way they left it.
+  const dockOpen = useEditorStore((s) => s.studioDockOpen);
+  const setDockOpen = useEditorStore((s) => s.setStudioDockOpen);
 
   const openBuilder = useCallback((brief?: string) => {
     setBuilderBrief(brief ?? "");
@@ -471,6 +475,18 @@ export default function EditorPage() {
     // just generated. The generation is the intent; there is nothing to resume.
     if (awaitingGeneratedPaper) {
       consumeGeneratedPaperHandoff();
+      setCheckedResume(true);
+      return;
+    }
+
+    // A run in flight decides which paper this is. Walking back into the
+    // editor while a generation streams should land on the paper being
+    // written — resolving to "the most recently touched draft" instead would
+    // open a different document and leave the run inserting into nothing the
+    // teacher can see (`use-paper-generation` gates on the paper matching).
+    const runningPaperId = useEditorStore.getState().activeRun?.paperId;
+    if (runningPaperId) {
+      router.replace(`/editor?paperId=${runningPaperId}`);
       setCheckedResume(true);
       return;
     }
@@ -1050,6 +1066,7 @@ export default function EditorPage() {
               insertedCount={generation.liveInsertedCount}
               sourceCount={uploadedDocs.length + hsatSources.length}
               review={reviewPending ? <ReviewTray /> : null}
+              onCancel={generation.isGenerating ? generation.cancel : undefined}
             />
           }
           // `approvedAt` is part of the key so approving a NEW generation

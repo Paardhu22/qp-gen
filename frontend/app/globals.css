@@ -358,6 +358,72 @@ html[data-auth-page] *.dark {
     cursor: text !important;
 }
 
+/* ===== A slot whose question is still being written ===== */
+
+/* The block is laid out from the blueprint before the question exists, so the
+   number and the marks are already correct and only the body is unknown. It
+   reads as the question it is about to be, not as a loading spinner sitting
+   where a question will go. */
+.question-block-pending .question-cell.question-body {
+    position: relative;
+}
+
+/* The real content hole still exists — ProseMirror owns it — but is empty and
+   must not claim height under the shimmer. */
+.question-block-pending [data-node-view-content] {
+    min-height: 0;
+}
+
+.question-pending-shimmer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+    padding: 0.15em 0;
+    cursor: default !important;
+    user-select: none;
+}
+
+.question-pending-line {
+    display: block;
+    height: 0.72em;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(
+        90deg,
+        color-mix(in oklch, var(--muted) 70%, transparent) 0%,
+        color-mix(in oklch, var(--muted-foreground) 18%, transparent) 50%,
+        color-mix(in oklch, var(--muted) 70%, transparent) 100%
+    );
+    background-size: 200% 100%;
+    animation: question-pending-sweep 1.6s ease-in-out infinite;
+}
+
+.question-pending-line-short {
+    width: 62%;
+}
+
+@keyframes question-pending-sweep {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* A paper being printed or exported must never carry a shimmer where a
+   question should be. Anything still pending prints as blank space. */
+@media print {
+    .question-pending-shimmer {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .question-pending-line {
+        animation: none;
+    }
+}
+
 /* Controls */
 .question-block [contenteditable="false"] button {
     cursor: pointer !important;

@@ -1191,6 +1191,14 @@ export const TiptapEditor = ({
   const clearInstructionsToAppend = useEditorStore(
     (state) => state.clearInstructionsToAppend,
   );
+  const ghostSlotsToPlace = useEditorStore((state) => state.ghostSlotsToPlace);
+  const clearGhostSlots = useEditorStore((state) => state.clearGhostSlots);
+  const slotFills = useEditorStore((state) => state.slotFills);
+  const clearSlotFills = useEditorStore((state) => state.clearSlotFills);
+  const pendingSweepToken = useEditorStore((state) => state.pendingSweepToken);
+  const consumePendingSweep = useEditorStore(
+    (state) => state.consumePendingSweep,
+  );
 
   // Floating question actions (Generate image / Swap / Delete). Driven by DOM
   // delegation over the editor rather than callbacks threaded through every
@@ -1457,6 +1465,201 @@ export const TiptapEditor = ({
   // documentLoadedSignal is intentional: re-fire when content is loaded so
   // any pending questions (queued before doc was ready) get inserted.
   }, [questionsToAppend, editor, clearQuestionsToAppend, debouncedLiveSync, documentLoadedSignal]);
+
+  // ── Lay the blueprint out as placeholders ───────────────────────────────
+  // Runs once at the start of a generation, before any question exists. The
+  // slots carry their section, marks and type, so the page shows the paper's
+  // real shape while it is still being written.
+  useEffect(() => {
+    if (ghostSlotsToPlace.length === 0 || !editor || !documentLoadedRef.current)
+      return;
+
+    const slots = [...ghostSlotsToPlace];
+    clearGhostSlots();
+
+    queueMicrotask(() => {
+      if (editor.isDestroyed) return;
+
+      const contentToInsert: any[] = [];
+      let lastSection: string | null = null;
+
+      // Section headers already in the document are not repeated — the same
+      // dedupe the append path does, for the same reason: a second "Section A"
+      // in front of the placeholders would break the realized header count.
+      const existingSectionTitles = new Set<string>();
+      editor.state.doc.descendants((node: any) => {
+        if (node.type.name === "sectionBlock") {
+          const title = String(node.textContent || "").trim();
+          if (title) existingSectionTitles.add(title);
+        }
+      });
+
+      slots.forEach((slot) => {
+        const title = String(slot.sectionTitle || "").trim();
+        if (title && title !== lastSection && !existingSectionTitles.has(title)) {
+          existingSectionTitles.add(title);
+          contentToInsert.push({
+            type: "sectionBlock",
+            content: [{ type: "text", text: title }],
+          });
+        }
+        lastSection = title || lastSection;
+
+        contentToInsert.push({
+          type: "questionBlock",
+          attrs: {
+            marks: slot.marks,
+            questionType: slot.questionType,
+            pending: true,
+            pendingSlot: slot.index,
+          },
+          // A questionBlock's content is `(paragraph | ...)+`, so it cannot be
+          // empty. One empty paragraph is the minimum legal body and is what
+          // the fill later replaces.
+          content: [{ type: "paragraph" }],
+        });
+      });
+
+      if (contentToInsert.length === 0) return;
+
+      let hasHeader = false;
+      editor.state.doc.descendants((node: any) => {
+        if (node.type.name === "paperHeaderBlock") {
+          hasHeader = true;
+          return false;
+        }
+      });
+
+      const insertPosition = getLastPageInsertPos(editor);
+      editor
+        .chain()
+        // Placing the skeleton is not an edit the teacher made, so it must not
+        // become an undo step. Without this, one Ctrl+Z after a generation
+        // starts would rip the whole paper's structure out from under the
+        // questions still arriving to fill it.
+        .setMeta("addToHistory", false)
+        .insertContentAt(insertPosition, contentToInsert)
+        .run();
+
+      if (!hasHeader) {
+        editor
+          .chain()
+          .setMeta("addToHistory", false)
+          .insertContentAt(0, defaultHeaderJSON)
+          .run();
+      }
+
+      scrollToDocumentPosition(editor, insertPosition);
+    });
+  }, [ghostSlotsToPlace, editor, clearGhostSlots, documentLoadedSignal]);
+
+  // ── Fill a placeholder with the question written for it ─────────────────
+  // Slots are found by scanning for `pendingSlot`, never by a position saved
+  // when the ghost was placed: the teacher can type, drag and delete while the
+  // run streams, and any stored position is stale the moment they do.
+  useEffect(() => {
+    if (slotFills.length === 0 || !editor || !documentLoadedRef.current) return;
+
+    const fills = [...slotFills];
+    clearSlotFills();
+
+    queueMicrotask(() => {
+      if (editor.isDestroyed) return;
+
+      fills.forEach((fill) => {
+        let target: { pos: number; size: number } | null = null;
+        editor.state.doc.descendants((node: any, pos: number) => {
+          if (target) return false;
+          if (
+            node.type.name === "questionBlock" &&
+            node.attrs?.pending &&
+            Number(node.attrs?.pendingSlot) === Number(fill.index)
+          ) {
+            target = { pos, size: node.nodeSize };
+            return false;
+          }
+        });
+
+        // No ghost for this slot — it was deleted mid-run, or this run never
+        // placed one. Appending keeps the question rather than dropping it.
+        const blocks = buildQuestionBlocks({
+          content: fill.question.content,
+          type: fill.question.type,
+          options: fill.question.options,
+          answer: fill.question.answer,
+          marks: fill.question.marks,
+          image_url: fill.question.image_url,
+          metadata: fill.question.metadata,
+        });
+
+        if (!target) {
+          editor
+            .chain()
+            .setMeta("addToHistory", false)
+            .insertContentAt(getLastPageInsertPos(editor), blocks)
+            .run();
+          return;
+        }
+
+        const { pos, size } = target;
+        editor
+          .chain()
+          // Same reasoning as placing: a question arriving from the generator
+          // is not a keystroke, and 38 of them would otherwise bury whatever
+          // the teacher actually typed under 38 undo steps.
+          .setMeta("addToHistory", false)
+          .insertContentAt({ from: pos, to: pos + size }, blocks)
+          .run();
+      });
+
+      // Persist as soon as the batch lands, so a generation's questions are
+      // durable rather than waiting on the debounce.
+      debouncedLiveSync(editor);
+      debouncedLiveSync.flush();
+    });
+  }, [slotFills, editor, clearSlotFills, debouncedLiveSync, documentLoadedSignal]);
+
+  // ── Drop placeholders whose questions never arrived ─────────────────────
+  // Fires at the end of every run. A cancelled or failed generation leaves
+  // ghosts behind, and even a successful one can come up short of its
+  // blueprint, so an unfilled slot has to be removed rather than left as an
+  // empty numbered question in the teacher's paper.
+  useEffect(() => {
+    if (!pendingSweepToken || !editor || !documentLoadedRef.current) return;
+    consumePendingSweep();
+
+    queueMicrotask(() => {
+      if (editor.isDestroyed) return;
+
+      // Collected first, deleted last-to-first: every deletion shifts the
+      // positions after it, so walking forwards would target the wrong nodes
+      // from the second removal onwards.
+      const doomed: { pos: number; size: number }[] = [];
+      editor.state.doc.descendants((node: any, pos: number) => {
+        if (node.type.name === "questionBlock" && node.attrs?.pending) {
+          doomed.push({ pos, size: node.nodeSize });
+        }
+      });
+      if (doomed.length === 0) return;
+
+      const chain = editor.chain().setMeta("addToHistory", false);
+      doomed
+        .sort((a, b) => b.pos - a.pos)
+        .forEach(({ pos, size }) => {
+          chain.deleteRange({ from: pos, to: pos + size });
+        });
+      chain.run();
+
+      debouncedLiveSync(editor);
+      debouncedLiveSync.flush();
+    });
+  }, [
+    pendingSweepToken,
+    editor,
+    consumePendingSweep,
+    debouncedLiveSync,
+    documentLoadedSignal,
+  ]);
 
   // Handle section-wise insertion from AI generator
   useEffect(() => {

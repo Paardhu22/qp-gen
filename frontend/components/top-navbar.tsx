@@ -24,6 +24,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
+import { GenerationTracker } from "@/components/generation-tracker";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -122,6 +123,10 @@ export const TopNavbar = () => {
 
           {/* Right side */}
           <div className="flex items-center gap-x-2 sm:gap-x-3 shrink-0">
+            {/* A generation in flight, wherever the teacher happens to be.
+                Renders nothing when nothing is running. */}
+            <GenerationTracker />
+
             {/* User dropdown (shown on lg+ where there's room beside the nav) */}
             <div className="hidden lg:block">
               <DropdownMenu>

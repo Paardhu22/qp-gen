@@ -9,6 +9,12 @@ from .design_views import (
     QuestionTypeCatalogView,
     TemplateResolveView,
 )
+from .run_views import (
+    GenerationRunActiveView,
+    GenerationRunCancelView,
+    GenerationRunStartView,
+    GenerationRunStreamView,
+)
 from .views import (
     AnswerKeyView,
     AnswerScriptGenerateView,
@@ -22,6 +28,26 @@ from .views import (
 
 urlpatterns = [
     path("questions/stream", QuestionGenerationStreamView.as_view(), name="question-stream"),
+    # ── Durable runs ────────────────────────────────────────────────────
+    # The generation above dies with its connection. These own the run in a
+    # worker thread instead, so a reload or a dropped network can reattach to
+    # a paper still being written rather than losing minutes of work.
+    path("runs/", GenerationRunStartView.as_view(), name="generation-run-start"),
+    path(
+        "runs/active",
+        GenerationRunActiveView.as_view(),
+        name="generation-run-active",
+    ),
+    path(
+        "runs/<str:run_id>/stream",
+        GenerationRunStreamView.as_view(),
+        name="generation-run-stream",
+    ),
+    path(
+        "runs/<str:run_id>/cancel",
+        GenerationRunCancelView.as_view(),
+        name="generation-run-cancel",
+    ),
     # Assemble a paper from saved questions — skips Model 1 entirely.
     path("paper-from-bank", PaperFromBankView.as_view(), name="paper-from-bank"),
     # Regenerate exactly one question, preserving its blueprint slot.

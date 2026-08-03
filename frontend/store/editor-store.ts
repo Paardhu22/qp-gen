@@ -83,6 +83,29 @@ export interface TrayItem {
 export type InsertionMode = "review" | "auto";
 
 /**
+ * One blueprint slot, placed on the page before its question exists.
+ *
+ * The whole shape of a paper is known as soon as the blueprint compiles — the
+ * sections, how many questions, what each is worth — while the questions
+ * themselves take minutes to write. Placing the empty paper first turns the
+ * wait into a document filling in rather than a page growing from nothing.
+ */
+export interface GhostSlot {
+  /** Blueprint index. The fill finds its slot by this, never by position. */
+  index: number;
+  sectionTitle: string;
+  marks: number;
+  questionType: string;
+}
+
+/** A written question, destined for the ghost holding its slot. */
+export interface SlotFill {
+  index: number;
+  sectionTitle: string;
+  question: Question & { metadata?: Record<string, any> };
+}
+
+/**
  * One produced paper set (A / B / C) held for the Comparison Workspace.
  * `result` is the assembled-paper payload the SSE pipeline emits
  * (`{ sections, generalInstructions, meta }`) — the same shape the generator
@@ -107,6 +130,50 @@ export function normalizeSetLabel(label: string): string {
 export type SaveState = "saving" | "saved" | "offline" | "failed";
 
 /**
+ * The generation currently in flight, if any.
+ *
+ * This lives in the store rather than in the component that started it. A run
+ * takes minutes, and the surface that kicked it off — the editor page, the
+ * dashboard — unmounts the moment the teacher looks at something else. When
+ * the progress lived in that component's `useState`, walking to the dashboard
+ * and back produced a Paper Studio that looked idle while the stream was still
+ * running underneath, because the remount started from the initial state.
+ *
+ * Only the light, durable facts belong here: it is persisted to localStorage,
+ * so the assembled paper (which is large) stays in `lib/generation-runner.ts`
+ * module memory and reaches the editor through `comparisonSets` as before.
+ *
+ * `paperId` is what makes an insert safe. A run belongs to the paper it was
+ * started for, and questions must never land in whatever document happens to
+ * be mounted when they arrive.
+ */
+export interface ActiveRun {
+  runId: string;
+  /** The paper this run was started for. Null for a draft with no id yet. */
+  paperId: string | null;
+  /** Where it was started, so the tracker can route back to the right screen. */
+  origin: "editor" | "dashboard";
+  startedAt: number;
+  /** Last human-readable line from the pipeline. */
+  phase: string;
+  /** Questions received so far. */
+  produced: number;
+  /** Questions the blueprint planned, once known. 0 until the `plan` event. */
+  total: number;
+  /** True for a run producing more than one set. */
+  multiSet: boolean;
+  /**
+   * Last event sequence this tab has applied to the document.
+   *
+   * Persisted, and the reason a reload does not duplicate a paper. The editor
+   * flushes each fill to IndexedDB as it lands, so after a reload the document
+   * already contains everything up to here — replaying from zero would insert
+   * all of it a second time. Reattaching resumes from this instead.
+   */
+  lastSeq: number;
+}
+
+/**
  * One-shot request for the TipTap editor to remove a question node from
  * the live document. We compare on section title + content text since
  * the tray stores the source-of-truth Question payload, not editor pos.
@@ -126,6 +193,19 @@ interface EditorState {
   questionsToSave: Question[];
   /** Pending tray-driven "Undo" removals, consumed by tiptap-editor. */
   questionRemovals: QuestionRemovalRequest[];
+  /** Blueprint slots waiting to be laid out as placeholders. */
+  ghostSlotsToPlace: GhostSlot[];
+  /** Written questions waiting to replace the placeholder holding their slot. */
+  slotFills: SlotFill[];
+  /**
+   * One-shot request to remove every placeholder still unfilled.
+   *
+   * A run that is cancelled or fails leaves ghosts for the questions that were
+   * never written. Left alone they are permanent empty numbered questions in
+   * the teacher's paper, so the end of every run sweeps them. A token rather
+   * than a boolean so consecutive runs each re-fire the effect.
+   */
+  pendingSweepToken: string | null;
 
   // ── Modal state ───────────────────────────────────────────────────
   savePaperModalOpen: boolean;
@@ -168,6 +248,17 @@ interface EditorState {
   activeEditorPaperId: string | null;
   /** Whether the full-screen Comparison Workspace overlay is open. */
   comparisonOpen: boolean;
+  /** The generation in flight, or null. Survives navigation; see `ActiveRun`. */
+  activeRun: ActiveRun | null;
+  /**
+   * Whether the Paper Studio dock is expanded. Persisted because it is part of
+   * the workspace the teacher arranged, not transient UI — collapsing it,
+   * checking the dashboard and coming back to a re-expanded panel is the same
+   * class of annoyance as losing the run itself.
+   */
+  studioDockOpen: boolean;
+  /** Unsent text in the Studio dock's brief field. Persisted for the same reason. */
+  studioBrief: string;
   /** Persisted user uploads for the current generation session */
   uploadedDocs: UploadedDoc[];
   /** Persisted library sources for the current generation session */
@@ -246,6 +337,14 @@ interface EditorState {
   consumeQuestionRemovals: () => void;
   clearTray: () => void;
 
+  placeGhostSlots: (slots: GhostSlot[]) => void;
+  clearGhostSlots: () => void;
+  fillSlot: (fill: SlotFill) => void;
+  clearSlotFills: () => void;
+  /** Ask the editor to drop every still-pending placeholder. */
+  sweepPendingSlots: () => void;
+  consumePendingSweep: () => void;
+
   setComparisonSets: (sets: ComparisonSet[]) => void;
   clearComparisonSets: () => void;
   setComparisonOpen: (open: boolean) => void;
@@ -264,6 +363,16 @@ interface EditorState {
   clearApprovedSets: () => void;
 
   setActiveEditorPaperId: (paperId: string | null) => void;
+
+  /** Register a run as in flight. Called by the runner, not by a component. */
+  startRun: (run: ActiveRun) => void;
+  /** Merge progress into the live run. A no-op once the run has ended. */
+  updateRun: (patch: Partial<Omit<ActiveRun, "runId">>) => void;
+  /** Clear the run — on completion, failure or cancellation alike. */
+  endRun: () => void;
+
+  setStudioDockOpen: (open: boolean) => void;
+  setStudioBrief: (brief: string) => void;
 
   setUploadedDocs: (docs: UploadedDoc[] | ((prev: UploadedDoc[]) => UploadedDoc[])) => void;
   setHsatSources: (sources: AppliedHsatSource[] | ((prev: AppliedHsatSource[]) => AppliedHsatSource[])) => void;
@@ -339,6 +448,9 @@ export const useEditorStore = create<EditorState>()(
       instructionsToAppend: null,
       questionsToSave: [],
       questionRemovals: [],
+      ghostSlotsToPlace: [],
+      slotFills: [],
+      pendingSweepToken: null,
 
       // ── Modals ──────────────────────────────────────────────────────
       savePaperModalOpen: false,
@@ -352,12 +464,21 @@ export const useEditorStore = create<EditorState>()(
       saveState: "saved",
 
       // ── Generator + tray + session context ──────────────────────────
-      insertionMode: "review",
+      // Questions land on the page as they are written. The paper building
+      // itself is the point of watching a generation, and staging every
+      // question in a tray first meant the document stayed empty throughout
+      // the one process the teacher was waiting on. The tray still exists and
+      // is still reachable — it reviews what has been placed rather than
+      // gating what may be placed.
+      insertionMode: "auto",
       generatedTray: [],
       comparisonSets: [],
       comparisonSetsPaperId: null,
       activeEditorPaperId: null,
       comparisonOpen: false,
+      activeRun: null,
+      studioDockOpen: true,
+      studioBrief: "",
       approvedSets: {},
       approvedAt: 0,
       awaitingGeneratedPaper: false,
@@ -460,7 +581,44 @@ export const useEditorStore = create<EditorState>()(
 
       clearTray: () => set({ generatedTray: [] }),
 
+      placeGhostSlots: (slots) => set({ ghostSlotsToPlace: slots }),
+      clearGhostSlots: () => set({ ghostSlotsToPlace: [] }),
+
+      // Queued rather than applied directly: the editor may not have finished
+      // loading its document when a question lands, and the same guard that
+      // protects `questionsToAppend` from draining into a blank page has to
+      // protect fills too.
+      fillSlot: (fill) =>
+        set((state) => ({ slotFills: [...state.slotFills, fill] })),
+      clearSlotFills: () => set({ slotFills: [] }),
+
+      sweepPendingSlots: () =>
+        set({
+          pendingSweepToken: `sweep-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`,
+        }),
+      consumePendingSweep: () => set({ pendingSweepToken: null }),
+
       setActiveEditorPaperId: (paperId) => set({ activeEditorPaperId: paperId }),
+
+      startRun: (run) => set({ activeRun: run }),
+
+      // Guarded on `runId`: a late event from a run that was cancelled or
+      // superseded must not resurrect it. Without the check, aborting a run
+      // and immediately starting another lets the first one's trailing events
+      // overwrite the second one's progress.
+      updateRun: (patch) =>
+        set((state) =>
+          state.activeRun
+            ? { activeRun: { ...state.activeRun, ...patch } }
+            : {},
+        ),
+
+      endRun: () => set({ activeRun: null }),
+
+      setStudioDockOpen: (open) => set({ studioDockOpen: open }),
+      setStudioBrief: (brief) => set({ studioBrief: brief }),
 
       setComparisonSets: (sets) => set((state) => ({ comparisonSets: sets, comparisonSetsPaperId: state.activeEditorPaperId })),
       clearComparisonSets: () =>
@@ -588,6 +746,12 @@ export const useEditorStore = create<EditorState>()(
         approvedSets: state.approvedSets,
         approvedAt: state.approvedAt,
         awaitingGeneratedPaper: state.awaitingGeneratedPaper,
+        // The run in flight, so returning to the editor from another route
+        // finds Paper Studio exactly as it was left. Small by design — the
+        // assembled paper is not in here.
+        activeRun: state.activeRun,
+        studioDockOpen: state.studioDockOpen,
+        studioBrief: state.studioBrief,
         generatorContext: state.generatorContext,
         template: state.template,
         generalInstructionsDraft: state.generalInstructionsDraft,
@@ -595,7 +759,26 @@ export const useEditorStore = create<EditorState>()(
         // to the editor even if the tab reloads on the way.
         paperSpecHandoff: state.paperSpecHandoff,
       }),
-      version: 1,
+      version: 2,
+      /**
+       * v1 → v2: questions are placed on the page as they are generated.
+       *
+       * `insertionMode` is persisted, so every teacher who has ever opened the
+       * editor is carrying `"review"` in localStorage — the old default. Left
+       * alone they would keep the old staging behaviour forever and never see
+       * the paper build, which is the whole change.
+       *
+       * Rewriting it is safe precisely because nothing can set it: there is no
+       * toggle anywhere in the UI, so a stored `"review"` is a stale default
+       * rather than a decision anyone made. Introduce a control for it and
+       * this migration has to become conditional on that control.
+       */
+      migrate: (persisted: any, version: number) => {
+        if (version < 2 && persisted && persisted.insertionMode === "review") {
+          return { ...persisted, insertionMode: "auto" };
+        }
+        return persisted;
+      },
     },
   ),
 );
@@ -623,6 +806,8 @@ export function resetEditorStoreForAccountSwitch(): void {
     comparisonSets: [],
     comparisonSetsPaperId: null,
     comparisonOpen: false,
+    activeRun: null,
+    studioBrief: "",
     approvedSets: {},
     approvedAt: 0,
     awaitingGeneratedPaper: false,
@@ -631,7 +816,10 @@ export function resetEditorStoreForAccountSwitch(): void {
     instructionsToAppend: null,
     questionsToSave: [],
     questionRemovals: [],
-    insertionMode: "review",
+    ghostSlotsToPlace: [],
+    slotFills: [],
+    pendingSweepToken: null,
+    insertionMode: "auto",
     generatorContext: initialGeneratorContext,
     generalInstructionsDraft: "",
   });
