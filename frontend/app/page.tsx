@@ -19,13 +19,13 @@ export default function Home() {
     // seen in the instant before WebGL comes up (and permanently on a machine
     // that cannot give us a context). `bg-neutral-950` put near-black there
     // under `text-neutral-900` text — dark on dark, unreadable in exactly the
-    // case the fallback exists for. Sand matches what the shader paints.
-    <main className="relative min-h-dvh overflow-hidden bg-[#efe4d2] text-brand-ink">
+    // case the fallback exists for. Purple matches what the shader paints.
+    <main className="relative min-h-dvh overflow-hidden bg-[#f6edff] text-brand-ink">
       <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
         <Grainient
           color1="#fcfcfc"
-          color2="#D7C3A3"
-          color3="#efe4d2"
+          color2="#b39de3"
+          color3="#f6edff"
           timeSpeed={0.95}
           colorBalance={0.0}
           warpStrength={1.0}

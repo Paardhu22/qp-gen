@@ -3,7 +3,7 @@
 /**
  * The hue behind the dashboard chat.
  *
- * A `Grainient` field in the theme kit's two colours — sand `#D7C3A3` warping
+ * A `Grainient` field in the theme kit's two colours — purple `#b39de3` warping
  * through white — so the chat sits on something that moves slowly rather than a
  * flat panel. Everything about it is decorative: `styles/grainient.css` masks it
  * out towards the centre where the messages are, drops its opacity, and makes it
@@ -24,19 +24,19 @@ const Grainient = dynamic(
   { ssr: false },
 );
 
-// Sand → white → sand. The middle stop being white is what keeps the field
+// Purple → white → purple. The middle stop being white is what keeps the field
 // mostly canvas with warmth pooling at the edges, instead of a solid wash of
 // colour behind the text.
-const SAND = "#D7C3A3";
+const PURPLE = "#b39de3";
 const WHITE = "#ffffff";
 
 export function ChatBackdrop() {
   return (
     <Grainient
       className="grainient-backdrop"
-      color1={SAND}
+      color1={PURPLE}
       color2={WHITE}
-      color3={SAND}
+      color3={PURPLE}
       // Slow. This is peripheral vision next to text someone is reading, and
       // anything faster reads as a distraction rather than a surface.
       timeSpeed={1.4}
