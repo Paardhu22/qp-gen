@@ -165,6 +165,15 @@ interface EditorState {
    *  the store rather than the URL because it is a small object, and a query
    *  string would put a half-specified paper in the browser history. */
   paperSpecHandoff: Record<string, any> | null;
+  /** A template picked on the Templates page, to be opened in the Builder.
+   *
+   *  Same handoff shape and the same one-shot rule as `paperSpecHandoff`: the
+   *  editor consumes it on mount and clears it, so returning to the editor
+   *  later does not reopen the Builder over whatever the teacher is editing.
+   *  Only the id crosses — the Builder resolves the template server-side, so
+   *  sending a stale copy of its blueprint through the store would be a second
+   *  source of truth for something that changes. */
+  templateHandoff: { id: string; name: string } | null;
   /** Staging area for generated questions awaiting review. */
   generatedTray: TrayItem[];
   /** All produced sets (A + derived B/C) from the latest multi-set generation.
@@ -239,6 +248,7 @@ interface EditorState {
   setInsertionMode: (mode: InsertionMode) => void;
   setGeneralInstructionsDraft: (draft: string) => void;
   setPaperSpecHandoff: (spec: Record<string, any> | null) => void;
+  setTemplateHandoff: (handoff: { id: string; name: string } | null) => void;
   setGeneratorContext: (
     ctx: Partial<EditorState["generatorContext"]>,
   ) => void;
@@ -373,6 +383,7 @@ export const useEditorStore = create<EditorState>()(
       generatorContext: initialGeneratorContext,
       generalInstructionsDraft: "",
       paperSpecHandoff: null,
+      templateHandoff: null,
       uploadedDocs: [],
       hsatSources: [],
 
@@ -413,6 +424,7 @@ export const useEditorStore = create<EditorState>()(
         set({ generalInstructionsDraft: draft }),
 
       setPaperSpecHandoff: (spec) => set({ paperSpecHandoff: spec }),
+      setTemplateHandoff: (handoff) => set({ templateHandoff: handoff }),
 
       setGeneratorContext: (ctx) =>
         set((state) => ({
@@ -603,6 +615,8 @@ export const useEditorStore = create<EditorState>()(
         // Persisted so the handoff survives the navigation from the dashboard
         // to the editor even if the tab reloads on the way.
         paperSpecHandoff: state.paperSpecHandoff,
+        // Same reason, for the Templates page → editor hop.
+        templateHandoff: state.templateHandoff,
       }),
       version: 1,
     },
@@ -643,6 +657,11 @@ export function resetEditorStoreForAccountSwitch(): void {
     insertionMode: "review",
     generatorContext: initialGeneratorContext,
     generalInstructionsDraft: "",
+    // Both handoffs name something owned by the account signing out — a
+    // template id, or a half-specified paper. Carrying either into the next
+    // account would open the Builder on a template that 404s for them.
+    paperSpecHandoff: null,
+    templateHandoff: null,
   });
   try {
     useEditorStore.persist?.clearStorage?.();

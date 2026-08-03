@@ -32,7 +32,7 @@
  */
 
 import * as React from "react";
-import { ArrowUp, PanelRightClose } from "lucide-react";
+import { ArrowUp, BookMarked, PanelRightClose } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -42,6 +42,9 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   /** Open the Builder, optionally seeded with a plain-English brief. */
   onOpenBuilder: (instructions?: string) => void;
+  /** Assemble a paper from already-saved questions, skipping generation
+   *  entirely. Optional so surfaces that have no bank access can omit it. */
+  onBuildFromBank?: () => void;
   generating: boolean;
   /** Live line from the pool pipeline ("Writing questions 12/40"). */
   status?: string;
@@ -70,6 +73,7 @@ export function GenerateDock({
   open,
   onOpenChange,
   onOpenBuilder,
+  onBuildFromBank,
   generating,
   status,
   insertedCount = 0,
@@ -283,6 +287,25 @@ export function GenerateDock({
               by section before anything is written.
             </p>
           </div>
+
+          {/* ── Or don't write anything at all ────────────────────────── */}
+          {onBuildFromBank ? (
+            <div className="mt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onBuildFromBank}
+                className="w-full justify-start gap-2 text-[13px]"
+              >
+                <BookMarked className="h-3.5 w-3.5" />
+                Build from my question bank
+              </Button>
+              <p className="mt-1.5 px-0.5 text-[12px] leading-relaxed text-muted-foreground">
+                Re-paper chapters you have already generated. Nothing new is
+                written, so it costs nothing and finishes in seconds.
+              </p>
+            </div>
+          ) : null}
 
           {/* Questions waiting on a decision, from the run that started here. */}
           {review}

@@ -4,6 +4,7 @@ import { BlueprintModal, type BlueprintSubmission } from "@/components/blueprint
 import { ReviewTray } from "@/components/review-tray";
 import { DocumentOutline } from "@/components/editor/document-outline";
 import { GenerateDock } from "@/components/editor/generate-dock";
+import { BuildFromBankDialog } from "@/components/editor/build-from-bank-dialog";
 import { HsatSourcePicker } from "@/components/hsat-source-picker";
 import { usePaperGeneration } from "@/lib/use-paper-generation";
 import { useSourceUploads } from "@/lib/use-source-uploads";
@@ -225,10 +226,33 @@ export default function EditorPage() {
   const [outlineOpen, setOutlineOpen] = useState(true);
   const [dockOpen, setDockOpen] = useState(true);
 
+  // A template picked on the Templates page. Held here so the Builder opens on
+  // it already resolved instead of on the picker the teacher just used a
+  // richer version of.
+  const [builderTemplateId, setBuilderTemplateId] = useState("");
+  // Assembling from the bank is not generation — no model writes anything — so
+  // it is its own dialog rather than a fourth step in the Builder.
+  const [bankDialogOpen, setBankDialogOpen] = useState(false);
+
   const openBuilder = useCallback((brief?: string) => {
     setBuilderBrief(brief ?? "");
+    setBuilderTemplateId("");
     setBlueprintOpen(true);
   }, []);
+
+  // ── "Use" on the Templates page lands here ──────────────────────────────
+  // Consumed once and cleared, exactly like the dashboard assistant's spec
+  // handoff: without the clear, every later return to the editor would reopen
+  // the Builder over whatever the teacher is editing.
+  const templateHandoff = useEditorStore((s) => s.templateHandoff);
+  const setTemplateHandoff = useEditorStore((s) => s.setTemplateHandoff);
+  useEffect(() => {
+    if (!templateHandoff) return;
+    setBuilderBrief("");
+    setBuilderTemplateId(templateHandoff.id);
+    setBlueprintOpen(true);
+    setTemplateHandoff(null);
+  }, [templateHandoff, setTemplateHandoff]);
 
   // Uploads live on the page, not in the modal: a teacher who starts a large
   // upload and closes the Builder must come back to a finished upload.
@@ -979,6 +1003,7 @@ export default function EditorPage() {
         open={blueprintOpen}
         onOpenChange={setBlueprintOpen}
         initialInstructions={builderBrief}
+        initialTemplateId={builderTemplateId}
         onGenerate={handleGenerate}
         generating={generation.isGenerating}
         uploadedDocs={uploadedDocs}
@@ -996,6 +1021,14 @@ export default function EditorPage() {
           setHsatSources((prev) => prev.filter((s) => s.id !== id))
         }
         onOpenHsatPicker={() => setHsatPickerOpen(true)}
+      />
+
+      {/* Assemble from already-saved questions. This carries what `/build-paper`
+          used to be: the only entry point to `paper-from-bank`
+          (`services/pool/from_bank.py`), which skips Model 1 entirely. */}
+      <BuildFromBankDialog
+        open={bankDialogOpen}
+        onOpenChange={setBankDialogOpen}
       />
 
       {/* The library picker, opened from inside the Builder's Sources step.
@@ -1050,6 +1083,7 @@ export default function EditorPage() {
               open={dockOpen}
               onOpenChange={setDockOpen}
               onOpenBuilder={openBuilder}
+              onBuildFromBank={() => setBankDialogOpen(true)}
               generating={generation.isGenerating}
               status={generation.poolStatus}
               insertedCount={generation.liveInsertedCount}

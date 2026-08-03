@@ -69,6 +69,7 @@ import {
   type PaperTemplate,
   type QuestionTypeOption,
 } from "@/lib/api-client";
+import { recomputeTotals } from "@/lib/blueprint-totals";
 import type { AppliedHsatSource } from "@/components/hsat-source-picker";
 
 import { TemplatePickerGrid } from "./template-picker-grid";
@@ -120,6 +121,14 @@ interface Props {
    * Builder opens on "Describe It Yourself", already resolved from it.
    */
   initialInstructions?: string;
+
+  /**
+   * A template chosen elsewhere — "Use" on the Templates page. The Builder
+   * opens on it already resolved, skipping the picker the teacher just used a
+   * richer version of. Built-in ids and saved-template ids both work; the
+   * catalog decides which is which.
+   */
+  initialTemplateId?: string;
 }
 
 /** The catalog's prose template — `services/template_catalog.py`. */
@@ -146,36 +155,6 @@ const SUBJECTS = [
 ];
 const DIFFICULTIES = ["easy", "medium", "hard"];
 
-/** Totals recomputed on the client so the footer tracks every keystroke. */
-function recomputeTotals(slots: BlueprintSlot[]): Blueprint {
-  const byType: Record<string, number> = {};
-  const sectionOrder: string[] = [];
-  const bySectionMap = new Map<string, { questions: number; marks: number }>();
-
-  for (const slot of slots) {
-    byType[slot.questionType] = (byType[slot.questionType] ?? 0) + 1;
-    if (!bySectionMap.has(slot.sectionTitle)) {
-      bySectionMap.set(slot.sectionTitle, { questions: 0, marks: 0 });
-      sectionOrder.push(slot.sectionTitle);
-    }
-    const entry = bySectionMap.get(slot.sectionTitle)!;
-    entry.questions += 1;
-    entry.marks += slot.marks;
-  }
-
-  return {
-    slots,
-    totalQuestions: slots.length,
-    totalMarks: slots.reduce((sum, s) => sum + s.marks, 0),
-    generatedCount: slots.filter((s) => s.source === "generate").length,
-    savedCount: slots.filter((s) => s.source === "saved").length,
-    byType,
-    bySection: sectionOrder.map((title) => ({
-      title,
-      ...bySectionMap.get(title)!,
-    })),
-  };
-}
 
 export function BlueprintModal({
   open,
@@ -193,6 +172,7 @@ export function BlueprintModal({
   onAcceptSubjectMismatch,
   detectedSubject,
   initialInstructions,
+  initialTemplateId,
 }: Props) {
   const [step, setStep] = React.useState<Step>("template");
   const [builtin, setBuiltin] = React.useState<BuiltinTemplate[]>([]);
@@ -331,6 +311,50 @@ export function BlueprintModal({
     setInstructions(brief);
     void applyTemplate(DESCRIBE_TEMPLATE_ID, "instructions", brief);
   }, [open, initialInstructions, builtin.length, applyTemplate]);
+
+  // ── Opened from the Templates page with a chosen template ───────────────
+  // Same shape as the brief handoff above, and guarded the same way: the
+  // effect's own action changes state it depends on, so without a record of
+  // what was already applied it would re-resolve on every render.
+  //
+  // A brief wins if both arrive. "Describe It Yourself" resolved from what the
+  // teacher just typed is a more specific instruction than a template id that
+  // has been sitting in the store since the last navigation.
+  const appliedTemplateRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!open) {
+      appliedTemplateRef.current = null;
+      return;
+    }
+    const wanted = (initialTemplateId || "").trim();
+    if (!wanted || appliedTemplateRef.current === wanted) return;
+    if ((initialInstructions || "").trim()) return;
+    // Wait for the catalog: `applyTemplate` reads the entry for its name, kind
+    // and — for a board template — the subject and class it should adopt.
+    if (builtin.length === 0 && saved.length === 0) return;
+
+    const match =
+      saved.find((t) => t.id === wanted) ?? builtin.find((t) => t.id === wanted);
+    if (!match) {
+      // Deleted between navigating and arriving. Leaving the picker open is
+      // the right outcome; a toast about an id the teacher never saw is not.
+      appliedTemplateRef.current = wanted;
+      return;
+    }
+
+    appliedTemplateRef.current = wanted;
+    void applyTemplate(
+      wanted,
+      "builtin" in match && match.builtin ? match.kind : "saved",
+    );
+  }, [
+    open,
+    initialTemplateId,
+    initialInstructions,
+    builtin,
+    saved,
+    applyTemplate,
+  ]);
 
   const handleSlotsChange = (slots: BlueprintSlot[]) => {
     setBlueprint(recomputeTotals(slots));
