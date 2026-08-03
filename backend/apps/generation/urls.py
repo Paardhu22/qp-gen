@@ -4,9 +4,13 @@ from django.urls import path
 from .design_views import (
     DesignPaperView,
     PaperTemplateDetailView,
+    PaperTemplateDuplicateView,
+    PaperTemplateForkView,
     PaperTemplateListView,
     QuestionImageView,
     QuestionTypeCatalogView,
+    TemplateFolderDetailView,
+    TemplateFolderListView,
     TemplateResolveView,
 )
 from .views import (
@@ -35,10 +39,33 @@ urlpatterns = [
     # Compile a template (built-in or saved) into an editable blueprint. Writes
     # nothing — browsing the picker must not commit the teacher to anything.
     path("templates/resolve", TemplateResolveView.as_view(), name="template-resolve"),
+    # Turn a built-in catalog entry into a row the teacher owns, so it can be
+    # edited and filed like anything else. This is the one place a built-in
+    # stops being generated code and becomes data.
+    path("templates/fork", PaperTemplateForkView.as_view(), name="template-fork"),
+    # The teacher's filing. Nothing in generation reads folders — see
+    # `TemplateFolder` — so these are pure organisation endpoints.
+    path(
+        "template-folders",
+        TemplateFolderListView.as_view(),
+        name="template-folders",
+    ),
+    path(
+        "template-folders/<str:folder_id>",
+        TemplateFolderDetailView.as_view(),
+        name="template-folder-detail",
+    ),
     # The per-slot question-type menu for the Blueprint Builder.
     path("question-types", QuestionTypeCatalogView.as_view(), name="question-types"),
     # Draw a figure for one question, on request from the editor's hover menu.
     path("question-image", QuestionImageView.as_view(), name="question-image"),
+    # Must stay below `templates/resolve` and `templates/fork`: this pattern
+    # would otherwise swallow them as template ids.
+    path(
+        "templates/<str:template_id>/duplicate",
+        PaperTemplateDuplicateView.as_view(),
+        name="paper-template-duplicate",
+    ),
     path(
         "templates/<str:template_id>",
         PaperTemplateDetailView.as_view(),

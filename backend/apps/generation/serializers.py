@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.generation.models import GenerationHistory, PaperTemplate
+from apps.generation.models import GenerationHistory, PaperTemplate, TemplateFolder
 
 
 class GenerationHistorySerializer(serializers.ModelSerializer):
@@ -141,6 +141,32 @@ class PaperFromBankSerializer(serializers.Serializer):
     sets = serializers.IntegerField(min_value=1, max_value=3, required=False, default=1)
 
 
+class TemplateFolderSerializer(serializers.ModelSerializer):
+    """One filing folder, plus how much is in it.
+
+    `templateCount` counts only templates filed directly here, not in
+    subfolders. A folder rail that showed rolled-up counts would make an empty
+    folder look populated, and the number a teacher wants beside "Term 1" is
+    how many papers are in Term 1.
+    """
+
+    parentId = serializers.CharField(source="parent_id", allow_null=True, read_only=True)
+    templateCount = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TemplateFolder
+        fields = ["id", "name", "parentId", "templateCount", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_templateCount(self, obj) -> int:
+        # Uses the annotation when the view supplied one, so listing N folders
+        # stays one query instead of N.
+        annotated = getattr(obj, "template_count", None)
+        if annotated is not None:
+            return annotated
+        return obj.templates.count()
+
+
 class PaperTemplateSerializer(serializers.ModelSerializer):
     """A saved paper template.
 
@@ -158,6 +184,7 @@ class PaperTemplateSerializer(serializers.ModelSerializer):
     blueprint = serializers.SerializerMethodField()
     pinned = serializers.SerializerMethodField()
     builtin = serializers.SerializerMethodField()
+    folderId = serializers.CharField(source="folder_id", allow_null=True, read_only=True)
 
     class Meta:
         model = PaperTemplate
@@ -171,6 +198,7 @@ class PaperTemplateSerializer(serializers.ModelSerializer):
             "builtin",
             "base_template_id",
             "source_config",
+            "folderId",
             "last_used_at",
             "created_at",
             "updated_at",
