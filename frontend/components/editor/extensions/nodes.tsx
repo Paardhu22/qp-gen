@@ -147,13 +147,20 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode, editor, getPos 
   // floating menu reads it and shows or hides the Swap action accordingly.
   const canReplace = Boolean(parseSlotMeta(node.attrs?.slotMeta));
 
+  // A slot whose question has not been written yet. It renders as the shape of
+  // the question to come — its number and its marks are already known — with
+  // the body as a shimmer rather than text. Not editable: typing into a block
+  // that is about to be overwritten would silently lose the typing.
+  const isPending = Boolean(node.attrs?.pending);
+
   return (
     <NodeViewWrapper
-      className="question-block group"
+      className={`question-block group${isPending ? " question-block-pending" : ""}`}
       data-question-block="true"
       data-can-replace={canReplace ? "true" : "false"}
+      data-pending={isPending ? "true" : "false"}
     >
-      {editor?.isEditable && (
+      {editor?.isEditable && !isPending && (
         <div
           data-drag-handle
           contentEditable={false}
@@ -172,6 +179,16 @@ const QuestionComponent = ({ node, updateAttributes, deleteNode, editor, getPos 
           {numberDisplay}
         </div>
         <div className="question-cell question-body editable-container">
+          {/* NodeViewContent always renders — ProseMirror needs the content
+              hole to exist for the node it manages. While pending it sits
+              behind the shimmer rather than being unmounted, which would
+              detach the content DOM and corrupt the node. */}
+          {isPending ? (
+            <div className="question-pending-shimmer" contentEditable={false}>
+              <span className="question-pending-line" />
+              <span className="question-pending-line question-pending-line-short" />
+            </div>
+          ) : null}
           <NodeViewContent />
         </div>
         <div
@@ -242,6 +259,26 @@ export const QuestionBlock = Node.create({
       // it is emitted once, as `data-slot-meta`, by the node's own renderHTML.
       // Without this the JSON blob appears twice in the serialised HTML.
       slotMeta: { default: "", renderHTML: () => ({}) },
+      /**
+       * This block is a placeholder for a question that is still being
+       * written.
+       *
+       * The paper's whole shape is known the moment the blueprint compiles —
+       * every section, every slot, its marks and its type — while the text
+       * takes minutes. Appending questions one at a time as they arrived made
+       * the page grow from nothing and told the teacher only how far it had
+       * got, never how far there was to go. Placing the empty paper first and
+       * filling it in means the document reads as itself from the first
+       * second.
+       *
+       * `pendingSlot` is the blueprint index this block is holding, so a fill
+       * can find its own slot by scanning for it. Positions are useless here:
+       * the teacher can type, drag and delete while the run streams, and any
+       * position captured at insert time is stale by the time the question
+       * lands.
+       */
+      pending: { default: false },
+      pendingSlot: { default: null },
     };
   },
 
@@ -256,12 +293,23 @@ export const QuestionBlock = Node.create({
           const subLabelAttr = el.getAttribute("data-sub-label");
           const marks = marksAttr ? Number(marksAttr) : 1;
           const number = numberAttr ? Number(numberAttr) : null;
+          const pendingSlotAttr = el.getAttribute("data-pending-slot");
+          const pendingSlot = pendingSlotAttr ? Number(pendingSlotAttr) : null;
           return {
             marks: Number.isNaN(marks) ? 1 : marks,
             number: Number.isNaN(number) ? null : number,
             subLabel: subLabelAttr || null,
             questionType: el.getAttribute("data-question-type") || "SHORT",
             slotMeta: el.getAttribute("data-slot-meta") || "",
+            // A pending block that survives a serialise/parse round trip would
+            // be a permanently empty question in a saved paper, so it is
+            // deliberately NOT restored as pending — only the slot number is
+            // kept, and an unfilled block reads as an ordinary empty question.
+            pending: false,
+            pendingSlot:
+              pendingSlot === null || Number.isNaN(pendingSlot)
+                ? null
+                : pendingSlot,
           };
         },
       },
@@ -279,6 +327,7 @@ export const QuestionBlock = Node.create({
         "data-sub-label": HTMLAttributes.subLabel ?? "",
         "data-question-type": HTMLAttributes.questionType ?? "",
         "data-slot-meta": HTMLAttributes.slotMeta ?? "",
+        "data-pending-slot": HTMLAttributes.pendingSlot ?? "",
       }),
       ["div", { class: "question-content" }, 0],
     ];

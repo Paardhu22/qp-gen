@@ -83,6 +83,29 @@ export interface TrayItem {
 export type InsertionMode = "review" | "auto";
 
 /**
+ * One blueprint slot, placed on the page before its question exists.
+ *
+ * The whole shape of a paper is known as soon as the blueprint compiles — the
+ * sections, how many questions, what each is worth — while the questions
+ * themselves take minutes to write. Placing the empty paper first turns the
+ * wait into a document filling in rather than a page growing from nothing.
+ */
+export interface GhostSlot {
+  /** Blueprint index. The fill finds its slot by this, never by position. */
+  index: number;
+  sectionTitle: string;
+  marks: number;
+  questionType: string;
+}
+
+/** A written question, destined for the ghost holding its slot. */
+export interface SlotFill {
+  index: number;
+  sectionTitle: string;
+  question: Question & { metadata?: Record<string, any> };
+}
+
+/**
  * One produced paper set (A / B / C) held for the Comparison Workspace.
  * `result` is the assembled-paper payload the SSE pipeline emits
  * (`{ sections, generalInstructions, meta }`) — the same shape the generator
@@ -161,6 +184,19 @@ interface EditorState {
   questionsToSave: Question[];
   /** Pending tray-driven "Undo" removals, consumed by tiptap-editor. */
   questionRemovals: QuestionRemovalRequest[];
+  /** Blueprint slots waiting to be laid out as placeholders. */
+  ghostSlotsToPlace: GhostSlot[];
+  /** Written questions waiting to replace the placeholder holding their slot. */
+  slotFills: SlotFill[];
+  /**
+   * One-shot request to remove every placeholder still unfilled.
+   *
+   * A run that is cancelled or fails leaves ghosts for the questions that were
+   * never written. Left alone they are permanent empty numbered questions in
+   * the teacher's paper, so the end of every run sweeps them. A token rather
+   * than a boolean so consecutive runs each re-fire the effect.
+   */
+  pendingSweepToken: string | null;
 
   // ── Modal state ───────────────────────────────────────────────────
   savePaperModalOpen: boolean;
@@ -292,6 +328,14 @@ interface EditorState {
   consumeQuestionRemovals: () => void;
   clearTray: () => void;
 
+  placeGhostSlots: (slots: GhostSlot[]) => void;
+  clearGhostSlots: () => void;
+  fillSlot: (fill: SlotFill) => void;
+  clearSlotFills: () => void;
+  /** Ask the editor to drop every still-pending placeholder. */
+  sweepPendingSlots: () => void;
+  consumePendingSweep: () => void;
+
   setComparisonSets: (sets: ComparisonSet[]) => void;
   clearComparisonSets: () => void;
   setComparisonOpen: (open: boolean) => void;
@@ -395,6 +439,9 @@ export const useEditorStore = create<EditorState>()(
       instructionsToAppend: null,
       questionsToSave: [],
       questionRemovals: [],
+      ghostSlotsToPlace: [],
+      slotFills: [],
+      pendingSweepToken: null,
 
       // ── Modals ──────────────────────────────────────────────────────
       savePaperModalOpen: false,
@@ -408,7 +455,13 @@ export const useEditorStore = create<EditorState>()(
       saveState: "saved",
 
       // ── Generator + tray + session context ──────────────────────────
-      insertionMode: "review",
+      // Questions land on the page as they are written. The paper building
+      // itself is the point of watching a generation, and staging every
+      // question in a tray first meant the document stayed empty throughout
+      // the one process the teacher was waiting on. The tray still exists and
+      // is still reachable — it reviews what has been placed rather than
+      // gating what may be placed.
+      insertionMode: "auto",
       generatedTray: [],
       comparisonSets: [],
       comparisonSetsPaperId: null,
@@ -518,6 +571,25 @@ export const useEditorStore = create<EditorState>()(
       consumeQuestionRemovals: () => set({ questionRemovals: [] }),
 
       clearTray: () => set({ generatedTray: [] }),
+
+      placeGhostSlots: (slots) => set({ ghostSlotsToPlace: slots }),
+      clearGhostSlots: () => set({ ghostSlotsToPlace: [] }),
+
+      // Queued rather than applied directly: the editor may not have finished
+      // loading its document when a question lands, and the same guard that
+      // protects `questionsToAppend` from draining into a blank page has to
+      // protect fills too.
+      fillSlot: (fill) =>
+        set((state) => ({ slotFills: [...state.slotFills, fill] })),
+      clearSlotFills: () => set({ slotFills: [] }),
+
+      sweepPendingSlots: () =>
+        set({
+          pendingSweepToken: `sweep-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`,
+        }),
+      consumePendingSweep: () => set({ pendingSweepToken: null }),
 
       setActiveEditorPaperId: (paperId) => set({ activeEditorPaperId: paperId }),
 
@@ -678,7 +750,26 @@ export const useEditorStore = create<EditorState>()(
         // to the editor even if the tab reloads on the way.
         paperSpecHandoff: state.paperSpecHandoff,
       }),
-      version: 1,
+      version: 2,
+      /**
+       * v1 → v2: questions are placed on the page as they are generated.
+       *
+       * `insertionMode` is persisted, so every teacher who has ever opened the
+       * editor is carrying `"review"` in localStorage — the old default. Left
+       * alone they would keep the old staging behaviour forever and never see
+       * the paper build, which is the whole change.
+       *
+       * Rewriting it is safe precisely because nothing can set it: there is no
+       * toggle anywhere in the UI, so a stored `"review"` is a stale default
+       * rather than a decision anyone made. Introduce a control for it and
+       * this migration has to become conditional on that control.
+       */
+      migrate: (persisted: any, version: number) => {
+        if (version < 2 && persisted && persisted.insertionMode === "review") {
+          return { ...persisted, insertionMode: "auto" };
+        }
+        return persisted;
+      },
     },
   ),
 );
@@ -716,7 +807,10 @@ export function resetEditorStoreForAccountSwitch(): void {
     instructionsToAppend: null,
     questionsToSave: [],
     questionRemovals: [],
-    insertionMode: "review",
+    ghostSlotsToPlace: [],
+    slotFills: [],
+    pendingSweepToken: null,
+    insertionMode: "auto",
     generatorContext: initialGeneratorContext,
     generalInstructionsDraft: "",
   });

@@ -108,6 +108,10 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
   // would re-open a section for every question in it.
   const insertedSectionsRef = React.useRef<Set<string>>(new Set());
 
+  // Whether this run laid its blueprint out as placeholders. False for a run
+  // with no client-side blueprint, which then falls back to appending.
+  const ghostsPlacedRef = React.useRef(false);
+
   const onSourcesNotReadyRef = React.useRef(options.onSourcesNotReady);
   React.useEffect(() => {
     onSourcesNotReadyRef.current = options.onSourcesNotReady;
@@ -198,6 +202,8 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
         const store = useEditorStore.getState();
 
         // ── The question must belong to the document that is open ────────
+        // (see the paper-id gate below)
+        //
         // A run is tied to the paper it was started for. The teacher can open
         // a different paper while it streams, and before this the arriving
         // questions went into whatever document happened to be mounted — the
@@ -212,21 +218,41 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
           return;
         }
 
-        if (store.activeRun?.multiSet) {
-          // Preview only — sets are inserted from the comparison view so two
-          // of them can never merge into one document.
-          return;
-        }
         if (store.insertionMode === "auto") {
           const editorQuestion = toEditorQuestion(data.question);
-          if (!insertedSectionsRef.current.has(data.section)) {
+          const slotIndex = Number(data.index);
+
+          // The blueprint was laid out as placeholders before the stream
+          // started, so the ordinary path is to fill the slot this question
+          // was written for. `data.index` is the slot's own index — the
+          // backend sends `assignment.slot.index` — so it lines up with the
+          // ghosts without any mapping.
+          if (ghostsPlacedRef.current && Number.isFinite(slotIndex)) {
+            store.fillSlot({
+              index: slotIndex,
+              sectionTitle: data.section,
+              question: { ...editorQuestion, metadata: data.question.metadata },
+            });
+          } else if (!insertedSectionsRef.current.has(data.section)) {
+            // No ghosts to fill — a run with no client-side blueprint, e.g.
+            // one started from a plain brief. Falls back to appending, which
+            // is what every run did before slots were placed up front.
             insertedSectionsRef.current.add(data.section);
             store.appendSections([
-              { title: data.section, questions: [editorQuestion] },
+              {
+                title: data.section,
+                questions: [editorQuestion],
+                ...(store.activeRun?.multiSet ? { setLabel: "A" } : {}),
+              },
             ]);
           } else {
             store.appendQuestions([editorQuestion]);
           }
+        } else if (store.activeRun?.multiSet) {
+          // Multi-set staging keeps its old shape: the sets are reviewed side
+          // by side in the Comparison Workspace, so questions are not staged
+          // individually in the tray as well.
+          return;
         } else {
           store.pushToTray({
             sectionTitle: data.section,
@@ -279,6 +305,32 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
     setVariantSets([]);
     setSavedToBank(null);
 
+    // ── Lay the paper out before a word of it exists ─────────────────────
+    // The blueprint is already agreed — the teacher approved it in the
+    // Builder — so the finished shape is knowable now, while the questions
+    // are minutes away. Placing the slots first means the document reads as
+    // itself immediately and fills in, instead of growing from an empty page
+    // with no indication of how much is still to come.
+    //
+    // Only in auto mode: in review mode nothing is placed on the page at all,
+    // so there would be nothing for the ghosts to become.
+    const slots = request.blueprint?.slots as
+      | { index: number; sectionTitle: string; marks: number; questionType: string }[]
+      | undefined;
+    const canPlaceGhosts =
+      store.insertionMode === "auto" && Array.isArray(slots) && slots.length > 0;
+    ghostsPlacedRef.current = canPlaceGhosts;
+    if (canPlaceGhosts) {
+      store.placeGhostSlots(
+        slots!.map((slot) => ({
+          index: Number(slot.index),
+          sectionTitle: String(slot.sectionTitle || ""),
+          marks: Number(slot.marks) || 1,
+          questionType: String(slot.questionType || "SHORT"),
+        })),
+      );
+    }
+
     const outcome = await generationRunner.start({
       path: "/api/generation/questions/stream",
       paperId: request.paperId ?? store.activeEditorPaperId,
@@ -309,6 +361,14 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
           : {}),
       },
     });
+
+    // Every ending sweeps, success included: the pool can come up short, and a
+    // slot the pipeline never filled would otherwise stay on the page as an
+    // empty numbered question forever.
+    if (ghostsPlacedRef.current) {
+      useEditorStore.getState().sweepPendingSlots();
+      ghostsPlacedRef.current = false;
+    }
 
     if (outcome.cancelled) {
       toast.info("Generation cancelled.");
