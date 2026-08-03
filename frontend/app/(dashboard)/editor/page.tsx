@@ -987,6 +987,11 @@ export default function EditorPage() {
         onFiles={uploads.uploadFiles}
         onRemoveDoc={uploads.removeDoc}
         onDismissUpload={uploads.dismissUpload}
+        onAcceptSubjectMismatch={uploads.acceptSubjectMismatch}
+        // Seed the subject field from the first chapter that had a confident
+        // answer. The Builder only applies this before a template is chosen,
+        // so it fills a blank rather than fighting the teacher.
+        detectedSubject={uploadedDocs.find((d) => d.subject)?.subject}
         onRemoveHsat={(id) =>
           setHsatSources((prev) => prev.filter((s) => s.id !== id))
         }

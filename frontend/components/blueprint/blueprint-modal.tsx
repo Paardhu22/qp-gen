@@ -109,6 +109,9 @@ interface Props {
   onDismissUpload: (tempId: string) => void;
   onRemoveHsat: (id: string) => void;
   onOpenHsatPicker: () => void;
+  /** "Use anyway" on a subject-mismatch warning — owned by the page, because
+   *  the override lives on the source and outlives this dialog. */
+  onAcceptSubjectMismatch?: (id: string) => void;
 
   detectedSubject?: string;
 
@@ -187,6 +190,7 @@ export function BlueprintModal({
   onDismissUpload,
   onRemoveHsat,
   onOpenHsatPicker,
+  onAcceptSubjectMismatch,
   detectedSubject,
   initialInstructions,
 }: Props) {
@@ -584,6 +588,11 @@ export function BlueprintModal({
                   onDismissUpload={onDismissUpload}
                   onRemoveHsat={onRemoveHsat}
                   onOpenHsatPicker={onOpenHsatPicker}
+                  // The paper's own subject is the thing an uploaded chapter
+                  // has to agree with — cross-checking the uploads only
+                  // against each other lets a single wrong-subject PDF pass.
+                  expectedSubject={subject}
+                  onAcceptSubjectMismatch={onAcceptSubjectMismatch}
                 />
 
                 {templateKind === "instructions" || instructions ? (

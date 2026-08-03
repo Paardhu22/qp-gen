@@ -103,6 +103,15 @@ class PdfSource(TimeStampedModel):
     sha256 = models.CharField(max_length=64, db_index=True, null=True, blank=True)
     # AV scan status: 'pending', 'passed', 'failed', or null if AV disabled
     av_status = models.CharField(max_length=20, null=True, blank=True)
+    # What the ingest thought this chapter was about, from the first few pages
+    # (`services/subject_detection_service.py`). Advisory only: it lets the
+    # Sources panel warn when a Physics chapter is attached to a Mathematics
+    # paper, and it is deliberately not a constraint — detection is a model
+    # call that is wrong often enough that blocking on it would strand valid
+    # uploads. Null means "not detected", which must read as "no opinion",
+    # never as "mismatch".
+    detected_subject = models.CharField(max_length=64, null=True, blank=True)
+    subject_confidence = models.FloatField(null=True, blank=True)
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,

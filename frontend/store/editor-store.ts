@@ -27,6 +27,15 @@ export interface UploadedDoc {
   id: string;
   name: string;
   size: number;
+  /**
+   * What the backend's ingest thought this chapter was about. Advisory only —
+   * `undefined` means no confident answer and must read as "no objection".
+   * Persisted with the rest of the store so a reload does not resurrect a
+   * warning the teacher already answered.
+   */
+  subject?: string;
+  subjectConfidence?: number;
+  subjectOverridden?: boolean;
 }
 
 export interface AppliedHsatSource {

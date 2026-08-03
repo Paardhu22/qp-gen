@@ -290,3 +290,85 @@ class HsatReingestTests(TestCase):
         )
 
         self.assertEqual(source.status, "ready")
+
+
+class SubjectDetectionOnIngestTests(TestCase):
+    """A chapter records what subject it looks like, so the Sources panel can
+    warn when a Physics PDF is attached to a Mathematics paper.
+
+    The property that matters is that this is *advisory*: it must never fail
+    an upload, and "no answer" must be stored as null rather than guessed.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.user = User.objects.create(
+            id="test-user-subject-detect",
+            name="Tester",
+            email="subject-detect@test.local",
+        )
+
+    def _source(self) -> PdfSource:
+        return PdfSource.objects.create(
+            name="ch1.pdf", size=10, status="processing", user=self.user
+        )
+
+    def test_confident_detection_is_stored(self) -> None:
+        from services.document_service import _detect_and_store_subject
+
+        source = self._source()
+        with patch(
+            "services.subject_detection_service.detect_subject_from_pdf_buffer",
+            return_value={"detected": True, "subject": "Physics", "confidence": 0.97},
+        ):
+            _detect_and_store_subject(b"%PDF-x", "application/pdf", source)
+
+        source.refresh_from_db()
+        self.assertEqual(source.detected_subject, "Physics")
+        self.assertAlmostEqual(source.subject_confidence, 0.97)
+
+    def test_low_confidence_stores_nothing(self) -> None:
+        """`detected: False` must leave the columns null. A half-guess shown
+        as a mismatch warning is worse than no warning at all."""
+        from services.document_service import _detect_and_store_subject
+
+        source = self._source()
+        with patch(
+            "services.subject_detection_service.detect_subject_from_pdf_buffer",
+            return_value={"detected": False, "subject": None, "confidence": 0.3},
+        ):
+            _detect_and_store_subject(b"%PDF-x", "application/pdf", source)
+
+        source.refresh_from_db()
+        self.assertIsNone(source.detected_subject)
+
+    def test_detector_failure_never_breaks_the_ingest(self) -> None:
+        from services.document_service import _detect_and_store_subject
+
+        source = self._source()
+        with patch(
+            "services.subject_detection_service.detect_subject_from_pdf_buffer",
+            side_effect=RuntimeError("openai down"),
+        ):
+            _detect_and_store_subject(b"%PDF-x", "application/pdf", source)
+
+        source.refresh_from_db()
+        self.assertIsNone(source.detected_subject)
+
+    def test_non_pdf_uploads_are_not_classified(self) -> None:
+        """The detector samples PDF pages; a DOCX has none to read, so it must
+        not be sent to the model at all."""
+        from services.document_service import _detect_and_store_subject
+
+        source = self._source()
+        with patch(
+            "services.subject_detection_service.detect_subject_from_pdf_buffer"
+        ) as detect:
+            _detect_and_store_subject(
+                b"PK\x03\x04",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                source,
+            )
+
+        detect.assert_not_called()
+        self.assertIsNone(source.detected_subject)

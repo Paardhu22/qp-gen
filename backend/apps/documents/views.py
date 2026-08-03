@@ -45,6 +45,11 @@ class DocumentUploadView(APIView):
                 "pdfSourceId": pdf_source.id,
                 "status": pdf_source.status,
                 "warnings": warnings,
+                # A deduped upload comes back "ready" without ever being
+                # polled, so the detected subject has to ride on this response
+                # too or the warning would only ever fire for new files.
+                "subject": pdf_source.detected_subject or None,
+                "subjectConfidence": pdf_source.subject_confidence,
             }
         )
 
@@ -75,6 +80,12 @@ class DocumentStatusView(APIView):
                 "status": source.status,
                 "chunk_count": chunk_count,
                 "error": source.error or None,
+                # Advisory: lets the Sources panel warn when the chapter's
+                # subject disagrees with the paper being built. Null means the
+                # detector had no confident opinion, which must never be shown
+                # as a mismatch.
+                "subject": source.detected_subject or None,
+                "subjectConfidence": source.subject_confidence,
             }
         )
 
@@ -253,12 +264,23 @@ class ValidateMetadataView(APIView):
     def post(self, request):
         """Cross-validates metadata across multiple uploaded PDFs.
 
-        Request JSON: { "documents": [ { fileName, subject, board, class, chapter, documentType, confidence, isEducational } ] }
+        Request JSON: {
+          "documents": [ { fileName, subject, board, class, chapter, documentType, confidence, isEducational } ],
+          "expectedSubject": "Mathematics",   # optional: the paper being built
+          "expectedClass": "10"               # optional
+        }
+
+        Without `expectedSubject` this can only cross-check the uploads
+        against each other; see `validate_pdf_metadata_list`.
         """
         from services.pdf_validation_service import validate_pdf_metadata_list
 
         documents = request.data.get("documents") or []
-        report = validate_pdf_metadata_list(documents)
+        report = validate_pdf_metadata_list(
+            documents,
+            expected_subject=request.data.get("expectedSubject") or None,
+            expected_class=request.data.get("expectedClass") or None,
+        )
         return Response(report)
 
 

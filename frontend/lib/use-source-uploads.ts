@@ -26,6 +26,17 @@ export interface UploadedDoc {
   id: string;
   name: string;
   size: number;
+  /**
+   * What the backend thought this chapter was about, from its first few pages
+   * (`services/subject_detection_service.py`). Advisory — `undefined` means
+   * the detector had no confident opinion and must read as "no objection",
+   * never as a mismatch.
+   */
+  subject?: string;
+  subjectConfidence?: number;
+  /** Set once the teacher has answered a subject-mismatch warning for this
+   *  source, so dismissing it sticks instead of reappearing on every render. */
+  subjectOverridden?: boolean;
 }
 
 export interface UploadingDoc {
@@ -63,16 +74,28 @@ export function useSourceUploads(
           const data = await fetchForm<{
             pdfSourceId: string;
             status?: string;
+            subject?: string | null;
+            subjectConfidence?: number | null;
           }>("/api/documents/upload", formData);
 
           if (data.status === "ready") {
             // Deduped by SHA-256 — this exact file is already ingested, so
-            // there is nothing to wait for.
+            // there is nothing to wait for. The subject rides on this response
+            // because a deduped source is never polled.
             setUploadingDocs((prev) => prev.filter((d) => d.tempId !== tempId));
             setUploadedDocs((prev) =>
               prev.some((d) => d.id === data.pdfSourceId)
                 ? prev
-                : [...prev, { id: data.pdfSourceId, name: file.name, size }],
+                : [
+                    ...prev,
+                    {
+                      id: data.pdfSourceId,
+                      name: file.name,
+                      size,
+                      subject: data.subject || undefined,
+                      subjectConfidence: data.subjectConfidence ?? undefined,
+                    },
+                  ],
             );
           } else {
             setUploadingDocs((prev) =>
@@ -118,9 +141,12 @@ export function useSourceUploads(
       await Promise.all(
         targets.map(async (doc) => {
           try {
-            const st = await fetchJson<{ status: string; error?: string | null }>(
-              `/api/documents/${doc.pdfSourceId}/status`,
-            );
+            const st = await fetchJson<{
+              status: string;
+              error?: string | null;
+              subject?: string | null;
+              subjectConfidence?: number | null;
+            }>(`/api/documents/${doc.pdfSourceId}/status`);
             if (cancelled) return;
             if (st.status === "ready") {
               setUploadingDocs((prev) =>
@@ -135,6 +161,8 @@ export function useSourceUploads(
                         id: doc.pdfSourceId!,
                         name: doc.name,
                         size: doc.size || 0,
+                        subject: st.subject || undefined,
+                        subjectConfidence: st.subjectConfidence ?? undefined,
                       },
                     ],
               );
@@ -165,6 +193,23 @@ export function useSourceUploads(
 
   const removeDoc = React.useCallback(
     (id: string) => setUploadedDocs((prev) => prev.filter((d) => d.id !== id)),
+    [setUploadedDocs],
+  );
+
+  /**
+   * "Use anyway" on a subject-mismatch warning.
+   *
+   * Detection is a model call on the first five pages and it is wrong often
+   * enough — mixed-subject books, regional-language textbooks, chapters that
+   * open with an unrelated preface — that the teacher has to be able to
+   * overrule it. Recording the override on the source (rather than hiding the
+   * row) keeps the mismatch inspectable while taking the warning down.
+   */
+  const acceptSubjectMismatch = React.useCallback(
+    (id: string) =>
+      setUploadedDocs((prev) =>
+        prev.map((d) => (d.id === id ? { ...d, subjectOverridden: true } : d)),
+      ),
     [setUploadedDocs],
   );
 
@@ -216,6 +261,7 @@ export function useSourceUploads(
     uploadFiles,
     removeDoc,
     dismissUpload,
+    acceptSubjectMismatch,
     reconcileNotReady,
     isBusy,
   };
