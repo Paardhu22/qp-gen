@@ -512,7 +512,6 @@ export default function DashboardPage() {
       // The press-check UI below is unchanged: the runner broadcasts raw
       // events, and this callback still interprets them its own way.
       const outcome = await generationRunner.start({
-        path: "/api/generation/questions/stream",
         paperId: null,
         origin: "dashboard",
         multiSet: Number(resolvedSpec.numberOfSets || "1") > 1,

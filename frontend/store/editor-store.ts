@@ -162,6 +162,15 @@ export interface ActiveRun {
   total: number;
   /** True for a run producing more than one set. */
   multiSet: boolean;
+  /**
+   * Last event sequence this tab has applied to the document.
+   *
+   * Persisted, and the reason a reload does not duplicate a paper. The editor
+   * flushes each fill to IndexedDB as it lands, so after a reload the document
+   * already contains everything up to here — replaying from zero would insert
+   * all of it a second time. Reattaching resumes from this instead.
+   */
+  lastSeq: number;
 }
 
 /**

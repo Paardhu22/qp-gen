@@ -321,6 +321,134 @@ export async function streamSse(
   }
 }
 
+/**
+ * Attach to a run that is already going, and follow it.
+ *
+ * The counterpart to `streamSse`: that one *starts* work and streams it back
+ * inside the same request, so the work dies with the connection. This reads a
+ * durable run's event log, which means it can be called again after a reload
+ * and pick up from `afterSeq`.
+ *
+ * `EventSource` would be the obvious tool and is not usable here — it cannot
+ * send an Authorization header, and these endpoints are authenticated.
+ *
+ * Unlike `streamSse` this does NOT throw when the connection closes without a
+ * terminal event. Disconnecting is expected: the run continues on the server
+ * and the caller can reattach. Deciding whether that is a problem needs the
+ * run's status, which the caller has and this does not.
+ */
+export async function streamRunEvents(
+  runId: string,
+  afterSeq: number,
+  onEvent: SseEventHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  const headers: Record<string, string> = {};
+  const accessToken = getAccessToken();
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const url = `${API_BASE_URL}/api/generation/runs/${encodeURIComponent(
+    runId,
+  )}/stream?afterSeq=${encodeURIComponent(String(afterSeq))}`;
+
+  let response = await fetch(url, { method: "GET", headers, signal });
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const retryHeaders: Record<string, string> = {};
+      const token = getAccessToken();
+      if (token) retryHeaders["Authorization"] = `Bearer ${token}`;
+      response = await fetch(url, {
+        method: "GET",
+        headers: retryHeaders,
+        signal,
+      });
+    }
+  }
+
+  if (!response.ok) {
+    throw new ApiError(
+      await errorMessageFrom(response, "Could not attach to the generation"),
+      response.status,
+    );
+  }
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+
+    for (const part of parts) {
+      const lines = part.split("\n");
+      let event = "message";
+      let data = "";
+
+      for (const line of lines) {
+        if (line.startsWith(":")) continue;
+        if (line.startsWith("event:")) {
+          event = line.replace("event:", "").trim();
+        } else if (line.startsWith("data:")) {
+          data += line.replace("data:", "").trim();
+        }
+      }
+
+      if (!data) continue;
+      try {
+        onEvent(event, JSON.parse(data));
+      } catch {
+        onEvent("error", { error: "Failed to parse stream payload" });
+      }
+    }
+  }
+}
+
+export interface GenerationRunState {
+  runId: string;
+  paperId: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  phase: string;
+  produced: number;
+  total: number;
+  error: string;
+  lastSeq?: number;
+}
+
+/** Begin a durable run. Returns as soon as the server has an id for it. */
+export async function startGenerationRun(
+  payload: Record<string, any>,
+): Promise<GenerationRunState> {
+  return fetchJson<GenerationRunState>("/api/generation/runs/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Whatever this user has in flight, if anything. Called on load to reattach. */
+export async function fetchActiveGenerationRun(): Promise<GenerationRunState | null> {
+  const data = await fetchJson<{ run: GenerationRunState | null }>(
+    "/api/generation/runs/active",
+    { method: "GET" },
+  );
+  return data.run ?? null;
+}
+
+export async function cancelGenerationRun(
+  runId: string,
+): Promise<GenerationRunState> {
+  return fetchJson<GenerationRunState>(
+    `/api/generation/runs/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST" },
+  );
+}
+
 export type BankChapter = {
   projectId: string;
   projectName: string;

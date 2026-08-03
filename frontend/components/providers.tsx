@@ -8,16 +8,13 @@ import { generationRunner } from "@/lib/generation-runner";
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
 
-  // A run is persisted so it survives navigation, but the stream that feeds it
-  // cannot survive a reload — it is a POST whose generator runs inside the
-  // Django request. So on a fresh load the persisted run is a ghost: the
-  // tracker would report a paper being written by nothing. Clear it before any
-  // surface renders it.
-  //
-  // This is the honest behaviour until the backend `GenerationRun` lands; at
-  // that point this becomes "reattach to the run" rather than "forget it".
+  // A generation outlives the page that started it: the run belongs to a
+  // worker thread on the server, not to this tab. So on load we ask what is
+  // still running and reattach to it, replaying anything missed while the tab
+  // was gone. Without this a reload mid-generation looks exactly like the work
+  // having been thrown away — which is what it used to be.
   useEffect(() => {
-    generationRunner.reconcileOnLoad();
+    void generationRunner.reconcileOnLoad();
   }, []);
 
   // Global theme init. The theme is only otherwise applied by

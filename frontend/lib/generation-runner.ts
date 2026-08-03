@@ -29,23 +29,34 @@
  * Splitting them this way keeps a multi-hundred-KB paper out of localStorage,
  * which has a ~5MB cap shared with everything else the editor persists.
  *
- * ## What this deliberately does not do
+ * ## Reloads
  *
- * It does not survive a page reload. The stream is a POST whose generator runs
- * inside the Django request, so closing the connection ends the run server-side
- * — there is no job to reattach to yet. That is the backend phase of this work
- * (`GenerationRun`); until it lands, a reload legitimately loses the run and
- * `reconcileOnLoad()` below is what stops the UI claiming otherwise.
+ * A run is owned by the server, not by this tab. `POST /api/generation/runs/`
+ * starts a worker thread and returns an id; the stream this class follows is a
+ * reader over that run's event log. So a reload is survivable: `reconcileOnLoad`
+ * asks what is still running and reattaches from the last event this tab saw,
+ * replaying anything it missed.
+ *
+ * The `_seq` on every event is what makes that seamless — it is the log's own
+ * sequence number, tracked here so a reattach resumes rather than restarts.
  */
 
-import { streamSse } from "@/lib/api-client";
+import {
+  cancelGenerationRun,
+  fetchActiveGenerationRun,
+  startGenerationRun,
+  streamRunEvents,
+} from "@/lib/api-client";
 import { useEditorStore, type ActiveRun } from "@/store/editor-store";
 
 export type RunnerEventHandler = (event: string, data: any) => void;
 
 export interface StartRunOptions {
-  /** Endpoint to stream from. Both current callers use the questions stream. */
-  path: string;
+  /**
+   * Kept for call-site readability; the durable path always starts a run at
+   * `/api/generation/runs/` and follows its log, so it is not a URL any more.
+   */
+  path?: string;
   payload: Record<string, any>;
   /** The paper this run belongs to; inserts are gated on it matching. */
   paperId: string | null;
@@ -68,10 +79,6 @@ export interface StartRunResult {
   /** True when the run ended because someone cancelled it. */
   cancelled: boolean;
   error?: string;
-}
-
-function newRunId(): string {
-  return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 /**
@@ -116,6 +123,8 @@ class GenerationRunner {
    */
   private result: any = null;
   private variantSets: { label: string; result: any }[] = [];
+  /** Last event sequence applied, so a mid-session reattach can resume. */
+  private lastSeq = 0;
 
   /**
    * Subscribe to the raw event stream.
@@ -169,21 +178,75 @@ class GenerationRunner {
       : [];
   }
 
+  /**
+   * Stop the run — on the server, not just in this tab.
+   *
+   * Aborting the local stream alone would only stop this tab watching: the
+   * worker thread would keep writing questions nobody asked for any more, and
+   * a reload would reattach to a generation the teacher had already cancelled.
+   */
   cancel(): void {
+    const runId = this.runId;
     this.controller?.abort();
+    if (runId) {
+      void cancelGenerationRun(runId).catch(() => {
+        // The abort already stopped this tab following it. A failed cancel
+        // leaves the server finishing a paper nobody is waiting for, which is
+        // wasteful but not wrong, and the reaper cleans it up regardless.
+      });
+    }
   }
 
   /**
-   * A run recorded in localStorage that this tab is not actually running.
+   * Pick up a run that outlived the page.
    *
-   * After a reload the persisted `activeRun` is still there but the stream that
-   * produced it is gone, so the tracker would show a paper being written
-   * forever. Called once on app start: if the store claims a run and the runner
-   * has none, the claim is stale and gets cleared.
+   * The persisted `activeRun` says this tab was watching something; the server
+   * is the only authority on whether it still exists. So this asks, and either
+   * reattaches — replaying every event missed since `lastSeq` — or clears a
+   * claim that is now a ghost. Without the ask, a reload after starting a
+   * paper looks exactly like the work having been thrown away.
    */
-  reconcileOnLoad(): void {
-    const { activeRun, endRun } = useEditorStore.getState();
-    if (activeRun && !this.isRunning()) endRun();
+  async reconcileOnLoad(): Promise<void> {
+    if (this.isRunning()) return;
+
+    let active = null;
+    try {
+      active = await fetchActiveGenerationRun();
+    } catch {
+      // Offline or the endpoint is unreachable. Clearing is the safe read:
+      // better to under-report a run than to show one that cannot be watched.
+    }
+
+    const store = useEditorStore.getState();
+    if (!active) {
+      if (store.activeRun) store.endRun();
+      return;
+    }
+
+    // Resume, not restart. The editor flushes every fill to IndexedDB as it
+    // lands, so after a reload the document already holds everything this tab
+    // had applied — replaying from zero would insert all of it a second time
+    // and hand the teacher a paper with every question twice.
+    //
+    // The saved position only counts if it belongs to *this* run. A different
+    // run (started in another tab, say) has never been applied here, so it
+    // replays whole.
+    const wasWatchingThisRun = store.activeRun?.runId === active.runId;
+    const resumeFrom = wasWatchingThisRun ? (store.activeRun?.lastSeq ?? 0) : 0;
+
+    store.startRun({
+      runId: active.runId,
+      paperId: active.paperId || store.activeRun?.paperId || null,
+      origin: store.activeRun?.origin ?? "editor",
+      startedAt: store.activeRun?.startedAt ?? Date.now(),
+      phase: active.phase || "Writing your paper",
+      produced: active.produced ?? 0,
+      total: active.total ?? 0,
+      multiSet: store.activeRun?.multiSet ?? false,
+      lastSeq: resumeFrom,
+    });
+
+    void this.follow(active.runId, resumeFrom);
   }
 
   async start(options: StartRunOptions): Promise<StartRunResult> {
@@ -193,16 +256,30 @@ class GenerationRunner {
       return { ok: false, cancelled: false, error: "A generation is already running." };
     }
 
-    const runId = newRunId();
     const controller = new AbortController();
-    this.runId = runId;
     this.controller = controller;
     this.result = null;
     this.variantSets = [];
+    this.lastSeq = 0;
 
     const unsubscribeStarter = options.onEvent
       ? this.subscribe(options.onEvent)
       : null;
+
+    let runId: string;
+    try {
+      const started = await startGenerationRun(options.payload);
+      runId = started.runId;
+    } catch (error: any) {
+      this.controller = null;
+      unsubscribeStarter?.();
+      return {
+        ok: false,
+        cancelled: false,
+        error: error?.message || "Could not start the generation.",
+      };
+    }
+    this.runId = runId;
 
     const store = useEditorStore.getState();
     store.startRun({
@@ -214,19 +291,56 @@ class GenerationRunner {
       produced: 0,
       total: 0,
       multiSet: options.multiSet,
+      lastSeq: 0,
     });
+
+    try {
+      return await this.follow(runId, 0, controller);
+    } finally {
+      unsubscribeStarter?.();
+    }
+  }
+
+  /**
+   * Read a run's event log and apply it, from `afterSeq` onwards.
+   *
+   * Shared by starting and reattaching, because they differ only in where they
+   * begin: a fresh start reads from 0 because there is nothing to catch up on,
+   * and a reattach after a reload also reads from 0 because the tab has lost
+   * the document it was building. Mid-session reattachment is what a non-zero
+   * `afterSeq` is for.
+   */
+  private async follow(
+    runId: string,
+    afterSeq: number,
+    existingController?: AbortController,
+  ): Promise<StartRunResult> {
+    const controller = existingController ?? new AbortController();
+    if (!existingController) {
+      this.controller = controller;
+      this.runId = runId;
+    }
 
     /** Ignore anything arriving after this run stopped being the current one. */
     const isCurrent = () => this.runId === runId;
 
     let streamError: string | null = null;
+    let cancelledByServer = false;
 
     try {
-      await streamSse(
-        options.path,
-        options.payload,
+      await streamRunEvents(
+        runId,
+        afterSeq,
         (event, data) => {
           if (!isCurrent()) return;
+
+          // The log's own sequence number, so a reattach can resume rather
+          // than replay. Stripped from what subscribers see: it is transport
+          // bookkeeping, not part of the event.
+          if (typeof data?._seq === "number") {
+            this.lastSeq = data._seq;
+            useEditorStore.getState().updateRun({ lastSeq: data._seq });
+          }
 
           // Canonical progress first, so every subscriber sees a store that
           // already agrees with the event it is about to be handed.
@@ -249,6 +363,8 @@ class GenerationRunner {
             if (Number.isFinite(total) && total > 0) patch.total = total;
           } else if (event === "error") {
             streamError = data.error || "Generation failed";
+          } else if (event === "cancelled") {
+            cancelledByServer = true;
           }
 
           const cleaned = Object.fromEntries(
@@ -287,7 +403,15 @@ class GenerationRunner {
         controller.signal,
       );
 
-      return { ok: !streamError, cancelled: false, error: streamError ?? undefined };
+      if (cancelledByServer) {
+        this.emit("cancelled", {});
+        return { ok: false, cancelled: true };
+      }
+      return {
+        ok: !streamError,
+        cancelled: false,
+        error: streamError ?? undefined,
+      };
     } catch (error: any) {
       // An abort is a teacher changing their mind, not a failure. It reaches
       // here as `AbortError` and must not be reported as a broken generation.
@@ -299,7 +423,6 @@ class GenerationRunner {
         error: cancelled ? undefined : error?.message || "Generation failed",
       };
     } finally {
-      unsubscribeStarter?.();
       if (isCurrent()) {
         this.controller = null;
         this.runId = null;

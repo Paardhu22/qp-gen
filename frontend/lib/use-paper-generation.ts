@@ -332,11 +332,13 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
     }
 
     const outcome = await generationRunner.start({
-      path: "/api/generation/questions/stream",
       paperId: request.paperId ?? store.activeEditorPaperId,
       origin: "editor",
       multiSet: isMultiSet,
       payload: {
+        // Sent so the run row knows which paper it belongs to, which is what
+        // lets a reattaching client tell whether it is watching its own paper.
+        paperId: request.paperId ?? store.activeEditorPaperId ?? "",
         pdfSourceIds: request.pdfSourceIds,
         hsatSourceIds: request.hsatSourceIds,
         subject: request.subject,
