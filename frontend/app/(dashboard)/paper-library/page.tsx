@@ -16,6 +16,7 @@ import {
   ArrowDown,
   ChevronsUpDown,
   X,
+  Copy,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -537,6 +538,47 @@ export default function SavedQuestionsPage() {
     setSelectedIds(new Set());
   };
 
+  const handleCopySelected = async () => {
+    const selected = allQuestions.filter((q) => selectedIds.has(q.id));
+    
+    const htmlLines = selected.map((q, i) => {
+      let html = `<div><strong>${i + 1}.</strong> ${q.content}</div>`;
+      if (q.options && q.options.length > 0) {
+         html += `<ul>${q.options.map(opt => `<li>${opt}</li>`).join('')}</ul>`;
+      }
+      return html;
+    });
+    
+    const htmlContent = htmlLines.join("<br/>");
+    
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = htmlContent;
+    const textContent = tempDiv.innerText;
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/plain": new Blob([textContent], { type: "text/plain" }),
+            "text/html": new Blob([htmlContent], { type: "text/html" }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(textContent);
+      }
+      toast.success(`Copied ${selected.length} question(s) to clipboard.`);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+      // Fallback
+      try {
+        await navigator.clipboard.writeText(textContent);
+        toast.success(`Copied ${selected.length} question(s) to clipboard.`);
+      } catch (e) {
+        toast.error("Failed to copy to clipboard.");
+      }
+    }
+  };
+
   /* -------------------------------------------------------------------- */
   /*  Render                                                               */
   /* -------------------------------------------------------------------- */
@@ -677,8 +719,16 @@ export default function SavedQuestionsPage() {
           </button>
           <button
             type="button"
+            onClick={handleCopySelected}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-1.5 text-xs font-semibold text-secondary-foreground hover:bg-secondary/90"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Copy ({selectedIds.size})
+          </button>
+          <button
+            type="button"
             onClick={handleInsertSelected}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <FileText className="h-3.5 w-3.5" />
             Insert into Editor ({selectedIds.size})

@@ -437,9 +437,9 @@ export function normalizeInitialContent(rawContent: string | undefined) {
       return ensurePageDocument(parsed.document);
     }
     
-    // Convert raw generator result (e.g. Set B / C) into TipTap JSON directly
+      // Convert raw generator result (e.g. Set B / C) into TipTap JSON directly
     if (parsed && Array.isArray(parsed.sections)) {
-      const pageContent: any[] = [];
+      const pageContent: any[] = [defaultHeaderJSON];
       parsed.sections.forEach((section: any) => {
         const title = String(section.title || "").trim();
         if (title) {
@@ -452,7 +452,7 @@ export function normalizeInitialContent(rawContent: string | undefined) {
           pageContent.push(...buildQuestionBlocks(q));
         });
       });
-      if (pageContent.length === 0) pageContent.push({ type: "paragraph" });
+      if (pageContent.length === 1) pageContent.push({ type: "paragraph" });
       return {
         type: "doc",
         content: [
