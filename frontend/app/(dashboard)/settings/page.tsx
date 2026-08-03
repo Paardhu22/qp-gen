@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "@/lib/auth-client";
+import { ensureFreshTokens, useSession } from "@/lib/auth-client";
 import { fetchJson } from "@/lib/api-client";
 import { getCognitoAccessToken } from "@/lib/token-storage";
 import { cognitoSignIn, cognitoChangePassword } from "@/lib/cognito-client";
@@ -110,6 +110,10 @@ function ChangePasswordModal({
     }
     setIsSaving(true);
     try {
+      // ChangePassword needs a live Cognito access token, and this call never
+      // passes through the 401-retry in api-client — renew it here or an idle
+      // hour turns into "Access Token has expired".
+      await ensureFreshTokens();
       const accessToken = getCognitoAccessToken();
       if (!accessToken) {
         throw new Error("No active Cognito session found. Please sign in again.");

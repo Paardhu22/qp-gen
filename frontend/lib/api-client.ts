@@ -1,7 +1,7 @@
 "use client";
 
 import { getAccessToken } from "@/lib/token-storage";
-import { refreshAccessToken } from "@/lib/auth-client";
+import { ensureFreshTokens, refreshAccessToken } from "@/lib/auth-client";
 
 import { API_BASE_URL } from "@/lib/api-base-url";
 
@@ -113,6 +113,11 @@ export async function fetchJson<T>(
   // Bail immediately if the caller already cancelled before we even started.
   if (callerSignal?.aborted) throw new SyncCancelledError();
 
+  // Renew a known-dead token before spending a round trip on a guaranteed 401.
+  // The 401 retry below still covers the cases this can't see (clock skew, a
+  // token revoked early); this just stops the predictable failure.
+  if (!skipAuth) await ensureFreshTokens();
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -176,6 +181,8 @@ export async function fetchForm<T>(
     return headers;
   };
 
+  await ensureFreshTokens();
+
   let response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     body: formData,
@@ -219,6 +226,11 @@ export async function streamSse(
     if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
     return headers;
   };
+
+  // A generation runs for minutes; the token is only checked when the stream
+  // connects, so renewing here is what keeps a long paper from dying at the
+  // door. Retrying a 401 after the fact would restart the whole generation.
+  await ensureFreshTokens();
 
   let response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",

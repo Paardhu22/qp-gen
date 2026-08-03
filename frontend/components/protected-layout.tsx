@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
 
 import { ApiError } from "@/lib/api-client";
-import { useSession } from "@/lib/auth-client";
+import {
+  AUTH_EXPIRED_EVENT,
+  startTokenRefreshWatcher,
+  useSession,
+} from "@/lib/auth-client";
 import { getRefreshToken } from "@/lib/token-storage";
 
 // Max ms we wait for the session check before giving up and redirecting to login
@@ -33,6 +37,22 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     setHasRefreshToken(Boolean(getRefreshToken()));
   }, [data?.user, isLoading, error]);
+
+  // Renew the Cognito tokens ahead of their 1 h expiry for as long as any
+  // dashboard route is mounted, so a tab left open over lunch still holds live
+  // credentials. Without this the first action after an idle hour 401s, and the
+  // calls that read the token directly (sign out, change password) had no
+  // recovery path at all.
+  useEffect(() => startTokenRefreshWatcher(), []);
+
+  // The refresh token itself can be dead (revoked by a sign-out elsewhere, or
+  // past its 30-day life). Renewal has already cleared storage by then, so send
+  // the user to /login rather than leave them on a page where nothing works.
+  useEffect(() => {
+    const onExpired = () => router.replace("/login");
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, [router]);
 
   // Start a safety-net timer as soon as we begin loading.
   // If the session check never finishes (network hang), we redirect to login.

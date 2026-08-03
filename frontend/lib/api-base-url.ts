@@ -1,9 +1,9 @@
 /**
  * The single definition of where the Django API lives.
  *
- * This used to be copy-pasted into three modules (`api-client`, `auth-refresh`,
- * `float-image`) with a hard-coded EC2 IP as the fallback, which was a trap in
- * two directions:
+ * This used to be copy-pasted into three modules (`api-client`, `float-image`,
+ * and a since-deleted `auth-refresh`) with a hard-coded EC2 IP as the fallback,
+ * which was a trap in two directions:
  *
  *   * `NEXT_PUBLIC_*` is inlined at BUILD time, not read at runtime. A
  *     production build that ran without `NEXT_PUBLIC_API_BASE_URL` set baked
