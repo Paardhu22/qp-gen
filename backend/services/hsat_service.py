@@ -29,6 +29,7 @@ from django.utils import timezone as tz
 from apps.documents.models import HsatSource
 from services import hsat_catalog
 from services.document_service import extract_and_persist_chunks
+from services.ingest_concurrency import ingest_slot
 from services.s3_client import S3NotConfigured, download_to_buffer, is_configured
 
 logger = logging.getLogger("[HSAT_SERVICE]")
@@ -535,11 +536,15 @@ def ingest_hsat_book_async(
 
     def _worker():
         try:
-            ingest_hsat_book(
-                grade, subject, book,
-                force=force,
-                chapter_keys=chapter_keys_snapshot,
-            )
+            # Shares one global permit pool with PDF uploads — a library book
+            # and an uploaded chapter cost the same database writes and the
+            # same embeddings quota, so they must queue against each other.
+            with ingest_slot(f"hsat-{grade}-{subject}-{book}"):
+                ingest_hsat_book(
+                    grade, subject, book,
+                    force=force,
+                    chapter_keys=chapter_keys_snapshot,
+                )
         except Exception as exc:
             logger.exception(
                 "Background HSAT ingest failed: %s/%s/%s",
