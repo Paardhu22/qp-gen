@@ -121,7 +121,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
               <span
                 key={attachment.id}
                 className={cn(
-                  "rounded-md px-2 py-0.5 text-xs",
+                  "rounded-lg px-2 py-0.5 text-xs",
                   isUser ? "bg-primary-foreground/15" : "bg-foreground/10",
                 )}
               >
@@ -717,7 +717,7 @@ export default function DashboardPage() {
                 <button
                   onClick={() => handleDelete(conversation.id)}
                   aria-label={`Delete ${conversation.title}`}
-                  className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground group-hover:opacity-100"
+                  className="shrink-0 rounded-sm p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground group-hover:opacity-100"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>

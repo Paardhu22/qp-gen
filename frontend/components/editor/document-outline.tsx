@@ -278,7 +278,7 @@ export function DocumentOutline({
                         onClick={() => goTo(entry.index)}
                         title={entry.text}
                         className={cn(
-                          "block w-full truncate rounded px-2 py-1 text-left text-[13px] transition-colors",
+                          "block w-full truncate rounded-sm px-2 py-1 text-left text-[13px] transition-colors",
                           entry.level === 0
                             ? "font-medium"
                             : "font-normal",

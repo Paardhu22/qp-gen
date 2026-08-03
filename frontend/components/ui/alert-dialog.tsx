@@ -86,7 +86,7 @@ function AlertDialogContent({ className, children, ...props }: React.ComponentPr
         data-slot="alert-dialog-content"
         className={cn(
           "fixed left-1/2 top-1/2 z-50 w-full max-w-[calc(100%-2rem)] sm:max-w-md -translate-x-1/2 -translate-y-1/2",
-          "grid max-h-[calc(100dvh-2rem)] gap-4 overflow-y-auto overscroll-contain rounded-xl border bg-background p-5 sm:p-6 shadow-lg",
+          "grid max-h-[calc(100dvh-2rem)] gap-4 overflow-y-auto overscroll-contain rounded-2xl border bg-background p-4 sm:p-6 shadow-lg",
           className,
         )}
         onClick={(e) => e.stopPropagation()}

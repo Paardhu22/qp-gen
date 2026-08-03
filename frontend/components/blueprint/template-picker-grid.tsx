@@ -23,6 +23,7 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { BuiltinTemplate, PaperTemplate } from "@/lib/api-client";
 
@@ -120,7 +121,7 @@ function Card({
             e.stopPropagation();
             onDelete();
           }}
-          className="absolute right-2 top-2 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+          className="absolute right-2 top-2 rounded-lg p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
         >
           <Trash2 className="size-3.5" />
         </button>
@@ -168,12 +169,14 @@ export function TemplatePickerGrid({
 
   if (loading) {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-label="Loading"
+        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+      >
         {Array.from({ length: 6 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-24 animate-pulse rounded-xl border border-border bg-muted/40"
-          />
+          <Skeleton key={i} className="h-24 rounded-xl border border-border" />
         ))}
       </div>
     );

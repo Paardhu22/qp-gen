@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
 import {
   Cpu,
   RefreshCw,
@@ -134,7 +135,7 @@ function ChangePasswordModal({
       />
 
       {/* Modal panel */}
-      <div className="relative z-10 w-full max-w-md mx-4 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-background rounded-2xl border border-border shadow-2xl p-5 sm:p-6">
+      <div className="relative z-10 w-full max-w-md mx-4 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-background rounded-2xl border border-border shadow-2xl p-4 sm:p-6">
         {/* Close button */}
         <button
           type="button"
@@ -281,7 +282,7 @@ function ChangePasswordModal({
                         newPassword &&
                         confirmPassword === newPassword &&
                         newPassword !== currentPassword
-                        ? "border-green-500 focus-visible:ring-green-500/30"
+                        ? "border-success focus-visible:ring-success/30"
                         : confirmPassword && confirmPassword !== newPassword
                           ? "border-destructive focus-visible:ring-destructive/30"
                           : "",
@@ -393,9 +394,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="text-muted-foreground text-sm py-4">
-              Loading user profile…
-            </div>
+            <SkeletonRows rows={4} height="h-5" className="p-0" />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4 text-sm">
               <div className="space-y-1">
@@ -448,9 +447,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {isLoading ? (
-            <div className="py-8 flex items-center justify-center text-muted-foreground text-sm">
-              Loading usage metrics…
-            </div>
+            <Skeleton className="h-[8.5rem] w-full rounded-xl" />
           ) : (
             <div className="flex flex-col items-center justify-center py-8 bg-muted/20 border border-border rounded-xl">
               <span className="text-5xl font-extrabold tracking-tight text-foreground">

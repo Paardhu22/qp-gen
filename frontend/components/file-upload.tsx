@@ -8,13 +8,13 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
-  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { fetchForm, fetchJson } from "@/lib/api-client";
 import { toast } from "sonner";
+import { Spinner } from "@/components/ui/spinner";
 
 interface FileUploadProps {
   onUploadComplete: (pdfSourceId: string) => void;
@@ -222,7 +222,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
           )}
 
           {error && (
-            <div className="mt-4 flex items-center gap-2 text-red-400 text-sm bg-red-400/5 p-3 rounded-lg border border-red-400/10">
+            <div className="mt-4 flex items-center gap-2 text-destructive text-sm bg-destructive/10 p-3 rounded-lg border border-destructive/30">
               <AlertCircle className="h-4 w-4" />
               <p>{error}</p>
             </div>
@@ -242,7 +242,7 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
               disabled
               className="w-full mt-4 bg-muted text-muted-foreground flex items-center gap-2"
             >
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Spinner />
               Processing...
             </Button>
           )}

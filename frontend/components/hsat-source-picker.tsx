@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
-  Loader2,
   AlertCircle,
   CheckCircle2,
   ChevronLeft,
@@ -27,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { fetchJson, ApiError } from "@/lib/api-client";
 import { toast } from "sonner";
+import { Spinner } from "@/components/ui/spinner";
 
 export type HsatBookStatus =
   | "not_ingested"
@@ -357,7 +357,7 @@ export function HsatSourcePicker({
     if (entry.status === "processing" || entry.status === "pending") {
       return (
         <span className="inline-flex items-center gap-1 text-primary dark:text-primary">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Spinner className="size-3.5" />
           Preparing — first use only
         </span>
       );
@@ -407,13 +407,13 @@ export function HsatSourcePicker({
         </DialogHeader>
 
         {catalogError && (
-          <div className="rounded-md border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 p-3 text-xs text-red-600 dark:text-red-300">
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
             {catalogError}
           </div>
         )}
 
         {catalog && catalog.enabled === false && (
-          <div className="rounded-md border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-700 dark:text-amber-200">
+          <div className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
             {catalog.message ??
               "HSAT sources are not available — AWS S3 is not configured on the backend."}
           </div>
@@ -500,7 +500,7 @@ export function HsatSourcePicker({
           <div className="space-y-3">
             {chaptersLoading && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Spinner className="size-3.5" />
                 Loading chapters…
               </div>
             )}
@@ -529,7 +529,7 @@ export function HsatSourcePicker({
                   </div>
                 </div>
 
-                <div className="max-h-72 overflow-y-auto rounded-md border border-border divide-y divide-border">
+                <div className="max-h-72 overflow-y-auto rounded-xl border border-border divide-y divide-border">
                   {chapters.map((c) => {
                     const checked = selectedKeys.has(c.s3_key);
                     return (
@@ -553,7 +553,7 @@ export function HsatSourcePicker({
                         )}
                         {(c.status === "processing" ||
                           c.status === "pending") && (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary flex-shrink-0" />
+                          <Spinner className="size-3.5 text-primary flex-shrink-0" />
                         )}
                       </label>
                     );
@@ -606,7 +606,7 @@ export function HsatSourcePicker({
             >
               {isWorking ? (
                 <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                  <Spinner className="size-3.5 mr-1" />
                   Applying…
                 </>
               ) : (

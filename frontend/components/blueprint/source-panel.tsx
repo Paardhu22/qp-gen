@@ -114,7 +114,7 @@ function SourceRow({
           type="button"
           aria-label={removeLabel}
           onClick={onRemove}
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <X className="size-3.5" />
         </button>

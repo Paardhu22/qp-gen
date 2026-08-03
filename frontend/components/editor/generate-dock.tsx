@@ -261,7 +261,7 @@ export function GenerateDock({
                   setBrief(example);
                   fieldRef.current?.focus();
                 }}
-                className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-muted hover:text-foreground"
+                className="rounded-full border border-border px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-muted hover:text-foreground"
               >
                 {example}
               </button>
