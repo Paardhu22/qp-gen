@@ -24,10 +24,20 @@ change.
 
 It does NOT extend gunicorn's worker timeout; that is a deployment setting
 (see deployment/qp-gen-backend.service).
+
+The wrapper also owns the *other* way a stream can end badly. By the time the
+pipeline runs, the ``200`` and the ``text/event-stream`` headers have already
+been flushed, so an exception raised from inside the response iterator cannot
+become an error response — the server can only abandon the socket. The browser
+reports that as an unreadable transport failure ("Error in input stream" in
+Firefox, "network error" in Chrome), and the frontend cannot tell it apart from
+a dropped connection. So a failing source is converted into a terminal
+``event: error`` frame here, which is a shape the frontend already handles.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import queue
 import threading
@@ -46,6 +56,29 @@ PING = ": ping\n\n"
 
 _DONE = object()
 
+#: Prefixes of frames that already terminate the stream for the frontend. If
+#: the source emitted one of these and *then* blew up (say, while closing out
+#: bookkeeping after the paper was already sent), appending an error frame
+#: would report a failure for work the user actually received.
+_TERMINAL_PREFIXES = ("event: done", "event: error")
+
+
+def _error_frame(exc: BaseException) -> str:
+    """Render an exception as the `error` event the frontend already handles."""
+    detail = str(exc).strip() or exc.__class__.__name__
+    return "event: error\ndata: " + json.dumps(
+        {
+            "error": (
+                "Generation stopped before it finished: "
+                f"{detail}. Nothing was lost — any questions produced before "
+                "this point were already saved to your question bank."
+            ),
+            "errorType": exc.__class__.__name__,
+            "partial": True,
+        },
+        ensure_ascii=False,
+    ) + "\n\n"
+
 
 def keepalive(
     stream: Iterable[str],
@@ -61,11 +94,13 @@ def keepalive(
     interpreter shutdown. It is the same reason the pipeline's own internal
     workers are daemons.
 
-    An exception raised by the source is re-raised here, on the consuming
-    thread, so it surfaces exactly as it would have without the wrapper.
+    An exception raised by the source is turned into a terminal ``error``
+    frame rather than re-raised: the response has already been committed, so
+    re-raising can only abort the socket and lose the reason.
     """
     frames: queue.Queue = queue.Queue()
     error: list[BaseException] = []
+    saw_terminal = False
 
     def _pump() -> None:
         try:
@@ -95,12 +130,27 @@ def keepalive(
 
         if frame is _DONE:
             break
+        if isinstance(frame, str) and frame.startswith(_TERMINAL_PREFIXES):
+            saw_terminal = True
         yield frame
 
-    # Raised here rather than in a `finally`: a client disconnect closes this
-    # generator with GeneratorExit, and re-raising the source's error from a
-    # finally block would turn that into a spurious RuntimeError. The pump is
-    # a daemon writing to an unbounded queue, so an abandoned run needs no
-    # cleanup — it ends with the request.
-    if error:
-        raise error[0]
+    # Emitted here rather than in a `finally`: a client disconnect closes this
+    # generator with GeneratorExit, and yielding from a finally block would
+    # turn that into a spurious RuntimeError. The pump is a daemon writing to
+    # an unbounded queue, so an abandoned run needs no cleanup — it ends with
+    # the request.
+    if error and not saw_terminal:
+        # The traceback belongs in the log, not on the wire. The frame carries
+        # only the message, which is what the teacher can act on.
+        logger.error(
+            "Generation stream failed after headers were sent",
+            exc_info=(type(error[0]), error[0], error[0].__traceback__),
+        )
+        yield _error_frame(error[0])
+    elif error:
+        logger.error(
+            "Generation stream raised after emitting a terminal event; "
+            "suppressing the error frame so a delivered result is not "
+            "reported as a failure",
+            exc_info=(type(error[0]), error[0], error[0].__traceback__),
+        )
