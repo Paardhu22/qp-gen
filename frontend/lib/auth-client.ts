@@ -12,6 +12,7 @@ import {
   setTokens,
 } from "@/lib/token-storage";
 import { resetEditorStoreForAccountSwitch } from "@/store/editor-store";
+import { clearBrandHeaderCache } from "@/lib/brand-header";
 import {
   cognitoSignIn,
   cognitoSignUp,
@@ -34,6 +35,14 @@ async function clearLocalUserState(): Promise<void> {
     resetEditorStoreForAccountSwitch();
   } catch {
     // Defensive — never let a clear failure block the auth flow.
+  }
+  try {
+    // The brand kit is cached in a module, outside the store — without this a
+    // teacher signing in on a colleague's browser would get their school's
+    // crest on the next header.
+    clearBrandHeaderCache();
+  } catch {
+    // Same — best effort.
   }
   if (typeof window === "undefined" || typeof indexedDB === "undefined") return;
   try {

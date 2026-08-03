@@ -29,6 +29,7 @@ import {
   Paintbrush,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ui/curtain-theme-toggle";
+import { BrandKitCard } from "@/components/settings/brand-kit-card";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -469,7 +470,11 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Row 3 — Appearance (full width) */}
+      {/* Row 3 — Institute branding. Sits above Appearance because it changes
+          what goes on a printed paper, not what the app looks like. */}
+      <BrandKitCard />
+
+      {/* Row 4 — Appearance (full width) */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">

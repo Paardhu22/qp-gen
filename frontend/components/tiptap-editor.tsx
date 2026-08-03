@@ -47,6 +47,7 @@ import { LineHeight } from "./editor/extensions/line-height";
 import { Indent as IndentExtension } from "./editor/extensions/indent";
 import { ReviewTray } from "./review-tray";
 import { templates, defaultHeaderJSON } from "./editor/templates";
+import { headerJSONFromBrand, primeBrandHeader } from "@/lib/brand-header";
 import { EditorToolbar } from "./editor/toolbar";
 import { FindReplace } from "./editor/find-replace";
 import {
@@ -614,6 +615,14 @@ export const TiptapEditor = ({
   const paperMetadataRef = useRef<PaperMetadata | undefined>(paperMetadata);
   const hsatSourcesRef = useRef<AppliedHsatSource[]>(hsatSources || []);
   const uploadedDocsRef = useRef<{ id: string; name: string; size: number }[]>(uploadedDocs || []);
+
+  // Warm the brand kit so a header inserted later carries the school's name and
+  // crest instead of the "PA1 - CENTRAL OFFICE" placeholder. The insertion
+  // sites are synchronous ProseMirror transactions and cannot await, so the
+  // cache has to be filled ahead of them; see lib/brand-header.ts.
+  useEffect(() => {
+    void primeBrandHeader();
+  }, []);
 
   useEffect(() => {
     hsatSourcesRef.current = hsatSources || [];
@@ -1407,7 +1416,7 @@ export const TiptapEditor = ({
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       
       if (!hasHeader) {
-        editor.commands.insertContentAt(0, defaultHeaderJSON);
+        editor.commands.insertContentAt(0, headerJSONFromBrand());
       }
 
       editor.commands.focus("end");
@@ -1444,7 +1453,7 @@ export const TiptapEditor = ({
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       
       if (!hasHeader) {
-        editor.commands.insertContentAt(0, defaultHeaderJSON);
+        editor.commands.insertContentAt(0, headerJSONFromBrand());
       }
 
       editor.commands.focus("end");
@@ -1522,7 +1531,7 @@ export const TiptapEditor = ({
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       
       if (!hasHeader) {
-        editor.commands.insertContentAt(0, defaultHeaderJSON);
+        editor.commands.insertContentAt(0, headerJSONFromBrand());
       }
 
       editor.commands.focus("end");

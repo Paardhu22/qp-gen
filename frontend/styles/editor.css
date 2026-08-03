@@ -161,10 +161,56 @@
           padding: 1rem;
           background: #ffffff;
           position: relative;
+          /* The logo sits beside the masthead rather than above it, so the
+             title stays optically centred on the page even with a crest in
+             one corner. `align-items: flex-start` keeps a tall logo from
+             stretching the text column. */
+          display: flex;
+          align-items: flex-start;
+          gap: 0.75rem;
+        }
+
+        .paper-header-logo-wrap {
+          position: relative;
+          flex: 0 0 auto;
+          line-height: 0;
+        }
+
+        .paper-header-logo {
+          display: block;
+          height: auto;
+          /* Width is set inline from the node attribute; height follows from
+             the intrinsic ratio so the two can never disagree. */
+          object-fit: contain;
+        }
+
+        .paper-header-logo-wrap .logo-remove-btn {
+          position: absolute;
+          top: -6px;
+          right: -6px;
+          display: none;
+          align-items: center;
+          justify-content: center;
+          width: 16px;
+          height: 16px;
+          border-radius: 9999px;
+          background: hsl(var(--destructive));
+          color: #fff;
+        }
+
+        .paper-header-block:hover .logo-remove-btn {
+          display: flex;
         }
 
         .paper-header-content {
           text-align: center;
+        }
+
+        /* The text column takes the remaining width in both layouts, so a
+           right-aligned crest does not push the masthead off-centre. */
+        .paper-header-shell > div:not(.paper-header-logo-wrap):not(.paper-header-actions) {
+          flex: 1 1 auto;
+          min-width: 0;
         }
 
         .paper-header-content h1 {
