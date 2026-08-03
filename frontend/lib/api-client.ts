@@ -210,6 +210,14 @@ export async function streamSse(
   path: string,
   payload: Record<string, any>,
   onEvent: SseEventHandler,
+  /**
+   * Cancels the run. Without one a generation can only be waited out: the
+   * reader loop below has no exit but the backend's own terminal event, so a
+   * teacher who started the wrong paper had to sit through it. Aborting mid
+   * stream surfaces as `AbortError`, which callers are expected to treat as a
+   * cancellation rather than a failure.
+   */
+  signal?: AbortSignal,
 ): Promise<void> {
   const buildHeaders = () => {
     const headers: Record<string, string> = {
@@ -224,6 +232,7 @@ export async function streamSse(
     method: "POST",
     headers: buildHeaders(),
     body: JSON.stringify(payload),
+    signal,
   });
   if (response.status === 401) {
     const refreshed = await refreshAccessToken();
@@ -232,6 +241,7 @@ export async function streamSse(
         method: "POST",
         headers: buildHeaders(),
         body: JSON.stringify(payload),
+        signal,
       });
     }
   }

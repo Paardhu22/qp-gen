@@ -107,6 +107,41 @@ export function normalizeSetLabel(label: string): string {
 export type SaveState = "saving" | "saved" | "offline" | "failed";
 
 /**
+ * The generation currently in flight, if any.
+ *
+ * This lives in the store rather than in the component that started it. A run
+ * takes minutes, and the surface that kicked it off — the editor page, the
+ * dashboard — unmounts the moment the teacher looks at something else. When
+ * the progress lived in that component's `useState`, walking to the dashboard
+ * and back produced a Paper Studio that looked idle while the stream was still
+ * running underneath, because the remount started from the initial state.
+ *
+ * Only the light, durable facts belong here: it is persisted to localStorage,
+ * so the assembled paper (which is large) stays in `lib/generation-runner.ts`
+ * module memory and reaches the editor through `comparisonSets` as before.
+ *
+ * `paperId` is what makes an insert safe. A run belongs to the paper it was
+ * started for, and questions must never land in whatever document happens to
+ * be mounted when they arrive.
+ */
+export interface ActiveRun {
+  runId: string;
+  /** The paper this run was started for. Null for a draft with no id yet. */
+  paperId: string | null;
+  /** Where it was started, so the tracker can route back to the right screen. */
+  origin: "editor" | "dashboard";
+  startedAt: number;
+  /** Last human-readable line from the pipeline. */
+  phase: string;
+  /** Questions received so far. */
+  produced: number;
+  /** Questions the blueprint planned, once known. 0 until the `plan` event. */
+  total: number;
+  /** True for a run producing more than one set. */
+  multiSet: boolean;
+}
+
+/**
  * One-shot request for the TipTap editor to remove a question node from
  * the live document. We compare on section title + content text since
  * the tray stores the source-of-truth Question payload, not editor pos.
@@ -168,6 +203,17 @@ interface EditorState {
   activeEditorPaperId: string | null;
   /** Whether the full-screen Comparison Workspace overlay is open. */
   comparisonOpen: boolean;
+  /** The generation in flight, or null. Survives navigation; see `ActiveRun`. */
+  activeRun: ActiveRun | null;
+  /**
+   * Whether the Paper Studio dock is expanded. Persisted because it is part of
+   * the workspace the teacher arranged, not transient UI — collapsing it,
+   * checking the dashboard and coming back to a re-expanded panel is the same
+   * class of annoyance as losing the run itself.
+   */
+  studioDockOpen: boolean;
+  /** Unsent text in the Studio dock's brief field. Persisted for the same reason. */
+  studioBrief: string;
   /** Persisted user uploads for the current generation session */
   uploadedDocs: UploadedDoc[];
   /** Persisted library sources for the current generation session */
@@ -265,6 +311,16 @@ interface EditorState {
 
   setActiveEditorPaperId: (paperId: string | null) => void;
 
+  /** Register a run as in flight. Called by the runner, not by a component. */
+  startRun: (run: ActiveRun) => void;
+  /** Merge progress into the live run. A no-op once the run has ended. */
+  updateRun: (patch: Partial<Omit<ActiveRun, "runId">>) => void;
+  /** Clear the run — on completion, failure or cancellation alike. */
+  endRun: () => void;
+
+  setStudioDockOpen: (open: boolean) => void;
+  setStudioBrief: (brief: string) => void;
+
   setUploadedDocs: (docs: UploadedDoc[] | ((prev: UploadedDoc[]) => UploadedDoc[])) => void;
   setHsatSources: (sources: AppliedHsatSource[] | ((prev: AppliedHsatSource[]) => AppliedHsatSource[])) => void;
 }
@@ -358,6 +414,9 @@ export const useEditorStore = create<EditorState>()(
       comparisonSetsPaperId: null,
       activeEditorPaperId: null,
       comparisonOpen: false,
+      activeRun: null,
+      studioDockOpen: true,
+      studioBrief: "",
       approvedSets: {},
       approvedAt: 0,
       awaitingGeneratedPaper: false,
@@ -461,6 +520,24 @@ export const useEditorStore = create<EditorState>()(
       clearTray: () => set({ generatedTray: [] }),
 
       setActiveEditorPaperId: (paperId) => set({ activeEditorPaperId: paperId }),
+
+      startRun: (run) => set({ activeRun: run }),
+
+      // Guarded on `runId`: a late event from a run that was cancelled or
+      // superseded must not resurrect it. Without the check, aborting a run
+      // and immediately starting another lets the first one's trailing events
+      // overwrite the second one's progress.
+      updateRun: (patch) =>
+        set((state) =>
+          state.activeRun
+            ? { activeRun: { ...state.activeRun, ...patch } }
+            : {},
+        ),
+
+      endRun: () => set({ activeRun: null }),
+
+      setStudioDockOpen: (open) => set({ studioDockOpen: open }),
+      setStudioBrief: (brief) => set({ studioBrief: brief }),
 
       setComparisonSets: (sets) => set((state) => ({ comparisonSets: sets, comparisonSetsPaperId: state.activeEditorPaperId })),
       clearComparisonSets: () =>
@@ -588,6 +665,12 @@ export const useEditorStore = create<EditorState>()(
         approvedSets: state.approvedSets,
         approvedAt: state.approvedAt,
         awaitingGeneratedPaper: state.awaitingGeneratedPaper,
+        // The run in flight, so returning to the editor from another route
+        // finds Paper Studio exactly as it was left. Small by design — the
+        // assembled paper is not in here.
+        activeRun: state.activeRun,
+        studioDockOpen: state.studioDockOpen,
+        studioBrief: state.studioBrief,
         generatorContext: state.generatorContext,
         template: state.template,
         generalInstructionsDraft: state.generalInstructionsDraft,
@@ -623,6 +706,8 @@ export function resetEditorStoreForAccountSwitch(): void {
     comparisonSets: [],
     comparisonSetsPaperId: null,
     comparisonOpen: false,
+    activeRun: null,
+    studioBrief: "",
     approvedSets: {},
     approvedAt: 0,
     awaitingGeneratedPaper: false,

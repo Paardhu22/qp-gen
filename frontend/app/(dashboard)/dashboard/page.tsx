@@ -44,6 +44,7 @@ import { PaperDesignPanel } from "@/components/paper-design-panel";
 import { usePaperDesign } from "@/lib/use-paper-design";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { generationRunner } from "@/lib/generation-runner";
 import { useEditorStore } from "@/store/editor-store";
 import {
   createConversation,
@@ -52,7 +53,6 @@ import {
   fetchConversations,
   setConversationStatus,
   streamChatMessage,
-  streamSse,
   uploadPdfSource,
   waitForPdfSource,
   type ChatMessage,
@@ -503,9 +503,20 @@ export default function DashboardPage() {
     let setA: any = null;
 
     try {
-      await streamSse(
-        "/api/generation/questions/stream",
-        {
+      // Routed through the runner rather than calling `streamSse` directly, so
+      // this run registers in the same place the editor's does. Without it the
+      // sitewide tracker would be blind to a paper started here — which is the
+      // one case where the teacher is guaranteed to navigate away, since the
+      // dashboard hands off to the editor when it finishes.
+      //
+      // The press-check UI below is unchanged: the runner broadcasts raw
+      // events, and this callback still interprets them its own way.
+      const outcome = await generationRunner.start({
+        path: "/api/generation/questions/stream",
+        paperId: null,
+        origin: "dashboard",
+        multiSet: Number(resolvedSpec.numberOfSets || "1") > 1,
+        payload: {
           pdfSourceIds: sourceIds,
           hsatSourceIds: [],
           // -1 is the CBSE board pattern: the blueprint decides the count.
@@ -536,7 +547,7 @@ export default function DashboardPage() {
           contentScopePolicy: "strict",
           sets: Number(resolvedSpec.numberOfSets || "1"),
         },
-        (event, data) => {
+        onEvent: (event, data) => {
           if (event === "status") {
             const stage = STAGE_MAP[data.stage];
             setGeneration((g) => ({
@@ -581,11 +592,21 @@ export default function DashboardPage() {
             setA = data.result ?? setA;
           } else if (event === "update" || event === "message") {
             setA = data;
-          } else if (event === "error") {
-            throw new Error(data.error || "Generation failed");
           }
         },
-      );
+      });
+
+      // Failure is reported through the result rather than by throwing from
+      // the handler: the runner contains subscriber exceptions so one bad
+      // listener cannot kill a stream every other listener is reading.
+      if (outcome.cancelled) {
+        setGeneration(IDLE);
+        if (activeId) void setConversationStatus(activeId, "active");
+        return;
+      }
+      if (!outcome.ok) {
+        throw new Error(outcome.error || "Generation failed");
+      }
 
       setGeneration((g) => ({ ...g, done: true, status: "Paper ready" }));
 

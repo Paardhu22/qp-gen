@@ -1,15 +1,22 @@
 "use client";
 
 /**
- * Running a generation, extracted from the surface that starts it.
+ * The editor's view of a generation.
  *
- * This logic lived inside `generator-form.tsx`, which meant the SSE contract
- * was implemented inside a 1,865-line form component — and re-implemented,
- * near-identically, in the dashboard. Two copies of a hard interface is one
- * copy too many: a new event handled in one place and not the other is a bug
- * nobody notices until a teacher hits it.
+ * This used to own the run: it held the stream, the produced sets and the
+ * progress in React state. That made the run a property of whichever component
+ * happened to be mounted, so navigating away from the editor left a stream
+ * still running with nothing watching it, and coming back showed an idle Paper
+ * Studio over a generation that was still in flight.
  *
- * The hook owns the stream and the produced sets. It deliberately does NOT own:
+ * The run now lives in `lib/generation-runner.ts`, a module singleton that no
+ * component owns. What is left here is the editor's *interpretation* of it:
+ * where a question goes when it arrives (the page, or the review tray) and how
+ * the produced sets reach the comparison workspace. The dashboard subscribes to
+ * the same runner and interprets the same events completely differently, which
+ * is exactly why the runner broadcasts instead of deciding.
+ *
+ * It deliberately does NOT own:
  *
  *   * **sources** — an in-flight upload has to survive the modal closing, so
  *     the page owns uploads and passes ids in; and
@@ -21,15 +28,15 @@
  *
  * The `pool_progress` event carries `produced` and `target`, and showing them
  * was actively misleading: the pool over-generates, so "83/78" happened
- * routinely. It now renders as plain prose. That reasoning survives the move
- * to exact generation — a count that can exceed its own target has taught
- * teachers not to trust the number.
+ * routinely. It renders as plain prose. That reasoning survives the move to
+ * exact generation — a count that can exceed its own target has taught teachers
+ * not to trust the number.
  */
 
 import * as React from "react";
 import { toast } from "sonner";
 
-import { streamSse } from "@/lib/api-client";
+import { generationRunner } from "@/lib/generation-runner";
 import { useEditorStore, type TrayItem } from "@/store/editor-store";
 
 export interface GenerationRequest {
@@ -46,60 +53,13 @@ export interface GenerationRequest {
   /** The reviewed blueprint. Sending it means the paper approved is the paper produced. */
   blueprint?: { slots: unknown[] };
   templateId?: string;
+  /** The paper the run belongs to, so its questions cannot land in another. */
+  paperId?: string | null;
 }
 
 export interface ProducedSet {
   label: string;
   result: any;
-}
-
-export interface GenerationState {
-  isGenerating: boolean;
-  result: any;
-  variantSets: ProducedSet[];
-  poolStatus: string;
-  savedToBank: {
-    saved: number;
-    duplicatesSkipped: number;
-    projectName: string;
-  } | null;
-  liveInsertedCount: number;
-  multiSetMode: boolean;
-}
-
-const INITIAL: GenerationState = {
-  isGenerating: false,
-  result: null,
-  variantSets: [],
-  poolStatus: "",
-  savedToBank: null,
-  liveInsertedCount: 0,
-  multiSetMode: false,
-};
-
-/** Merge one streamed question into the accumulating preview. */
-function appendQuestionToResult(
-  current: any,
-  sectionTitle: string,
-  question: any,
-) {
-  const next = current
-    ? {
-        ...current,
-        sections: (current.sections || []).map((section: any) => ({
-          ...section,
-          questions: [...(section.questions || [])],
-        })),
-      }
-    : { sections: [] };
-
-  let section = next.sections.find((item: any) => item.title === sectionTitle);
-  if (!section) {
-    section = { title: sectionTitle, questions: [] };
-    next.sections.push(section);
-  }
-  section.questions.push(question);
-  return next;
 }
 
 function toEditorQuestion(question: any) {
@@ -125,23 +85,188 @@ export interface UsePaperGenerationOptions {
 }
 
 export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
-  const [state, setState] = React.useState<GenerationState>(INITIAL);
+  // Progress comes from the store, so it is the same on every mount and
+  // survives the page unmounting mid-run.
+  const activeRun = useEditorStore((s) => s.activeRun);
+
+  // The assembled paper lives in the runner (too big for localStorage), so it
+  // is mirrored into React state to drive re-renders while a run streams.
+  const [result, setResult] = React.useState<any>(() =>
+    generationRunner.getResult(),
+  );
+  const [variantSets, setVariantSets] = React.useState<ProducedSet[]>(() =>
+    generationRunner.getVariantSets(),
+  );
+  const [savedToBank, setSavedToBank] = React.useState<{
+    saved: number;
+    duplicatesSkipped: number;
+    projectName: string;
+  } | null>(null);
 
   // Sections already opened by live insertion. A ref, not state: it is read
   // and written inside the stream callback, where a stale closure over state
   // would re-open a section for every question in it.
   const insertedSectionsRef = React.useRef<Set<string>>(new Set());
 
-  // Kept in a ref so the callback can read the latest without the stream being
-  // torn down and rebuilt when the option identity changes.
   const onSourcesNotReadyRef = React.useRef(options.onSourcesNotReady);
   React.useEffect(() => {
     onSourcesNotReadyRef.current = options.onSourcesNotReady;
   }, [options.onSourcesNotReady]);
 
+  const isGenerating = activeRun !== null;
+  const multiSetMode = activeRun?.multiSet ?? false;
+  const poolStatus = activeRun?.phase ?? "";
+  const liveInsertedCount = activeRun?.produced ?? 0;
+
+  // ── Subscribe to the run, however it was started ──────────────────────
+  // Mounting mid-run is normal now: the teacher can leave and come back while
+  // a generation continues. Subscribing on mount rather than at `generate()`
+  // time is what makes the returning editor pick the stream back up.
+  React.useEffect(() => {
+    const unsubscribe = generationRunner.subscribe((event, data) => {
+      if (event === "error") {
+        if (data.code === "DOCUMENTS_NOT_READY") {
+          const pending: any[] = Array.isArray(data.pendingDocuments)
+            ? data.pendingDocuments
+            : [];
+          const pdfPending = pending.filter((p) => p.kind === "pdf");
+          onSourcesNotReadyRef.current?.({
+            drop: pdfPending
+              .filter((p) => p.reason === "not_found")
+              .map((p) => p.id),
+            requeue: pdfPending
+              .filter((p) => p.reason !== "not_found")
+              .map((p) => ({ id: p.id, name: p.name || "Document" })),
+          });
+        }
+        return;
+      }
+
+      if (event === "saved") {
+        setSavedToBank({
+          saved: data.saved ?? 0,
+          duplicatesSkipped: data.duplicatesSkipped ?? 0,
+          projectName: data.projectName || "",
+        });
+        return;
+      }
+
+      if (event === "notice") {
+        if (data.message) toast.info(data.message);
+        return;
+      }
+
+      if (event === "warning") {
+        if (data.message) toast.warning(data.message);
+        return;
+      }
+
+      // Everything below mirrors the runner's accumulated paper into React so
+      // the preview and the comparison workspace re-render as it grows.
+      if (
+        event === "plan" ||
+        event === "question" ||
+        event === "done" ||
+        event === "update" ||
+        event === "message"
+      ) {
+        setResult(generationRunner.getResult());
+      }
+      if (event === "set") {
+        setVariantSets(generationRunner.getVariantSets());
+      }
+
+      if (event === "plan") {
+        const generalInstructions = data.generalInstructions || [];
+        // Only auto-insert the instruction block when auto-insert is on. In
+        // review mode the editor rebuilds instructions from what was actually
+        // inserted, so a planned 38-question header above a 0-question paper
+        // would be a lie.
+        const store = useEditorStore.getState();
+        if (
+          !store.activeRun?.multiSet &&
+          store.insertionMode === "auto" &&
+          Array.isArray(generalInstructions) &&
+          generalInstructions.length > 0
+        ) {
+          store.appendInstructions(generalInstructions);
+        }
+        return;
+      }
+
+      if (event === "question") {
+        const store = useEditorStore.getState();
+
+        // ── The question must belong to the document that is open ────────
+        // A run is tied to the paper it was started for. The teacher can open
+        // a different paper while it streams, and before this the arriving
+        // questions went into whatever document happened to be mounted — the
+        // wrong paper, silently. Skipping the insert is not a loss: the run's
+        // assembled result still reaches the right paper through
+        // `comparisonSets` / `approvedSets` when it finishes.
+        //
+        // A run with a null `paperId` (a draft that had no id when it started)
+        // is exempt, since there is nothing to disagree with.
+        const runPaperId = store.activeRun?.paperId ?? null;
+        if (runPaperId !== null && runPaperId !== store.activeEditorPaperId) {
+          return;
+        }
+
+        if (store.activeRun?.multiSet) {
+          // Preview only — sets are inserted from the comparison view so two
+          // of them can never merge into one document.
+          return;
+        }
+        if (store.insertionMode === "auto") {
+          const editorQuestion = toEditorQuestion(data.question);
+          if (!insertedSectionsRef.current.has(data.section)) {
+            insertedSectionsRef.current.add(data.section);
+            store.appendSections([
+              { title: data.section, questions: [editorQuestion] },
+            ]);
+          } else {
+            store.appendQuestions([editorQuestion]);
+          }
+        } else {
+          store.pushToTray({
+            sectionTitle: data.section,
+            sourceType:
+              (data.question?.sourceType as TrayItem["sourceType"] | undefined) ||
+              (data.question?.metadata?.sourceType as
+                | TrayItem["sourceType"]
+                | undefined) ||
+              "unknown",
+            question: {
+              content: data.question.content,
+              type: data.question.type,
+              options: data.question.options || [],
+              answer: data.question.answer,
+              marks: data.question.marks,
+              image_url:
+                data.question.image_url ||
+                data.question.metadata?.image_url ||
+                "",
+              metadata: data.question.metadata || {},
+              bloom: data.question.bloom,
+              or_choice: data.question.or_choice,
+              vi_alternative: data.question.vi_alternative,
+            },
+          });
+        }
+      }
+    });
+    return unsubscribe;
+  }, []);
+
   const reset = React.useCallback(() => {
     insertedSectionsRef.current = new Set();
-    setState(INITIAL);
+    setResult(null);
+    setVariantSets([]);
+    setSavedToBank(null);
+  }, []);
+
+  const cancel = React.useCallback(() => {
+    generationRunner.cancel();
   }, []);
 
   const generate = React.useCallback(async (request: GenerationRequest) => {
@@ -150,197 +275,77 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
 
     insertedSectionsRef.current = new Set();
     store.clearComparisonSets();
-    setState({ ...INITIAL, isGenerating: true, multiSetMode: isMultiSet });
+    setResult(null);
+    setVariantSets([]);
+    setSavedToBank(null);
 
-    let generationError: string | null = null;
+    const outcome = await generationRunner.start({
+      path: "/api/generation/questions/stream",
+      paperId: request.paperId ?? store.activeEditorPaperId,
+      origin: "editor",
+      multiSet: isMultiSet,
+      payload: {
+        pdfSourceIds: request.pdfSourceIds,
+        hsatSourceIds: request.hsatSourceIds,
+        subject: request.subject,
+        class: request.academicClass,
+        board: request.board,
+        difficulty: request.difficulty,
+        // -1 = "the blueprint decides how many questions". The Builder always
+        // has a structure, so there is never a free-standing count to send.
+        // Sent explicitly rather than left to the serializer's default so the
+        // intent is on the wire and readable in a request log.
+        count: -1,
+        sets: parseInt(request.numberOfSets, 10),
+        mathLevel: request.mathLevel || "standard",
+        instructions: request.instructions || "",
+        include_vi_alternatives: false,
+        // The reviewed structure. The backend resolves the template into
+        // slots; sending the edited blueprint means the paper the teacher
+        // approved in the Builder is the paper they get, with no second
+        // design call and no chance of a different structure coming back.
+        ...(request.blueprint?.slots?.length
+          ? { blueprint: request.blueprint, templateId: request.templateId }
+          : {}),
+      },
+    });
 
-    const appendToEditor = (sectionTitle: string, question: any) => {
-      const editorQuestion = toEditorQuestion(question);
-      if (!insertedSectionsRef.current.has(sectionTitle)) {
-        insertedSectionsRef.current.add(sectionTitle);
-        useEditorStore
-          .getState()
-          .appendSections([{ title: sectionTitle, questions: [editorQuestion] }]);
-      } else {
-        useEditorStore.getState().appendQuestions([editorQuestion]);
-      }
-      setState((s) => ({ ...s, liveInsertedCount: s.liveInsertedCount + 1 }));
-    };
-
-    const stageForReview = (sectionTitle: string, question: any) => {
-      useEditorStore.getState().pushToTray({
-        sectionTitle,
-        sourceType:
-          (question?.sourceType as TrayItem["sourceType"] | undefined) ||
-          (question?.metadata?.sourceType as TrayItem["sourceType"] | undefined) ||
-          "unknown",
-        question: {
-          content: question.content,
-          type: question.type,
-          options: question.options || [],
-          answer: question.answer,
-          marks: question.marks,
-          image_url: question.image_url || question.metadata?.image_url || "",
-          metadata: question.metadata || {},
-          bloom: question.bloom,
-          or_choice: question.or_choice,
-          vi_alternative: question.vi_alternative,
-        },
-      });
-    };
-
-    try {
-      await streamSse(
-        "/api/generation/questions/stream",
-        {
-          pdfSourceIds: request.pdfSourceIds,
-          hsatSourceIds: request.hsatSourceIds,
-          subject: request.subject,
-          class: request.academicClass,
-          board: request.board,
-          difficulty: request.difficulty,
-          // -1 = "the blueprint decides how many questions". The Builder always
-          // has a structure, so there is never a free-standing count to send.
-          // Sent explicitly rather than left to the serializer's default so the
-          // intent is on the wire and readable in a request log.
-          count: -1,
-          sets: parseInt(request.numberOfSets, 10),
-          mathLevel: request.mathLevel || "standard",
-          instructions: request.instructions || "",
-          include_vi_alternatives: false,
-          // The reviewed structure. The backend resolves the template into
-          // slots; sending the edited blueprint means the paper the teacher
-          // approved in the Builder is the paper they get, with no second
-          // design call and no chance of a different structure coming back.
-          ...(request.blueprint?.slots?.length
-            ? { blueprint: request.blueprint, templateId: request.templateId }
-            : {}),
-        },
-        (event, data) => {
-          if (event === "error") {
-            generationError = data.error || "Generation failed";
-            if (data.code === "DOCUMENTS_NOT_READY") {
-              const pending: any[] = Array.isArray(data.pendingDocuments)
-                ? data.pendingDocuments
-                : [];
-              const pdfPending = pending.filter((p) => p.kind === "pdf");
-              onSourcesNotReadyRef.current?.({
-                drop: pdfPending
-                  .filter((p) => p.reason === "not_found")
-                  .map((p) => p.id),
-                requeue: pdfPending
-                  .filter((p) => p.reason !== "not_found")
-                  .map((p) => ({ id: p.id, name: p.name || "Document" })),
-              });
-            }
-          } else if (event === "status") {
-            setState((s) => ({
-              ...s,
-              poolStatus:
-                data.stage === "pool_progress"
-                  ? "Writing questions…"
-                  : data.message || s.poolStatus,
-            }));
-          } else if (event === "pool") {
-            setState((s) => ({
-              ...s,
-              poolStatus: `Questions ready — ${data.total} across ${
-                Object.keys(data.byType || {}).length
-              } types.`,
-            }));
-          } else if (event === "saved") {
-            setState((s) => ({
-              ...s,
-              savedToBank: {
-                saved: data.saved ?? 0,
-                duplicatesSkipped: data.duplicatesSkipped ?? 0,
-                projectName: data.projectName || "",
-              },
-            }));
-          } else if (event === "notice") {
-            if (data.message) toast.info(data.message);
-          } else if (event === "warning") {
-            if (data.message) toast.warning(data.message);
-          } else if (event === "plan") {
-            const generalInstructions = data.generalInstructions || [];
-            setState((s) => ({
-              ...s,
-              result: { sections: [], generalInstructions },
-            }));
-            // Only auto-insert the instruction block when auto-insert is on.
-            // In review mode the editor rebuilds instructions from what was
-            // actually inserted, so a planned 38-question header above a
-            // 0-question paper would be a lie.
-            if (
-              !isMultiSet &&
-              useEditorStore.getState().insertionMode === "auto" &&
-              Array.isArray(generalInstructions) &&
-              generalInstructions.length > 0
-            ) {
-              useEditorStore.getState().appendInstructions(generalInstructions);
-            }
-          } else if (event === "question") {
-            setState((s) => ({
-              ...s,
-              result: appendQuestionToResult(s.result, data.section, data.question),
-            }));
-            if (isMultiSet) {
-              // Preview only — sets are inserted from the comparison view so
-              // two of them can never merge into one document.
-            } else if (useEditorStore.getState().insertionMode === "auto") {
-              appendToEditor(data.section, data.question);
-            } else {
-              stageForReview(data.section, data.question);
-            }
-          } else if (event === "set") {
-            setState((s) => ({
-              ...s,
-              variantSets: [
-                ...s.variantSets.filter((v) => v.label !== data.label),
-                { label: data.label, result: data.result },
-              ],
-            }));
-          } else if (event === "update" || event === "message") {
-            setState((s) => ({ ...s, result: data }));
-          } else if (event === "done" && data.result) {
-            setState((s) => ({ ...s, result: data.result }));
-          }
-        },
-      );
-
-      if (generationError) toast.error(generationError);
-      return { ok: !generationError };
-    } catch (error: any) {
-      console.error("Generation failed:", error);
-      toast.error(
-        error?.message ||
-          "Failed to generate questions. Check whether your sources contain relevant content.",
-      );
-      return { ok: false };
-    } finally {
-      setState((s) => ({ ...s, isGenerating: false }));
+    if (outcome.cancelled) {
+      toast.info("Generation cancelled.");
+    } else if (!outcome.ok && outcome.error) {
+      toast.error(outcome.error);
     }
+    return { ok: outcome.ok };
   }, []);
 
   /** Set A plus every derived set, in order. Empty until something is produced. */
   const allSets = React.useMemo<ProducedSet[]>(
-    () =>
-      state.result
-        ? [{ label: "A", result: state.result }, ...state.variantSets]
-        : [],
-    [state.result, state.variantSets],
+    () => (result ? [{ label: "A", result }, ...variantSets] : []),
+    [result, variantSets],
   );
 
   // Mirror produced sets into the store so the Comparison Workspace (mounted
   // by the editor page, not here) can read them.
   const setComparisonSets = useEditorStore((s) => s.setComparisonSets);
   React.useEffect(() => {
-    if (state.multiSetMode && allSets.length >= 2) {
+    if (multiSetMode && allSets.length >= 2) {
       setComparisonSets(
         allSets.map((s) => ({ label: s.label, result: s.result })),
       );
     }
-  }, [state.multiSetMode, allSets, setComparisonSets]);
+  }, [multiSetMode, allSets, setComparisonSets]);
 
-  return { ...state, allSets, generate, reset };
+  return {
+    isGenerating,
+    result,
+    variantSets,
+    poolStatus,
+    savedToBank,
+    liveInsertedCount,
+    multiSetMode,
+    allSets,
+    generate,
+    cancel,
+    reset,
+  };
 }
