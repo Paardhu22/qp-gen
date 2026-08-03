@@ -15,7 +15,6 @@
  */
 
 import * as React from "react";
-import { Loader2 } from "lucide-react";
 
 import {
   Dialog,
@@ -27,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 import type {
   QuestionImageStyle,
   QuestionImageStyleOption,
@@ -131,7 +131,7 @@ export function ImageStyleDialog({
         </DialogHeader>
 
         {preview ? (
-          <p className="line-clamp-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs italic text-muted-foreground">
+          <p className="line-clamp-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs italic text-muted-foreground">
             “{preview}”
           </p>
         ) : null}
@@ -186,7 +186,7 @@ export function ImageStyleDialog({
             >
               {generating ? (
                 <>
-                  <Loader2 className="size-3.5 animate-spin" />
+                  <Spinner className="size-3.5" />
                   Drawing…
                 </>
               ) : (

@@ -41,7 +41,6 @@ import {
   BookOpen,
   Check,
   FileStack,
-  Loader2,
   Save,
   X,
 } from "lucide-react";
@@ -75,6 +74,7 @@ import type { AppliedHsatSource } from "@/components/hsat-source-picker";
 import { TemplatePickerGrid } from "./template-picker-grid";
 import { SlotEditor } from "./slot-editor";
 import { SourcePanel, type UploadedDoc, type UploadingDoc } from "./source-panel";
+import { Spinner } from "@/components/ui/spinner";
 
 export interface BlueprintSubmission {
   templateId: string;
@@ -421,7 +421,7 @@ export function BlueprintModal({
             type="button"
             aria-label="Close"
             onClick={() => onOpenChange(false)}
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="size-4" />
           </button>
@@ -481,7 +481,7 @@ export function BlueprintModal({
                   <select
                     value={academicClass}
                     onChange={(e) => setAcademicClass(e.target.value)}
-                    className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
                   >
                     {CLASSES.map((c) => (
                       <option key={c} value={c}>
@@ -497,7 +497,7 @@ export function BlueprintModal({
                   <select
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
-                    className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
                   >
                     {SUBJECTS.map((s) => (
                       <option key={s} value={s}>
@@ -513,7 +513,7 @@ export function BlueprintModal({
                   <select
                     value={difficulty}
                     onChange={(e) => setDifficulty(e.target.value)}
-                    className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs capitalize"
+                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs capitalize"
                   >
                     {DIFFICULTIES.map((d) => (
                       <option key={d} value={d}>
@@ -534,7 +534,7 @@ export function BlueprintModal({
                     <select
                       value={mathLevel}
                       onChange={(e) => setMathLevel(e.target.value)}
-                      className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                      className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
                     >
                       <option value="standard">Standard (041)</option>
                       <option value="basic">Basic (241)</option>
@@ -548,7 +548,7 @@ export function BlueprintModal({
                   <select
                     value={numberOfSets}
                     onChange={(e) => setNumberOfSets(e.target.value)}
-                    className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
                   >
                     <option value="1">1 set (A)</option>
                     <option value="2">2 sets (A, B)</option>
@@ -560,16 +560,9 @@ export function BlueprintModal({
           </nav>
 
           {/* Step content */}
-          <div className="min-w-0 flex-1 overflow-y-auto p-5">
+          <div className="min-w-0 flex-1 overflow-y-auto p-6">
             {resolving ? (
-              <div className="flex h-full items-center justify-center">
-                <div className="text-center">
-                  <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    Preparing the blueprint…
-                  </p>
-                </div>
-              </div>
+              <Spinner size="page" label="Preparing the blueprint…" />
             ) : step === "template" ? (
               <TemplatePickerGrid
                 builtin={builtin}
@@ -603,7 +596,7 @@ export function BlueprintModal({
                       onChange={(e) => setInstructions(e.target.value)}
                       rows={4}
                       placeholder="e.g. Weekly test on photosynthesis, mostly recall, 20 marks, half an hour"
-                      className="w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      className="w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                     />
                     <Button
                       type="button"
@@ -665,7 +658,7 @@ export function BlueprintModal({
                   onClick={handleSaveTemplate}
                 >
                   {savingTemplate ? (
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <Spinner className="size-3.5" />
                   ) : (
                     <Save className="size-3.5" />
                   )}
@@ -707,7 +700,7 @@ export function BlueprintModal({
               >
                 {generating ? (
                   <>
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <Spinner className="size-3.5" />
                     Generating…
                   </>
                 ) : (

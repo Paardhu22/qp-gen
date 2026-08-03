@@ -18,7 +18,6 @@ import {
   Hammer,
   Search,
   RefreshCcw,
-  Loader2,
   Zap,
   BookMarked,
   AlertTriangle,
@@ -31,6 +30,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { SkeletonRows } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import {
   fetchBankSummary,
   streamPaperFromBank,
@@ -246,7 +247,7 @@ export default function BuildPaperPage() {
               <h1 className="text-lg font-semibold tracking-tight">
                 Builder
               </h1>
-              <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+              <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                 {isLoading ? "…" : `${chapters.length} chapters`}
               </span>
             </div>
@@ -264,7 +265,7 @@ export default function BuildPaperPage() {
                 type="button"
                 onClick={() => void load()}
                 title="Refresh"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <RefreshCcw className="h-3.5 w-3.5" />
               </button>
@@ -275,17 +276,10 @@ export default function BuildPaperPage() {
         {/* Database table */}
         <div className="min-h-0 flex-1 overflow-auto">
           {isLoading ? (
-            <div className="space-y-px p-4">
-              {Array.from({ length: 10 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="h-9 animate-pulse rounded bg-muted/40"
-                />
-              ))}
-            </div>
+            <SkeletonRows rows={10} height="h-9" />
           ) : chapters.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-              <BookMarked className="h-10 w-10 opacity-30" />
+              <BookMarked className="empty-breathe h-10 w-10 opacity-30" />
               <p className="text-sm font-medium">Your question bank is empty.</p>
               <p className="max-w-xs text-xs text-muted-foreground">
                 Generate a paper from a chapter first — every question produced
@@ -301,7 +295,7 @@ export default function BuildPaperPage() {
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
                 <tr className="border-b border-border text-left text-xs">
-                  <th className="w-9 px-2.5 py-2">
+                  <th className="w-9 px-3 py-2">
                     <input
                       type="checkbox"
                       aria-label="Select all visible"
@@ -310,16 +304,16 @@ export default function BuildPaperPage() {
                       className="h-3.5 w-3.5 cursor-pointer accent-primary"
                     />
                   </th>
-                  <th className="px-2.5 py-2 font-semibold text-muted-foreground">
+                  <th className="px-3 py-2 font-semibold text-muted-foreground">
                     Chapter
                   </th>
-                  <th className="px-2.5 py-2 font-semibold text-muted-foreground">
+                  <th className="px-3 py-2 font-semibold text-muted-foreground">
                     Subject
                   </th>
-                  <th className="px-2.5 py-2 font-semibold text-muted-foreground">
+                  <th className="px-3 py-2 font-semibold text-muted-foreground">
                     Class
                   </th>
-                  <th className="px-2.5 py-2 text-right font-semibold text-muted-foreground">
+                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground">
                     Questions
                   </th>
                 </tr>
@@ -337,7 +331,7 @@ export default function BuildPaperPage() {
                         isSelected && "bg-accent/60",
                       )}
                     >
-                      <td className="px-2.5 py-1.5">
+                      <td className="px-3 py-1.5">
                         <input
                           type="checkbox"
                           aria-label="Select chapter"
@@ -347,16 +341,16 @@ export default function BuildPaperPage() {
                           className="h-3.5 w-3.5 cursor-pointer accent-primary"
                         />
                       </td>
-                      <td className="px-2.5 py-1.5 font-medium text-foreground">
+                      <td className="px-3 py-1.5 font-medium text-foreground">
                         {row.chapter || row.projectName}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-muted-foreground">
+                      <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">
                         {row.subject || "—"}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap text-muted-foreground">
+                      <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">
                         {row.gradeClass || "—"}
                       </td>
-                      <td className="px-2.5 py-1.5 text-right tabular-nums text-muted-foreground">
+                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
                         {row.count}
                       </td>
                     </tr>
@@ -414,7 +408,7 @@ export default function BuildPaperPage() {
                   type="button"
                   onClick={() => setNumSets(n)}
                   className={cn(
-                    "flex-1 rounded-md border px-2 py-1.5 text-sm font-medium transition-colors",
+                    "flex-1 rounded-lg border px-2 py-1.5 text-sm font-medium transition-colors",
                     numSets === n
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -443,7 +437,7 @@ export default function BuildPaperPage() {
                 <span className="text-sm font-medium text-foreground">
                   CBSE Board pattern
                 </span>
-                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
                   Auto
                 </span>
               </div>
@@ -513,7 +507,7 @@ export default function BuildPaperPage() {
           )}
 
           {isMixed && (
-            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400">
+            <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-warning">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               Selected chapters span more than one subject or class. A paper is
               compiled from a single subject and class.
@@ -527,11 +521,11 @@ export default function BuildPaperPage() {
             type="button"
             onClick={handleBuild}
             disabled={isBuilding || selectedRows.length === 0 || isMixed}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isBuilding ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Spinner />
                 {status || "Building…"}
               </>
             ) : (

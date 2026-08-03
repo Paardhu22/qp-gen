@@ -29,9 +29,10 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { ImagePlus, Loader2, RefreshCw, Trash } from "lucide-react";
+import { ImagePlus, RefreshCw, Trash } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 
 export interface QuestionMenuTarget {
   /** The DOM node of the question block the menu is anchored to. */
@@ -107,7 +108,7 @@ function MenuButton({
       title={label}
       aria-label={label}
       className={cn(
-        "flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors",
+        "flex h-7 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium transition-colors",
         "disabled:cursor-not-allowed disabled:opacity-60",
         tone === "destructive"
           ? "text-destructive hover:bg-destructive/10"
@@ -115,7 +116,7 @@ function MenuButton({
       )}
     >
       {busy ? (
-        <Loader2 className="size-4 animate-spin" />
+        <Spinner />
       ) : (
         <Icon className="size-4" />
       )}

@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { BookmarkPlus, ChevronDown, Loader2, Trash2 } from "lucide-react";
+import { BookmarkPlus, ChevronDown, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 
 export interface TemplatePickerProps {
   /** What "Save as template" captures. */
@@ -127,11 +128,11 @@ export function TemplatePicker({
     <div className={cn("flex items-center gap-1.5", className)}>
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[11.5px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+          className="inline-flex h-7 items-center gap-1 rounded-lg border border-border px-2 text-[11.5px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
           disabled={loading && templates.length === 0}
         >
           {loading && templates.length === 0 ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
+            <Spinner className="size-3" />
           ) : null}
           Templates
           {templates.length > 0 && (
@@ -169,7 +170,7 @@ export function TemplatePicker({
                     event.stopPropagation();
                     void handleDelete(template);
                   }}
-                  className="shrink-0 rounded p-1 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                  className="shrink-0 rounded-sm p-1 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -184,10 +185,10 @@ export function TemplatePicker({
         onClick={handleSave}
         disabled={saving || !instructions.trim()}
         title="Save these instructions as a reusable template"
-        className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[11.5px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+        className="inline-flex h-7 items-center gap-1 rounded-lg border border-border px-2 text-[11.5px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
       >
         {saving ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
+          <Spinner className="size-3" />
         ) : (
           <BookmarkPlus className="h-3 w-3" />
         )}

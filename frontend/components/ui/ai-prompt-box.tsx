@@ -53,7 +53,7 @@ function IconTooltip({
       </TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Positioner sideOffset={8}>
-          <TooltipPrimitive.Popup className="z-50 rounded-md bg-popover px-2.5 py-1.5 text-xs text-popover-foreground ring-1 ring-foreground/10 shadow-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0">
+          <TooltipPrimitive.Popup className="z-50 rounded-lg bg-popover px-3 py-1.5 text-xs text-popover-foreground ring-1 ring-foreground/10 shadow-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0">
             {label}
           </TooltipPrimitive.Popup>
         </TooltipPrimitive.Positioner>
@@ -223,7 +223,7 @@ export function PromptInputBox({
         void handleFiles(Array.from(event.dataTransfer.files ?? []));
       }}
       className={cn(
-        "rounded-3xl border border-border bg-card p-2 shadow-sm transition-colors duration-200",
+        "rounded-2xl border border-border bg-card p-2 shadow-sm transition-colors duration-200",
         "focus-within:border-foreground/25",
         isDragging && "border-primary bg-primary/5",
         className,

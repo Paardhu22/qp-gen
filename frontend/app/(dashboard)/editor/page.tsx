@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -1018,7 +1019,7 @@ export default function EditorPage() {
         <div className="flex h-11 min-h-11 flex-shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:px-4">
           <span className="min-w-0 truncate text-[14px]">
             {paperLoading ? (
-              <span className="block h-3.5 w-40 animate-pulse rounded bg-muted" />
+              <Skeleton className="block h-3.5 w-40" />
             ) : paperError ? (
               <span className="text-destructive">{paperError}</span>
             ) : (
@@ -1247,22 +1248,22 @@ export default function EditorPage() {
           </div>
           <div className="flex-1 overflow-y-auto min-h-[300px] pr-2 space-y-3">
             {browserLoading ? (
-              <div className="space-y-3">
+              <div role="status" aria-live="polite" aria-label="Loading" className="space-y-3">
                 {[1, 2, 3].map((i) => (
                   <div
                     key={i}
-                    className="p-3 border border-border rounded-md animate-pulse"
+                    className="rounded-lg border border-border p-3"
                   >
-                    <div className="flex justify-between mb-2">
+                    <div className="mb-2 flex justify-between">
                       <div className="flex gap-2">
-                        <div className="h-4 w-12 bg-muted rounded"></div>
-                        <div className="h-4 w-16 bg-muted rounded"></div>
-                        <div className="h-4 w-20 bg-primary/10 dark:bg-primary/30 rounded"></div>
+                        <Skeleton className="h-4 w-12" />
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-20" />
                       </div>
-                      <div className="h-4 w-10 bg-muted rounded"></div>
+                      <Skeleton className="h-4 w-10" />
                     </div>
-                    <div className="h-3 w-full bg-muted rounded mt-1"></div>
-                    <div className="h-3 w-5/6 bg-muted rounded mt-1"></div>
+                    <Skeleton className="mt-1 h-3 w-full" />
+                    <Skeleton className="mt-1 h-3 w-5/6" />
                   </div>
                 ))}
               </div>
@@ -1277,7 +1278,7 @@ export default function EditorPage() {
                   <div
                     key={q.id}
                     onClick={() => toggleQuestionSelection(q.id)}
-                    className={`p-3 border rounded-md cursor-pointer transition-colors ${
+                    className={`p-3 border rounded-lg cursor-pointer transition-colors ${
                       isSelected
                         ? "border-primary bg-primary/10 dark:bg-primary/10"
                         : "border-border hover:border-border"
@@ -1285,13 +1286,13 @@ export default function EditorPage() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                        <span className="bg-muted px-2 py-0.5 rounded">
+                        <span className="bg-muted px-2 py-0.5 rounded-sm">
                           {q.class}
                         </span>
-                        <span className="bg-muted px-2 py-0.5 rounded">
+                        <span className="bg-muted px-2 py-0.5 rounded-sm">
                           {q.subject}
                         </span>
-                        <span className="bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary px-2 py-0.5 rounded">
+                        <span className="bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary px-2 py-0.5 rounded-sm">
                           {q.topic}
                         </span>
                       </div>

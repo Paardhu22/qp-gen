@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 import { ApiError } from "@/lib/api-client";
 import { useSession } from "@/lib/auth-client";
@@ -84,17 +84,12 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  if (isLoading && !timedOut) {
-    return (
-      <div className="flex h-dvh items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
+  // Everything that reaches here is waiting on the session check — whether it
+  // is still in flight or has already timed out into the redirect above. Both
+  // states show the same thing, so they share one branch.
   return (
     <div className="flex h-dvh items-center justify-center bg-background">
-      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <Spinner size="page" />
     </div>
   );
 }

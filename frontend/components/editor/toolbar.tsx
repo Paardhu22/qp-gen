@@ -102,7 +102,7 @@ const ToolbarBtn: React.FC<ToolbarBtnProps> = ({
     disabled={disabled}
     title={title}
     className={cn(
-      "h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed",
+      "h-7 w-7 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed",
       active && "bg-accent text-primary ring-1 ring-primary/30",
       className,
     )}
@@ -168,7 +168,7 @@ const ColorPicker: React.FC<{
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen(!open)}
         title={label}
-        className="h-7 w-7 flex flex-col items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+        className="h-7 w-7 flex flex-col items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
       >
         <Type className="h-3.5 w-3.5" />
         <div
@@ -192,7 +192,7 @@ const ColorPicker: React.FC<{
                   setOpen(false);
                 }}
                 className={cn(
-                  "h-6 w-6 rounded border border-border hover:scale-110 transition-transform",
+                  "h-6 w-6 rounded-sm border border-border hover:scale-110 transition-transform",
                   currentColor === color && "ring-2 ring-primary",
                 )}
                 style={{ backgroundColor: color }}
@@ -207,7 +207,7 @@ const ColorPicker: React.FC<{
                 onClear();
                 setOpen(false);
               }}
-              className="mt-2 w-full text-[10px] text-muted-foreground hover:text-foreground py-1 hover:bg-accent rounded transition-colors"
+              className="mt-2 w-full text-[10px] text-muted-foreground hover:text-foreground py-1 hover:bg-accent rounded-sm transition-colors"
             >
               Remove Color
             </button>
@@ -269,7 +269,7 @@ const ChemistryPicker: React.FC<{
         onClick={() => setOpen(!open)}
         title="Insert Chemistry"
         className={cn(
-          "h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all",
+          "h-7 w-7 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-all",
           open && "bg-accent text-primary",
         )}
       >
@@ -290,7 +290,7 @@ const ChemistryPicker: React.FC<{
                   onInsertInline(tpl.latex);
                   setOpen(false);
                 }}
-                className="text-left text-[11px] text-foreground hover:text-primary px-2 py-1.5 rounded hover:bg-accent transition-colors"
+                className="text-left text-[11px] text-foreground hover:text-primary px-2 py-1.5 rounded-sm hover:bg-accent transition-colors"
               >
                 {tpl.label}
               </button>
@@ -326,7 +326,7 @@ const MathPicker: React.FC<{
         onClick={() => setOpen(!open)}
         title="Insert Math"
         className={cn(
-          "h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all",
+          "h-7 w-7 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-all",
           open && "bg-accent text-primary",
         )}
       >
@@ -347,7 +347,7 @@ const MathPicker: React.FC<{
                     onInsertBlock(tpl.latex);
                     setOpen(false);
                   }}
-                  className="flex-1 text-left text-[11px] text-foreground hover:text-primary px-2 py-1.5 rounded hover:bg-accent transition-colors"
+                  className="flex-1 text-left text-[11px] text-foreground hover:text-primary px-2 py-1.5 rounded-sm hover:bg-accent transition-colors"
                 >
                   Block: {tpl.label}
                 </button>
@@ -358,7 +358,7 @@ const MathPicker: React.FC<{
                     onInsertInline(tpl.latex);
                     setOpen(false);
                   }}
-                  className="text-[10px] text-muted-foreground hover:text-primary px-2 py-1.5 rounded hover:bg-accent transition-colors"
+                  className="text-[10px] text-muted-foreground hover:text-primary px-2 py-1.5 rounded-sm hover:bg-accent transition-colors"
                   title="Insert Inline"
                 >
                   Inline
@@ -374,7 +374,7 @@ const MathPicker: React.FC<{
                 onInsertBlock("E = mc^2");
                 setOpen(false);
               }}
-              className="w-full text-left text-[11px] text-primary hover:text-primary px-2 py-1.5 rounded hover:bg-primary/10 transition-colors"
+              className="w-full text-left text-[11px] text-primary hover:text-primary px-2 py-1.5 rounded-sm hover:bg-primary/10 transition-colors"
             >
               + Custom Math Block
             </button>
@@ -630,7 +630,7 @@ const InsertBlockDropdown: React.FC<InsertBlockDropdownProps> = ({
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen(!open)}
         className={cn(
-          "h-6 px-2.5 text-[10px] font-semibold rounded transition-colors flex items-center gap-1.5",
+          "h-6 px-3 text-[10px] font-semibold rounded-sm transition-colors flex items-center gap-1.5",
           "border border-border bg-background text-foreground hover:bg-accent hover:border-primary/40",
           open && "bg-accent border-primary/40",
         )}
@@ -944,7 +944,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
                 .run();
             }
           }}
-          className="h-7 bg-muted border border-border rounded text-[11px] text-foreground px-1.5 min-w-[100px] focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
+          className="h-7 bg-muted border border-border rounded-sm text-[11px] text-foreground px-1.5 min-w-[100px] focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
         >
           {HEADING_LEVELS.map((h) => (
             <option key={h.value} value={h.value}>
@@ -964,7 +964,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
               editor.chain().focus().unsetFontFamily().run();
             }
           }}
-          className="h-7 bg-muted border border-border rounded text-[11px] text-foreground px-1.5 min-w-[90px] focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
+          className="h-7 bg-muted border border-border rounded-sm text-[11px] text-foreground px-1.5 min-w-[90px] focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
         >
           {FONT_FAMILIES.map((f) => (
             <option key={f.value} value={f.value}>
@@ -984,7 +984,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
               (editor.chain().focus() as any).unsetFontSize().run();
             }
           }}
-          className="h-7 bg-muted border border-border rounded text-[11px] text-foreground px-1.5 w-[60px] focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
+          className="h-7 bg-muted border border-border rounded-sm text-[11px] text-foreground px-1.5 w-[60px] focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
         >
           <option value="">Size</option>
           {FONT_SIZES.map((s) => (
@@ -1201,7 +1201,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           />
           <div
             title="Insert Image"
-            className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-all cursor-pointer"
+            className="h-7 w-7 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-all cursor-pointer"
           >
             <ImageIcon className="h-3.5 w-3.5" />
           </div>
@@ -1293,7 +1293,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
         {/* Right side tools */}
         <div className="ml-auto flex items-center gap-1.5">
           {/* Total Marks */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-background rounded-full border border-border select-none shadow-sm">
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-background rounded-full border border-border select-none shadow-sm">
             <Calculator className="h-3 w-3 text-primary" />
             <span className="text-[10px] font-semibold text-foreground">
               Marks:
@@ -1433,7 +1433,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
               },
             });
           }}
-          className="h-6 px-2 text-[10px] font-medium text-red-400 hover:bg-red-500/10 rounded transition-colors flex items-center gap-1"
+          className="h-6 px-2 text-[10px] font-medium text-red-400 hover:bg-red-500/10 rounded-sm transition-colors flex items-center gap-1"
         >
           <Trash className="h-3 w-3" /> Clear All
         </button>

@@ -29,6 +29,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { SkeletonRows } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -126,7 +127,7 @@ function SortHeader({
   return (
     <th
       className={cn(
-        "select-none px-2.5 py-2 font-semibold text-muted-foreground",
+        "select-none px-3 py-2 font-semibold text-muted-foreground",
         align === "right" && "text-right",
         align === "center" && "text-center",
         className,
@@ -198,7 +199,15 @@ function formatShortDate(value?: string | null): string {
   });
 }
 
-/** Subtle, enterprise-grade tint for the difficulty badge — no loud fills. */
+/**
+ * Subtle, enterprise-grade tint for the difficulty badge — no loud fills.
+ *
+ * Deliberately raw palette colours rather than the `success`/`warning`/
+ * `destructive` tokens. This is a difficulty *scale*, not a status: a hard
+ * question is not an error, and tinting it `destructive` would say so. The
+ * three cases share one shape (`-500/10` fill, `-500/20` border), so they stay
+ * consistent with each other without borrowing meaning they do not have.
+ */
 function difficultyTint(value?: string | null): string {
   switch ((value || "").toLowerCase()) {
     case "easy":
@@ -544,7 +553,7 @@ export default function SavedQuestionsPage() {
             <h1 className="text-lg font-semibold tracking-tight">
               Question Bank
             </h1>
-            <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+            <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
               {isLoading ? "…" : allQuestions.length}
             </span>
           </div>
@@ -562,7 +571,7 @@ export default function SavedQuestionsPage() {
             {allQuestions.length > 0 && !isLoading && (
               <AlertDialog>
                 <AlertDialogTrigger
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-destructive/40 bg-background px-2.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-destructive/40 bg-background px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
                   disabled={isClearing}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -638,7 +647,7 @@ export default function SavedQuestionsPage() {
             <button
               type="button"
               onClick={clearFilters}
-              className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <X className="h-3 w-3" />
               Clear ({activeFilterCount})
@@ -669,7 +678,7 @@ export default function SavedQuestionsPage() {
           <button
             type="button"
             onClick={handleInsertSelected}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <FileText className="h-3.5 w-3.5" />
             Insert into Editor ({selectedIds.size})
@@ -680,11 +689,7 @@ export default function SavedQuestionsPage() {
       {/* ── Table ─────────────────────────────────────────────────────── */}
       <div className="min-h-0 flex-1 overflow-auto">
         {isLoading ? (
-          <div className="space-y-px p-4">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="h-8 animate-pulse rounded bg-muted/40" />
-            ))}
-          </div>
+          <SkeletonRows rows={12} height="h-8" />
         ) : sorted.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
             <ListChecks className="empty-breathe h-10 w-10 opacity-30" />
@@ -711,7 +716,7 @@ export default function SavedQuestionsPage() {
           <table className="w-full border-collapse text-sm">
             <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
               <tr className="border-b border-border text-left text-xs">
-                <th className="w-9 px-2.5 py-2">
+                <th className="w-9 px-3 py-2">
                   <input
                     type="checkbox"
                     aria-label="Select all visible"
@@ -729,7 +734,7 @@ export default function SavedQuestionsPage() {
                 <SortHeader label="Difficulty" col="difficulty" sort={sortState} />
                 <SortHeader label="Bloom" col="bloom" sort={sortState} />
                 <SortHeader label="Date" col="date" sort={sortState} align="right" />
-                <th className="w-9 px-2.5 py-2" />
+                <th className="w-9 px-3 py-2" />
               </tr>
             </thead>
             <tbody>
@@ -746,7 +751,7 @@ export default function SavedQuestionsPage() {
                       isDeleting && "pointer-events-none opacity-40",
                     )}
                   >
-                    <td className="px-2.5 py-1.5 align-top">
+                    <td className="px-3 py-1.5 align-top">
                       <input
                         type="checkbox"
                         aria-label="Select question"
@@ -756,33 +761,33 @@ export default function SavedQuestionsPage() {
                         className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-primary"
                       />
                     </td>
-                    <td className="px-2.5 py-1.5 align-top">
+                    <td className="px-3 py-1.5 align-top">
                       <span className="line-clamp-2 leading-snug text-foreground">
                         {q.content}
                       </span>
                     </td>
-                    <td className="px-2.5 py-1.5 align-top">
-                      <span className="inline-flex items-center rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">
+                    <td className="px-3 py-1.5 align-top">
+                      <span className="inline-flex items-center rounded-sm border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">
                         {q.type ? (typeMap.get(q.type) || q.type) : "—"}
                       </span>
                     </td>
-                    <td className="px-2.5 py-1.5 text-right align-top tabular-nums text-muted-foreground">
+                    <td className="px-3 py-1.5 text-right align-top tabular-nums text-muted-foreground">
                       {q.marks}
                     </td>
-                    <td className="px-2.5 py-1.5 align-top whitespace-nowrap text-muted-foreground">
+                    <td className="px-3 py-1.5 align-top whitespace-nowrap text-muted-foreground">
                       {q.classLabel || "—"}
                     </td>
-                    <td className="px-2.5 py-1.5 align-top whitespace-nowrap text-muted-foreground">
+                    <td className="px-3 py-1.5 align-top whitespace-nowrap text-muted-foreground">
                       {q.subjectLabel || "—"}
                     </td>
-                    <td className="px-2.5 py-1.5 align-top text-muted-foreground">
+                    <td className="px-3 py-1.5 align-top text-muted-foreground">
                       <span className="line-clamp-1">{q.chapterLabel || "—"}</span>
                     </td>
-                    <td className="px-2.5 py-1.5 align-top">
+                    <td className="px-3 py-1.5 align-top">
                       {q.difficulty ? (
                         <span
                           className={cn(
-                            "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                            "inline-flex items-center rounded-sm border px-1.5 py-0.5 text-[10px] font-medium capitalize",
                             difficultyTint(q.difficulty),
                           )}
                         >
@@ -792,25 +797,25 @@ export default function SavedQuestionsPage() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-2.5 py-1.5 align-top">
+                    <td className="px-3 py-1.5 align-top">
                       {q.bloom_taxonomy ? (
-                        <span className="inline-flex items-center rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium capitalize text-muted-foreground whitespace-nowrap">
+                        <span className="inline-flex items-center rounded-sm border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium capitalize text-muted-foreground whitespace-nowrap">
                           {q.bloom_taxonomy}
                         </span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-2.5 py-1.5 text-right align-top whitespace-nowrap tabular-nums text-muted-foreground">
+                    <td className="px-3 py-1.5 text-right align-top whitespace-nowrap tabular-nums text-muted-foreground">
                       {formatShortDate(q.updated_at ?? q.created_at)}
                     </td>
-                    <td className="px-2.5 py-1.5 align-top">
+                    <td className="px-3 py-1.5 align-top">
                       <button
                         type="button"
                         aria-label="Delete question"
                         disabled={isDeleting}
                         onClick={(e) => handleDeleteQuestion(q.id, e)}
-                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+                        className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -831,7 +836,7 @@ export default function SavedQuestionsPage() {
             <button
               type="button"
               onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-              className="rounded-md border border-border bg-background px-3 py-1.5 font-medium text-foreground hover:bg-accent"
+              className="rounded-lg border border-border bg-background px-3 py-1.5 font-medium text-foreground hover:bg-accent"
             >
               Load {Math.min(PAGE_SIZE, sorted.length - visible.length)} more
             </button>
