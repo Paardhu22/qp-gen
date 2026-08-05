@@ -157,6 +157,8 @@ export function useQuestionMenu(editor: any) {
       const related = (event as MouseEvent).relatedTarget as HTMLElement | null;
       // Moving within the same block is not leaving it.
       if (related?.closest?.("[data-question-block='true']")) return;
+      // Moving into the floating menu itself is not leaving it.
+      if (related?.closest?.("[data-question-menu='true']")) return;
       scheduleClose();
     };
 

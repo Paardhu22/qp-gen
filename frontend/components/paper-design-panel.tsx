@@ -24,7 +24,8 @@
 
 import type { DesignGap, PaperDesign } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, Check, Loader2 } from "lucide-react";
+import { AlertTriangle, Check } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 const TYPE_LABELS: Record<string, string> = {
   MCQ: "MCQ",
@@ -72,7 +73,7 @@ export function PaperDesignPanel({
           className,
         )}
       >
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <Spinner className="size-3.5" />
         Working out the paper…
       </div>
     );
@@ -178,7 +179,7 @@ export function PaperDesignPanel({
                       key={option.value}
                       type="button"
                       onClick={() => onResolve(gap.field, option.value)}
-                      className="rounded-full border border-border px-2.5 py-1 text-[11.5px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+                      className="rounded-full border border-border px-3 py-1 text-[11.5px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
                     >
                       {option.label}
                     </button>
@@ -218,7 +219,7 @@ function AssumedChip({
 
   if (gap.options.length === 0) {
     return (
-      <span className="rounded-full border border-dashed border-border px-2.5 py-1 text-[11.5px] text-muted-foreground">
+      <span className="rounded-full border border-dashed border-border px-3 py-1 text-[11.5px] text-muted-foreground">
         {gap.label}: {current}
       </span>
     );
@@ -235,7 +236,7 @@ function AssumedChip({
       type="button"
       onClick={cycle}
       title={`${gap.label} — click to change`}
-      className="group rounded-full border border-dashed border-border px-2.5 py-1 text-[11.5px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+      className="group rounded-full border border-dashed border-border px-3 py-1 text-[11.5px] text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
     >
       {current}
       <span className="ml-1 text-[10px] opacity-0 transition-opacity group-hover:opacity-70">

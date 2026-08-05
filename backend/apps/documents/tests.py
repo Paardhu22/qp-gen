@@ -11,7 +11,7 @@ the client omits the Content-Type header.
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.accounts.models import User
 from apps.documents.models import PdfSource
@@ -185,3 +185,190 @@ class UploadErrorLoggingTests(TestCase):
         self.assertEqual(response.status_code, 500)
         self.assertIn("confirm failed", logs.output[0])
         self._assert_no_log_file()
+
+
+@override_settings(HSAT_CHAPTER_CONCURRENCY=1)
+class HsatReingestTests(TestCase):
+    """Applying a book must never re-read chapters it has already read.
+
+    Chapter concurrency is pinned to 1 because the test database is
+    in-memory SQLite, which locks under the ThreadPoolExecutor the real
+    ingest uses against Postgres. Nothing here is about concurrency.
+
+    ``ingest_hsat_book_async`` flips the row to "processing" before it
+    spawns its worker, which made every status-based skip inside
+    ``ingest_hsat_book`` unreachable from the API: each apply re-downloaded
+    and re-parsed every selected chapter and bulk_created a SECOND copy of
+    its chunks. That is what made "apply this source" slow on an already
+    indexed book, and it handed Model 1 the same chapter twice.
+
+    The skip now keys off persisted chunks, so it holds no matter what the
+    book's status says.
+    """
+
+    KEYS = [
+        "input-pdfs/class 10/Science/Science/CH1 - Reactions.pdf",
+        "input-pdfs/class 10/Science/Science/CH2 - Acids.pdf",
+    ]
+
+    def _fake_extract(self, **kwargs):
+        from apps.documents.models import DocumentChunk
+
+        DocumentChunk.objects.create(
+            content="chapter text",
+            chunk_index=0,
+            hsat_source=kwargs["hsat_source"],
+            metadata={"s3_key": kwargs["extra_metadata"]["s3_key"]},
+        )
+        return {"total_chunks": 1, "text_chunks": 1, "image_chunks": 0}
+
+    def setUp(self) -> None:
+        patchers = [
+            patch("services.hsat_catalog.get_book_keys", return_value=self.KEYS),
+            patch("services.hsat_service.is_configured", return_value=True),
+            patch("services.hsat_service.download_to_buffer", return_value=b"pdf"),
+            patch(
+                "services.hsat_service.extract_and_persist_chunks",
+                side_effect=self._fake_extract,
+            ),
+        ]
+        started = [p.start() for p in patchers]
+        for p in patchers:
+            self.addCleanup(p.stop)
+        #: The stubbed chapter reader — how many times it ran, and with what.
+        self.extract = started[-1]
+
+    def _own_and_ingest(self, chapter_keys):
+        """Reproduce what the async helper does before spawning its worker."""
+        from services.hsat_service import get_or_create_source, ingest_hsat_book
+
+        source = get_or_create_source("10", "Science", "Science")
+        if source.status != "processing":
+            source.status = "processing"
+            source.save(update_fields=["status"])
+        return ingest_hsat_book(
+            "10", "Science", "Science", chapter_keys=chapter_keys
+        )
+
+    def test_reapplying_the_same_chapters_writes_no_duplicate_chunks(self) -> None:
+        from apps.documents.models import DocumentChunk
+
+        self._own_and_ingest(self.KEYS)
+        self.assertEqual(DocumentChunk.objects.count(), 2)
+        first_calls = self.extract.call_count
+
+        source = self._own_and_ingest(self.KEYS)
+
+        self.assertEqual(self.extract.call_count, first_calls)
+        self.assertEqual(DocumentChunk.objects.count(), 2)
+        self.assertEqual(source.status, "ready")
+
+    def test_a_newly_picked_chapter_is_topped_up_alone(self) -> None:
+        from apps.documents.models import DocumentChunk
+
+        self._own_and_ingest([self.KEYS[0]])
+        self.assertEqual(DocumentChunk.objects.count(), 1)
+
+        # Now the teacher also ticks chapter 2. Only chapter 2 is read.
+        self._own_and_ingest(self.KEYS)
+
+        keys_read = [
+            c.kwargs["extra_metadata"]["s3_key"]
+            for c in self.extract.call_args_list
+        ]
+        self.assertEqual(keys_read, [self.KEYS[0], self.KEYS[1]])
+        self.assertEqual(DocumentChunk.objects.count(), 2)
+
+    def test_async_helper_leaves_a_fully_ingested_book_ready(self) -> None:
+        """A re-apply must not park a readable book in "processing" — that
+        row is what blocks generation and shows "Preparing this book…"."""
+        from services.hsat_service import ingest_hsat_book_async
+
+        self._own_and_ingest(self.KEYS)
+        source = ingest_hsat_book_async(
+            "10", "Science", "Science", chapter_keys=self.KEYS
+        )
+
+        self.assertEqual(source.status, "ready")
+
+
+class SubjectDetectionOnIngestTests(TestCase):
+    """A chapter records what subject it looks like, so the Sources panel can
+    warn when a Physics PDF is attached to a Mathematics paper.
+
+    The property that matters is that this is *advisory*: it must never fail
+    an upload, and "no answer" must be stored as null rather than guessed.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.user = User.objects.create(
+            id="test-user-subject-detect",
+            name="Tester",
+            email="subject-detect@test.local",
+        )
+
+    def _source(self) -> PdfSource:
+        return PdfSource.objects.create(
+            name="ch1.pdf", size=10, status="processing", user=self.user
+        )
+
+    def test_confident_detection_is_stored(self) -> None:
+        from services.document_service import _detect_and_store_subject
+
+        source = self._source()
+        with patch(
+            "services.subject_detection_service.detect_subject_from_pdf_buffer",
+            return_value={"detected": True, "subject": "Physics", "confidence": 0.97},
+        ):
+            _detect_and_store_subject(b"%PDF-x", "application/pdf", source)
+
+        source.refresh_from_db()
+        self.assertEqual(source.detected_subject, "Physics")
+        self.assertAlmostEqual(source.subject_confidence, 0.97)
+
+    def test_low_confidence_stores_nothing(self) -> None:
+        """`detected: False` must leave the columns null. A half-guess shown
+        as a mismatch warning is worse than no warning at all."""
+        from services.document_service import _detect_and_store_subject
+
+        source = self._source()
+        with patch(
+            "services.subject_detection_service.detect_subject_from_pdf_buffer",
+            return_value={"detected": False, "subject": None, "confidence": 0.3},
+        ):
+            _detect_and_store_subject(b"%PDF-x", "application/pdf", source)
+
+        source.refresh_from_db()
+        self.assertIsNone(source.detected_subject)
+
+    def test_detector_failure_never_breaks_the_ingest(self) -> None:
+        from services.document_service import _detect_and_store_subject
+
+        source = self._source()
+        with patch(
+            "services.subject_detection_service.detect_subject_from_pdf_buffer",
+            side_effect=RuntimeError("openai down"),
+        ):
+            _detect_and_store_subject(b"%PDF-x", "application/pdf", source)
+
+        source.refresh_from_db()
+        self.assertIsNone(source.detected_subject)
+
+    def test_non_pdf_uploads_are_not_classified(self) -> None:
+        """The detector samples PDF pages; a DOCX has none to read, so it must
+        not be sent to the model at all."""
+        from services.document_service import _detect_and_store_subject
+
+        source = self._source()
+        with patch(
+            "services.subject_detection_service.detect_subject_from_pdf_buffer"
+        ) as detect:
+            _detect_and_store_subject(
+                b"PK\x03\x04",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                source,
+            )
+
+        detect.assert_not_called()
+        self.assertIsNone(source.detected_subject)

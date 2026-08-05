@@ -19,7 +19,6 @@ import {
   FileText,
   Search,
   Trash2,
-  Loader2,
   ArrowLeft,
   MoreHorizontal,
   Eye,
@@ -34,6 +33,8 @@ import {
   Award,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { SkeletonRows } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -371,13 +372,11 @@ export default function QuestionBankPage() {
         </div>
 
         {detailLoading ? (
-          <div className="flex flex-1 items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
+          <Spinner size="page" />
         ) : (
           <div className="flex flex-1 min-h-0">
             {/* ── Left panel: metadata + breakdown (~40%) ──────────── */}
-            <div className="w-[40%] min-w-[320px] overflow-y-auto border-r border-border p-5 sm:p-6 space-y-6">
+            <div className="w-[40%] min-w-[320px] overflow-y-auto border-r border-border p-4 sm:p-6 space-y-6">
               {/* Metadata card */}
               <div className="rounded-lg border border-border bg-card p-4 space-y-3">
                 <h2 className="text-lg font-semibold text-foreground leading-snug">
@@ -400,7 +399,7 @@ export default function QuestionBankPage() {
                     onClick={() =>
                       router.push(`/editor?paperId=${selectedPaperId}`)
                     }
-                    className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
                   >
                     <Eye className="h-3.5 w-3.5" />
                     Open in Editor
@@ -412,7 +411,7 @@ export default function QuestionBankPage() {
                         `/editor?paperId=${selectedPaperId}&action=export-pdf`,
                       )
                     }
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
                   >
                     <FileDown className="h-3.5 w-3.5" />
                     Export PDF
@@ -431,7 +430,7 @@ export default function QuestionBankPage() {
                         type="button"
                         onClick={() => setSelectedSetId(set.id || null)}
                         className={cn(
-                          "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                          "px-3 py-1.5 text-xs font-medium rounded-lg transition-colors",
                           selectedSetId === set.id
                             ? "bg-primary text-primary-foreground"
                             : "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -522,7 +521,7 @@ export default function QuestionBankPage() {
                           .map(([code, count]) => (
                             <span
                               key={code}
-                              className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground"
+                              className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground"
                             >
                               {questionTypeLabel(code)}
                               <span className="font-semibold tabular-nums text-foreground">
@@ -570,10 +569,10 @@ export default function QuestionBankPage() {
                       type="button"
                       disabled={isGenerating}
                       onClick={() => handleGenerateAnswerScript(selectedPaperId, activeSet?.id)}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50"
                     >
                       {isGenerating ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <Spinner className="size-3.5" />
                       ) : (
                         <Key className="h-3.5 w-3.5" />
                       )}
@@ -618,7 +617,7 @@ export default function QuestionBankPage() {
                 something else. The route name is the misleading part, not the
                 nav label. */}
             <h1 className="text-lg font-semibold tracking-tight">Papers</h1>
-            <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+            <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
               {isLoading ? "…" : questionPapers.length}
             </span>
           </div>
@@ -636,7 +635,7 @@ export default function QuestionBankPage() {
             {!isLoading && papers.length > 0 && (
               <AlertDialog>
                 <AlertDialogTrigger
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-destructive/40 bg-background px-2.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-destructive/40 bg-background px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
                   disabled={isClearing}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -679,7 +678,7 @@ export default function QuestionBankPage() {
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Saved Drafts
             </h2>
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+            <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
               {drafts.length}
             </span>
             <span className="text-[11px] text-muted-foreground">
@@ -752,7 +751,7 @@ export default function QuestionBankPage() {
                       e.stopPropagation();
                       void deleteDraft(draft);
                     }}
-                    className="absolute right-1.5 top-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                    className="absolute right-1.5 top-1.5 rounded-sm p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -766,14 +765,7 @@ export default function QuestionBankPage() {
       {/* ── Table ───────────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-auto">
         {isLoading ? (
-          <div className="space-y-px p-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-12 animate-pulse rounded bg-muted/40 mb-1"
-              />
-            ))}
-          </div>
+          <SkeletonRows rows={8} height="h-12" />
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
             <div className="rounded-xl border-2 border-dashed border-border p-6">
@@ -863,7 +855,7 @@ export default function QuestionBankPage() {
                           e.stopPropagation();
                           handleDeletePaper(paper.id);
                         }}
-                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100"
+                        className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>

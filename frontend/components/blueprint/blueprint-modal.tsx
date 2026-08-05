@@ -41,7 +41,6 @@ import {
   BookOpen,
   Check,
   FileStack,
-  Loader2,
   Save,
   X,
 } from "lucide-react";
@@ -70,11 +69,13 @@ import {
   type PaperTemplate,
   type QuestionTypeOption,
 } from "@/lib/api-client";
+import { recomputeTotals } from "@/lib/blueprint-totals";
 import type { AppliedHsatSource } from "@/components/hsat-source-picker";
 
 import { TemplatePickerGrid } from "./template-picker-grid";
 import { SlotEditor } from "./slot-editor";
 import { SourcePanel, type UploadedDoc, type UploadingDoc } from "./source-panel";
+import { Spinner } from "@/components/ui/spinner";
 
 export interface BlueprintSubmission {
   templateId: string;
@@ -109,6 +110,9 @@ interface Props {
   onDismissUpload: (tempId: string) => void;
   onRemoveHsat: (id: string) => void;
   onOpenHsatPicker: () => void;
+  /** "Use anyway" on a subject-mismatch warning — owned by the page, because
+   *  the override lives on the source and outlives this dialog. */
+  onAcceptSubjectMismatch?: (id: string) => void;
 
   detectedSubject?: string;
 
@@ -117,6 +121,14 @@ interface Props {
    * Builder opens on "Describe It Yourself", already resolved from it.
    */
   initialInstructions?: string;
+
+  /**
+   * A template chosen elsewhere — "Use" on the Templates page. The Builder
+   * opens on it already resolved, skipping the picker the teacher just used a
+   * richer version of. Built-in ids and saved-template ids both work; the
+   * catalog decides which is which.
+   */
+  initialTemplateId?: string;
 }
 
 /** The catalog's prose template — `services/template_catalog.py`. */
@@ -143,36 +155,6 @@ const SUBJECTS = [
 ];
 const DIFFICULTIES = ["easy", "medium", "hard"];
 
-/** Totals recomputed on the client so the footer tracks every keystroke. */
-function recomputeTotals(slots: BlueprintSlot[]): Blueprint {
-  const byType: Record<string, number> = {};
-  const sectionOrder: string[] = [];
-  const bySectionMap = new Map<string, { questions: number; marks: number }>();
-
-  for (const slot of slots) {
-    byType[slot.questionType] = (byType[slot.questionType] ?? 0) + 1;
-    if (!bySectionMap.has(slot.sectionTitle)) {
-      bySectionMap.set(slot.sectionTitle, { questions: 0, marks: 0 });
-      sectionOrder.push(slot.sectionTitle);
-    }
-    const entry = bySectionMap.get(slot.sectionTitle)!;
-    entry.questions += 1;
-    entry.marks += slot.marks;
-  }
-
-  return {
-    slots,
-    totalQuestions: slots.length,
-    totalMarks: slots.reduce((sum, s) => sum + s.marks, 0),
-    generatedCount: slots.filter((s) => s.source === "generate").length,
-    savedCount: slots.filter((s) => s.source === "saved").length,
-    byType,
-    bySection: sectionOrder.map((title) => ({
-      title,
-      ...bySectionMap.get(title)!,
-    })),
-  };
-}
 
 export function BlueprintModal({
   open,
@@ -187,8 +169,10 @@ export function BlueprintModal({
   onDismissUpload,
   onRemoveHsat,
   onOpenHsatPicker,
+  onAcceptSubjectMismatch,
   detectedSubject,
   initialInstructions,
+  initialTemplateId,
 }: Props) {
   const [step, setStep] = React.useState<Step>("template");
   const [builtin, setBuiltin] = React.useState<BuiltinTemplate[]>([]);
@@ -284,10 +268,12 @@ export function BlueprintModal({
         if (result.template?.instructions) {
           setInstructions(result.template.instructions);
         }
-        // Land on the step that has something to show. A blank or prose
-        // template has no slots yet, so jumping to Questions would present an
-        // empty list as if something had gone wrong.
-        setStep(result.blueprint.slots.length > 0 ? "questions" : "sources");
+        // Always hand over to Sources. Skipping ahead to Questions when the
+        // template happened to resolve slots was a shortcut that skipped the
+        // one step the paper cannot be generated without — a teacher who
+        // never sees step 2 has no chapter attached, and finds out only when
+        // generation produces nothing.
+        setStep("sources");
       } catch (error: any) {
         console.error("Template resolve failed:", error);
         toast.error(
@@ -325,6 +311,50 @@ export function BlueprintModal({
     setInstructions(brief);
     void applyTemplate(DESCRIBE_TEMPLATE_ID, "instructions", brief);
   }, [open, initialInstructions, builtin.length, applyTemplate]);
+
+  // ── Opened from the Templates page with a chosen template ───────────────
+  // Same shape as the brief handoff above, and guarded the same way: the
+  // effect's own action changes state it depends on, so without a record of
+  // what was already applied it would re-resolve on every render.
+  //
+  // A brief wins if both arrive. "Describe It Yourself" resolved from what the
+  // teacher just typed is a more specific instruction than a template id that
+  // has been sitting in the store since the last navigation.
+  const appliedTemplateRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!open) {
+      appliedTemplateRef.current = null;
+      return;
+    }
+    const wanted = (initialTemplateId || "").trim();
+    if (!wanted || appliedTemplateRef.current === wanted) return;
+    if ((initialInstructions || "").trim()) return;
+    // Wait for the catalog: `applyTemplate` reads the entry for its name, kind
+    // and — for a board template — the subject and class it should adopt.
+    if (builtin.length === 0 && saved.length === 0) return;
+
+    const match =
+      saved.find((t) => t.id === wanted) ?? builtin.find((t) => t.id === wanted);
+    if (!match) {
+      // Deleted between navigating and arriving. Leaving the picker open is
+      // the right outcome; a toast about an id the teacher never saw is not.
+      appliedTemplateRef.current = wanted;
+      return;
+    }
+
+    appliedTemplateRef.current = wanted;
+    void applyTemplate(
+      wanted,
+      "builtin" in match && match.builtin ? match.kind : "saved",
+    );
+  }, [
+    open,
+    initialTemplateId,
+    initialInstructions,
+    builtin,
+    saved,
+    applyTemplate,
+  ]);
 
   const handleSlotsChange = (slots: BlueprintSlot[]) => {
     setBlueprint(recomputeTotals(slots));
@@ -419,7 +449,7 @@ export function BlueprintModal({
             type="button"
             aria-label="Close"
             onClick={() => onOpenChange(false)}
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="size-4" />
           </button>
@@ -479,7 +509,7 @@ export function BlueprintModal({
                   <select
                     value={academicClass}
                     onChange={(e) => setAcademicClass(e.target.value)}
-                    className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
                   >
                     {CLASSES.map((c) => (
                       <option key={c} value={c}>
@@ -495,7 +525,7 @@ export function BlueprintModal({
                   <select
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
-                    className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
                   >
                     {SUBJECTS.map((s) => (
                       <option key={s} value={s}>
@@ -511,7 +541,7 @@ export function BlueprintModal({
                   <select
                     value={difficulty}
                     onChange={(e) => setDifficulty(e.target.value)}
-                    className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs capitalize"
+                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs capitalize"
                   >
                     {DIFFICULTIES.map((d) => (
                       <option key={d} value={d}>
@@ -532,7 +562,7 @@ export function BlueprintModal({
                     <select
                       value={mathLevel}
                       onChange={(e) => setMathLevel(e.target.value)}
-                      className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                      className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
                     >
                       <option value="standard">Standard (041)</option>
                       <option value="basic">Basic (241)</option>
@@ -546,7 +576,7 @@ export function BlueprintModal({
                   <select
                     value={numberOfSets}
                     onChange={(e) => setNumberOfSets(e.target.value)}
-                    className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
                   >
                     <option value="1">1 set (A)</option>
                     <option value="2">2 sets (A, B)</option>
@@ -558,16 +588,9 @@ export function BlueprintModal({
           </nav>
 
           {/* Step content */}
-          <div className="min-w-0 flex-1 overflow-y-auto p-5">
+          <div className="min-w-0 flex-1 overflow-y-auto p-6">
             {resolving ? (
-              <div className="flex h-full items-center justify-center">
-                <div className="text-center">
-                  <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    Preparing the blueprint…
-                  </p>
-                </div>
-              </div>
+              <Spinner size="page" label="Preparing the blueprint…" />
             ) : step === "template" ? (
               <TemplatePickerGrid
                 builtin={builtin}
@@ -589,6 +612,11 @@ export function BlueprintModal({
                   onDismissUpload={onDismissUpload}
                   onRemoveHsat={onRemoveHsat}
                   onOpenHsatPicker={onOpenHsatPicker}
+                  // The paper's own subject is the thing an uploaded chapter
+                  // has to agree with — cross-checking the uploads only
+                  // against each other lets a single wrong-subject PDF pass.
+                  expectedSubject={subject}
+                  onAcceptSubjectMismatch={onAcceptSubjectMismatch}
                 />
 
                 {templateKind === "instructions" || instructions ? (
@@ -601,7 +629,7 @@ export function BlueprintModal({
                       onChange={(e) => setInstructions(e.target.value)}
                       rows={4}
                       placeholder="e.g. Weekly test on photosynthesis, mostly recall, 20 marks, half an hour"
-                      className="w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      className="w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                     />
                     <Button
                       type="button"
@@ -663,7 +691,7 @@ export function BlueprintModal({
                   onClick={handleSaveTemplate}
                 >
                   {savingTemplate ? (
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <Spinner className="size-3.5" />
                   ) : (
                     <Save className="size-3.5" />
                   )}
@@ -705,7 +733,7 @@ export function BlueprintModal({
               >
                 {generating ? (
                   <>
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <Spinner className="size-3.5" />
                     Generating…
                   </>
                 ) : (

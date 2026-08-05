@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "@/lib/auth-client";
+import { ensureFreshTokens, useSession } from "@/lib/auth-client";
 import { fetchJson } from "@/lib/api-client";
 import { getCognitoAccessToken } from "@/lib/token-storage";
 import { cognitoSignIn, cognitoChangePassword } from "@/lib/cognito-client";
@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
 import {
   Cpu,
   RefreshCw,
@@ -28,6 +29,7 @@ import {
   Paintbrush,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ui/curtain-theme-toggle";
+import { BrandKitCard } from "@/components/settings/brand-kit-card";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -109,6 +111,10 @@ function ChangePasswordModal({
     }
     setIsSaving(true);
     try {
+      // ChangePassword needs a live Cognito access token, and this call never
+      // passes through the 401-retry in api-client — renew it here or an idle
+      // hour turns into "Access Token has expired".
+      await ensureFreshTokens();
       const accessToken = getCognitoAccessToken();
       if (!accessToken) {
         throw new Error("No active Cognito session found. Please sign in again.");
@@ -134,7 +140,7 @@ function ChangePasswordModal({
       />
 
       {/* Modal panel */}
-      <div className="relative z-10 w-full max-w-md mx-4 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-background rounded-2xl border border-border shadow-2xl p-5 sm:p-6">
+      <div className="relative z-10 w-full max-w-md mx-4 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-background rounded-2xl border border-border shadow-2xl p-4 sm:p-6">
         {/* Close button */}
         <button
           type="button"
@@ -281,7 +287,7 @@ function ChangePasswordModal({
                         newPassword &&
                         confirmPassword === newPassword &&
                         newPassword !== currentPassword
-                        ? "border-green-500 focus-visible:ring-green-500/30"
+                        ? "border-success focus-visible:ring-success/30"
                         : confirmPassword && confirmPassword !== newPassword
                           ? "border-destructive focus-visible:ring-destructive/30"
                           : "",
@@ -393,9 +399,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="text-muted-foreground text-sm py-4">
-              Loading user profile…
-            </div>
+            <SkeletonRows rows={4} height="h-5" className="p-0" />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4 text-sm">
               <div className="space-y-1">
@@ -448,9 +452,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {isLoading ? (
-            <div className="py-8 flex items-center justify-center text-muted-foreground text-sm">
-              Loading usage metrics…
-            </div>
+            <Skeleton className="h-[8.5rem] w-full rounded-xl" />
           ) : (
             <div className="flex flex-col items-center justify-center py-8 bg-muted/20 border border-border rounded-xl">
               <span className="text-5xl font-extrabold tracking-tight text-foreground">
@@ -468,7 +470,11 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Row 3 — Appearance (full width) */}
+      {/* Row 3 — Institute branding. Sits above Appearance because it changes
+          what goes on a printed paper, not what the app looks like. */}
+      <BrandKitCard />
+
+      {/* Row 4 — Appearance (full width) */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">

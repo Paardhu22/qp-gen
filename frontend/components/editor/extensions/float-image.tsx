@@ -2,15 +2,18 @@
 
 import { API_BASE_URL } from "@/lib/api-base-url";
 import { Node, mergeAttributes } from "@tiptap/core";
+import type { Editor } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import React, { useEffect, useRef, useState } from "react";
 import { AlignLeft, AlignCenter, AlignRight, Trash } from "lucide-react";
+import { requestRepagination } from "./pagination-engine";
 
 interface FloatImageProps {
   node: any;
   updateAttributes: (attrs: Record<string, any>) => void;
   deleteNode: () => void;
   selected: boolean;
+  editor: Editor;
 }
 
 // Backend emits source-image URLs as relative paths (`/media/pdf_images/...`)
@@ -79,6 +82,7 @@ const FloatImageComponent = ({
   updateAttributes,
   deleteNode,
   selected,
+  editor,
 }: FloatImageProps) => {
   const [isResizing, setIsResizing] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -219,12 +223,21 @@ const FloatImageComponent = ({
             </button>
           </div>
 
-          {/* Image */}
+          {/* Image.
+              `onLoad` is a layout signal, not a UI one. Until the bytes
+              arrive this <img> is `width: 100%; height: auto` with no
+              intrinsic size, i.e. ~0px tall, and the pagination engine will
+              happily lay out a page around a figure that is not there yet.
+              Decoding is not a document change, so nothing else tells the
+              engine to re-measure. The engine's resize observer now catches
+              this too; asking directly is a frame earlier and does not
+              depend on the figure's parent faithfully passing the growth on. */}
           <img
             src={resolveFigureSrc(src)}
             alt={alt || ""}
             draggable={false}
             className="float-image-img"
+            onLoad={() => requestRepagination(editor)}
             onError={() => setLoadFailed(true)}
           />
 

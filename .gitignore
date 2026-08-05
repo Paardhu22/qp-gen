@@ -56,6 +56,10 @@ backend/media/
 backend/*.sqlite3
 backend/*.sqlite3-journal
 backend/*.sqlite3.bak
+# WAL sidecars — SQLite runs in WAL mode now (apps/common/db_pragmas.py)
+backend/*.sqlite3-wal
+backend/*.sqlite3-shm
+backend/*.premigrate.bak
 
 /lib/generated/prisma
 

@@ -121,6 +121,35 @@ class HsatChaptersView(APIView):
         )
 
 
+class HsatSourceStatusView(APIView):
+    """Readiness of one already-applied book, by HsatSource id.
+
+    The picker no longer blocks on ingestion — it applies the book and
+    closes — so something has to tell the Sources panel when the chapters
+    have landed. Polling ``/api/hsat/catalog/`` for that walked every book
+    in the catalog and ran a status query per book; this is the same answer
+    in one row lookup, which is what a 5-second poll should cost.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, source_id: str):
+        source = HsatSource.objects.filter(id=source_id).first()
+        if source is None:
+            return Response({"error": "Unknown HSAT source."}, status=404)
+        return Response(
+            {
+                "hsat_source_id": source.id,
+                "grade": source.grade,
+                "subject": source.subject,
+                "book": source.book,
+                "status": source.status,
+                "chunk_count": source.chunk_count,
+                "error": source.error,
+            }
+        )
+
+
 class HsatIngestView(APIView):
     """Trigger ingestion of a single HSAT book."""
 

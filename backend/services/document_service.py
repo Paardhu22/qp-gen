@@ -15,6 +15,7 @@ from docx import Document as DocxDocument
 from services.chunking_service import chunk_text
 from services.content_filters import strip_vi_blocks
 from services.embedding_service import generate_embeddings
+from services.ingest_concurrency import ingest_slot
 from services.media_urls import stable_media_url
 from services.pdf_service import extract_text_from_pdf
 from services.semantic_pipeline import SemanticChunk, process_semantic_pipeline
@@ -66,10 +67,63 @@ def _scan_with_av(buffer: bytes, file_name: str) -> tuple[bool, Optional[str]]:
         return True, None
 
 
+def _detect_and_store_subject(
+    buffer: bytes, file_type: str, pdf_source: PdfSource
+) -> None:
+    """Record what subject this document looks like. Never fails an ingest.
+
+    A wrong or missing answer here must cost the teacher nothing: the field is
+    advisory, read only by the Sources panel to raise a dismissable warning
+    when the chapter's subject disagrees with the paper's. So every failure
+    path — no API key, no extractable text, a model timeout — leaves the
+    columns null, which the UI reads as "no opinion".
+    """
+    if "pdf" not in (file_type or "").lower():
+        # The detector reads pages out of a PDF; a DOCX/TXT upload has no
+        # first pages to sample. Leaving it undetected is correct.
+        return
+
+    try:
+        from services.subject_detection_service import detect_subject_from_pdf_buffer
+
+        result = detect_subject_from_pdf_buffer(buffer)
+    except Exception:
+        logger.warning(
+            "Subject detection raised for %s; continuing without it",
+            pdf_source.id,
+            exc_info=True,
+        )
+        return
+
+    if not result.get("detected"):
+        logger.debug(
+            "No confident subject for %s: %s",
+            pdf_source.id,
+            result.get("error") or "low confidence",
+        )
+        return
+
+    pdf_source.detected_subject = result.get("subject")
+    pdf_source.subject_confidence = result.get("confidence")
+    try:
+        pdf_source.save(
+            update_fields=["detected_subject", "subject_confidence", "updated_at"]
+        )
+    except Exception:
+        logger.warning(
+            "Could not persist detected subject for %s", pdf_source.id, exc_info=True
+        )
+
+
 def _process_pdf_internal(
     buffer: bytes, file_name: str, file_type: str, pdf_source: PdfSource, user
 ) -> None:
     """User-upload entry: process a PDF/DOCX/TXT into chunks under `pdf_source`."""
+    # Classify before chunking, so the answer is on the row by the time the
+    # status poll first reports "ready" and the Sources panel can warn in the
+    # same tick it shows the upload as usable.
+    _detect_and_store_subject(buffer, file_type, pdf_source)
+
     extract_and_persist_chunks(
         buffer=buffer,
         file_name=file_name,
@@ -172,15 +226,32 @@ def extract_and_persist_chunks(
 
     text_chunk_count = len(chunks)
 
-    image_chunks = _build_image_chunks(
-        pdf_source=pdf_source,
-        hsat_source=hsat_source,
-        file_name=file_name,
-        images=images,
-        pages=pages,
-        start_index=len(chunks),
-        user=user,
-    )
+    # Figure chunks cost one S3 PUT each, up to PDF_IMAGE_MAX_CAPTIONS per
+    # chapter, and they are the reason "apply this source" felt like an
+    # upload rather than a selection. Nothing in the paper pipeline reads
+    # them (see INGEST_EXTRACT_FIGURES), so by default we skip them —
+    # unless the document has no extractable text at all, in which case the
+    # figures ARE the document and dropping them would turn a scanned
+    # chapter into a failed ingest.
+    text_only = not extracted_text.strip()
+    if getattr(settings, "INGEST_EXTRACT_FIGURES", False) or text_only:
+        image_chunks = _build_image_chunks(
+            pdf_source=pdf_source,
+            hsat_source=hsat_source,
+            file_name=file_name,
+            images=images,
+            pages=pages,
+            start_index=len(chunks),
+            user=user,
+        )
+    else:
+        image_chunks = []
+        if images:
+            logger.debug(
+                "Skipping %d figure(s) in %s — INGEST_EXTRACT_FIGURES is off.",
+                len(images),
+                file_name,
+            )
     chunks.extend(image_chunks)
 
     if not chunks:
@@ -195,12 +266,16 @@ def extract_and_persist_chunks(
     # DocumentChunk rows are being written.
     from django.db.models import F  # local import — avoids circular at top
 
-    batch_size = 50
+    batch_size = int(getattr(settings, "INGEST_EMBED_BATCH_SIZE", 256))
+    embed = bool(getattr(settings, "INGEST_EMBEDDINGS_ENABLED", True))
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
-        embeddings = generate_embeddings(
-            [chunk.content for chunk in batch], user=user
-        )
+        if embed:
+            embeddings = generate_embeddings(
+                [chunk.content for chunk in batch], user=user
+            )
+        else:
+            embeddings = [None] * len(batch)
 
         DocumentChunk.objects.bulk_create(
             [
@@ -387,13 +462,21 @@ def _spawn_pdf_worker(
 
     def _worker() -> None:
         try:
-            # Re-fetch inside the worker's connection so we mutate a row this
-            # thread owns, not the parent request's (soon-closed) instance.
-            src = PdfSource.objects.get(id=source_id)
-            _process_pdf_internal(buffer, file_name, file_type, src, user)
-            warnings = getattr(src, "warnings", []) or []
-            if warnings:
-                logger.info("PDF %s ingested with warnings: %s", source_id, warnings)
+            # Bounded, and acquired HERE rather than around thread creation:
+            # blocking the request thread would defeat the point of ingesting
+            # in the background. Uploading fifteen chapters at once used to
+            # start fifteen of these, which oversubscribes the write lock and
+            # the embeddings quota simultaneously.
+            with ingest_slot(f"pdf-{source_id}"):
+                # Re-fetch inside the worker's connection so we mutate a row
+                # this thread owns, not the parent request's (soon-closed)
+                # instance. Done after the wait, so a queued job picks up the
+                # row as it is when it actually starts.
+                src = PdfSource.objects.get(id=source_id)
+                _process_pdf_internal(buffer, file_name, file_type, src, user)
+                warnings = getattr(src, "warnings", []) or []
+                if warnings:
+                    logger.info("PDF %s ingested with warnings: %s", source_id, warnings)
         except Exception as exc:
             logger.exception("Background PDF ingest failed for %s", source_id)
             try:

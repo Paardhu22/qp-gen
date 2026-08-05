@@ -241,7 +241,7 @@ export function ReviewTray() {
                       key={item.id}
                       className={`p-3 border rounded-lg transition-colors ${
                         isInserted
-                          ? "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/20 opacity-90"
+                          ? "border-success/30 bg-success/10 opacity-90"
                           : isSelected
                             ? "border-primary bg-primary/60 dark:bg-primary/10"
                             : "border-border bg-muted/60 dark:bg-card/40"
@@ -259,7 +259,7 @@ export function ReviewTray() {
                         ) : (
                           <input
                             type="checkbox"
-                            className="mt-1 rounded border-border text-primary focus:ring-primary"
+                            className="mt-1 rounded-sm border-border text-primary focus:ring-primary"
                             checked={isSelected}
                             onChange={() => toggleSelect(item.id)}
                           />
@@ -321,7 +321,7 @@ export function ReviewTray() {
                               {item.question.options.map((opt, idx) => (
                                 <div
                                   key={idx}
-                                  className="text-[11px] text-muted-foreground border border-border p-1 rounded bg-white/70 dark:bg-card/40"
+                                  className="text-[11px] text-muted-foreground border border-border p-1 rounded-sm bg-white/70 dark:bg-card/40"
                                 >
                                   {String.fromCharCode(65 + idx)}. {opt}
                                 </div>

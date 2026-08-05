@@ -72,7 +72,7 @@ function TypeSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
     >
       {/* A type the server no longer offers must still render, or editing any
           other field on this slot would silently rewrite its type. */}
@@ -100,7 +100,7 @@ function SourceToggle({
   onChange: (source: SlotSource) => void;
 }) {
   return (
-    <div className="inline-flex overflow-hidden rounded-md border border-input">
+    <div className="inline-flex overflow-hidden rounded-lg border border-input">
       {(
         [
           ["generate", "New", null],
@@ -350,7 +350,7 @@ export function SlotEditor({ slots, questionTypes, totals, onChange }: Props) {
                     type="button"
                     aria-label={`Remove question ${slot.index}`}
                     onClick={() => removeSlot(index)}
-                    className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                   >
                     <Trash2 className="size-3.5" />
                   </button>

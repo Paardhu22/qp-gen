@@ -178,12 +178,56 @@ export async function cognitoChangePassword(accessToken: string, oldPassword: st
   });
 }
 
-export async function cognitoSignOut(accessToken: string): Promise<any> {
-  try {
-    return await callCognito("GlobalSignOut", {
-      AccessToken: accessToken,
-    });
-  } catch (e) {
-    console.warn("Cognito Global Sign Out warning:", e);
+/**
+ * Revoke a refresh token (and every access token minted from it).
+ *
+ * This is the fallback for sign-out: GlobalSignOut needs a *live* access token,
+ * and the token is often already expired by the time someone signs out (they
+ * left the tab open over lunch). RevokeToken authenticates with the refresh
+ * token instead, which outlives the access token by ~30 days, so the server-side
+ * session actually ends. Public app client → no ClientSecret.
+ */
+export async function cognitoRevokeToken(refreshToken: string): Promise<any> {
+  return callCognito("RevokeToken", {
+    ClientId: COGNITO_CLIENT_ID,
+    Token: refreshToken,
+  });
+}
+
+/**
+ * End the session on Cognito's side. Best effort by design — the caller clears
+ * local tokens regardless — but it must *try* both mechanisms, because leaving
+ * the refresh token live means a stolen copy of localStorage still mints
+ * sessions long after the user believes they signed out.
+ *
+ * Returns whether the session was revoked server-side, so the caller can decide
+ * whether the failure is worth surfacing.
+ */
+export async function cognitoSignOut(
+  accessToken: string | null,
+  refreshToken?: string | null,
+): Promise<boolean> {
+  if (accessToken) {
+    try {
+      await callCognito("GlobalSignOut", { AccessToken: accessToken });
+      return true;
+    } catch (e: any) {
+      // An expired access token here is the expected case, not an anomaly —
+      // fall through to RevokeToken rather than logging noise.
+      if (e?.name !== "NotAuthorizedException") {
+        console.warn("Cognito GlobalSignOut failed:", e);
+      }
+    }
   }
+
+  if (refreshToken) {
+    try {
+      await cognitoRevokeToken(refreshToken);
+      return true;
+    } catch (e) {
+      console.warn("Cognito RevokeToken failed:", e);
+    }
+  }
+
+  return false;
 }

@@ -4,9 +4,11 @@ import { BlueprintModal, type BlueprintSubmission } from "@/components/blueprint
 import { ReviewTray } from "@/components/review-tray";
 import { DocumentOutline } from "@/components/editor/document-outline";
 import { GenerateDock } from "@/components/editor/generate-dock";
+import { BuildFromBankDialog } from "@/components/editor/build-from-bank-dialog";
 import { HsatSourcePicker } from "@/components/hsat-source-picker";
 import { usePaperGeneration } from "@/lib/use-paper-generation";
 import { useSourceUploads } from "@/lib/use-source-uploads";
+import { useHsatReadiness } from "@/lib/use-hsat-readiness";
 import { TiptapEditor, normalizeInitialContent } from "@/components/tiptap-editor";
 import { ComparisonWorkspace } from "@/components/comparison-workspace";
 import { useEditorStore } from "@/store/editor-store";
@@ -23,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -144,6 +147,8 @@ export default function EditorPage() {
   const [editorInstanceKey, setEditorInstanceKey] = useState(0);
 
   const clearComparisonSets = useEditorStore((s) => s.clearComparisonSets);
+  const comparisonSetsPaperId = useEditorStore((s) => s.comparisonSetsPaperId);
+  const setActiveEditorPaperId = useEditorStore((s) => s.setActiveEditorPaperId);
   // Drives the review tray's visibility. Read here rather than inside the tray
   // so an empty tray costs nothing to render.
   const insertionMode = useEditorStore((s) => s.insertionMode);
@@ -221,14 +226,42 @@ export default function EditorPage() {
   const [outlineOpen, setOutlineOpen] = useState(true);
   const [dockOpen, setDockOpen] = useState(true);
 
+  // A template picked on the Templates page. Held here so the Builder opens on
+  // it already resolved instead of on the picker the teacher just used a
+  // richer version of.
+  const [builderTemplateId, setBuilderTemplateId] = useState("");
+  // Assembling from the bank is not generation — no model writes anything — so
+  // it is its own dialog rather than a fourth step in the Builder.
+  const [bankDialogOpen, setBankDialogOpen] = useState(false);
+
   const openBuilder = useCallback((brief?: string) => {
     setBuilderBrief(brief ?? "");
+    setBuilderTemplateId("");
     setBlueprintOpen(true);
   }, []);
+
+  // ── "Use" on the Templates page lands here ──────────────────────────────
+  // Consumed once and cleared, exactly like the dashboard assistant's spec
+  // handoff: without the clear, every later return to the editor would reopen
+  // the Builder over whatever the teacher is editing.
+  const templateHandoff = useEditorStore((s) => s.templateHandoff);
+  const setTemplateHandoff = useEditorStore((s) => s.setTemplateHandoff);
+  useEffect(() => {
+    if (!templateHandoff) return;
+    setBuilderBrief("");
+    setBuilderTemplateId(templateHandoff.id);
+    setBlueprintOpen(true);
+    setTemplateHandoff(null);
+  }, [templateHandoff, setTemplateHandoff]);
 
   // Uploads live on the page, not in the modal: a teacher who starts a large
   // upload and closes the Builder must come back to a finished upload.
   const uploads = useSourceUploads(uploadedDocs, setUploadedDocs);
+
+  // Same reason, other source kind: the library picker applies a book and
+  // closes instead of blocking on its ingest, so the page is what watches a
+  // still-indexing book turn ready.
+  useHsatReadiness(hsatSources, setHsatSources);
 
   const generation = usePaperGeneration({
     onSourcesNotReady: uploads.reconcileNotReady,
@@ -313,6 +346,20 @@ export default function EditorPage() {
       router.replace(`/editor?paperId=${paperId}`);
     }
   }, [rawPaperIdParam, paperId, router]);
+
+  // Sync the currently open paperId so generated sets get stamped with it.
+  useEffect(() => {
+    setActiveEditorPaperId(paperId);
+  }, [paperId, setActiveEditorPaperId]);
+
+  // Prevent volatile generated sets from bleeding into another paper if the teacher
+  // generates sets for paper A, navigates away without approving, and opens paper B.
+  // We also clear if comparisonSetsPaperId is missing (legacy sets from before this fix).
+  useEffect(() => {
+    if (paperId && comparisonSets.length > 0 && comparisonSetsPaperId !== paperId) {
+      clearComparisonSets();
+    }
+  }, [paperId, comparisonSets.length, comparisonSetsPaperId, clearComparisonSets]);
 
   // Deep-link to a specific set (A/B/C) from the Papers page's per-set
   // Preview / Export / Print actions. Only re-applies on an actual navigation
@@ -956,6 +1003,7 @@ export default function EditorPage() {
         open={blueprintOpen}
         onOpenChange={setBlueprintOpen}
         initialInstructions={builderBrief}
+        initialTemplateId={builderTemplateId}
         onGenerate={handleGenerate}
         generating={generation.isGenerating}
         uploadedDocs={uploadedDocs}
@@ -964,10 +1012,23 @@ export default function EditorPage() {
         onFiles={uploads.uploadFiles}
         onRemoveDoc={uploads.removeDoc}
         onDismissUpload={uploads.dismissUpload}
+        onAcceptSubjectMismatch={uploads.acceptSubjectMismatch}
+        // Seed the subject field from the first chapter that had a confident
+        // answer. The Builder only applies this before a template is chosen,
+        // so it fills a blank rather than fighting the teacher.
+        detectedSubject={uploadedDocs.find((d) => d.subject)?.subject}
         onRemoveHsat={(id) =>
           setHsatSources((prev) => prev.filter((s) => s.id !== id))
         }
         onOpenHsatPicker={() => setHsatPickerOpen(true)}
+      />
+
+      {/* Assemble from already-saved questions. This carries what `/build-paper`
+          used to be: the only entry point to `paper-from-bank`
+          (`services/pool/from_bank.py`), which skips Model 1 entirely. */}
+      <BuildFromBankDialog
+        open={bankDialogOpen}
+        onOpenChange={setBankDialogOpen}
       />
 
       {/* The library picker, opened from inside the Builder's Sources step.
@@ -996,7 +1057,7 @@ export default function EditorPage() {
         <div className="flex h-11 min-h-11 flex-shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:px-4">
           <span className="min-w-0 truncate text-[14px]">
             {paperLoading ? (
-              <span className="block h-3.5 w-40 animate-pulse rounded bg-muted" />
+              <Skeleton className="block h-3.5 w-40" />
             ) : paperError ? (
               <span className="text-destructive">{paperError}</span>
             ) : (
@@ -1022,6 +1083,7 @@ export default function EditorPage() {
               open={dockOpen}
               onOpenChange={setDockOpen}
               onOpenBuilder={openBuilder}
+              onBuildFromBank={() => setBankDialogOpen(true)}
               generating={generation.isGenerating}
               status={generation.poolStatus}
               insertedCount={generation.liveInsertedCount}
@@ -1225,22 +1287,22 @@ export default function EditorPage() {
           </div>
           <div className="flex-1 overflow-y-auto min-h-[300px] pr-2 space-y-3">
             {browserLoading ? (
-              <div className="space-y-3">
+              <div role="status" aria-live="polite" aria-label="Loading" className="space-y-3">
                 {[1, 2, 3].map((i) => (
                   <div
                     key={i}
-                    className="p-3 border border-border rounded-md animate-pulse"
+                    className="rounded-lg border border-border p-3"
                   >
-                    <div className="flex justify-between mb-2">
+                    <div className="mb-2 flex justify-between">
                       <div className="flex gap-2">
-                        <div className="h-4 w-12 bg-muted rounded"></div>
-                        <div className="h-4 w-16 bg-muted rounded"></div>
-                        <div className="h-4 w-20 bg-primary/10 dark:bg-primary/30 rounded"></div>
+                        <Skeleton className="h-4 w-12" />
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-20" />
                       </div>
-                      <div className="h-4 w-10 bg-muted rounded"></div>
+                      <Skeleton className="h-4 w-10" />
                     </div>
-                    <div className="h-3 w-full bg-muted rounded mt-1"></div>
-                    <div className="h-3 w-5/6 bg-muted rounded mt-1"></div>
+                    <Skeleton className="mt-1 h-3 w-full" />
+                    <Skeleton className="mt-1 h-3 w-5/6" />
                   </div>
                 ))}
               </div>
@@ -1255,7 +1317,7 @@ export default function EditorPage() {
                   <div
                     key={q.id}
                     onClick={() => toggleQuestionSelection(q.id)}
-                    className={`p-3 border rounded-md cursor-pointer transition-colors ${
+                    className={`p-3 border rounded-lg cursor-pointer transition-colors ${
                       isSelected
                         ? "border-primary bg-primary/10 dark:bg-primary/10"
                         : "border-border hover:border-border"
@@ -1263,13 +1325,13 @@ export default function EditorPage() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                        <span className="bg-muted px-2 py-0.5 rounded">
+                        <span className="bg-muted px-2 py-0.5 rounded-sm">
                           {q.class}
                         </span>
-                        <span className="bg-muted px-2 py-0.5 rounded">
+                        <span className="bg-muted px-2 py-0.5 rounded-sm">
                           {q.subject}
                         </span>
-                        <span className="bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary px-2 py-0.5 rounded">
+                        <span className="bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary px-2 py-0.5 rounded-sm">
                           {q.topic}
                         </span>
                       </div>

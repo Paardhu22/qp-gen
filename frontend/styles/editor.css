@@ -156,56 +156,61 @@
         }
 
         .paper-header-shell {
-          display: grid;
-          grid-template-columns: 96px 1fr 24px;
-          column-gap: 12px;
-          align-items: start;
+          border: 1px solid hsl(var(--border));
+          border-radius: 0.5rem 0.5rem 0 0;
+          padding: 1rem;
+          background: #ffffff;
+          position: relative;
+          /* The logo sits beside the masthead rather than above it, so the
+             title stays optically centred on the page even with a crest in
+             one corner. `align-items: flex-start` keeps a tall logo from
+             stretching the text column. */
+          display: flex;
+          align-items: flex-start;
+          gap: 0.75rem;
         }
 
-        .paper-header-logo-area {
-          width: 88px;
-          height: 88px;
-          border: none;
-          display: flex;
+        .paper-header-logo-wrap {
+          position: relative;
+          flex: 0 0 auto;
+          line-height: 0;
+        }
+
+        .paper-header-logo {
+          display: block;
+          height: auto;
+          /* Width is set inline from the node attribute; height follows from
+             the intrinsic ratio so the two can never disagree. */
+          object-fit: contain;
+        }
+
+        .paper-header-logo-wrap .logo-remove-btn {
+          position: absolute;
+          top: -6px;
+          right: -6px;
+          display: none;
           align-items: center;
           justify-content: center;
-          cursor: pointer;
+          width: 16px;
+          height: 16px;
+          border-radius: 9999px;
+          background: hsl(var(--destructive));
+          color: #fff;
         }
 
-        .paper-header-logo-area.is-empty {
-          border: 1px dashed #bbb;
-          color: #888;
-        }
-
-        @media print {
-          .paper-header-logo-area.is-empty {
-            border: none;
-          }
-        }
-
-        .logo-placeholder {
+        .paper-header-block:hover .logo-remove-btn {
           display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 4px;
-          color: #000000;
-        }
-
-        .logo-remove-btn {
-          border: 1px solid #000000;
-          border-radius: 999px;
-          padding: 2px;
-          background: #ffffff;
-          opacity: 0;
-          transition: opacity 0.2s ease;
-        }
-
-        .paper-header-logo-area.has-logo:hover .logo-remove-btn {
-          opacity: 1;
         }
 
         .paper-header-content {
           text-align: center;
+        }
+
+        /* The text column takes the remaining width in both layouts, so a
+           right-aligned crest does not push the masthead off-centre. */
+        .paper-header-shell > div:not(.paper-header-logo-wrap):not(.paper-header-actions) {
+          flex: 1 1 auto;
+          min-width: 0;
         }
 
         .paper-header-content h1 {
@@ -237,20 +242,21 @@
         .paper-header-block table {
           width: 100%;
           border-collapse: collapse;
-          margin-top: 6px;
+          margin-top: 1rem;
           border: none !important;
         }
 
         .paper-header-block td,
         .paper-header-block th {
           border: none !important;
-          padding: 2px 0;
-          font-size: 11pt;
+          padding: 4px 8px;
+          font-size: 10pt;
+          text-align: center;
         }
 
-        .paper-header-block td:last-child,
-        .paper-header-block th:last-child {
-          text-align: right;
+        .paper-header-block th {
+          font-weight: 700;
+          text-transform: uppercase;
         }
 
         /* Cluster C.2 — paper header Date field */
@@ -352,23 +358,26 @@
 
         .section-header {
           display: block;
-          text-align: center;
-          padding: 2px 0;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          font-size: 10pt;
+          text-align: left;
+          padding: 4px 0;
         }
 
         .section-title {
-          display: inline;
+          display: inline-block;
+          background-color: #4b5563;
+          color: white;
+          padding: 4px 12px;
+          border-radius: 4px;
+          font-weight: 700;
+          font-size: 11pt;
+          text-transform: uppercase;
         }
 
         .section-summary {
-          display: inline;
+          display: inline-block;
           margin-left: 8px;
-          text-transform: none;
-          letter-spacing: 0;
+          font-style: italic;
+          color: hsl(var(--muted-foreground));
           font-size: 10pt;
         }
 
@@ -775,17 +784,18 @@
         /* ===== Instruction Block ===== */
         .instruction-block {
           position: relative;
-          margin: 10px 0;
+          margin: 0 0 10px 0;
           padding: 8px 10px;
-          border: 1px solid #000000;
-          background: #ffffff;
+          border: 1px solid hsl(var(--border));
+          border-top: none;
+          border-radius: 0 0 0.5rem 0.5rem;
+          background: #f3f4f6;
           break-inside: avoid;
           page-break-inside: avoid;
         }
 
         .instruction-header {
           font-weight: 700;
-          text-transform: uppercase;
           font-size: 10pt;
           margin-bottom: 4px;
         }
@@ -1336,14 +1346,10 @@
           .question-group-controls,
           .block-drag-handle,
           .paper-header-delete,
-          .logo-remove-btn,
+          .instruction-delete,
           .drawing-delete,
           .float-image-hide-in-pdf {
             display: none !important;
-          }
-
-          .paper-header-logo-area.is-empty {
-            display: none;
           }
 
           #tiptap-paper-container [data-type="page-break"] {

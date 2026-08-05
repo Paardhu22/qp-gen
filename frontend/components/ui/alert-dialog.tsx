@@ -19,10 +19,41 @@ const AlertDialogContext = React.createContext<AlertDialogContextValue>({
   setOpen: () => {},
 });
 
-function AlertDialog({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = React.useState(false);
+/**
+ * Uncontrolled by default — wrap a trigger and it manages its own open state.
+ *
+ * Pass `open`/`onOpenChange` when the thing being confirmed is decided
+ * somewhere other than a button inside the dialog: a row action in a dropdown
+ * menu, say, where the menu has already closed by the time the confirmation
+ * needs to appear and there is no trigger left to hang it off. Supplying `open`
+ * makes it fully controlled; the internal state is then ignored rather than
+ * kept in sync, so there is only ever one answer to "is this open".
+ */
+function AlertDialog({
+  children,
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  children: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : uncontrolledOpen;
+
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      if (!isControlled) setUncontrolledOpen(next);
+      onOpenChange?.(next);
+    },
+    [isControlled, onOpenChange],
+  );
+
+  const value = React.useMemo(() => ({ open, setOpen }), [open, setOpen]);
+
   return (
-    <AlertDialogContext.Provider value={{ open, setOpen }}>
+    <AlertDialogContext.Provider value={value}>
       {children}
     </AlertDialogContext.Provider>
   );
@@ -86,7 +117,7 @@ function AlertDialogContent({ className, children, ...props }: React.ComponentPr
         data-slot="alert-dialog-content"
         className={cn(
           "fixed left-1/2 top-1/2 z-50 w-full max-w-[calc(100%-2rem)] sm:max-w-md -translate-x-1/2 -translate-y-1/2",
-          "grid max-h-[calc(100dvh-2rem)] gap-4 overflow-y-auto overscroll-contain rounded-xl border bg-background p-5 sm:p-6 shadow-lg",
+          "grid max-h-[calc(100dvh-2rem)] gap-4 overflow-y-auto overscroll-contain rounded-2xl border bg-background p-4 sm:p-6 shadow-lg",
           className,
         )}
         onClick={(e) => e.stopPropagation()}

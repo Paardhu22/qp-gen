@@ -4,7 +4,24 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger("[PDF_VALIDATION_SERVICE]")
 
 
-def validate_pdf_metadata_list(pdf_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _same_subject(a: Optional[str], b: Optional[str]) -> bool:
+    """Compare two subject labels tolerantly.
+
+    The detector answers from a fixed vocabulary ("Social Science"), while the
+    paper's subject comes from the template catalog and can differ in case or
+    spacing. Only a genuine disagreement should raise a warning — "science"
+    vs "Science" is not one.
+    """
+    if not a or not b:
+        return True  # No opinion on one side is not a mismatch.
+    return a.strip().casefold() == b.strip().casefold()
+
+
+def validate_pdf_metadata_list(
+    pdf_results: List[Dict[str, Any]],
+    expected_subject: Optional[str] = None,
+    expected_class: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Validates a list of PDF analysis metadata objects:
     1. Rejects non-educational documents (Resume, Invoice, etc.).
@@ -13,6 +30,12 @@ def validate_pdf_metadata_list(pdf_results: List[Dict[str, Any]]) -> Dict[str, A
     4. Enforces Chapter consistency.
     5. Enforces Board consistency.
     6. Enforces Class consistency.
+
+    ``expected_subject``/``expected_class`` describe the paper the teacher is
+    actually building. Without them this function can only check the uploads
+    against *each other*, so a single Physics chapter attached to a
+    Mathematics paper passes — it is perfectly self-consistent. Passing the
+    paper's own subject is what turns this into a real check.
     """
     if not pdf_results:
         return {
@@ -72,13 +95,47 @@ def validate_pdf_metadata_list(pdf_results: List[Dict[str, Any]]) -> Dict[str, A
             "mismatches": breakdown,
         }
 
+    # 4. The uploads agree with each other — but do they agree with the paper?
+    # This is the check that catches a single wrong-subject chapter, which
+    # every consistency rule above waves through.
+    detected_subject = next(iter(unique_subjects), None)
+    if not _same_subject(detected_subject, expected_subject):
+        return {
+            "valid": False,
+            "errorType": "SUBJECT_MISMATCH",
+            "message": (
+                f"These files look like {detected_subject}, but this paper is "
+                f"{expected_subject}. Attaching them will produce "
+                f"{expected_subject} questions from {detected_subject} material."
+            ),
+            "subject": detected_subject,
+            "expectedSubject": expected_subject,
+            "mismatches": [
+                {"file": fname, "subject": subj, "reason": "Subject differs from the paper"}
+                for fname, subj in subjects_map.items()
+            ],
+        }
+
     first = pdf_results[0]
     all_chapters = [d.get("chapter") for d in pdf_results if d.get("chapter")]
     unique_chapters_list = list(dict.fromkeys(all_chapters))
     chapter_summary = ", ".join(unique_chapters_list) if unique_chapters_list else None
 
+    # Class is a warning, not a verdict. It is inferred far less reliably than
+    # subject — plenty of chapters never state their grade — so a disagreement
+    # is worth mentioning and not worth blocking.
+    soft_warnings: List[str] = []
+    detected_class = str(first.get("class") or "").strip()
+    if expected_class and detected_class:
+        if detected_class.casefold() != str(expected_class).strip().casefold():
+            soft_warnings.append(
+                f"These files look like Class {detected_class}, but this paper "
+                f"is Class {expected_class}."
+            )
+
     return {
         "valid": True,
+        "warnings": soft_warnings,
         "subject": first.get("subject"),
         "board": first.get("board") or "CBSE",
         "class": first.get("class") or "10",

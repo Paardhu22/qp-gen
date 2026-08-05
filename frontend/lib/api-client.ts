@@ -1,7 +1,7 @@
 "use client";
 
 import { getAccessToken } from "@/lib/token-storage";
-import { refreshAccessToken } from "@/lib/auth-client";
+import { ensureFreshTokens, refreshAccessToken } from "@/lib/auth-client";
 
 import { API_BASE_URL } from "@/lib/api-base-url";
 
@@ -113,6 +113,11 @@ export async function fetchJson<T>(
   // Bail immediately if the caller already cancelled before we even started.
   if (callerSignal?.aborted) throw new SyncCancelledError();
 
+  // Renew a known-dead token before spending a round trip on a guaranteed 401.
+  // The 401 retry below still covers the cases this can't see (clock skew, a
+  // token revoked early); this just stops the predictable failure.
+  if (!skipAuth) await ensureFreshTokens();
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -176,6 +181,8 @@ export async function fetchForm<T>(
     return headers;
   };
 
+  await ensureFreshTokens();
+
   let response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     body: formData,
@@ -219,6 +226,11 @@ export async function streamSse(
     if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
     return headers;
   };
+
+  // A generation runs for minutes; the token is only checked when the stream
+  // connects, so renewing here is what keeps a long paper from dying at the
+  // door. Retrying a 401 after the fact would restart the whole generation.
+  await ensureFreshTokens();
 
   let response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
@@ -996,6 +1008,8 @@ export interface PaperTemplate {
   builtin: false;
   base_template_id: string;
   source_config: Record<string, unknown>;
+  /** Which folder this is filed in; null means unfiled, a normal resting state. */
+  folderId: string | null;
   last_used_at: string | null;
   created_at: string;
   updated_at: string;
@@ -1128,6 +1142,7 @@ export async function savePaperTemplate(body: {
   blueprint?: { slots: BlueprintSlot[] };
   baseTemplateId?: string;
   sourceConfig?: Record<string, unknown>;
+  folderId?: string | null;
 }): Promise<PaperTemplate> {
   const data = await fetchJson<{ template: PaperTemplate }>(
     "/api/generation/templates",
@@ -1149,6 +1164,211 @@ export async function applyPaperTemplate(
 
 export async function deletePaperTemplate(templateId: string): Promise<void> {
   await fetchJson<void>(`/api/generation/templates/${templateId}`, {
+    method: "DELETE",
+  });
+}
+
+/**
+ * Edit a saved template in place.
+ *
+ * Distinct from `savePaperTemplate`, which is create-or-overwrite-by-name, and
+ * from `applyPaperTemplate`, which only records that a template was used. Only
+ * the keys present in `body` are touched server-side, so a rename cannot blank
+ * a blueprint — pass exactly what is changing.
+ *
+ * `folderId: null` unfiles; `blueprint: null` reverts a pinned template to
+ * instruction-driven.
+ */
+export async function updatePaperTemplate(
+  templateId: string,
+  body: {
+    name?: string;
+    instructions?: string;
+    settings?: Record<string, string>;
+    blueprint?: { slots: BlueprintSlot[] } | null;
+    sourceConfig?: Record<string, unknown>;
+    folderId?: string | null;
+  },
+): Promise<PaperTemplate> {
+  const data = await fetchJson<{ template: PaperTemplate }>(
+    `/api/generation/templates/${templateId}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+  return data.template;
+}
+
+/**
+ * Turn a built-in catalog entry into a row the teacher owns.
+ *
+ * Built-ins are generated server-side from the engine's eligibility matrix —
+ * code, not rows — which is what keeps the picker in step with the engine but
+ * also means a built-in has nothing to edit and nowhere to be filed. Forking
+ * resolves it once and writes it down; from then on it is an ordinary template.
+ */
+export async function forkBuiltinTemplate(body: {
+  templateId: string;
+  name?: string;
+  subject?: string;
+  academicClass?: string;
+  instructions?: string;
+  folderId?: string | null;
+}): Promise<PaperTemplate> {
+  const data = await fetchJson<{ template: PaperTemplate }>(
+    "/api/generation/templates/fork",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+  return data.template;
+}
+
+/** Copy one of your own templates. The copy starts unused. */
+export async function duplicatePaperTemplate(
+  templateId: string,
+  body: { name?: string; folderId?: string | null } = {},
+): Promise<PaperTemplate> {
+  const data = await fetchJson<{ template: PaperTemplate }>(
+    `/api/generation/templates/${templateId}/duplicate`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+  return data.template;
+}
+
+// ── Template folders ───────────────────────────────────────────────────────
+//
+// Purely the teacher's filing: nothing in generation reads a folder, and an
+// unfiled template is completely usable. See backend `TemplateFolder`.
+
+export interface TemplateFolder {
+  id: string;
+  name: string;
+  /** Null for a root folder. */
+  parentId: string | null;
+  /** Templates filed directly here — not counting subfolders. */
+  templateCount: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchTemplateFolders(): Promise<TemplateFolder[]> {
+  const data = await fetchJson<{ folders: TemplateFolder[] }>(
+    "/api/generation/template-folders",
+    { method: "GET" },
+  );
+  return data.folders ?? [];
+}
+
+export async function createTemplateFolder(body: {
+  name: string;
+  parentId?: string | null;
+}): Promise<TemplateFolder> {
+  const data = await fetchJson<{ folder: TemplateFolder }>(
+    "/api/generation/template-folders",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+  return data.folder;
+}
+
+/** Rename (`name`) or re-file (`parentId`, null for root) one folder. */
+export async function updateTemplateFolder(
+  folderId: string,
+  body: { name?: string; parentId?: string | null },
+): Promise<TemplateFolder> {
+  const data = await fetchJson<{ folder: TemplateFolder }>(
+    `/api/generation/template-folders/${folderId}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+  return data.folder;
+}
+
+/**
+ * Delete a folder. Its subfolders go with it; the templates inside do not —
+ * they fall back to unfiled. Tidying up filing must never destroy a recipe.
+ */
+export async function deleteTemplateFolder(folderId: string): Promise<void> {
+  await fetchJson<void>(`/api/generation/template-folders/${folderId}`, {
+    method: "DELETE",
+  });
+}
+
+// ── Brand kit ──────────────────────────────────────────────────────────────
+//
+// A school's identity, stored once and applied to every paper instead of being
+// retyped into each header. See backend `services/brand_kit.py`.
+
+export interface BrandAsset {
+  id: string;
+  name: string;
+  kind: string;
+  /**
+   * The app's own stable `/media/...` URL, minted per read. Never a presigned
+   * S3 link — a saved paper outlives any signature, and never a direct bucket
+   * URL either: html2canvas taints the canvas on a cross-origin image and the
+   * whole PDF export fails.
+   */
+  url: string;
+  width: number | null;
+  height: number | null;
+}
+
+export interface BrandKit {
+  instituteName: string;
+  instituteAddress: string;
+  accentColor: string;
+  fontFamily: string;
+  headerLayout: Record<string, unknown>;
+  logos: BrandAsset[];
+}
+
+/** Reads the kit, creating an empty one server-side on first touch. */
+export async function fetchBrandKit(): Promise<BrandKit> {
+  const data = await fetchJson<{ brandKit: BrandKit }>("/api/auth/brand-kit", {
+    method: "GET",
+  });
+  return data.brandKit;
+}
+
+/** Updates only the fields present in `body`; everything else is left alone. */
+export async function updateBrandKit(body: {
+  instituteName?: string;
+  instituteAddress?: string;
+  accentColor?: string;
+  fontFamily?: string;
+  headerLayout?: Record<string, unknown>;
+}): Promise<BrandKit> {
+  const data = await fetchJson<{ brandKit: BrandKit }>("/api/auth/brand-kit", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  return data.brandKit;
+}
+
+/** Uploads a logo to the brand kit, so the next paper already has it. */
+export async function uploadBrandLogo(
+  file: File,
+  name?: string,
+): Promise<BrandAsset> {
+  const form = new FormData();
+  form.append("file", file);
+  if (name) form.append("name", name);
+  const data = await fetchForm<{ asset: BrandAsset }>(
+    "/api/auth/brand-kit/assets",
+    form,
+  );
+  return data.asset;
+}
+
+export async function renameBrandLogo(
+  assetId: string,
+  name: string,
+): Promise<BrandAsset> {
+  const data = await fetchJson<{ asset: BrandAsset }>(
+    `/api/auth/brand-kit/assets/${assetId}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+  );
+  return data.asset;
+}
+
+export async function deleteBrandLogo(assetId: string): Promise<void> {
+  await fetchJson<void>(`/api/auth/brand-kit/assets/${assetId}`, {
     method: "DELETE",
   });
 }

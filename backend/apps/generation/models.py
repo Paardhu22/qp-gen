@@ -16,6 +16,73 @@ class GenerationHistory(TimeStampedModel):
         db_table = "GenerationHistory"
 
 
+class TemplateFolder(TimeStampedModel):
+    """A teacher's own filing for their templates.
+
+    Schools accumulate templates the way they accumulate paperwork — "Term 1",
+    "Class 10 Boards", "Weekly tests" — and a flat list stops being findable
+    somewhere around a dozen. Folders are the teacher's structure, not ours:
+    nothing in generation reads them, and a template with no folder is
+    perfectly usable. This is filing, not taxonomy.
+
+    Nesting is supported by the model (`parent`) because "Term 1 / Unit tests"
+    is how people actually describe where something lives. The depth is capped
+    in the API rather than here — see MAX_FOLDER_DEPTH — because a cap is a
+    product decision and a self-FK cannot express one.
+
+    Deleting a folder deletes its subfolders but NEVER its templates: the
+    templates fall back to unfiled (`PaperTemplate.folder` is SET_NULL).
+    Losing a paper recipe because you tidied up your filing would be the worst
+    possible reading of "delete folder".
+
+    Table and column names follow the legacy Prisma convention (see CLAUDE.md).
+    """
+
+    id = models.CharField(
+        primary_key=True, max_length=32, default=generate_id, editable=False
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        db_column="userId",
+        related_name="template_folders",
+    )
+    name = models.CharField(max_length=80)
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        db_column="parentId",
+        related_name="children",
+    )
+
+    class Meta:
+        db_table = "TemplateFolder"
+        ordering = ["name"]
+        constraints = [
+            # Two constraints rather than one because `parent` is nullable and
+            # SQL treats NULLs as distinct — a single UniqueConstraint over
+            # (user, parent, name) would happily allow two root folders both
+            # called "Term 1". Postgres 15+ could express this as
+            # `nulls_distinct=False`, but that is silently ignored on SQLite,
+            # which is what the test suite runs on. Two constraints hold
+            # everywhere.
+            models.UniqueConstraint(
+                fields=["user", "parent", "name"],
+                name="unique_subfolder_name_per_parent",
+            ),
+            models.UniqueConstraint(
+                fields=["user", "name"],
+                condition=models.Q(parent__isnull=True),
+                name="unique_root_folder_name_per_user",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.id})"
+
+
 class PaperTemplate(TimeStampedModel):
     """A saved paper recipe: the teacher's instructions plus what they settled.
 
@@ -86,6 +153,18 @@ class PaperTemplate(TimeStampedModel):
     # Ordering signal for the picker: the template someone reaches for weekly
     # should not sink under one they made once and abandoned.
     last_used_at = models.DateTimeField(null=True, blank=True, db_column="lastUsedAt")
+    # Where the teacher filed this. Null means unfiled, which is a normal
+    # resting state and not a defect — most templates never get filed at all.
+    # SET_NULL rather than CASCADE: deleting a folder must never destroy the
+    # recipes inside it. See `TemplateFolder`.
+    folder = models.ForeignKey(
+        TemplateFolder,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_column="folderId",
+        related_name="templates",
+    )
 
     class Meta:
         db_table = "PaperTemplate"

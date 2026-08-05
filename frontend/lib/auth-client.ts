@@ -3,8 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, fetchJson } from "@/lib/api-client";
-import { clearTokens, getAccessToken, getCognitoAccessToken, getRefreshToken, setTokens } from "@/lib/token-storage";
+import {
+  clearTokens,
+  getAccessToken,
+  getCognitoAccessToken,
+  getRefreshToken,
+  isAccessTokenExpired,
+  setTokens,
+} from "@/lib/token-storage";
 import { resetEditorStoreForAccountSwitch } from "@/store/editor-store";
+import { clearBrandHeaderCache } from "@/lib/brand-header";
 import {
   cognitoSignIn,
   cognitoSignUp,
@@ -27,6 +35,14 @@ async function clearLocalUserState(): Promise<void> {
     resetEditorStoreForAccountSwitch();
   } catch {
     // Defensive — never let a clear failure block the auth flow.
+  }
+  try {
+    // The brand kit is cached in a module, outside the store — without this a
+    // teacher signing in on a colleague's browser would get their school's
+    // crest on the next header.
+    clearBrandHeaderCache();
+  } catch {
+    // Same — best effort.
   }
   if (typeof window === "undefined" || typeof indexedDB === "undefined") return;
   try {
@@ -298,9 +314,16 @@ export async function signOut({
   fetchOptions,
 }: { fetchOptions?: FetchCallbacks } = {}) {
   try {
+    // Renew first if the access token is stale: GlobalSignOut is the only call
+    // that revokes *other* devices' sessions, and it needs a live access token.
+    // Without this, signing out after an idle hour did nothing server-side and
+    // logged "NotAuthorizedException: Access Token has expired".
+    await ensureFreshTokens();
+
     const cognitoAccess = getCognitoAccessToken();
-    if (cognitoAccess) {
-      await cognitoSignOut(cognitoAccess);
+    const refresh = getRefreshToken();
+    if (cognitoAccess || refresh) {
+      await cognitoSignOut(cognitoAccess, refresh);
     }
     clearTokens();
     resetSessionCache();
@@ -361,6 +384,19 @@ export async function resetPassword(
   }
 }
 
+/**
+ * Fired when the refresh token itself is dead (revoked, or past its 30-day
+ * life). Tokens have already been cleared by the time this dispatches; the
+ * listener's job is to get the user to /login instead of leaving them on a
+ * signed-in-looking page where every action fails. See `ProtectedLayout`.
+ */
+export const AUTH_EXPIRED_EVENT = "qpgen:auth-expired";
+
+function announceAuthExpired(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+}
+
 export async function refreshAccessToken(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
@@ -381,6 +417,7 @@ export async function refreshAccessToken(): Promise<boolean> {
     } catch {
       clearTokens();
       resetSessionCache();
+      announceAuthExpired();
       return false;
     } finally {
       refreshPromise = null;
@@ -388,6 +425,80 @@ export async function refreshAccessToken(): Promise<boolean> {
   })();
 
   return refreshPromise;
+}
+
+/**
+ * Renew the tokens if they are expired or nearly so; no-op otherwise.
+ *
+ * Call this before anything that reads a token *directly* rather than through
+ * `fetchJson` — Cognito calls (sign out, change password) and any request that
+ * can't cheaply be retried after a 401. Returns false only when there is no
+ * usable session left.
+ */
+export async function ensureFreshTokens(): Promise<boolean> {
+  if (!getRefreshToken()) return false;
+  // A refresh token with no access token beside it is a half-cleared session
+  // (or one restored from an older storage layout) — mint a fresh pair.
+  if (getAccessToken() && !isAccessTokenExpired()) return true;
+  return refreshAccessToken();
+}
+
+// Renew this long before the token actually dies. Cognito tokens live 1 h by
+// default, so a 5-minute lead is ~8% of the lifetime — frequent enough that a
+// tab is never holding a dead token, rare enough to stay off the network.
+const REFRESH_LEAD_MS = 5 * 60 * 1000;
+const REFRESH_POLL_MS = 60 * 1000;
+
+let watcherCount = 0;
+let watcherTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Keep the session alive for as long as the app is mounted.
+ *
+ * The refresh used to be purely reactive — something had to eat a 401 first.
+ * That leaves two holes this closes: a tab idle past the token's 1 h lifetime
+ * wakes up with dead credentials (every panel errors at once until the retries
+ * land), and the token-reading calls that never see a 401 at all — sign-out and
+ * change-password — simply failed.
+ *
+ * Polls on a timer *and* on the events that mean "this tab was asleep and is
+ * back": timers are throttled or frozen in background tabs, so the timer alone
+ * cannot be trusted to have run. Returns a disposer.
+ */
+export function startTokenRefreshWatcher(): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const check = () => {
+    // Nothing to renew, or nothing to renew *with* — stay quiet.
+    if (!getRefreshToken() || !getAccessToken()) return;
+    if (!isAccessTokenExpired(REFRESH_LEAD_MS)) return;
+    void refreshAccessToken();
+  };
+
+  watcherCount += 1;
+  if (watcherCount === 1) {
+    watcherTimer = setInterval(check, REFRESH_POLL_MS);
+  }
+
+  const onWake = () => {
+    if (document.visibilityState === "visible") check();
+  };
+  document.addEventListener("visibilitychange", onWake);
+  window.addEventListener("focus", check);
+  window.addEventListener("online", check);
+
+  check(); // A tab that mounts with an already-stale token shouldn't wait a minute.
+
+  return () => {
+    document.removeEventListener("visibilitychange", onWake);
+    window.removeEventListener("focus", check);
+    window.removeEventListener("online", check);
+    watcherCount -= 1;
+    if (watcherCount === 0 && watcherTimer) {
+      clearInterval(watcherTimer);
+      watcherTimer = null;
+    }
+  };
 }
 
 async function loadSession(): Promise<SessionData | null> {

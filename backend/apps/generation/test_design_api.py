@@ -11,10 +11,11 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.generation.models import PaperTemplate
+from apps.generation.models import PaperTemplate, TemplateFolder
 from services.paper_design import DesignSection, PaperDesign, QuestionGroup
 
 
@@ -433,3 +434,397 @@ class TemplateCatalogApiTests(DesignApiTestCase):
         codes = {option["code"] for option in response.data["questionTypes"]}
         self.assertIn("MCQ", codes)
         self.assertIn("LONG_ANSWER", codes)
+
+
+class TemplateFolderTests(DesignApiTestCase):
+    """Filing is the teacher's own structure, and it must never cost them work.
+
+    The properties that matter are about what a folder operation CANNOT do:
+    delete a paper recipe, produce a tree that will not render, or expose
+    another account's filing.
+    """
+
+    URL = "/api/generation/template-folders"
+
+    def test_a_folder_round_trips_with_its_template_count(self):
+        created = self.client.post(self.URL, {"name": "Term 1"}, format="json")
+        self.assertEqual(created.status_code, 201)
+        folder_id = created.json()["folder"]["id"]
+
+        PaperTemplate.objects.create(
+            user=self.user,
+            name="Weekly",
+            instructions="3 MCQ",
+            folder_id=folder_id,
+        )
+
+        listed = self.client.get(self.URL).json()["folders"]
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["name"], "Term 1")
+        self.assertEqual(listed[0]["templateCount"], 1)
+        self.assertIsNone(listed[0]["parentId"])
+
+    def test_a_folder_needs_a_name(self):
+        response = self.client.post(self.URL, {"name": "   "}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(TemplateFolder.objects.count(), 0)
+
+    def test_two_root_folders_cannot_share_a_name(self):
+        """The nullable-parent trap: SQL treats NULLs as distinct, so a single
+        (user, parent, name) constraint would wave this through."""
+        self.client.post(self.URL, {"name": "Term 1"}, format="json")
+        response = self.client.post(self.URL, {"name": "Term 1"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(TemplateFolder.objects.count(), 1)
+
+    def test_the_same_name_may_appear_under_different_parents(self):
+        a = self.client.post(self.URL, {"name": "Term 1"}, format="json").json()
+        b = self.client.post(self.URL, {"name": "Term 2"}, format="json").json()
+
+        for parent in (a["folder"]["id"], b["folder"]["id"]):
+            response = self.client.post(
+                self.URL, {"name": "Unit tests", "parentId": parent}, format="json"
+            )
+            self.assertEqual(response.status_code, 201)
+
+    def test_deleting_a_folder_unfiles_its_templates_rather_than_deleting_them(self):
+        folder = TemplateFolder.objects.create(user=self.user, name="Term 1")
+        template = PaperTemplate.objects.create(
+            user=self.user, name="Weekly", instructions="3 MCQ", folder=folder
+        )
+
+        response = self.client.delete(f"{self.URL}/{folder.id}")
+        self.assertEqual(response.status_code, 204)
+
+        template.refresh_from_db()
+        self.assertIsNone(template.folder_id, "the template should be unfiled")
+
+    def test_deleting_a_parent_takes_its_subfolders_but_spares_the_templates(self):
+        parent = TemplateFolder.objects.create(user=self.user, name="Term 1")
+        child = TemplateFolder.objects.create(
+            user=self.user, name="Unit tests", parent=parent
+        )
+        template = PaperTemplate.objects.create(
+            user=self.user, name="Weekly", instructions="3 MCQ", folder=child
+        )
+
+        self.client.delete(f"{self.URL}/{parent.id}")
+
+        self.assertEqual(TemplateFolder.objects.count(), 0)
+        template.refresh_from_db()
+        self.assertIsNone(template.folder_id)
+
+    def test_nesting_stops_at_the_depth_cap(self):
+        parent_id = None
+        for level in range(3):
+            response = self.client.post(
+                self.URL, {"name": f"L{level}", "parentId": parent_id}, format="json"
+            )
+            self.assertEqual(response.status_code, 201, f"level {level}")
+            parent_id = response.json()["folder"]["id"]
+
+        too_deep = self.client.post(
+            self.URL, {"name": "L3", "parentId": parent_id}, format="json"
+        )
+        self.assertEqual(too_deep.status_code, 400)
+
+    def test_a_folder_cannot_be_moved_inside_itself(self):
+        folder = TemplateFolder.objects.create(user=self.user, name="Term 1")
+        response = self.client.patch(
+            f"{self.URL}/{folder.id}", {"parentId": folder.id}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_folder_cannot_be_moved_inside_its_own_descendant(self):
+        """The cycle a self-FK is perfectly happy to store, and which would
+        make the folder rail unrenderable."""
+        parent = TemplateFolder.objects.create(user=self.user, name="Term 1")
+        child = TemplateFolder.objects.create(
+            user=self.user, name="Unit tests", parent=parent
+        )
+
+        response = self.client.patch(
+            f"{self.URL}/{parent.id}", {"parentId": child.id}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+        parent.refresh_from_db()
+        self.assertIsNone(parent.parent_id)
+
+    def test_moving_a_subtree_respects_the_depth_cap(self):
+        deep_parent = TemplateFolder.objects.create(user=self.user, name="A")
+        TemplateFolder.objects.create(user=self.user, name="B", parent=deep_parent)
+
+        landing = TemplateFolder.objects.create(user=self.user, name="C")
+        nested_landing = TemplateFolder.objects.create(
+            user=self.user, name="D", parent=landing
+        )
+
+        # A carries a child, so filing it under D would put B at depth 3.
+        response = self.client.patch(
+            f"{self.URL}/{deep_parent.id}",
+            {"parentId": nested_landing.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_folder_can_be_renamed(self):
+        folder = TemplateFolder.objects.create(user=self.user, name="Term 1")
+        response = self.client.patch(
+            f"{self.URL}/{folder.id}", {"name": "Term One"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        folder.refresh_from_db()
+        self.assertEqual(folder.name, "Term One")
+
+    def test_another_teachers_folder_is_not_found(self):
+        other = User.objects.create(email="o@example.com", name="O")
+        theirs = TemplateFolder.objects.create(user=other, name="Theirs")
+
+        self.assertEqual(self.client.get(self.URL).json()["folders"], [])
+        self.assertEqual(
+            self.client.patch(
+                f"{self.URL}/{theirs.id}", {"name": "Mine now"}, format="json"
+            ).status_code,
+            404,
+        )
+        self.assertEqual(self.client.delete(f"{self.URL}/{theirs.id}").status_code, 404)
+        self.assertTrue(TemplateFolder.objects.filter(id=theirs.id).exists())
+
+
+class PaperTemplateEditTests(DesignApiTestCase):
+    """PATCH edits a recipe; POST only records that it was used.
+
+    The property under test throughout is that an edit touches exactly what the
+    body named — a rename must not blank a blueprint.
+    """
+
+    URL = "/api/generation/templates"
+
+    def setUp(self):
+        super().setUp()
+        self.template = PaperTemplate.objects.create(
+            user=self.user,
+            name="Weekly",
+            instructions="3 MCQ",
+            blueprint={"slots": [{"questionType": "MCQ", "marks": 1, "index": 0}]},
+            settings={"difficulty": "medium"},
+        )
+
+    def test_renaming_leaves_the_blueprint_alone(self):
+        response = self.client.patch(
+            f"{self.URL}/{self.template.id}", {"name": "Friday Recap"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+
+        self.template.refresh_from_db()
+        self.assertEqual(self.template.name, "Friday Recap")
+        self.assertEqual(self.template.instructions, "3 MCQ")
+        self.assertTrue(self.template.blueprint["slots"])
+        self.assertEqual(self.template.settings["difficulty"], "medium")
+
+    def test_a_template_can_be_filed_and_unfiled(self):
+        folder = TemplateFolder.objects.create(user=self.user, name="Term 1")
+
+        filed = self.client.patch(
+            f"{self.URL}/{self.template.id}", {"folderId": folder.id}, format="json"
+        )
+        self.assertEqual(filed.status_code, 200)
+        self.assertEqual(filed.json()["template"]["folderId"], folder.id)
+
+        unfiled = self.client.patch(
+            f"{self.URL}/{self.template.id}", {"folderId": None}, format="json"
+        )
+        self.assertEqual(unfiled.status_code, 200)
+        self.assertIsNone(unfiled.json()["template"]["folderId"])
+
+    def test_clearing_the_blueprint_reverts_to_instruction_driven(self):
+        response = self.client.patch(
+            f"{self.URL}/{self.template.id}", {"blueprint": None}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["template"]["pinned"])
+
+    def test_a_template_cannot_be_edited_into_something_unreproducible(self):
+        """Stripping both halves would leave a row that names a paper it
+        cannot rebuild."""
+        pinned_only = PaperTemplate.objects.create(
+            user=self.user,
+            name="Slots only",
+            instructions="",
+            blueprint={"slots": [{"questionType": "MCQ", "marks": 1, "index": 0}]},
+        )
+        response = self.client.patch(
+            f"{self.URL}/{pinned_only.id}", {"blueprint": None}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+        pinned_only.refresh_from_db()
+        self.assertTrue(pinned_only.blueprint["slots"], "the edit must not stick")
+
+    def test_an_empty_patch_is_rejected(self):
+        response = self.client.patch(
+            f"{self.URL}/{self.template.id}", {}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_filing_into_a_folder_that_is_gone_is_a_404(self):
+        response = self.client.patch(
+            f"{self.URL}/{self.template.id}", {"folderId": "nope"}, format="json"
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_another_teachers_template_cannot_be_edited(self):
+        other = User.objects.create(email="o@example.com", name="O")
+        theirs = PaperTemplate.objects.create(
+            user=other, name="Theirs", instructions="x"
+        )
+        response = self.client.patch(
+            f"{self.URL}/{theirs.id}", {"name": "Mine now"}, format="json"
+        )
+        self.assertEqual(response.status_code, 404)
+        theirs.refresh_from_db()
+        self.assertEqual(theirs.name, "Theirs")
+
+    def test_renaming_onto_an_existing_name_is_refused(self):
+        PaperTemplate.objects.create(
+            user=self.user, name="Taken", instructions="x"
+        )
+        response = self.client.patch(
+            f"{self.URL}/{self.template.id}", {"name": "Taken"}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
+
+class PaperTemplateForkTests(DesignApiTestCase):
+    """A built-in is generated code; forking is where it becomes data."""
+
+    URL = "/api/generation/templates/fork"
+
+    def _blueprint(self):
+        from services.templates import SlotSpec, TemplateBlueprint
+
+        return TemplateBlueprint(
+            slots=[
+                SlotSpec(
+                    index=0,
+                    section_title="Section A",
+                    question_type="MCQ",
+                    marks=1,
+                )
+            ]
+        )
+
+    def test_forking_a_builtin_writes_an_owned_pinned_row(self):
+        with patch(
+            "services.template_catalog.resolve_builtin",
+            return_value=self._blueprint(),
+        ):
+            response = self.client.post(
+                self.URL, {"templateId": "cbse-science-10"}, format="json"
+            )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()["template"]
+        self.assertTrue(body["pinned"], "a fork keeps the structure it showed")
+        self.assertFalse(body["builtin"])
+        self.assertEqual(body["base_template_id"], "cbse-science-10")
+        self.assertEqual(PaperTemplate.objects.filter(user=self.user).count(), 1)
+
+    def test_forking_the_same_builtin_twice_suffixes_rather_than_failing(self):
+        """The unique-name constraint is right for a deliberate save and wrong
+        here: the teacher never typed this name."""
+        with patch(
+            "services.template_catalog.resolve_builtin",
+            return_value=self._blueprint(),
+        ):
+            first = self.client.post(
+                self.URL, {"templateId": "cbse-science-10"}, format="json"
+            )
+            second = self.client.post(
+                self.URL, {"templateId": "cbse-science-10"}, format="json"
+            )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertNotEqual(
+            first.json()["template"]["name"], second.json()["template"]["name"]
+        )
+        self.assertEqual(PaperTemplate.objects.filter(user=self.user).count(), 2)
+
+    def test_forking_into_a_folder(self):
+        folder = TemplateFolder.objects.create(user=self.user, name="Term 1")
+        with patch(
+            "services.template_catalog.resolve_builtin",
+            return_value=self._blueprint(),
+        ):
+            response = self.client.post(
+                self.URL,
+                {"templateId": "cbse-science-10", "folderId": folder.id},
+                format="json",
+            )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["template"]["folderId"], folder.id)
+
+    def test_an_unknown_catalog_id_is_a_404(self):
+        response = self.client.post(
+            self.URL, {"templateId": "not-a-template"}, format="json"
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(PaperTemplate.objects.count(), 0)
+
+    def test_forking_describe_it_yourself_with_nothing_said_is_refused(self):
+        """It resolves to no slots until the teacher describes something, and a
+        row with neither slots nor prose cannot rebuild a paper."""
+        from services.templates import TemplateBlueprint
+
+        with patch(
+            "services.template_catalog.resolve_builtin",
+            return_value=TemplateBlueprint(slots=[]),
+        ):
+            response = self.client.post(
+                self.URL, {"templateId": "describe-it-yourself"}, format="json"
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(PaperTemplate.objects.count(), 0)
+
+
+class PaperTemplateDuplicateTests(DesignApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.template = PaperTemplate.objects.create(
+            user=self.user,
+            name="Weekly",
+            instructions="3 MCQ",
+            settings={"difficulty": "medium"},
+            source_config={"mode": "bank"},
+            last_used_at=timezone.now(),
+        )
+
+    def test_a_duplicate_copies_the_recipe_under_a_free_name(self):
+        response = self.client.post(
+            f"/api/generation/templates/{self.template.id}/duplicate", format="json"
+        )
+        self.assertEqual(response.status_code, 201)
+
+        copy = response.json()["template"]
+        self.assertNotEqual(copy["name"], "Weekly")
+        self.assertEqual(copy["instructions"], "3 MCQ")
+        self.assertEqual(copy["settings"]["difficulty"], "medium")
+        self.assertEqual(copy["source_config"]["mode"], "bank")
+
+    def test_a_duplicate_starts_unused(self):
+        """Otherwise a copy made to experiment with immediately outranks the
+        template it came from in the picker."""
+        response = self.client.post(
+            f"/api/generation/templates/{self.template.id}/duplicate", format="json"
+        )
+        self.assertIsNone(response.json()["template"]["last_used_at"])
+
+    def test_another_teachers_template_cannot_be_duplicated(self):
+        other = User.objects.create(email="o@example.com", name="O")
+        theirs = PaperTemplate.objects.create(
+            user=other, name="Theirs", instructions="x"
+        )
+        response = self.client.post(
+            f"/api/generation/templates/{theirs.id}/duplicate", format="json"
+        )
+        self.assertEqual(response.status_code, 404)

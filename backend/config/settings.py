@@ -157,6 +157,37 @@ PDF_IMAGE_MAX_CAPTIONS = _int_env("PDF_IMAGE_MAX_CAPTIONS", 40, minimum=0)
 PDF_IMAGE_MIN_BYTES = _int_env("PDF_IMAGE_MIN_BYTES", 8192, minimum=0)
 PDF_IMAGE_MIN_DIMENSION = _int_env("PDF_IMAGE_MIN_DIMENSION", 96, minimum=0)
 
+# Store every figure found in an ingested chapter as its own chunk — which
+# means one S3 PUT per figure, up to PDF_IMAGE_MAX_CAPTIONS of them, in the
+# request path of "apply this source".
+#
+# Off by default because nothing in the live pipeline reads them any more.
+# Model 1 is handed the chapter as Markdown and its rule 7 forbids any
+# question that depends on a printed figure; pictures are drawn on demand
+# from the editor (services/question_image.py). What remains is the legacy
+# retrieval path (services/retrieval_service.retrieve_relevant_chunks with
+# require_image=True), so turn this back on if figure-grounded retrieval
+# starts mattering again. Chunks ingested while it was on are untouched.
+INGEST_EXTRACT_FIGURES = _bool_env("INGEST_EXTRACT_FIGURES", False)
+
+# Chunks per embeddings request. Each batch is one OpenAI round trip inside
+# the ingest, so a whole textbook at the old batch size of 50 spent minutes
+# in sequential calls. Chunks are ~900-1000 chars (~250 tokens), so 256 of
+# them is ~64k tokens — well inside the 300k-token request ceiling for
+# text-embedding-3-*, and 5x fewer round trips.
+INGEST_EMBED_BATCH_SIZE = _int_env(
+    "INGEST_EMBED_BATCH_SIZE", 256, minimum=1, maximum=1024
+)
+
+# Compute retrieval embeddings during ingestion at all. Embeddings are read
+# only by services/retrieval_service.py (answer-script generation) and the
+# flag-gated apps/question_generation/ engine — the pool pipeline that
+# actually writes papers reads chunk *text* via services/chapter_markdown.py
+# and never touches a vector. Setting this false makes ingestion purely
+# local work at the cost of degrading answer-script context for anything
+# ingested while it is off.
+INGEST_EMBEDDINGS_ENABLED = _bool_env("INGEST_EMBEDDINGS_ENABLED", True)
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 LOGGING = {

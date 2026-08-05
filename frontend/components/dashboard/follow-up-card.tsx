@@ -48,7 +48,7 @@ export function FollowUpCard({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      className="rounded-2xl border border-border bg-muted/40 p-3.5"
+      className="rounded-2xl border border-border bg-muted/40 p-4"
     >
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-sm font-medium">{prompt.label}</p>
@@ -79,7 +79,7 @@ export function FollowUpCard({
               onClick={() => onAnswer(`${prompt.label} ${option.label}`)}
               className={cn(
                 "group flex items-baseline gap-1.5 rounded-lg border border-border bg-background",
-                "px-2.5 py-1.5 text-sm transition-colors",
+                "px-3 py-1.5 text-sm transition-colors",
                 "hover:border-primary hover:bg-primary/5",
                 "disabled:cursor-not-allowed disabled:opacity-50",
               )}
@@ -101,7 +101,7 @@ export function FollowUpCard({
             type="button"
             disabled={disabled}
             onClick={onAttach}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm transition-colors hover:border-primary hover:bg-primary/5 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-sm transition-colors hover:border-primary hover:bg-primary/5 disabled:opacity-50"
           >
             <Paperclip className="h-3.5 w-3.5" />
             Attach a PDF
@@ -123,13 +123,13 @@ export function FollowUpCard({
             }}
             placeholder={prompt.kind === "text" ? "Type your answer" : "Or something else"}
             aria-label={prompt.label}
-            className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-primary disabled:opacity-50"
+            className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none transition-colors focus:border-primary disabled:opacity-50"
           />
           <button
             type="button"
             disabled={disabled || !other.trim()}
             onClick={submitOther}
-            className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm transition-colors hover:border-primary disabled:opacity-40"
+            className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm transition-colors hover:border-primary disabled:opacity-40"
           >
             Use
           </button>

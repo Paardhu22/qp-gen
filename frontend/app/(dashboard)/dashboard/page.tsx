@@ -121,7 +121,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
               <span
                 key={attachment.id}
                 className={cn(
-                  "rounded-md px-2 py-0.5 text-xs",
+                  "rounded-lg px-2 py-0.5 text-xs",
                   isUser ? "bg-primary-foreground/15" : "bg-foreground/10",
                 )}
               >
@@ -669,12 +669,14 @@ export default function DashboardPage() {
 
   return (
     <PromptTooltipProvider>
-      <div className="flex flex-1 min-h-0 w-full">
+      <div className="relative isolate flex flex-1 min-h-0 w-full">
+        <ChatBackdrop />
         <aside
           className={cn(
-            "absolute inset-y-0 left-0 z-30 w-64 shrink-0 border-r border-border bg-background",
+            "z-30 w-64 shrink-0 rounded-2xl border border-border/50 bg-white/60 dark:bg-black/40 shadow-xl backdrop-blur-xl",
             "flex flex-col transition-transform duration-200 lg:static lg:translate-x-0",
-            sidebarOpen ? "translate-x-0" : "-translate-x-full",
+            "absolute inset-y-4 left-4 lg:my-4 lg:ml-4 lg:mr-2",
+            sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+2rem)]",
           )}
         >
           <div className="p-3">
@@ -717,7 +719,7 @@ export default function DashboardPage() {
                 <button
                   onClick={() => handleDelete(conversation.id)}
                   aria-label={`Delete ${conversation.title}`}
-                  className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground group-hover:opacity-100"
+                  className="shrink-0 rounded-sm p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground group-hover:opacity-100"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -733,11 +735,9 @@ export default function DashboardPage() {
           />
         )}
 
-        {/* `isolate` scopes the backdrop's negative stacking to this column, so
-            it sits under the chat but still above the page background — and
-            cannot slide behind the sidebar or the mobile scrim. */}
-        <div className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col">
-          <ChatBackdrop />
+        {/* The backdrop is now placed at the root of the dashboard layout, so
+            the glassmorphism sidebar sits on top of it. */}
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
 
           <div className="flex items-center gap-2 border-b border-border px-3 py-2 lg:hidden">
             <Button

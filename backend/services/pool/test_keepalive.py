@@ -7,6 +7,7 @@ must not be able to tell the difference. These tests pin both.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -50,15 +51,35 @@ class KeepaliveTests(SimpleTestCase):
         out = list(keepalive(iter(source), interval=30))
         self.assertEqual(out, source)
 
-    def test_source_exception_reaches_the_consumer(self):
+    def test_source_exception_becomes_a_terminal_error_frame(self):
+        """The response is already committed when the source fails, so raising
+        can only abort the socket. The reason has to travel as an event."""
         def _boom():
             yield "event: plan\ndata: {}\n\n"
             raise RuntimeError("model exploded")
 
-        gen = keepalive(_boom(), interval=5)
-        self.assertEqual(next(gen), "event: plan\ndata: {}\n\n")
-        with self.assertRaisesMessage(RuntimeError, "model exploded"):
-            list(gen)
+        with self.assertLogs("[SSE_KEEPALIVE]", level="ERROR"):
+            frames = list(keepalive(_boom(), interval=5))
+
+        self.assertEqual(frames[0], "event: plan\ndata: {}\n\n")
+        self.assertTrue(frames[-1].startswith("event: error\ndata: "))
+
+        payload = json.loads(frames[-1].split("data: ", 1)[1])
+        self.assertIn("model exploded", payload["error"])
+        self.assertEqual(payload["errorType"], "RuntimeError")
+        self.assertTrue(payload["partial"])
+
+    def test_error_after_done_does_not_report_a_failure(self):
+        """Bookkeeping that blows up *after* the paper was delivered must not
+        turn a successful generation into an error in the UI."""
+        def _late_boom():
+            yield "event: done\ndata: {}\n\n"
+            raise RuntimeError("history write failed")
+
+        with self.assertLogs("[SSE_KEEPALIVE]", level="ERROR"):
+            frames = list(keepalive(_late_boom(), interval=5))
+
+        self.assertEqual(frames, ["event: done\ndata: {}\n\n"])
 
     def test_empty_source_terminates(self):
         self.assertEqual(list(keepalive(iter([]), interval=5)), [])

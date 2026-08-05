@@ -442,6 +442,47 @@ class CustomHtmlToDocxParser {
       figureTasks.push({ sentinelIndex, src: rawSrc, width, height });
     };
 
+    /**
+     * Queue the institute logo out of a paper-header block.
+     *
+     * Word needs an explicit size for every embedded image — `ImageRun` has no
+     * way to ask a picture how big it is — so the height has to be derived
+     * here. The printed width comes from the node's own `data-logo-width`; the
+     * ratio comes from the live `<img>`'s intrinsic size when it has decoded,
+     * and falls back to 1:1 when it has not. A square-ish crest is a far
+     * better guess for a logo than the 4:3 used for figures, and a wrong ratio
+     * distorts rather than drops the image.
+     */
+    const enqueueHeaderLogo = (headerEl: HTMLElement) => {
+      const img = headerEl.querySelector<HTMLImageElement>(".paper-header-logo");
+      const rawSrc =
+        img?.getAttribute("src") ||
+        headerEl.getAttribute("data-logo-url") ||
+        "";
+      if (!rawSrc) return;
+
+      const declared = parseInt(
+        headerEl.getAttribute("data-logo-width") || "",
+        10,
+      );
+      const width = Math.max(24, Math.min(240, declared || 72));
+      const naturalW = img?.naturalWidth || 0;
+      const naturalH = img?.naturalHeight || 0;
+      const height =
+        naturalW > 0 && naturalH > 0
+          ? Math.round(width * (naturalH / naturalW))
+          : width;
+
+      const placeholderParagraph = new Paragraph({ children: [] });
+      docxElements.push(placeholderParagraph);
+      figureTasks.push({
+        sentinelIndex: docxElements.length - 1,
+        src: rawSrc,
+        width,
+        height,
+      });
+    };
+
     const walk = (node: ChildNode) => {
       if (node.nodeType !== Node.ELEMENT_NODE) return;
       const el = node as HTMLElement;
@@ -508,6 +549,12 @@ class CustomHtmlToDocxParser {
 
       if (el.tagName === "DIV") {
         if (dataType === "paper-header-block") {
+          // Before the masthead text, so the crest reads as part of it. Word
+          // has no float, so a side-by-side layout is not reproducible — the
+          // logo becomes its own centred paragraph above the title, which is
+          // the conventional printed form anyway.
+          enqueueHeaderLogo(el);
+
           const headerContent = el.querySelector(".paper-header-content");
           if (headerContent) {
             Array.from(headerContent.childNodes).forEach(walk);

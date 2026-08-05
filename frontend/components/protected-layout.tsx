@@ -2,10 +2,16 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 import { ApiError } from "@/lib/api-client";
-import { useSession, isPending, signOut } from "@/lib/auth-client";
+import {
+  AUTH_EXPIRED_EVENT,
+  isPending,
+  signOut,
+  startTokenRefreshWatcher,
+  useSession,
+} from "@/lib/auth-client";
 import { getRefreshToken } from "@/lib/token-storage";
 
 // Max ms we wait for the session check before giving up and redirecting to login
@@ -33,6 +39,22 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     setHasRefreshToken(Boolean(getRefreshToken()));
   }, [data?.user, isLoading, error]);
+
+  // Renew the Cognito tokens ahead of their 1 h expiry for as long as any
+  // dashboard route is mounted, so a tab left open over lunch still holds live
+  // credentials. Without this the first action after an idle hour 401s, and the
+  // calls that read the token directly (sign out, change password) had no
+  // recovery path at all.
+  useEffect(() => startTokenRefreshWatcher(), []);
+
+  // The refresh token itself can be dead (revoked by a sign-out elsewhere, or
+  // past its 30-day life). Renewal has already cleared storage by then, so send
+  // the user to /login rather than leave them on a page where nothing works.
+  useEffect(() => {
+    const onExpired = () => router.replace("/login");
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, [router]);
 
   // Start a safety-net timer as soon as we begin loading.
   // If the session check never finishes (network hang), we redirect to login.
@@ -87,17 +109,12 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  if (isLoading && !timedOut) {
-    return (
-      <div className="flex h-dvh items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
+  // Everything that reaches here is waiting on the session check — whether it
+  // is still in flight or has already timed out into the redirect above. Both
+  // states show the same thing, so they share one branch.
   return (
     <div className="flex h-dvh items-center justify-center bg-background">
-      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <Spinner size="page" />
     </div>
   );
 }

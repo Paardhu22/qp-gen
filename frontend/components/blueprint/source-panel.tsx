@@ -25,6 +25,7 @@ import {
   Upload,
   X,
   AlertCircle,
+  AlertTriangle,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,32 @@ export interface UploadedDoc {
   id: string;
   name: string;
   size: number;
+  /** Detected by the backend at ingest; `undefined` = no confident opinion. */
+  subject?: string;
+  subjectConfidence?: number;
+  /** The teacher chose "Use anyway" on this source's mismatch warning. */
+  subjectOverridden?: boolean;
+}
+
+/**
+ * Does this chapter disagree with the paper being built?
+ *
+ * Deliberately conservative — it answers "no" whenever it is not sure, because
+ * a false alarm on a valid textbook is worse than a missed warning on an
+ * invalid one. No detected subject, no chosen subject, or a label that only
+ * differs in case all count as agreement.
+ */
+function subjectMismatch(
+  doc: UploadedDoc,
+  expectedSubject?: string,
+): string | null {
+  if (doc.subjectOverridden) return null;
+  if (!doc.subject || !expectedSubject) return null;
+  const detected = doc.subject.trim();
+  const expected = expectedSubject.trim();
+  if (!detected || !expected) return null;
+  if (detected.toLowerCase() === expected.toLowerCase()) return null;
+  return detected;
 }
 
 export interface UploadingDoc {
@@ -57,6 +84,10 @@ interface Props {
   onDismissUpload: (tempId: string) => void;
   onRemoveHsat: (id: string) => void;
   onOpenHsatPicker: () => void;
+  /** The paper's subject, so an off-subject chapter can be flagged. */
+  expectedSubject?: string;
+  /** "Use anyway" — records the override so the warning stays down. */
+  onAcceptSubjectMismatch?: (id: string) => void;
 }
 
 function formatSize(bytes?: number) {
@@ -76,7 +107,7 @@ function SourceRow({
   icon: React.ElementType;
   title: string;
   subtitle?: string;
-  tone?: "default" | "busy" | "error";
+  tone?: "default" | "busy" | "error" | "warning";
   onRemove?: () => void;
   removeLabel: string;
 }) {
@@ -84,16 +115,20 @@ function SourceRow({
     <div
       className={cn(
         "flex items-center gap-3 rounded-lg border px-3 py-2.5",
-        tone === "error"
-          ? "border-destructive/40 bg-destructive/5"
-          : "border-border bg-card",
+        tone === "error" && "border-destructive/40 bg-destructive/5",
+        // Amber, not red: the source works fine, it just may not be the one
+        // the teacher meant.
+        tone === "warning" && "border-amber-500/40 bg-amber-500/5",
+        tone !== "error" && tone !== "warning" && "border-border bg-card",
       )}
     >
       <Icon
         className={cn(
           "size-4 shrink-0",
           tone === "busy" && "animate-spin",
-          tone === "error" ? "text-destructive" : "text-muted-foreground",
+          tone === "error" && "text-destructive",
+          tone === "warning" && "text-amber-600 dark:text-amber-500",
+          tone !== "error" && tone !== "warning" && "text-muted-foreground",
         )}
       />
       <div className="min-w-0 flex-1">
@@ -102,7 +137,9 @@ function SourceRow({
           <p
             className={cn(
               "truncate text-xs",
-              tone === "error" ? "text-destructive" : "text-muted-foreground",
+              tone === "error" && "text-destructive",
+              tone === "warning" && "text-amber-700 dark:text-amber-400",
+              tone !== "error" && tone !== "warning" && "text-muted-foreground",
             )}
           >
             {subtitle}
@@ -114,7 +151,7 @@ function SourceRow({
           type="button"
           aria-label={removeLabel}
           onClick={onRemove}
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <X className="size-3.5" />
         </button>
@@ -133,6 +170,8 @@ export function SourcePanel({
   onDismissUpload,
   onRemoveHsat,
   onOpenHsatPicker,
+  expectedSubject,
+  onAcceptSubjectMismatch,
 }: Props) {
   const [dragging, setDragging] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -255,16 +294,59 @@ export function SourcePanel({
             />
           ))}
 
-          {uploadedDocs.map((doc) => (
-            <SourceRow
-              key={doc.id}
-              icon={CheckCircle2}
-              title={doc.name}
-              subtitle={`Ready · ${formatSize(doc.size)}`}
-              onRemove={() => onRemoveDoc(doc.id)}
-              removeLabel={`Remove ${doc.name}`}
-            />
-          ))}
+          {uploadedDocs.map((doc) => {
+            const mismatch = subjectMismatch(doc, expectedSubject);
+            return (
+              <div key={doc.id} className="space-y-1.5">
+                <SourceRow
+                  icon={mismatch ? AlertTriangle : CheckCircle2}
+                  tone={mismatch ? "warning" : "default"}
+                  title={doc.name}
+                  subtitle={
+                    mismatch
+                      ? `Ready · looks like ${mismatch}`
+                      : `Ready · ${formatSize(doc.size)}`
+                  }
+                  onRemove={() => onRemoveDoc(doc.id)}
+                  removeLabel={`Remove ${doc.name}`}
+                />
+                {/* A warning, never a block. The chapter is already ingested
+                    and usable; this only tells the teacher what the file looks
+                    like so an accidental drag of the wrong PDF is caught
+                    before it becomes a paper full of the wrong questions. */}
+                {mismatch ? (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2">
+                    <p className="min-w-0 flex-1 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+                      This chapter reads like <strong>{mismatch}</strong>, but
+                      this paper is <strong>{expectedSubject}</strong>. Using it
+                      will produce {expectedSubject} questions from{" "}
+                      {mismatch} material.
+                    </p>
+                    <div className="flex shrink-0 gap-1.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => onAcceptSubjectMismatch?.(doc.id)}
+                      >
+                        Use anyway
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => onRemoveDoc(doc.id)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
 
           {uploadingDocs.map((doc) => (
             <SourceRow

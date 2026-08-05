@@ -34,11 +34,11 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { replaceQuestion, ApiError } from "@/lib/api-client";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Check,
   CheckCircle2,
   Columns3,
-  Loader2,
   Pencil,
   RefreshCw,
   Trash2,
@@ -320,7 +320,7 @@ export function ComparisonWorkspace() {
                   key={label}
                   type="button"
                   onClick={() => toggleShown(label)}
-                  className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                  className={`text-xs px-3 py-1 rounded-lg border transition-colors ${
                     active
                       ? "border-primary bg-primary/10 dark:bg-primary/10 text-primary dark:text-primary font-semibold"
                       : "border-border text-muted-foreground hover:border-border"
@@ -488,7 +488,7 @@ export function ComparisonWorkspace() {
                                   {q.options.map((opt: string, i: number) => (
                                     <div
                                       key={i}
-                                      className="text-[11px] text-muted-foreground border border-border p-1 rounded bg-background/50"
+                                      className="text-[11px] text-muted-foreground border border-border p-1 rounded-sm bg-background/50"
                                     >
                                       {String.fromCharCode(65 + i)}. {opt}
                                     </div>
@@ -512,7 +512,7 @@ export function ComparisonWorkspace() {
                                   title="Regenerate only this question, keeping its marks, type and section"
                                 >
                                   {isBusy ? (
-                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                    <Spinner className="size-3 mr-1" />
                                   ) : (
                                     <RefreshCw className="h-3 w-3 mr-1" />
                                   )}
