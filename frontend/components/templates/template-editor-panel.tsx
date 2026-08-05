@@ -30,6 +30,7 @@ import { SlotEditor } from "@/components/blueprint/slot-editor";
 import { recomputeTotals } from "@/lib/blueprint-totals";
 import {
   fetchQuestionTypeMenu,
+  savePaperTemplate,
   updatePaperTemplate,
   type BlueprintSlot,
   type PaperTemplate,
@@ -37,9 +38,27 @@ import {
   type TemplateFolder,
 } from "@/lib/api-client";
 
+/** Mirrors the Blueprint Builder's own lists (`blueprint-modal.tsx`) — kept
+ *  local rather than shared, since neither is meant to be an API contract. */
+const CLASSES = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
+const SUBJECTS = [
+  "Science",
+  "Social Science",
+  "Mathematics",
+  "English",
+  "Hindi",
+  "Telugu",
+  "Sanskrit",
+  "Computer Science",
+];
+const DIFFICULTIES = ["easy", "medium", "hard"];
+
 interface Props {
-  template: PaperTemplate;
+  /** null starts a brand-new template instead of editing a saved one. */
+  template: PaperTemplate | null;
   folders: TemplateFolder[];
+  /** Where a new template lands. Ignored once `template` is set. */
+  initialFolderId?: string | null;
   onClose: () => void;
   onSaved: (template: PaperTemplate) => void;
 }
@@ -47,23 +66,36 @@ interface Props {
 export function TemplateEditorPanel({
   template,
   folders,
+  initialFolderId = null,
   onClose,
   onSaved,
 }: Props) {
-  const [name, setName] = React.useState(template.name);
-  const [instructions, setInstructions] = React.useState(template.instructions);
+  const isCreating = template === null;
+
+  const [name, setName] = React.useState(template?.name ?? "");
+  const [instructions, setInstructions] = React.useState(
+    template?.instructions ?? "",
+  );
   const [folderId, setFolderId] = React.useState<string | null>(
-    template.folderId,
+    template ? template.folderId : initialFolderId,
   );
   const [slots, setSlots] = React.useState<BlueprintSlot[]>(
-    template.blueprint.slots,
+    template?.blueprint.slots ?? [],
   );
   const [questionTypes, setQuestionTypes] = React.useState<
     QuestionTypeOption[]
   >([]);
   const [isSaving, setIsSaving] = React.useState(false);
 
-  const subject = template.settings?.subject ?? "";
+  const [subject, setSubject] = React.useState(
+    template?.settings?.subject ?? SUBJECTS[0],
+  );
+  const [academicClass, setAcademicClass] = React.useState(
+    template?.settings?.academicClass ?? "10",
+  );
+  const [difficulty, setDifficulty] = React.useState(
+    template?.settings?.difficulty ?? "medium",
+  );
 
   React.useEffect(() => {
     let cancelled = false;
@@ -84,10 +116,13 @@ export function TemplateEditorPanel({
   const totals = React.useMemo(() => recomputeTotals(slots), [slots]);
 
   const slotsChanged = React.useMemo(
-    () => JSON.stringify(slots) !== JSON.stringify(template.blueprint.slots),
-    [slots, template.blueprint.slots],
+    () =>
+      !template ||
+      JSON.stringify(slots) !== JSON.stringify(template.blueprint.slots),
+    [slots, template],
   );
   const isDirty =
+    isCreating ||
     name !== template.name ||
     instructions !== template.instructions ||
     folderId !== template.folderId ||
@@ -109,22 +144,37 @@ export function TemplateEditorPanel({
       return;
     }
 
-    // Only what actually changed. Absent keys are left alone server-side.
-    const body: Parameters<typeof updatePaperTemplate>[1] = {};
-    if (name !== template.name) body.name = name.trim();
-    if (instructions !== template.instructions) body.instructions = instructions;
-    if (folderId !== template.folderId) body.folderId = folderId;
-    if (slotsChanged) {
-      body.blueprint = slots.length ? { slots } : null;
-    }
-
     setIsSaving(true);
     try {
+      if (isCreating) {
+        const created = await savePaperTemplate({
+          name: name.trim(),
+          instructions,
+          folderId,
+          settings: { subject, academicClass, difficulty },
+          blueprint: slots.length ? { slots } : undefined,
+        });
+        toast.success(`Created "${created.name}"`);
+        onSaved(created);
+        return;
+      }
+
+      // Only what actually changed. Absent keys are left alone server-side.
+      const body: Parameters<typeof updatePaperTemplate>[1] = {};
+      if (name !== template.name) body.name = name.trim();
+      if (instructions !== template.instructions) body.instructions = instructions;
+      if (folderId !== template.folderId) body.folderId = folderId;
+      if (slotsChanged) {
+        body.blueprint = slots.length ? { slots } : null;
+      }
       const saved = await updatePaperTemplate(template.id, body);
       toast.success(`Saved "${saved.name}"`);
       onSaved(saved);
     } catch (error: any) {
-      toast.error(error?.message || "Could not save that template.");
+      toast.error(
+        error?.message ||
+          `Could not ${isCreating ? "create" : "save"} that template.`,
+      );
     } finally {
       setIsSaving(false);
     }
@@ -141,7 +191,9 @@ export function TemplateEditorPanel({
       <div className="relative z-10 flex h-full w-full max-w-3xl flex-col border-l border-border bg-background shadow-2xl">
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3">
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold">Edit template</h2>
+            <h2 className="truncate text-sm font-semibold">
+              {isCreating ? "New template" : "Edit template"}
+            </h2>
             <p className="text-xs text-muted-foreground">
               {totals.totalQuestions} questions · {totals.totalMarks} marks
               {slots.length === 0 ? " · resolved from instructions" : ""}
@@ -186,6 +238,56 @@ export function TemplateEditorPanel({
             </div>
           </div>
 
+          {isCreating ? (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="template-class">Class</Label>
+                <select
+                  id="template-class"
+                  value={academicClass}
+                  onChange={(e) => setAcademicClass(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                >
+                  {CLASSES.map((c) => (
+                    <option key={c} value={c}>
+                      Class {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="template-subject">Subject</Label>
+                <select
+                  id="template-subject"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                >
+                  {SUBJECTS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="template-difficulty">Difficulty</Label>
+                <select
+                  id="template-difficulty"
+                  value={difficulty}
+                  onChange={(e) => setDifficulty(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm capitalize shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                >
+                  {DIFFICULTIES.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ) : null}
+
           <div className="space-y-2">
             <Label htmlFor="template-instructions">Instructions</Label>
             <textarea
@@ -221,7 +323,7 @@ export function TemplateEditorPanel({
               ) : null}
             </div>
 
-            {slots.length > 0 ? (
+            {isCreating || slots.length > 0 ? (
               <SlotEditor
                 slots={slots}
                 questionTypes={questionTypes}
@@ -241,9 +343,11 @@ export function TemplateEditorPanel({
           <p className="text-xs text-muted-foreground">
             {!isReproducible
               ? "Add instructions or a question slot to save."
-              : isDirty
-                ? "Unsaved changes"
-                : "No changes"}
+              : isCreating
+                ? "Ready to create"
+                : isDirty
+                  ? "Unsaved changes"
+                  : "No changes"}
           </p>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={onClose}>
@@ -256,7 +360,7 @@ export function TemplateEditorPanel({
               className="gap-1.5"
             >
               {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              Save
+              {isCreating ? "Create" : "Save"}
             </Button>
           </div>
         </div>

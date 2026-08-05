@@ -13,7 +13,8 @@ import { TiptapEditor, normalizeInitialContent } from "@/components/tiptap-edito
 import { ComparisonWorkspace } from "@/components/comparison-workspace";
 import { useEditorStore } from "@/store/editor-store";
 import { type AppliedHsatSource } from "@/components/hsat-source-picker";
-import { fetchJson } from "@/lib/api-client";
+import { fetchJson, fetchTemplateFolders, type TemplateFolder } from "@/lib/api-client";
+import { TemplateEditorPanel } from "@/components/templates/template-editor-panel";
 import {
   Dialog,
   DialogContent,
@@ -238,6 +239,21 @@ export default function EditorPage() {
     setBuilderBrief(brief ?? "");
     setBuilderTemplateId("");
     setBlueprintOpen(true);
+  }, []);
+
+  // The same manual template builder the Templates page uses, reachable from
+  // here too so a teacher doesn't have to leave the editor to define one.
+  // Folders load lazily on open rather than on every editor mount.
+  const [templateCreatorOpen, setTemplateCreatorOpen] = useState(false);
+  const [templateFolders, setTemplateFolders] = useState<TemplateFolder[]>([]);
+  const openTemplateCreator = useCallback(() => {
+    fetchTemplateFolders()
+      .then(setTemplateFolders)
+      .catch(() => {
+        // The folder select degrades to "Unfiled only"; not worth blocking
+        // template creation over.
+      });
+    setTemplateCreatorOpen(true);
   }, []);
 
   // ── "Use" on the Templates page lands here ──────────────────────────────
@@ -1031,6 +1047,17 @@ export default function EditorPage() {
         onOpenChange={setBankDialogOpen}
       />
 
+      {/* The same manual "build questions section by section" surface as the
+          Templates page's New Template, opened from the dock instead. */}
+      {templateCreatorOpen ? (
+        <TemplateEditorPanel
+          template={null}
+          folders={templateFolders}
+          onClose={() => setTemplateCreatorOpen(false)}
+          onSaved={() => setTemplateCreatorOpen(false)}
+        />
+      ) : null}
+
       {/* The library picker, opened from inside the Builder's Sources step.
           It is no longer a top-level toolbar button: an HSAT book and an
           uploaded PDF both end up as DocumentChunk rows, so presenting them
@@ -1084,9 +1111,13 @@ export default function EditorPage() {
               onOpenChange={setDockOpen}
               onOpenBuilder={openBuilder}
               onBuildFromBank={() => setBankDialogOpen(true)}
+              onNewTemplate={openTemplateCreator}
               generating={generation.isGenerating}
               status={generation.poolStatus}
               insertedCount={generation.liveInsertedCount}
+              plannedTotal={generation.plannedTotal}
+              generatedCount={generation.generatedCount}
+              lastQuestion={generation.lastQuestion}
               sourceCount={uploadedDocs.length + hsatSources.length}
               review={reviewPending ? <ReviewTray /> : null}
             />

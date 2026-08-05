@@ -28,23 +28,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -71,7 +54,6 @@ import {
   fetchTemplateCatalog,
   fetchTemplateFolders,
   forkBuiltinTemplate,
-  savePaperTemplate,
   updatePaperTemplate,
   updateTemplateFolder,
   type BuiltinTemplate,
@@ -105,11 +87,10 @@ export default function TemplatesPage() {
   const [pendingDelete, setPendingDelete] = React.useState<PendingDelete | null>(
     null,
   );
-  const [isCreateOpen, setIsCreateOpen] = React.useState(false);
-  const [createName, setCreateName] = React.useState("");
-  const [createInstructions, setCreateInstructions] = React.useState("");
-  const [createFolderId, setCreateFolderId] = React.useState<string>("unfiled");
-  const [isCreating, setIsCreating] = React.useState(false);
+  const [isCreatorOpen, setIsCreatorOpen] = React.useState(false);
+  const [creatorFolderId, setCreatorFolderId] = React.useState<string | null>(
+    null,
+  );
 
   const load = React.useCallback(async () => {
     setIsLoading(true);
@@ -141,34 +122,6 @@ export default function TemplatesPage() {
       // the user was actually doing; the next load fixes it.
     }
   }, []);
-
-  const handleCreateTemplate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const n = createName.trim();
-    if (!n) {
-      toast.error("Please enter a template name.");
-      return;
-    }
-    setIsCreating(true);
-    try {
-      const created = await savePaperTemplate({
-        name: n,
-        instructions: createInstructions.trim(),
-        folderId: createFolderId === "unfiled" ? null : createFolderId,
-      });
-      setTemplates((prev) => [created, ...prev]);
-      await refreshFolders();
-      setIsCreateOpen(false);
-      setCreateName("");
-      setCreateInstructions("");
-      setCreateFolderId("unfiled");
-      toast.success(`Created "${created.name}"`);
-    } catch (error: any) {
-      toast.error(error?.message || "Failed to create template.");
-    } finally {
-      setIsCreating(false);
-    }
-  };
 
   const counts = React.useMemo(
     () => ({
@@ -370,8 +323,8 @@ export default function TemplatesPage() {
             });
           }}
           onCreateTemplate={(folderId) => {
-            setCreateFolderId(folderId);
-            setIsCreateOpen(true);
+            setCreatorFolderId(folderId === "unfiled" ? null : folderId);
+            setIsCreatorOpen(true);
           }}
           maxDepth={MAX_FOLDER_DEPTH}
         />
@@ -388,7 +341,12 @@ export default function TemplatesPage() {
             variant="outline" 
             size="sm" 
             className="ml-2 gap-2 hidden sm:flex"
-            onClick={() => setIsCreateOpen(true)}
+            onClick={() => {
+              setCreatorFolderId(
+                selection.kind === "folder" ? selection.id : null,
+              );
+              setIsCreatorOpen(true);
+            }}
           >
             <Plus className="h-4 w-4" />
             New Template
@@ -543,64 +501,19 @@ export default function TemplatesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <form onSubmit={handleCreateTemplate}>
-            <DialogHeader>
-              <DialogTitle>New Template</DialogTitle>
-              <DialogDescription>
-                Create a new empty template. You can add instructions now or edit it later in the Editor.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  value={createName}
-                  onChange={(e) => setCreateName(e.target.value)}
-                  placeholder="e.g. Weekly Math Quiz"
-                  autoFocus
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="instructions">Instructions (optional)</Label>
-                <Textarea
-                  id="instructions"
-                  value={createInstructions}
-                  onChange={(e) => setCreateInstructions(e.target.value)}
-                  placeholder="e.g. Generate 5 multiple choice questions..."
-                  className="resize-none h-20"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Folder</Label>
-                <Select value={createFolderId} onValueChange={setCreateFolderId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a folder" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unfiled">Unfiled</SelectItem>
-                    {folders.map((f) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        {f.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isCreating || !createName.trim()}>
-                {isCreating ? "Creating..." : "Create"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {isCreatorOpen ? (
+        <TemplateEditorPanel
+          template={null}
+          folders={folders}
+          initialFolderId={creatorFolderId}
+          onClose={() => setIsCreatorOpen(false)}
+          onSaved={(created) => {
+            setTemplates((prev) => [created, ...prev]);
+            setIsCreatorOpen(false);
+            void refreshFolders();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

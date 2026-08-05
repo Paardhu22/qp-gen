@@ -65,6 +65,19 @@ export interface GenerationState {
   } | null;
   liveInsertedCount: number;
   multiSetMode: boolean;
+  /**
+   * The blueprint's own slot count, from the `plan` event — the one number in
+   * this stream that is an actual target rather than a pool size (see the
+   * file comment on why `pool_progress`'s `produced`/`target` are not this).
+   * 0 until the plan event lands, which a progress bar reads as "unknown yet".
+   */
+  plannedTotal: number;
+  /** Questions streamed so far, counted the moment each arrives — unlike
+   *  `liveInsertedCount`, this advances in review mode too, since it tracks
+   *  what the model has written, not what has landed in the document. */
+  generatedCount: number;
+  /** The most recent question to stream in, for a live "just written" line. */
+  lastQuestion: { section: string; type: string; marks: number } | null;
 }
 
 const INITIAL: GenerationState = {
@@ -75,6 +88,9 @@ const INITIAL: GenerationState = {
   savedToBank: null,
   liveInsertedCount: 0,
   multiSetMode: false,
+  plannedTotal: 0,
+  generatedCount: 0,
+  lastQuestion: null,
 };
 
 /** Merge one streamed question into the accumulating preview. */
@@ -266,6 +282,8 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
             setState((s) => ({
               ...s,
               result: { sections: [], generalInstructions },
+              plannedTotal:
+                typeof data.total === "number" ? data.total : s.plannedTotal,
             }));
             // Only auto-insert the instruction block when auto-insert is on.
             // In review mode the editor rebuilds instructions from what was
@@ -283,6 +301,12 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
             setState((s) => ({
               ...s,
               result: appendQuestionToResult(s.result, data.section, data.question),
+              generatedCount: s.generatedCount + 1,
+              lastQuestion: {
+                section: data.section || "",
+                type: data.question?.type || "",
+                marks: data.question?.marks || 0,
+              },
             }));
             if (isMultiSet) {
               // Preview only — sets are inserted from the comparison view so
