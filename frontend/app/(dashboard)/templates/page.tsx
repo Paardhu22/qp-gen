@@ -575,7 +575,7 @@ export default function TemplatesPage() {
               </div>
               <div className="grid gap-2">
                 <Label>Folder</Label>
-                <Select value={createFolderId} onValueChange={setCreateFolderId}>
+                <Select value={createFolderId} onValueChange={(v) => setCreateFolderId(v ?? "unfiled")}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select a folder" />
                   </SelectTrigger>

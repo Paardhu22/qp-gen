@@ -208,14 +208,22 @@ class PaperTemplateTests(DesignApiTestCase):
         self.assertIn("3 MCQ", listed[0]["instructions"])
         self.assertEqual(listed[0]["settings"]["difficulty"], "medium")
 
-    def test_a_template_needs_a_name_and_instructions(self):
+    def test_a_template_needs_a_name(self):
         for payload in (
             {"name": "", "instructions": "3 MCQ"},
-            {"name": "Weekly", "instructions": "  "},
+            {"name": "   ", "instructions": "3 MCQ"},
         ):
             response = self.client.post(self.URL, payload, format="json")
             self.assertEqual(response.status_code, 400, payload)
         self.assertEqual(PaperTemplate.objects.count(), 0)
+
+    def test_a_template_with_blank_instructions_is_allowed(self):
+        # Blank templates can be created from the Templates UI so they can be
+        # filed into a folder and filled in later — see design_views.py.
+        response = self.client.post(
+            self.URL, {"name": "Weekly", "instructions": "  "}, format="json"
+        )
+        self.assertEqual(response.status_code, 201)
 
     def test_saving_the_same_name_twice_overwrites_rather_than_duplicating(self):
         self.client.post(
@@ -422,11 +430,12 @@ class TemplateCatalogApiTests(DesignApiTestCase):
             response.data["template"]["base_template_id"], "cbse-science-10"
         )
 
-    def test_a_template_with_neither_instructions_nor_blueprint_is_rejected(self):
+    def test_a_template_with_neither_instructions_nor_blueprint_is_allowed(self):
+        # A blank template is a normal resting state — see design_views.py.
         response = self.client.post(
             self.LIST_URL, {"name": "Empty"}, format="json"
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 201)
 
     def test_the_question_type_menu_is_served(self):
         response = self.client.get(self.TYPES_URL, {"subject": "Science"})
