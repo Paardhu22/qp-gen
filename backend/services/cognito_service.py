@@ -139,3 +139,67 @@ def remove_user_from_group(username: str, group_name: str):
     except Exception as e:
         logger.error("Failed to remove user %s from group %s: %s", username, group_name, e)
         raise RuntimeError(f"Failed to remove user from Cognito group: {str(e)}")
+
+
+def ensure_cognito_group(group_name: str, description: str = ""):
+    """Create a Cognito group if it doesn't already exist. Idempotent."""
+    client = get_cognito_client()
+    try:
+        client.create_group(
+            GroupName=group_name,
+            UserPoolId=settings.AWS_COGNITO_USER_POOL_ID,
+            Description=description,
+        )
+    except client.exceptions.GroupExistsException:
+        pass
+    except Exception as e:
+        logger.error("Failed to ensure Cognito group %s: %s", group_name, e)
+        raise RuntimeError(f"Failed to ensure Cognito group: {str(e)}")
+
+
+def get_cognito_user_by_email(email: str) -> dict | None:
+    """Return the Cognito user record for `email`, or None if it doesn't exist."""
+    client = get_cognito_client()
+    try:
+        response = client.admin_get_user(
+            UserPoolId=settings.AWS_COGNITO_USER_POOL_ID,
+            Username=email,
+        )
+        return response
+    except client.exceptions.UserNotFoundException:
+        return None
+    except Exception as e:
+        logger.error("Failed to look up Cognito user %s: %s", email, e)
+        raise RuntimeError(f"Failed to look up Cognito user: {str(e)}")
+
+
+def create_cognito_user(email: str, name: str, password: str) -> str:
+    """
+    Create a permanently-active Cognito user (no invite email, no forced
+    first-login reset) and return the Cognito `Username` (the sub-like UUID
+    the pool assigns, since this pool signs users in by email alias).
+    """
+    client = get_cognito_client()
+    try:
+        create_response = client.admin_create_user(
+            UserPoolId=settings.AWS_COGNITO_USER_POOL_ID,
+            Username=email,
+            UserAttributes=[
+                {"Name": "email", "Value": email},
+                {"Name": "email_verified", "Value": "true"},
+                {"Name": "name", "Value": name},
+            ],
+            MessageAction="SUPPRESS",
+        )
+        username = create_response["User"]["Username"]
+
+        client.admin_set_user_password(
+            UserPoolId=settings.AWS_COGNITO_USER_POOL_ID,
+            Username=username,
+            Password=password,
+            Permanent=True,
+        )
+        return username
+    except Exception as e:
+        logger.error("Failed to create Cognito user %s: %s", email, e)
+        raise RuntimeError(f"Failed to create Cognito user: {str(e)}")

@@ -113,6 +113,13 @@ class ApiUsage(TimeStampedModel):
         db_column="userId",
         related_name="api_usage",
     )
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="api_usage",
+    )
     operation = models.CharField(max_length=64)
     model = models.CharField(max_length=64, blank=True)
     prompt_tokens = models.IntegerField(default=0)

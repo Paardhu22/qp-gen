@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "apps.chat",
     "apps.documents",
     "apps.generation",
+    "apps.organizations",
     "apps.projects",
     "apps.common",
     "apps.question_generation",

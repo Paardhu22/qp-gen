@@ -48,16 +48,9 @@ export function LoginForm({
     return () => clearInterval(interval);
   }, []);
 
-  const GMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-
-    if (!GMAIL_REGEX.test(email)) {
-      setError("Please enter a valid Gmail address (e.g. example@gmail.com).");
-      return;
-    }
 
     setLoading(true);
     await signIn.email({

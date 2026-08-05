@@ -6,9 +6,17 @@ import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 import { signUp, confirmSignUp, resendConfirmationCode } from "@/lib/auth-client";
+import { listPublicOrganizations, joinOrganization, type PublicOrganization } from "@/lib/organizations-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Eye, EyeOff } from "lucide-react";
 
 export function RegisterForm({
@@ -21,6 +29,9 @@ export function RegisterForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [organizations, setOrganizations] = useState<PublicOrganization[]>([]);
+  const [organizationId, setOrganizationId] = useState("");
+  const [orgsLoading, setOrgsLoading] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
@@ -34,6 +45,13 @@ export function RegisterForm({
   const [cursor, setCursor] = useState({ x: 0, y: 0 });
   const [eyePos, setEyePos] = useState({ x: 0, y: 0 });
   const [blink, setBlink] = useState(false);
+
+  useEffect(() => {
+    listPublicOrganizations()
+      .then(setOrganizations)
+      .catch(() => setOrganizations([]))
+      .finally(() => setOrgsLoading(false));
+  }, []);
 
   useEffect(() => {
     const handleMouse = (e: MouseEvent) =>
@@ -56,19 +74,17 @@ export function RegisterForm({
     return () => clearInterval(interval);
   }, []);
 
-  const GMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (!GMAIL_REGEX.test(email)) {
-      setError("Please enter a valid Gmail address (e.g. example@gmail.com).");
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
       return;
     }
 
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+    if (organizations.length > 0 && !organizationId) {
+      setError("Please select your school.");
       return;
     }
 
@@ -78,7 +94,7 @@ export function RegisterForm({
       email,
       password,
       fetchOptions: {
-        onSuccess: () => router.push("/dashboard"),
+        onSuccess: () => finishSignup(),
         onConfirmationRequired: () => {
           // Pool requires email verification — switch to the code-entry step.
           setPhase("confirm");
@@ -93,6 +109,21 @@ export function RegisterForm({
     });
   };
 
+  // Runs once the user is authenticated for the first time (either the
+  // auto-confirm signUp path or after confirmSignUp). Requests to join the
+  // selected school before landing on the dashboard — best-effort, since a
+  // failed join here shouldn't strand the user mid-signup.
+  const finishSignup = async () => {
+    if (organizationId) {
+      try {
+        await joinOrganization(organizationId);
+      } catch (err) {
+        console.warn("Failed to join organization after signup:", err);
+      }
+    }
+    router.push("/dashboard");
+  };
+
   const handleConfirm = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -103,7 +134,7 @@ export function RegisterForm({
       code: code.trim(),
       password,
       fetchOptions: {
-        onSuccess: () => router.push("/dashboard"),
+        onSuccess: () => finishSignup(),
         onError: (ctx) => {
           setError(ctx.error.message);
           setLoading(false);
@@ -238,6 +269,30 @@ export function RegisterForm({
                 autoComplete="email"
                 required
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="organization">School</Label>
+              {orgsLoading ? (
+                <p className="text-sm text-muted-foreground">Loading schools…</p>
+              ) : organizations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No schools have been set up yet. Ask your admin to invite your school first.
+                </p>
+              ) : (
+                <Select value={organizationId} onValueChange={(v) => setOrganizationId(v ?? "")}>
+                  <SelectTrigger id="organization" className="w-full">
+                    <SelectValue placeholder="Select your school" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {organizations.map((org) => (
+                      <SelectItem key={org.id} value={org.id}>
+                        {org.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <div className="space-y-2">

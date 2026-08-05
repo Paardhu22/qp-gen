@@ -21,6 +21,9 @@ class User(TimeStampedModel):
             ("rejected", "Rejected"),
         ],
     )
+    # Platform-wide admin, independent of any organization. Synced from the
+    # Cognito "superadmin" group claim — see CognitoJWTAuthentication.
+    is_superadmin = models.BooleanField(default=False)
 
     class Meta:
         db_table = "user"
@@ -28,3 +31,8 @@ class User(TimeStampedModel):
     @property
     def is_authenticated(self) -> bool:
         return True
+
+    @property
+    def organization(self):
+        membership = getattr(self, "membership", None)
+        return membership.organization if membership else None

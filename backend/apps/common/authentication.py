@@ -49,6 +49,8 @@ class CognitoJWTAuthentication(BaseAuthentication):
         else:
             status = "pending"
 
+        is_superadmin = "superadmin" in groups
+
         try:
             user = User.objects.filter(id=user_id).first()
             if not user:
@@ -77,7 +79,8 @@ class CognitoJWTAuthentication(BaseAuthentication):
                     id=user_id,
                     email=email,
                     name=name,
-                    status=status
+                    status=status,
+                    is_superadmin=is_superadmin,
                 )
                 logger.info("Created local user profile for user %s (%s) with status %s", user.email, user.id, status)
             else:
@@ -97,6 +100,9 @@ class CognitoJWTAuthentication(BaseAuthentication):
                     # Sync Cognito group status to local DB
                     user.status = status
                     updated_fields.append("status")
+                if user.is_superadmin != is_superadmin:
+                    user.is_superadmin = is_superadmin
+                    updated_fields.append("is_superadmin")
 
                 if updated_fields:
                     user.save(update_fields=updated_fields)

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { ApiError } from "@/lib/api-client";
-import { useSession } from "@/lib/auth-client";
+import { useSession, isPending, signOut } from "@/lib/auth-client";
 import { getRefreshToken } from "@/lib/token-storage";
 
 // Max ms we wait for the session check before giving up and redirecting to login
@@ -69,6 +69,9 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
   // Fast path: useSession initialized from its module-level cache (any
   // prior navigation in this session) — render children with no flicker.
   if (data?.user) {
+    if (isPending(data.user)) {
+      return <PendingApprovalNotice />;
+    }
     return <>{children}</>;
   }
 
@@ -95,6 +98,31 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-dvh items-center justify-center bg-background">
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+function PendingApprovalNotice() {
+  const router = useRouter();
+
+  const handleSignOut = async () => {
+    await signOut({ fetchOptions: { onSuccess: () => router.push("/login") } });
+  };
+
+  return (
+    <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-background px-4 text-center">
+      <h1 className="text-xl font-semibold text-foreground">Waiting for approval</h1>
+      <p className="max-w-sm text-sm text-muted-foreground">
+        Your account is set up, but your school admin still needs to approve you before you can start
+        generating papers. Check back soon.
+      </p>
+      <button
+        type="button"
+        onClick={handleSignOut}
+        className="mt-2 text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+      >
+        Sign out
+      </button>
     </div>
   );
 }

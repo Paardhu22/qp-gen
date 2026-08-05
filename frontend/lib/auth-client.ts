@@ -41,12 +41,21 @@ async function clearLocalUserState(): Promise<void> {
   }
 }
 
+export type SessionMembership = {
+  organization_id: string;
+  organization_name: string;
+  role: "org_admin" | "teacher";
+  status: "pending" | "approved" | "rejected";
+};
+
 export type SessionUser = {
   id: string;
   name: string;
   email: string;
   image?: string | null;
   status: "pending" | "approved" | "admin" | "rejected";
+  is_superadmin?: boolean;
+  membership?: SessionMembership | null;
 };
 
 type SessionData = {
@@ -140,6 +149,19 @@ export function isAdmin(user?: SessionUser | null): boolean {
   if (user?.status) return user.status === "admin";
   const groups = getCognitoGroups();
   return groups.includes("admin");
+}
+
+/** Platform-wide superadmin — manages every organization. */
+export function isSuperAdmin(user?: SessionUser | null): boolean {
+  if (user) return Boolean(user.is_superadmin);
+  return getCognitoGroups().includes("superadmin");
+}
+
+/** School admin — manages users within their own organization only. */
+export function isOrgAdmin(user?: SessionUser | null): boolean {
+  return Boolean(
+    user?.membership && user.membership.role === "org_admin" && user.membership.status === "approved",
+  );
 }
 
 export const signIn = {

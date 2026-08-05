@@ -10,8 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const GMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/;
-
 export function ForgotPasswordForm({
   className,
   ...props
@@ -24,10 +22,6 @@ export function ForgotPasswordForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!GMAIL_REGEX.test(email)) {
-      setError("Please enter a valid Gmail address.");
-      return;
-    }
     setLoading(true);
     const result = await requestPasswordReset(email);
     if (!result.ok) {

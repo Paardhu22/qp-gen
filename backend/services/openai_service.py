@@ -97,6 +97,7 @@ def _record_usage(user: Optional[User], operation: str, model: str, usage: objec
     try:
         ApiUsage.objects.create(
             user=user,
+            organization=getattr(user, "organization", None),
             operation=operation,
             model=model,
             prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,

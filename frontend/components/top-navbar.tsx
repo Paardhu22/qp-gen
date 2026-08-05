@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession, signOut } from "@/lib/auth-client";
+import { useSession, signOut, isSuperAdmin, isOrgAdmin } from "@/lib/auth-client";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -10,6 +10,7 @@ import {
   BookOpen,
   Hammer,
   Settings,
+  ShieldCheck,
   LogOut,
   Menu,
   X,
@@ -40,6 +41,11 @@ export const TopNavbar = () => {
   const pathname = usePathname();
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const user = session?.user;
+  const items = isSuperAdmin(user) || isOrgAdmin(user)
+    ? [...navItems, { icon: ShieldCheck, label: "Admin", href: "/admin" }]
+    : navItems;
 
   const handleSignOut = async () => {
     await signOut({
@@ -100,7 +106,7 @@ export const TopNavbar = () => {
 
           {/* Desktop nav links (lg and up) */}
           <nav className="hidden lg:flex items-center gap-1">
-            {navItems.map(({ icon: Icon, label, href }) => {
+            {items.map(({ icon: Icon, label, href }) => {
               const active = pathname.startsWith(href);
               return (
                 <Link
@@ -228,7 +234,7 @@ export const TopNavbar = () => {
 
               {/* Drawer nav */}
               <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-                {navItems.map(({ icon: Icon, label, href }) => {
+                {items.map(({ icon: Icon, label, href }) => {
                   const active = pathname.startsWith(href);
                   return (
                     <Link

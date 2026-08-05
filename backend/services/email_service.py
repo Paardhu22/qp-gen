@@ -89,6 +89,36 @@ def send_welcome_email(*, to_email: str, user_name: Optional[str] = None) -> boo
     return _safe_send(subject=subject, body=body, recipients=[to_email])
 
 
+def send_organization_invite_email(*, to_email: str, invite_link: str) -> bool:
+    """Email a superadmin's organization-creation invite link.
+
+    Same console-log fallback as `send_password_reset_email`: while
+    EMAIL_BACKEND is the dev console backend, log the link at WARNING so it's
+    usable without real SMTP/SES credentials.
+    """
+    subject = "You're invited to set up your school on qp-gen"
+    body = (
+        "Hello,\n\n"
+        "You've been invited to create your school's organization on qp-gen.\n\n"
+        f"Click this link to set up your account and organization:\n{invite_link}\n\n"
+        "If you weren't expecting this invite, you can safely ignore this email.\n\n"
+        "— qp-gen\n"
+    )
+    backend = (settings.EMAIL_BACKEND or "").lower()
+    is_console_or_dummy = (
+        "console" in backend or "dummy" in backend or "locmem" in backend
+    )
+    if is_console_or_dummy:
+        logger.warning(
+            "Organization invite email going through the %s backend (no actual SMTP). "
+            "Invite link for %s: %s",
+            settings.EMAIL_BACKEND,
+            to_email,
+            invite_link,
+        )
+    return _safe_send(subject=subject, body=body, recipients=[to_email])
+
+
 def _safe_send(*, subject: str, body: str, recipients: list[str]) -> bool:
     try:
         send_mail(
