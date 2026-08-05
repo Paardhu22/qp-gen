@@ -225,14 +225,10 @@ class PaperTemplateListView(APIView):
         from services.templates import TemplateBlueprint
 
         blueprint = TemplateBlueprint.from_dict(blueprint_in) if blueprint_in else None
-        if not instructions and not (blueprint and blueprint.slots):
-            return Response(
-                {
-                    "error": "A template needs either instructions or a blueprint "
-                    "to save."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        
+        # We now allow completely blank templates to be created from the Templates UI,
+        # so they can be placed in folders and edited later.
+
         if len(instructions) > MAX_INSTRUCTIONS_CHARS:
             return Response(
                 {"error": "Those instructions are too long to save."},
@@ -246,6 +242,8 @@ class PaperTemplateListView(APIView):
         source_config = payload.get("sourceConfig")
         if not isinstance(source_config, dict):
             source_config = {}
+
+        folder_id = payload.get("folderId")
 
         # Saving under an existing name overwrites it. Two templates called
         # "Weekly Test" are indistinguishable in the picker, and the teacher
@@ -273,6 +271,7 @@ class PaperTemplateListView(APIView):
                             payload.get("baseTemplateId") or ""
                         ).strip()[:64],
                         "source_config": source_config,
+                        "folder_id": folder_id,
                     },
                 )
         except IntegrityError:

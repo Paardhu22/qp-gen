@@ -23,7 +23,6 @@ import {
   MoreHorizontal,
   Pencil,
   PlayCircle,
-  Sparkles,
   Trash2,
   FolderInput,
 } from "lucide-react";
@@ -240,7 +239,6 @@ export function BuiltinTemplateCard({
   return (
     <div className="flex flex-col rounded-xl border border-dashed border-border bg-card/50 p-4">
       <div className="flex items-start gap-2">
-        <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary/70" />
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold leading-snug">{template.name}</h3>
           {template.subject || template.academicClass ? (

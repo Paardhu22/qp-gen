@@ -22,11 +22,28 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { LayoutTemplate, Search, X } from "lucide-react";
+import { LayoutTemplate, Search, X, Plus } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { SkeletonRows } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,6 +71,7 @@ import {
   fetchTemplateCatalog,
   fetchTemplateFolders,
   forkBuiltinTemplate,
+  savePaperTemplate,
   updatePaperTemplate,
   updateTemplateFolder,
   type BuiltinTemplate,
@@ -87,6 +105,11 @@ export default function TemplatesPage() {
   const [pendingDelete, setPendingDelete] = React.useState<PendingDelete | null>(
     null,
   );
+  const [isCreateOpen, setIsCreateOpen] = React.useState(false);
+  const [createName, setCreateName] = React.useState("");
+  const [createInstructions, setCreateInstructions] = React.useState("");
+  const [createFolderId, setCreateFolderId] = React.useState<string>("unfiled");
+  const [isCreating, setIsCreating] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setIsLoading(true);
@@ -118,6 +141,34 @@ export default function TemplatesPage() {
       // the user was actually doing; the next load fixes it.
     }
   }, []);
+
+  const handleCreateTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = createName.trim();
+    if (!n) {
+      toast.error("Please enter a template name.");
+      return;
+    }
+    setIsCreating(true);
+    try {
+      const created = await savePaperTemplate({
+        name: n,
+        instructions: createInstructions.trim(),
+        folderId: createFolderId === "unfiled" ? null : createFolderId,
+      });
+      setTemplates((prev) => [created, ...prev]);
+      await refreshFolders();
+      setIsCreateOpen(false);
+      setCreateName("");
+      setCreateInstructions("");
+      setCreateFolderId("unfiled");
+      toast.success(`Created "${created.name}"`);
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to create template.");
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   const counts = React.useMemo(
     () => ({
@@ -318,6 +369,10 @@ export default function TemplatesPage() {
               templateCount: folder.templateCount,
             });
           }}
+          onCreateTemplate={(folderId) => {
+            setCreateFolderId(folderId);
+            setIsCreateOpen(true);
+          }}
           maxDepth={MAX_FOLDER_DEPTH}
         />
       </aside>
@@ -328,6 +383,16 @@ export default function TemplatesPage() {
             <LayoutTemplate className="h-4 w-4 text-primary" />
             <h1 className="text-sm font-semibold">{heading}</h1>
           </div>
+
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="ml-2 gap-2 hidden sm:flex"
+            onClick={() => setIsCreateOpen(true)}
+          >
+            <Plus className="h-4 w-4" />
+            New Template
+          </Button>
 
           <div className="relative ml-auto w-full max-w-xs">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -477,6 +542,65 @@ export default function TemplatesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <form onSubmit={handleCreateTemplate}>
+            <DialogHeader>
+              <DialogTitle>New Template</DialogTitle>
+              <DialogDescription>
+                Create a new empty template. You can add instructions now or edit it later in the Editor.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="name">Name</Label>
+                <Input
+                  id="name"
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  placeholder="e.g. Weekly Math Quiz"
+                  autoFocus
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="instructions">Instructions (optional)</Label>
+                <Textarea
+                  id="instructions"
+                  value={createInstructions}
+                  onChange={(e) => setCreateInstructions(e.target.value)}
+                  placeholder="e.g. Generate 5 multiple choice questions..."
+                  className="resize-none h-20"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Folder</Label>
+                <Select value={createFolderId} onValueChange={setCreateFolderId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a folder" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unfiled">Unfiled</SelectItem>
+                    {folders.map((f) => (
+                      <SelectItem key={f.id} value={f.id}>
+                        {f.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isCreating || !createName.trim()}>
+                {isCreating ? "Creating..." : "Create"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

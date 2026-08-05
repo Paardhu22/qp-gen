@@ -25,8 +25,9 @@ import {
   Layers,
   MoreHorizontal,
   Pencil,
-  Sparkles,
+  Library,
   Trash2,
+  FilePlus,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ interface Props {
   onCreateFolder: (name: string, parentId: string | null) => Promise<void>;
   onRenameFolder: (id: string, name: string) => Promise<void>;
   onDeleteFolder: (id: string) => void;
+  onCreateTemplate: (folderId: string) => void;
   /** Max nesting the API accepts. Deeper folders offer no "add subfolder". */
   maxDepth: number;
 }
@@ -140,6 +142,7 @@ function FolderRow({
   onRename,
   onDelete,
   onAddChild,
+  onCreateTemplate,
   maxDepth,
 }: {
   node: FolderNode;
@@ -148,6 +151,7 @@ function FolderRow({
   onRename: (id: string, name: string) => Promise<void>;
   onDelete: (id: string) => void;
   onAddChild: (parentId: string) => void;
+  onCreateTemplate: (folderId: string) => void;
   maxDepth: number;
 }) {
   const [renaming, setRenaming] = React.useState(false);
@@ -238,6 +242,10 @@ function FolderRow({
                 New subfolder
               </DropdownMenuItem>
             ) : null}
+            <DropdownMenuItem onClick={() => onCreateTemplate(node.id)}>
+              <FilePlus className="mr-2 h-3.5 w-3.5" />
+              New template
+            </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
               onClick={() => onDelete(node.id)}
@@ -258,6 +266,7 @@ function FolderRow({
           onRename={onRename}
           onDelete={onDelete}
           onAddChild={onAddChild}
+          onCreateTemplate={onCreateTemplate}
           maxDepth={maxDepth}
         />
       ))}
@@ -273,6 +282,7 @@ export function FolderRail({
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
+  onCreateTemplate,
   maxDepth,
 }: Props) {
   const tree = React.useMemo(() => toTree(folders), [folders]);
@@ -308,7 +318,7 @@ export function FolderRail({
         onClick={() => onSelect({ kind: "unfiled" })}
       />
       <FixedEntry
-        icon={Sparkles}
+        icon={Library}
         label="Built-in"
         count={counts.builtin}
         active={selection.kind === "builtin"}
@@ -351,6 +361,7 @@ export function FolderRail({
             setDraft("");
             setCreating({ parentId });
           }}
+          onCreateTemplate={onCreateTemplate}
           maxDepth={maxDepth}
         />
       ))}

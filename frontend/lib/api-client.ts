@@ -1142,6 +1142,7 @@ export async function savePaperTemplate(body: {
   blueprint?: { slots: BlueprintSlot[] };
   baseTemplateId?: string;
   sourceConfig?: Record<string, unknown>;
+  folderId?: string | null;
 }): Promise<PaperTemplate> {
   const data = await fetchJson<{ template: PaperTemplate }>(
     "/api/generation/templates",
