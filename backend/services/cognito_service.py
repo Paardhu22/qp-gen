@@ -198,8 +198,11 @@ def create_cognito_user(email: str, name: str, password: str) -> str:
     User row off this (seed_superadmin), and authentication.py derives the same
     id from the token's `sub` claim — Cognito assigns `sub` independently of
     the Username, so returning the Username would leave the two out of sync.
-    Admin APIs accept a `sub` in their `Username` parameter, so it stays usable
-    for add_user_to_group and friends.
+
+    The returned sub is an identity, NOT a handle for admin APIs: their
+    `Username` parameter accepts the pool Username or an alias, and a sub is
+    neither (AdminAddUserToGroup answers UserNotFoundException). Pass the
+    email — see get_cognito_username in apps.accounts.views.
     """
     client = get_cognito_client()
     username = str(uuid.uuid4())

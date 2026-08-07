@@ -26,13 +26,19 @@ logger = logging.getLogger("[ACCOUNTS_VIEWS]")
 
 def get_cognito_username(user: User) -> str:
     """
-    Cognito admin APIs require the canonical 36-character sub UUID.
-    Restore hyphens to our local 32-character ID to get the original sub.
+    Return the identifier to pass as `Username` to Cognito admin APIs.
+
+    Their `Username` parameter takes the pool Username OR any alias attribute,
+    and this pool aliases on email — so the email works for every user.
+
+    It must NOT be the sub. That only ever worked while Cognito generated the
+    Username itself and the two happened to be equal; users created through
+    admin_create_user get an independent Username, and passing their sub fails
+    with UserNotFoundException (which is exactly what AdminAddUserToGroup did
+    to the seeded superadmin). Rebuilding the sub from User.id is therefore
+    wrong here, even though User.id is genuinely derived from the sub.
     """
-    uid = user.id
-    if len(uid) == 32:
-        return f"{uid[:8]}-{uid[8:12]}-{uid[12:16]}-{uid[16:20]}-{uid[20:]}"
-    return uid
+    return user.email
 
 
 class ProfileView(APIView):

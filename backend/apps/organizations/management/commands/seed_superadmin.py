@@ -41,8 +41,10 @@ class Command(BaseCommand):
             sub = create_cognito_user(email=email, name="Super Admin", password=password)
             self.stdout.write(self.style.SUCCESS(f"Created Cognito user {email} (sub={sub})."))
 
-        add_user_to_group(sub, "superadmin")
-        add_user_to_group(sub, "approved")
+        # Group APIs take the pool Username or an alias — never the sub, which
+        # is a different value for admin-created users. Email is the alias.
+        add_user_to_group(email, "superadmin")
+        add_user_to_group(email, "approved")
 
         user_id = sub.replace("-", "")
         user, created = User.objects.update_or_create(
