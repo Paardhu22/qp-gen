@@ -669,6 +669,28 @@ def stream_pool_questions(
     hsat_source_ids = list(hsat_source_ids or [])
     started = time.monotonic()
 
+    # ── Sources are a required precondition ─────────────────────────────────
+    # `QuestionGenerationSerializer.validate` already rejects a request with
+    # neither list populated, so in production this can only be reached via
+    # the serializer's own 400. The check is repeated here because this
+    # function is also called directly — by tests, and by any future caller
+    # that is not the streaming view — and it should not silently produce a
+    # wrong result for a precondition its only real caller already enforces.
+    # This is a blanket product rule, not a routing fact: a custom blueprint
+    # that happens to be 100% asset-routed would not technically need to READ
+    # the chapter (see the "Chapter source material" section below), but a
+    # teacher must still attach one before this build will generate anything.
+    if not pdf_source_ids and not hsat_source_ids:
+        yield _sse(
+            {
+                "error": "Attach at least one PDF or library chapter before "
+                "generating. Nothing here can write questions with no source "
+                "material to draw from."
+            },
+            event="error",
+        )
+        return
+
     # ── Authoritative source-readiness gate ─────────────────────────────────
     # The async upload flow returns a PdfSource id before ingestion finishes, so
     # readiness can no longer be assumed from "the client has an id". Validate
@@ -677,22 +699,17 @@ def stream_pool_questions(
     # empty/thin chapter and dead-end on the generic "No questions could be
     # generated" error; instead emit a dedicated DOCUMENTS_NOT_READY event with
     # the offending documents. This is the source of truth; the frontend gate is
-    # only UX. (Skipped when no sources are supplied — e.g. instruction-only
-    # flows — so those keep their existing downstream handling.)
-    if pdf_source_ids or hsat_source_ids:
-        from services.source_readiness import (
-            build_not_ready_payload,
-            check_sources_ready,
-        )
+    # only UX.
+    from services.source_readiness import build_not_ready_payload, check_sources_ready
 
-        pending_sources = check_sources_ready(
-            user=user,
-            pdf_source_ids=pdf_source_ids,
-            hsat_source_ids=hsat_source_ids,
-        )
-        if pending_sources:
-            yield _sse(build_not_ready_payload(pending_sources), event="error")
-            return
+    pending_sources = check_sources_ready(
+        user=user,
+        pdf_source_ids=pdf_source_ids,
+        hsat_source_ids=hsat_source_ids,
+    )
+    if pending_sources:
+        yield _sse(build_not_ready_payload(pending_sources), event="error")
+        return
 
     # ── An edited blueprint wins over everything ────────────────────────
     # The Blueprint Builder sends the slot list the teacher actually reviewed.
@@ -926,9 +943,11 @@ def stream_pool_questions(
     )
 
     # ── Chapter source material ─────────────────────────────────────────
-    # Read only when some slot actually needs it. An all-asset paper skips
-    # this entirely, which is what lets a language paper's Reading, Grammar
-    # and Writing sections generate with no upload at all.
+    # Read only when some slot actually needs it. A caller must always attach
+    # a source (enforced above), but a slot-level all-asset plan skips this
+    # entirely: the upload is present, it is simply never read, because
+    # Reading, Grammar and Writing are written from the blueprint's own
+    # `constraints`, not from the chapter.
     chapters: List[Chapter] = []
     if textbook_slots:
         yield _sse(

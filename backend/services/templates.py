@@ -147,11 +147,17 @@ class SlotSpec:
     """One question position in a template's blueprint.
 
     This is the editable projection of `QuestionGenerationSlot`: everything a
-    teacher may change in the Builder, and nothing they may not. The blueprint
-    engine's internal fields (`generator`, `constraints`, `validation`) are
-    deliberately absent — they are derived from the subject and section, and a
-    teacher editing "question 7 should be an MCQ" must not be able to
-    accidentally re-route that slot away from its generator.
+    teacher may change in the Builder, and nothing they may not. `generator`
+    is deliberately absent as an editable field — it is derived from the
+    subject and section, and a teacher editing "question 7 should be an MCQ"
+    must not be able to accidentally re-route that slot away from its
+    generator. `constraints`, `validation` and `instruction_hint`, by
+    contrast, are NOT routing decisions — they are the structural parameters
+    an asset generator needs (word counts, sub-question patterns, which
+    validation rules to run) and the CBSE composite-question hints Model 1
+    needs. Neither can be re-derived from `question_type`/`marks` alone, so
+    they ride through `passthrough` like `asset_type` does, or a Builder round
+    trip silently strips the very thing that made the slot work.
     """
 
     index: int
@@ -322,7 +328,11 @@ class TemplateBlueprint:
                     choice_required=bool(getattr(slot, "choice_required", False)),
                     # Everything the engine decided that the Builder does not
                     # expose. Kept so re-resolving a pinned blueprint does not
-                    # lose the generator routing.
+                    # lose the generator routing OR the structural detail
+                    # (`constraints`, `validation`, `instruction_hint`) an
+                    # asset generator or Model 1 needs to fill the slot
+                    # correctly — none of those are re-derivable from
+                    # `question_type`/`marks` the way `legacy_type` is.
                     passthrough={
                         key: getattr(slot, key)
                         for key in (
@@ -331,8 +341,11 @@ class TemplateBlueprint:
                             "requires_figure",
                             "asset_type",
                             "stream",
+                            "constraints",
+                            "validation",
+                            "instruction_hint",
                         )
-                        if getattr(slot, key, None) not in (None, "", False)
+                        if getattr(slot, key, None)
                     },
                 )
             )
@@ -366,6 +379,11 @@ class ResolvedSlot:
     stream: str = ""
     constraints: Dict[str, Any] = field(default_factory=dict)
     validation: tuple = ()
+    #: Structural detail a generator can't derive from type/marks alone (word
+    #: counts, sub-question breakdowns, "answer any 4 of 5") plus the CBSE
+    #: composite-question notes `batches_from_plan` folds into Model 1's
+    #: instructions. Read by `services.language_validation` too.
+    instruction_hint: str = ""
 
 
 #: Coarse bucket a question type falls into. Mirrors the mapping the pipeline
@@ -418,6 +436,9 @@ def blueprint_to_plan(blueprint: TemplateBlueprint) -> List[ResolvedSlot]:
                 requires_figure=bool(carried.get("requires_figure")),
                 asset_type=str(carried.get("asset_type") or ""),
                 stream=str(carried.get("stream") or ""),
+                constraints=dict(carried.get("constraints") or {}),
+                validation=tuple(carried.get("validation") or ()),
+                instruction_hint=str(carried.get("instruction_hint") or ""),
             )
         )
     return slots

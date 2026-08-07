@@ -133,6 +133,30 @@ class PipelineGateTests(TestCase):
     def setUpTestData(cls):
         cls.user = User.objects.create(id="pu", name="PU", email="pu@t.local")
 
+    def test_no_sources_at_all_is_a_hard_error_before_the_readiness_gate(self):
+        # `QuestionGenerationSerializer.validate` already rejects this at the
+        # API boundary; this is the pipeline's own copy of that precondition,
+        # for the callers that reach `stream_pool_questions` directly (tests,
+        # `paper-from-bank`'s sibling entry points, any future caller). It
+        # must fire before `check_sources_ready` — an empty id list is
+        # vacuously "nothing pending", so without this check the gate would
+        # wave a sourceless request straight through.
+        from services.pool.pipeline import stream_pool_questions
+
+        events = list(
+            stream_pool_questions(
+                user=self.user,
+                pdf_source_ids=[],
+                topic="",
+                count=-1,
+                difficulty="medium",
+                payload={"subject": "Science", "class": "10"},
+            )
+        )
+        self.assertEqual(len(events), 1)
+        self.assertIn("event: error", events[0])
+        self.assertNotIn(DOCUMENTS_NOT_READY, events[0])
+
     def test_pipeline_emits_documents_not_ready_and_stops(self):
         from services.pool.pipeline import stream_pool_questions
 

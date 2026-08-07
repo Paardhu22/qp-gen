@@ -284,28 +284,20 @@ class EnglishPipelineTests(TestCase):
         )
 
     # ── No upload at all ────────────────────────────────────────────────
+    #
+    # Attaching a source is a blanket product rule (enforced first by
+    # `QuestionGenerationSerializer`, then again by `stream_pool_questions`
+    # itself for any caller that bypasses the serializer), independent of
+    # whether the resulting plan would have read it. An English paper is no
+    # exception: even though Reading, Grammar and Writing do not touch the
+    # upload once generation is under way, a teacher still has to attach one
+    # before generation is allowed to start at all.
 
-    def test_without_an_upload_the_non_textbook_half_still_generates(self):
-        """Before the split this was a hard error for the whole paper, even
-        though 40 of the 80 marks need no source material at all."""
+    def test_an_english_paper_with_no_upload_is_a_hard_error(self):
         events = self._run(with_source=False)
-        names = [n for n, _ in events]
+        self.assertEqual([n for n, _ in events][-1], "error")
 
-        self.assertNotIn("error", names)
-        self.assertIn("warning", names)
-
-        done = next(d for n, d in events if n == "done")
-        meta = done["result"]["meta"]
-        self.assertEqual(meta["totalQuestions"], 5)
-        self.assertEqual(meta["totalMarks"], 40)
-        self.assertEqual(meta["textbookQuestions"], 0)
-
-        titles = [s["title"] for s in done["result"]["sections"]]
-        self.assertNotIn("Section C - Literature Textbook", titles)
-
-    def test_a_science_paper_with_no_upload_is_still_a_hard_error(self):
-        """The permissive path is scoped to plans that have non-textbook slots.
-        Science has none, so it must keep failing loudly."""
+    def test_a_science_paper_with_no_upload_is_a_hard_error(self):
         from services.pool.pipeline import stream_pool_questions
 
         with patch("services.pool.model2._run_review", return_value=(False, 0, "stub")):

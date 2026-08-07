@@ -108,14 +108,6 @@ class QuestionGenerationSlot:
     )
     #: Names of rules in `services.assets.validation` to run on what comes back.
     validation: Tuple[str, ...] = ()
-    #: How the student chooses: "none", "internal_choice", "any_4_of_5", …
-    #: `choice_required` remains the machine-readable flag for OR handling.
-    optionality: str = "none"
-    #: "objective" | "descriptive" | "mixed" — what a marking scheme expects.
-    answer_type: str = ""
-    #: How the question prints: "passage_with_subquestions", "letter",
-    #: "paragraph", "numbered_task_list", …
-    output_format: str = ""
 
 
 def normalize_subject(subject: str) -> str:
@@ -1400,9 +1392,6 @@ def _make_slot(
     asset_type: str = "",
     constraints: Optional[Dict[str, Any]] = None,
     validation: Sequence[str] = (),
-    optionality: str = "",
-    answer_type: str = "",
-    output_format: str = "",
 ) -> QuestionGenerationSlot:
     legacy_type = _legacy_question_type(qtype_name)
     retrieval_query = build_retrieval_query(
@@ -1438,11 +1427,6 @@ def _make_slot(
         asset_type=str(asset_type or ""),
         constraints=dict(constraints or {}),
         validation=tuple(validation or ()),
-        optionality=str(
-            optionality or ("internal_choice" if choice_required else "none")
-        ),
-        answer_type=str(answer_type or ""),
-        output_format=str(output_format or ""),
     )
     return dataclasses.replace(draft, exact_instruction=_slot_instruction(draft))
 
@@ -1702,9 +1686,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "count": 1,
             "generator": "reading_asset_pool",
             "asset_type": "discursive_passage",
-            "optionality": "none",
-            "answer_type": "mixed",
-            "output_format": "passage_with_subquestions",
             "constraints": {
                 "word_count": (350, 450),
                 "paragraphs": "5 to 7",
@@ -1750,9 +1731,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "count": 1,
             "generator": "reading_asset_pool",
             "asset_type": "case_based_passage",
-            "optionality": "none",
-            "answer_type": "mixed",
-            "output_format": "passage_with_subquestions",
             "constraints": {
                 "word_count": (220, 300),
                 "paragraphs": "4 to 5",
@@ -1803,9 +1781,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "count": 1,
             "generator": "grammar_asset_pool",
             "asset_type": "grammar_task_set",
-            "optionality": "any_10_of_12",
-            "answer_type": "mixed",
-            "output_format": "numbered_task_list",
             "constraints": {
                 "tasks": 12,
                 "attempt": 10,
@@ -1839,9 +1814,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": "writing_asset_pool",
             "asset_type": "formal_letter_to_authority",
-            "optionality": "internal_choice",
-            "answer_type": "descriptive",
-            "output_format": "letter",
             "constraints": {
                 "word_limit": 120,
                 "formats": ("formal_letter_to_authority", "letter_to_editor"),
@@ -1866,9 +1838,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": "writing_asset_pool",
             "asset_type": "analytical_paragraph",
-            "optionality": "internal_choice",
-            "answer_type": "descriptive",
-            "output_format": "paragraph",
             "constraints": {
                 "word_limit": 120,
                 "formats": ("analytical_paragraph",),
@@ -1902,9 +1871,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": POOL_GENERATOR,
             "asset_type": "extract_prose",
-            "optionality": "internal_choice",
-            "answer_type": "mixed",
-            "output_format": "extract_with_subquestions",
             "hint": (
                 "Q6 (5m): a prose/drama extract from the uploaded chapter, quoted "
                 "verbatim, followed by 4 sub-questions worth 2+1+1+1 marks. Mix a "
@@ -1921,9 +1887,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": POOL_GENERATOR,
             "asset_type": "extract_poetry",
-            "optionality": "internal_choice",
-            "answer_type": "mixed",
-            "output_format": "extract_with_subquestions",
             "hint": (
                 "Q7 (5m): a poetry extract from the uploaded chapter, quoted "
                 "verbatim with its line breaks, followed by 4 sub-questions worth "
@@ -1939,9 +1902,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "count": 1,
             "generator": POOL_GENERATOR,
             "asset_type": "short_answer_bundle",
-            "optionality": "any_4_of_5",
-            "answer_type": "descriptive",
-            "output_format": "numbered_question_list",
             "constraints": {"questions": 5, "attempt": 4, "marks_each": 3},
             "hint": (
                 "Q8 (12m): ONE question object containing FIVE numbered "
@@ -1960,9 +1920,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "count": 1,
             "generator": POOL_GENERATOR,
             "asset_type": "short_answer_bundle",
-            "optionality": "any_2_of_3",
-            "answer_type": "descriptive",
-            "output_format": "numbered_question_list",
             "constraints": {"questions": 3, "attempt": 2, "marks_each": 3},
             "hint": (
                 "Q9 (6m): ONE question object containing THREE numbered "
@@ -1980,9 +1937,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": POOL_GENERATOR,
             "asset_type": "long_answer",
-            "optionality": "internal_choice",
-            "answer_type": "descriptive",
-            "output_format": "paragraph",
             "constraints": {"word_limit": (100, 120)},
             "hint": (
                 "Q10 (6m): a 100-120 word evaluative answer on theme, character "
@@ -1999,9 +1953,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": POOL_GENERATOR,
             "asset_type": "long_answer",
-            "optionality": "internal_choice",
-            "answer_type": "descriptive",
-            "output_format": "paragraph",
             "constraints": {"word_limit": (100, 120)},
             "hint": (
                 "Q11 (6m): a 100-120 word critical commentary on narrative "
@@ -2698,9 +2649,6 @@ def _build_exact_cbse_class10_plan(
                     asset_type=str(entry.get("asset_type") or ""),
                     constraints=entry.get("constraints") or {},
                     validation=entry.get("validation") or (),
-                    optionality=str(entry.get("optionality") or ""),
-                    answer_type=str(entry.get("answer_type") or ""),
-                    output_format=str(entry.get("output_format") or ""),
                 )
             )
 
