@@ -6,12 +6,14 @@ from .views import (
     OrganizationInviteCreateView,
     OrganizationJoinView,
     OrganizationListView,
+    OrganizationLogoView,
     OrganizationMemberApproveView,
     OrganizationMemberRejectView,
     OrganizationMemberRemoveView,
     OrganizationMembersListView,
     OrganizationUsageSummaryView,
     PublicOrganizationListView,
+    SuperAdminAnalyticsView,
 )
 
 urlpatterns = [
@@ -22,9 +24,11 @@ urlpatterns = [
     path("invites/accept", OrganizationInviteAcceptView.as_view(), name="organizations-invite-accept"),
     path("join", OrganizationJoinView.as_view(), name="organizations-join"),
     path("usage", OrganizationUsageSummaryView.as_view(), name="organizations-usage"),
+    path("analytics", SuperAdminAnalyticsView.as_view(), name="organizations-analytics"),
     path("", OrganizationListView.as_view(), name="organizations-list"),
 
     path("<str:org_id>", OrganizationDetailView.as_view(), name="organizations-detail"),
+    path("<str:org_id>/logo", OrganizationLogoView.as_view(), name="organizations-logo"),
     path("<str:org_id>/members", OrganizationMembersListView.as_view(), name="organizations-members"),
     path(
         "<str:org_id>/members/<str:user_id>/approve",

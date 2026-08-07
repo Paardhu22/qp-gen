@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -9,9 +9,13 @@ import {
   listOrganizations,
   sendOrganizationInvite,
   getOrganization,
+  getSuperAdminAnalytics,
   type OrganizationSummary,
   type OrganizationDetail,
+  type SuperAdminAnalytics,
 } from "@/lib/organizations-client";
+import { UsageAnalytics } from "@/components/admin/usage-analytics";
+import { RosterPanel } from "@/components/admin/roster-panel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,40 +89,59 @@ function InviteOrganizationDialog({ onInvited }: { onInvited: () => void }) {
 
 function SuperAdminDashboard() {
   const [orgs, setOrgs] = useState<OrganizationSummary[]>([]);
+  const [analytics, setAnalytics] = useState<SuperAdminAnalytics | null>(null);
+  const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
+  const load = useCallback(async (windowDays: number) => {
     setLoading(true);
     try {
-      setOrgs(await listOrganizations());
+      // Both in flight together: the table and the charts are one screen, and
+      // serialising them would show the page assembling itself in two stages.
+      const [orgList, stats] = await Promise.all([
+        listOrganizations(),
+        getSuperAdminAnalytics(windowDays),
+      ]);
+      setOrgs(orgList);
+      setAnalytics(stats);
     } catch (err: any) {
-      toast.error(err?.message || "Failed to load organizations");
+      toast.error(err?.message || "Failed to load the dashboard");
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    load();
   }, []);
 
-  const totalTokens = orgs.reduce((sum, o) => sum + o.total_tokens, 0);
-  const totalMembers = orgs.reduce((sum, o) => sum + o.member_count, 0);
+  useEffect(() => {
+    void load(days);
+  }, [load, days]);
 
   return (
-    <div className="max-w-5xl mx-auto w-full p-4 sm:p-6 space-y-6">
+    <div className="max-w-6xl mx-auto w-full p-4 sm:p-6 space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Organizations</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Platform</h1>
           <p className="text-sm text-muted-foreground">
-            {orgs.length} schools · {totalMembers} users · {totalTokens.toLocaleString()} tokens used
+            Usage, schools, and everything waiting on you.
           </p>
         </div>
-        <InviteOrganizationDialog onInvited={load} />
+        <InviteOrganizationDialog onInvited={() => void load(days)} />
       </div>
 
+      {analytics && (
+        <>
+          <UsageAnalytics data={analytics} days={days} onDaysChange={setDays} />
+          <RosterPanel roster={analytics.roster} />
+        </>
+      )}
+
       <Card>
-        <CardContent className="pt-4">
+        <CardHeader>
+          <CardTitle>All schools</CardTitle>
+          <CardDescription>
+            The same usage data as the chart above, readable row by row.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           {loading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -134,17 +157,46 @@ function SuperAdminDashboard() {
                   <TableHead>School</TableHead>
                   <TableHead>Admin</TableHead>
                   <TableHead>Members</TableHead>
-                  <TableHead>Tokens used</TableHead>
+                  <TableHead className="text-right">Tokens used</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {orgs.map((org) => (
                   <TableRow key={org.id}>
-                    <TableCell className="font-medium">{org.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2.5">
+                        {org.logo_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={org.logo_url}
+                            alt=""
+                            className="h-7 w-7 shrink-0 rounded object-contain"
+                          />
+                        ) : (
+                          <span
+                            aria-hidden
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-muted text-[11px] font-medium text-muted-foreground"
+                          >
+                            {org.name.slice(0, 2).toUpperCase()}
+                          </span>
+                        )}
+                        <div className="min-w-0">
+                          <p className="truncate">{org.name}</p>
+                          {org.city && (
+                            <p className="truncate text-xs font-normal text-muted-foreground">
+                              {[org.city, org.state].filter(Boolean).join(", ")}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
                     <TableCell>{org.admin_email || "—"}</TableCell>
                     <TableCell>{org.member_count}</TableCell>
-                    <TableCell>{org.total_tokens.toLocaleString()}</TableCell>
+                    {/* tabular-nums: this one IS a column that must align. */}
+                    <TableCell className="text-right tabular-nums">
+                      {org.total_tokens.toLocaleString()}
+                    </TableCell>
                     <TableCell className="text-right">
                       <Link href={`/admin/organizations/${org.id}`}>
                         <Button size="sm" variant="outline">
