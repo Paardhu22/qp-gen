@@ -20,13 +20,6 @@ _OR_LABELS = {
     "sanskrit": "अथवा",
 }
 
-_VI_RULE = "- - - - - - - - - - - - - - - - - - -"
-_VI_NOTE = (
-    "Note: The following question is for Visually Impaired Students only "
-    "in lieu of the visual question above."
-)
-
-
 def or_label_for(subject: str) -> str:
     return _OR_LABELS.get(str(subject or "").strip().lower(), "OR")
 
@@ -63,7 +56,6 @@ def printable_content(
     content: str,
     *,
     or_alternative: Optional[str] = None,
-    vi_alternative: Optional[str] = None,
     or_label: str = "OR",
 ) -> str:
     """Assemble the printed question text."""
@@ -73,9 +65,6 @@ def printable_content(
         alternative = or_alternative.strip()
         if alternative and not content_already_has_alternative(content, alternative):
             parts.extend([or_label, alternative])
-
-    if vi_alternative:
-        parts.extend([_VI_RULE, _VI_NOTE, vi_alternative.strip(), _VI_RULE])
 
     assembled = "\n\n".join(part for part in parts if part)
     # Collapses an OR the content already ended with against the separator

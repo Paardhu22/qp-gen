@@ -142,7 +142,6 @@ def _question_to_wire(
     slot,
     section_title: str,
     or_choice: Optional[PoolQuestion] = None,
-    include_vi_alternatives: bool = True,
 ) -> Dict[str, Any]:
     """Render a pool question in the shape the editor already consumes.
 
@@ -155,17 +154,9 @@ def _question_to_wire(
     """
     label = or_label_for(getattr(slot, "subject", "") or question.subject)
 
-    # VI text is printed only when the paper opts in AND the blueprint marks
-    # the slot as needing it. A VI block on a slot that never called for one
-    # just pads the paper.
-    vi_alternative = None
-    if include_vi_alternatives and getattr(slot, "vi_required", False):
-        vi_alternative = (question.vi_alternative or "").strip() or None
-
     content = printable_content(
         question.question,
         or_alternative=or_choice.question if or_choice else None,
-        vi_alternative=vi_alternative,
         or_label=label,
     )
 
@@ -202,10 +193,6 @@ def _question_to_wire(
             "image_url": question.image or "",
         },
     }
-
-    if vi_alternative:
-        wire["vi_alternative"] = vi_alternative
-        wire["metadata"]["vi_alternative"] = True
 
     if or_choice:
         wire["or_choice"] = {
@@ -260,7 +247,6 @@ def _render_variant_result(
     *,
     section_order: List[str],
     general_instructions: List[Any],
-    include_vi_alternatives: bool,
     base_meta: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Render a derived set into the same `result` shape Set A emits.
@@ -286,7 +272,6 @@ def _render_variant_result(
             slot=assignment.slot,
             section_title=section_title,
             or_choice=assignment.or_choice,
-            include_vi_alternatives=include_vi_alternatives,
         )
         wire["metadata"]["setLabel"] = variant.label
         _find_or_create_section(result, section_title)["questions"].append(wire)
@@ -329,7 +314,6 @@ def _build_variant_results(
     num_variants: int,
     section_order: List[str],
     general_instructions: List[Any],
-    include_vi_alternatives: bool,
     base_meta: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     """Derive and render the extra sets (B, C) from an assembled master.
@@ -347,7 +331,6 @@ def _build_variant_results(
             variant,
             section_order=section_order,
             general_instructions=general_instructions,
-            include_vi_alternatives=include_vi_alternatives,
             base_meta=base_meta,
         )
         out.append(
@@ -738,16 +721,6 @@ def stream_pool_questions(
         payload.get("qp_type") or payload.get("qpType") or ""
     ).strip().lower()
     is_gim = qp_type == "general_instructions"
-
-    # Per-paper VI toggle. Defaults to on, matching CBSE Sample Paper
-    # convention; accepts snake_case, camelCase, and the false-ish strings a
-    # form can send.
-    raw_vi_flag = payload.get(
-        "include_vi_alternatives", payload.get("includeViAlternatives", True)
-    )
-    include_vi_alternatives = bool(raw_vi_flag) and str(
-        raw_vi_flag
-    ).strip().lower() not in {"false", "0", "no", "off"}
 
     # How many parallel sets to emit. Set A is always produced; 2 adds Set B,
     # 3 adds Set C. The pool and Model 1 run once regardless — B and C are
@@ -1362,7 +1335,6 @@ def stream_pool_questions(
             slot=assignment.slot,
             section_title=section_title,
             or_choice=assignment.or_choice,
-            include_vi_alternatives=include_vi_alternatives,
         )
         if assignment.swapped_by_review:
             wire["metadata"]["reviewSwapped"] = True
@@ -1497,7 +1469,6 @@ def stream_pool_questions(
                 num_variants=num_sets - 1,
                 section_order=[s.get("title", "") for s in result["sections"]],
                 general_instructions=result["generalInstructions"],
-                include_vi_alternatives=include_vi_alternatives,
                 base_meta=result["meta"],
             )
         except Exception as exc:

@@ -167,18 +167,6 @@ def filter_pool(
 # ── Stage 2: constraint-satisfying candidate set ────────────────────────
 
 
-def _slot_wants_image(slot: Any) -> bool:
-    """Whether this slot is supposed to carry a figure.
-
-    Two ways a slot says so: the blueprint's explicit `requires_image` flag, or
-    a DIAGRAM question type — which is what General Instructions Mode emits
-    when a teacher asks for image-based questions.
-    """
-    if bool(getattr(slot, "requires_image", False)):
-        return True
-    return str(getattr(slot, "question_type", "") or "").upper() == "DIAGRAM"
-
-
 def _score_question(
     question: PoolQuestion,
     *,
@@ -189,9 +177,7 @@ def _score_question(
     total_slots: int,
     difficulty_target: str,
     rng: random.Random,
-    vi_required: bool = False,
     asset_type: str = "",
-    image_required: bool = False,
     prefer_source: str = "",
     is_from_bank: bool = False,
 ) -> float:
@@ -210,23 +196,6 @@ def _score_question(
         score += 8.0 if is_from_bank else -8.0
     elif prefer_source == "generate":
         score += 8.0 if not is_from_bank else -8.0
-
-    # A figure slot prefers a question that actually carries a figure.
-    #
-    # This term no longer fires on a freshly generated pool: the image stage
-    # was removed from the pipeline, so nothing Model 1 writes has an image and
-    # every candidate for a DIAGRAM slot takes the same -12. A constant offset
-    # across a slot's candidates does not reorder them, so fresh generations
-    # are unaffected.
-    #
-    # It still earns its place on `from_bank` runs, where the bank may hold
-    # image-bearing questions from before the change: there the term correctly
-    # steers a DIAGRAM slot to a question that has a real figure rather than
-    # one that only talks about one. Kept for that reason — deleting it would
-    # regress bank assembly, which is not what removing image GENERATION asked
-    # for.
-    if image_required:
-        score += 12.0 if (question.image or "").strip() else -12.0
 
     # Asset type — the blueprint's declared shape for this slot. Eligibility
     # stays loose (a slot short of its exact shape is better filled than left
@@ -270,12 +239,6 @@ def _score_question(
     # keys, answer scripts), so prefer it, gently.
     if question.explanation.strip():
         score += 0.5
-
-    # CBSE requires a visually-impaired alternative on picture and map slots.
-    # Weighted heavily: a vi_required slot filled with a question that has no
-    # VI text is a compliance defect, not a stylistic one.
-    if vi_required:
-        score += 6.0 if (question.vi_alternative or "").strip() else -6.0
 
     # Tiny jitter breaks ties without making the result unreproducible in any
     # way that matters — the rng is seeded by the caller.
@@ -347,9 +310,7 @@ def build_candidates(
     def _rank(
         candidates: List[PoolQuestion],
         *,
-        vi_required: bool = False,
         asset_type: str = "",
-        image_required: bool = False,
         prefer_source: str = "",
     ) -> List[PoolQuestion]:
         return sorted(
@@ -363,9 +324,7 @@ def build_candidates(
                 total_slots=total_slots,
                 difficulty_target=difficulty,
                 rng=rng,
-                vi_required=vi_required,
                 asset_type=asset_type,
-                image_required=image_required,
                 prefer_source=prefer_source,
                 is_from_bank=_is_from_bank(q),
             ),
@@ -388,9 +347,7 @@ def build_candidates(
 
         chosen = _rank(
             available,
-            vi_required=bool(getattr(slot, "vi_required", False)),
             asset_type=str(getattr(slot, "asset_type", "") or ""),
-            image_required=_slot_wants_image(slot),
             prefer_source=str(getattr(slot, "source", "") or ""),
         )[0]
         used_ids.add(chosen.id)
@@ -424,12 +381,10 @@ def build_candidates(
             continue
 
         # Alternates and OR branches are offered as replacements for the chosen
-        # question, so they have to satisfy the same slot. An alternate with no
-        # figure on a figure slot is a swap that silently breaks the paper.
+        # question, so they have to satisfy the same slot.
         picked = _rank(
             spare,
             asset_type=str(getattr(assignment.slot, "asset_type", "") or ""),
-            image_required=_slot_wants_image(assignment.slot),
         )[:wanted]
         if needs_choice and picked:
             # The OR alternative is held out of `alternates` so the review

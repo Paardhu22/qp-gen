@@ -184,11 +184,7 @@ export function PaperPreview({
         isEnglishSubject(subject) ? " is-english-paper" : ""
       }`}
     >
-      {/* White paper sheet, like the editor — keeps black document text
-          readable regardless of app theme. */}
-      <div className="mx-auto max-w-[820px] rounded-xl bg-white text-black shadow-sm ring-1 ring-black/5 p-6 sm:p-10">
-        <EditorContent editor={editor} />
-      </div>
+      <EditorContent editor={editor} />
     </div>
   );
 }

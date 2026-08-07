@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff } from "lucide-react";
+import { WelcomeScreen } from "@/components/ui/onboarding-welcome-screen";
 
 export function LoginForm({
   className,
@@ -17,36 +18,12 @@ export function LoginForm({
 }: React.ComponentProps<"div">) {
   const router = useRouter();
 
+  const [showOnboarding, setShowOnboarding] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
-  const [cursor, setCursor] = useState({ x: 0, y: 0 });
-  const [eyePos, setEyePos] = useState({ x: 0, y: 0 });
-  const [blink, setBlink] = useState(false);
-
-  useEffect(() => {
-    const handleMouse = (e: MouseEvent) =>
-      setCursor({ x: e.clientX, y: e.clientY });
-    window.addEventListener("mousemove", handleMouse);
-    return () => window.removeEventListener("mousemove", handleMouse);
-  }, []);
-
-  useEffect(() => {
-    const offsetX = (cursor.x / window.innerWidth - 0.5) * 40;
-    const offsetY = (cursor.y / window.innerHeight - 0.5) * 20;
-    setEyePos({ x: offsetX, y: offsetY });
-  }, [cursor]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setBlink(true);
-      setTimeout(() => setBlink(false), 200);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
 
   const GMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/;
 
@@ -73,6 +50,39 @@ export function LoginForm({
     });
   };
 
+  if (showOnboarding) {
+    return (
+      <div
+        className={cn(
+          "flex min-h-svh items-center justify-center p-4 px-safe py-safe",
+          className,
+        )}
+        {...props}
+      >
+        <div className="relative w-full max-w-sm h-[600px] overflow-hidden rounded-3xl border border-white/30 shadow-xl bg-white">
+          <WelcomeScreen
+            imageUrl="/IMG-20260514-WA0000.jpg-removebg-preview.png"
+            title={
+              <>
+                Welcome to <span className="text-primary">HSAT</span>
+              </>
+            }
+            description="Discover and build question papers effortlessly with your personalized AI assistant."
+            buttonText="Login to your account"
+            onButtonClick={() => setShowOnboarding(false)}
+            secondaryActionText={
+              <span>
+                New here?{" "}
+                <span className="font-semibold text-primary">Sign up</span>
+              </span>
+            }
+            onSecondaryActionClick={() => router.push("/register")}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -88,44 +98,6 @@ export function LoginForm({
               Welcome back
             </h1>
             <p className="text-sm text-muted-foreground">Sign in to continue</p>
-          </div>
-
-          <div className="relative h-44 w-full max-w-[300px]">
-            <img
-              src="https://pub-940ccf6255b54fa799a9b01050e6c227.r2.dev/cloud.jpg"
-              alt="Cloud background"
-              className="h-full w-full rounded-xl object-cover"
-            />
-
-            {["left", "right"].map((side, idx) => (
-              <div
-                key={side}
-                className="absolute flex items-end justify-center overflow-hidden"
-                style={{
-                  top: 60,
-                  left: idx === 0 ? "26.7%" : "50%",
-                  width: 28,
-                  height: isTyping ? 4 : blink ? 6 : 40,
-                  borderRadius: isTyping || blink ? "2px" : "50% / 60%",
-                  backgroundColor: isTyping ? "black" : "white",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                {!isTyping && (
-                  <div
-                    className="bg-black"
-                    style={{
-                      width: 16,
-                      height: 16,
-                      borderRadius: "50%",
-                      marginBottom: 4,
-                      transform: `translate(${eyePos.x}px, 0px)`,
-                      transition: "all 0.1s ease",
-                    }}
-                  />
-                )}
-              </div>
-            ))}
           </div>
 
           <form onSubmit={handleSubmit} className="w-full space-y-4">
@@ -159,8 +131,6 @@ export function LoginForm({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
-                  onFocus={() => setIsTyping(true)}
-                  onBlur={() => setIsTyping(false)}
                   className="pr-10"
                   required
                 />

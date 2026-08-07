@@ -65,7 +65,6 @@ export interface TrayItem {
     metadata?: Record<string, any>;
     bloom?: string;
     or_choice?: any;
-    vi_alternative?: string;
   };
   /**
    * Provenance of the question, used to badge it in the review tray.

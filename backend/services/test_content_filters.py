@@ -13,7 +13,6 @@ from django.test import TestCase
 
 from services.content_filters import (
     clean_question_text,
-    clean_vi_alternative_text,
     is_label_only_caption,
     remove_orphan_or_tokens,
     strip_blueprint_leakage,
@@ -201,16 +200,6 @@ class ViLeakTests(TestCase):
     def test_clean_question_text_removes_vi_contamination(self):
         out = clean_question_text(self.VI_BLOCK)
         self.assertNotIn("Visually Impaired", out)
-
-    def test_vi_alternative_field_keeps_text_but_drops_framing(self):
-        framed = (
-            "- - - - - - - - - -\n"
-            "Note: The following question is for Visually Impaired Students only in lieu of the visual question above.\n"
-            "State Pythagoras' theorem in words.\n"
-            "- - - - - - - - - -"
-        )
-        out = clean_vi_alternative_text(framed)
-        self.assertEqual(out, "State Pythagoras' theorem in words.")
 
 
 class LabelOnlyCaptionTests(TestCase):

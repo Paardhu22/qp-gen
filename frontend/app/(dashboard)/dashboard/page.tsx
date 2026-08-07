@@ -532,7 +532,6 @@ export default function DashboardPage() {
             ? { design: paperDesign.design }
             : {}),
           mathLevel: "standard",
-          include_vi_alternatives: false,
           contentScopePolicy: "strict",
           sets: Number(resolvedSpec.numberOfSets || "1"),
         },

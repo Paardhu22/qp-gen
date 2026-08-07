@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SlotEditor } from "@/components/blueprint/slot-editor";
+import { TemplatePreviewPaper } from "@/components/templates/template-preview-paper";
 import { recomputeTotals } from "@/lib/blueprint-totals";
 import {
   fetchQuestionTypeMenu,
@@ -187,6 +188,22 @@ export function TemplateEditorPanel({
         onClick={isDirty ? undefined : onClose}
         aria-hidden="true"
       />
+
+      <div
+        className="relative z-10 hidden flex-1 items-center justify-center overflow-y-auto px-10 py-10 lg:flex"
+        onClick={isDirty ? undefined : onClose}
+      >
+        <TemplatePreviewPaper
+          name={name}
+          subject={subject}
+          academicClass={academicClass}
+          difficulty={difficulty}
+          instructions={instructions}
+          slots={slots}
+          totals={totals}
+          questionTypes={questionTypes}
+        />
+      </div>
 
       <div className="relative z-10 flex h-full w-full max-w-3xl flex-col border-l border-border bg-background shadow-2xl">
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3">

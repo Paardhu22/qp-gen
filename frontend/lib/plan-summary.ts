@@ -3,7 +3,7 @@
 // The event's `summary` field is an OBJECT, not a sentence. The backend builds
 // it in `services/generation_router.py::summarize_question_plan` —
 // `total_questions`, `total_marks`, `or_choices`, `image_questions`,
-// `vi_alternatives`, `exact_counts`, `section_marks`, `section_questions` —
+// `exact_counts`, `section_marks`, `section_questions` —
 // and the general-instructions branch of `services/pool/pipeline.py` emits a
 // smaller two-key form of the same shape. Handing either straight to React as
 // a text child throws "Objects are not valid as a React child" and takes the

@@ -371,6 +371,30 @@ export function SlotEditor({ slots, questionTypes, totals, onChange }: Props) {
           </section>
         );
       })}
+
+      {sections.length > 0 && (
+        <div className="pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full h-9 border-dashed text-xs text-muted-foreground"
+            onClick={() => {
+              const lastSection = sections[sections.length - 1].title;
+              let nextLetter = "B";
+              if (lastSection.startsWith("Section ")) {
+                const lastChar = lastSection.replace("Section ", "").trim();
+                if (lastChar.length === 1 && /[A-Z]/i.test(lastChar)) {
+                  nextLetter = String.fromCharCode(lastChar.toUpperCase().charCodeAt(0) + 1);
+                }
+              }
+              addSlot(`Section ${nextLetter}`);
+            }}
+          >
+            <Plus className="size-3.5 mr-1.5" />
+            Add New Section
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

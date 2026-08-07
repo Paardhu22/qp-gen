@@ -154,7 +154,6 @@ class TestSourceTypeStamping(unittest.TestCase):
             index = 4
             section_title = "Section A"
             subject = "Science"
-            vi_required = False
 
         question = PoolQuestion(
             id="q1", subject="Science", chapter="Electricity", topic="Ohm",

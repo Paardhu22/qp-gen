@@ -322,14 +322,12 @@ class TemplateBlueprint:
                     choice_required=bool(getattr(slot, "choice_required", False)),
                     # Everything the engine decided that the Builder does not
                     # expose. Kept so re-resolving a pinned blueprint does not
-                    # lose the generator routing or the VI requirement.
+                    # lose the generator routing.
                     passthrough={
                         key: getattr(slot, key)
                         for key in (
                             "legacy_type",
                             "generator",
-                            "vi_required",
-                            "requires_image",
                             "requires_figure",
                             "asset_type",
                             "stream",
@@ -363,8 +361,6 @@ class ResolvedSlot:
     source: str = SOURCE_GENERATE
     choice_required: bool = False
     generator: str = "question_pool"
-    vi_required: bool = False
-    requires_image: bool = False
     requires_figure: bool = False
     asset_type: str = ""
     stream: str = ""
@@ -419,8 +415,6 @@ def blueprint_to_plan(blueprint: TemplateBlueprint) -> List[ResolvedSlot]:
                 source=spec.source,
                 choice_required=spec.choice_required,
                 generator=str(carried.get("generator") or "question_pool"),
-                vi_required=bool(carried.get("vi_required")),
-                requires_image=bool(carried.get("requires_image")),
                 requires_figure=bool(carried.get("requires_figure")),
                 asset_type=str(carried.get("asset_type") or ""),
                 stream=str(carried.get("stream") or ""),

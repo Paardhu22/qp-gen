@@ -28,7 +28,6 @@ class ChoiceSlot:
     legacy_type: str
     section_title: str = "Section B"
     choice_required: bool = False
-    vi_required: bool = False
     subject: str = "Science"
 
 
@@ -78,13 +77,6 @@ class PrintableContentTests(TestCase):
             "प्रश्न एक", or_alternative="प्रश्न दो", or_label="अथवा"
         )
         self.assertIn("अथवा", result)
-
-    def test_vi_alternative_is_wrapped_in_its_notice(self):
-        result = printable_content(
-            "Observe the given figure.", vi_alternative="Describe a series circuit."
-        )
-        self.assertIn("Visually Impaired", result)
-        self.assertIn("Describe a series circuit.", result)
 
 
 class AlternativeDetectionTests(TestCase):
@@ -177,20 +169,6 @@ class ChoiceSlotAssignmentTests(TestCase):
         by_index = {a.slot.index: a for a in assignments}
         self.assertIsNotNone(
             by_index[2].or_choice, "The choice slot must get its alternative."
-        )
-
-    def test_vi_required_slot_prefers_a_question_carrying_vi_text(self):
-        plain = _question("plain", topic="a")
-        accessible = _question("accessible", topic="b")
-        accessible.vi_alternative = "Describe a series circuit in words."
-
-        slots = [ChoiceSlot(1, 3, "SHORT_ANSWER", "SHORT", vi_required=True)]
-
-        assignment = build_candidates([plain, accessible], slots, alternates=0)[0][0]
-
-        self.assertEqual(
-            assignment.question.id, "accessible",
-            "A vi_required slot must take the question that has VI text.",
         )
 
     def test_thin_pool_leaves_or_choice_empty_rather_than_starving_a_slot(self):

@@ -42,7 +42,6 @@ class _FakeSlot:
         self.section_title = kwargs.get("section_title", "Section A")
         self.choice_required = kwargs.get("choice_required", False)
         self.generator = kwargs.get("generator", "question_pool")
-        self.vi_required = kwargs.get("vi_required", False)
 
 
 class BlueprintTotalsTests(TestCase):
@@ -125,23 +124,16 @@ class SlotSpecTests(TestCase):
         self.assertEqual(slot.source, SOURCE_GENERATE)
 
     def test_engine_fields_survive_a_builder_round_trip(self):
-        # The Builder does not show `generator` or `vi_required`, so nothing in
-        # the UI can preserve them — the passthrough is what stops an edited
-        # slot losing its routing and its CBSE compliance flag.
+        # The Builder does not show `generator`, so nothing in the UI can
+        # preserve it — the passthrough is what stops an edited slot losing
+        # its routing.
         original = TemplateBlueprint.from_plan(
-            [_FakeSlot(generator="reading", vi_required=True, question_type="MCQ")]
+            [_FakeSlot(generator="reading", question_type="MCQ")]
         )
         self.assertEqual(original.slots[0].passthrough["generator"], "reading")
 
         round_tripped = TemplateBlueprint.from_dict(original.as_dict())
         self.assertEqual(round_tripped.slots[0].passthrough["generator"], "reading")
-        self.assertTrue(round_tripped.slots[0].passthrough["vi_required"])
-
-    def test_falsey_engine_fields_are_not_carried(self):
-        # `vi_required=False` is the default, not a decision worth persisting
-        # on every slot of every template.
-        blueprint = TemplateBlueprint.from_plan([_FakeSlot(vi_required=False)])
-        self.assertNotIn("vi_required", blueprint.slots[0].passthrough)
 
 
 class SourceRatioTests(TestCase):
@@ -334,13 +326,12 @@ class BlueprintToPlanTests(TestCase):
                     {
                         "questionType": "READING_COMP",
                         "marks": 12,
-                        "passthrough": {"generator": "reading", "vi_required": True},
+                        "passthrough": {"generator": "reading"},
                     }
                 ]
             )
         )
         self.assertEqual(plan[0].generator, "reading")
-        self.assertTrue(plan[0].vi_required)
 
     def test_a_slot_with_no_passthrough_defaults_to_the_textbook_pool(self):
         # Everything a teacher adds by hand in the Builder lands here, and it
@@ -356,7 +347,7 @@ class BlueprintToPlanTests(TestCase):
         plan = blueprint_to_plan(self._blueprint([{"questionType": "MCQ"}]))
         for attribute in (
             "index", "marks", "question_type", "legacy_type", "section_title",
-            "generator", "vi_required", "choice_required", "requires_image",
+            "generator", "choice_required",
             "asset_type",
         ):
             self.assertTrue(
