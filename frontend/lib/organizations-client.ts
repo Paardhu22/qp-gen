@@ -82,7 +82,10 @@ export async function sendOrganizationInvite(email: string): Promise<void> {
 
 /** Superadmin: every organization, with member count + token usage. */
 export async function listOrganizations(): Promise<OrganizationSummary[]> {
-  return fetchJson<OrganizationSummary[]>("/api/organizations", { method: "GET" });
+  // Trailing slash is required: the route is path("") under "api/organizations/",
+  // and the project sets APPEND_SLASH = False, so the slashless form is a hard
+  // 404 rather than a redirect.
+  return fetchJson<OrganizationSummary[]>("/api/organizations/", { method: "GET" });
 }
 
 /** Superadmin: platform-wide token usage rollup. */
