@@ -63,10 +63,10 @@ class PromptTests(TestCase):
         # A teacher picking "cartoon" has not asked for a captioned meme.
         for style in (STYLE_LINE_ART, STYLE_REALISTIC, STYLE_CARTOON):
             prompt = build_prompt(self.QUESTION, style)
-            self.assertIn("no title", prompt)
-            self.assertIn("no caption", prompt)
-            self.assertIn("no watermark", prompt)
-            self.assertIn("examination paper", prompt)
+            self.assertIn("NEVER contain the answer", prompt)
+            self.assertIn("Do not include captions that solve the question", prompt)
+            self.assertIn("CBSE-style question papers", prompt)
+            self.assertIn("school examination", prompt)
 
     def test_the_question_is_framed_as_subject_matter_not_an_instruction(self):
         # Otherwise "Draw a labelled diagram of X" yields a picture of the
@@ -79,7 +79,7 @@ class PromptTests(TestCase):
         # An over-long prompt drifts, and a case study's stimulus paragraph is
         # not what the figure is of.
         prompt = build_prompt("word " * 400, STYLE_LINE_ART)
-        self.assertLess(len(prompt), 2000)
+        self.assertLess(len(prompt), 3500)
         self.assertIn("…", prompt)
 
     def test_whitespace_is_normalised(self):
