@@ -32,10 +32,24 @@
  */
 
 import * as React from "react";
-import { ArrowUp, BookMarked, PanelRightClose } from "lucide-react";
+import { ArrowUp, BookMarked, LayoutTemplate, PanelRightClose } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+
+/** "SHORT_ANSWER" → "Short Answer", "mcq" → "MCQ". A heuristic, not a lookup
+ *  against the type menu — this line is a passing detail, not a place a
+ *  wrong capitalization is worth a network round trip to get exactly right. */
+function humanizeType(code: string): string {
+  if (!code) return "";
+  return code
+    .toLowerCase()
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((w) => (w.length <= 3 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)))
+    .join(" ");
+}
 
 interface Props {
   open: boolean;
@@ -45,11 +59,22 @@ interface Props {
   /** Assemble a paper from already-saved questions, skipping generation
    *  entirely. Optional so surfaces that have no bank access can omit it. */
   onBuildFromBank?: () => void;
+  /** Open the manual template builder — the same section-by-section slot
+   *  editor as the Templates page's New Template, without generating a
+   *  paper. Optional so surfaces without template management can omit it. */
+  onNewTemplate?: () => void;
   generating: boolean;
   /** Live line from the pool pipeline ("Writing questions 12/40"). */
   status?: string;
   /** Questions inserted into the page so far this run. */
   insertedCount?: number;
+  /** The blueprint's slot count once the plan resolves; 0 while still unknown. */
+  plannedTotal?: number;
+  /** Questions streamed so far this run, counted the moment each arrives —
+   *  advances during review-mode runs too, unlike `insertedCount`. */
+  generatedCount?: number;
+  /** The most recently streamed question, for a live "just written" line. */
+  lastQuestion?: { section: string; type: string; marks: number } | null;
   /** Uploads + library books currently attached to this paper. */
   sourceCount?: number;
   /**
@@ -74,9 +99,13 @@ export function GenerateDock({
   onOpenChange,
   onOpenBuilder,
   onBuildFromBank,
+  onNewTemplate,
   generating,
   status,
   insertedCount = 0,
+  plannedTotal = 0,
+  generatedCount = 0,
+  lastQuestion = null,
   sourceCount = 0,
   review,
 }: Props) {
@@ -150,7 +179,11 @@ export function GenerateDock({
           aria-hidden="true"
           className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground [writing-mode:vertical-rl]"
         >
-          {generating ? "Generating" : "Generate paper"}
+          {generating
+            ? plannedTotal > 0
+              ? `${generatedCount} / ${plannedTotal}`
+              : "Generating"
+            : "Generate paper"}
         </button>
       </div>
 
@@ -179,29 +212,57 @@ export function GenerateDock({
 
         <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
           {/* ── While a run is in flight ──────────────────────────────────
-              Generation goes genuinely silent for minutes at a time (a Model 1
-              batch emits nothing until it finishes), so this reports the last
-              thing that happened rather than pretending to a percentage. */}
+              A count against the blueprint's own slot total once it is known
+              (from the `plan` event — the one number in this stream that is
+              an actual target, not an over-generated pool size), and an
+              indeterminate sweep before that. Below it, the most recent
+              question to land, so the panel reads as work happening rather
+              than a spinner that might be stuck. */}
           {generating ? (
             <div className="mb-3 rounded-lg border border-border bg-muted/40 p-3">
-              <div className="flex items-center gap-2">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                </span>
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-[13px] font-medium text-foreground">
                   Writing your paper
                 </span>
+                {plannedTotal > 0 ? (
+                  <span className="text-[12px] tabular-nums text-muted-foreground">
+                    {generatedCount} / {plannedTotal}
+                  </span>
+                ) : null}
               </div>
-              <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">
+
+              {plannedTotal > 0 ? (
+                <Progress
+                  value={Math.min(generatedCount, plannedTotal)}
+                  max={plannedTotal}
+                  className="mt-2 [&_[data-slot=progress-track]]:h-1"
+                />
+              ) : (
+                <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted">
+                  <div className="h-full w-2/5 rounded-full bg-primary animate-[loading-bar_1.6s_ease-in-out_infinite]" />
+                </div>
+              )}
+
+              <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
                 {status || "Planning the blueprint…"}
               </p>
-              {insertedCount > 0 ? (
+
+              {lastQuestion ? (
+                <p
+                  key={generatedCount}
+                  className="mt-1.5 truncate text-[12px] text-foreground/80 animate-in fade-in slide-in-from-bottom-1 duration-300"
+                >
+                  Just written — {lastQuestion.section}
+                  {lastQuestion.type ? ` · ${humanizeType(lastQuestion.type)}` : ""}
+                  {lastQuestion.marks ? ` · ${lastQuestion.marks} mk` : ""}
+                </p>
+              ) : insertedCount > 0 ? (
                 <p className="mt-1.5 text-[12px] tabular-nums text-muted-foreground">
                   {insertedCount} question{insertedCount === 1 ? "" : "s"} placed
                   on the page
                 </p>
               ) : null}
+
               <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/80">
                 This takes a few minutes. You can keep editing while it runs.
               </p>
@@ -287,6 +348,25 @@ export function GenerateDock({
               by section before anything is written.
             </p>
           </div>
+
+          {/* ── Or build a reusable template, not a paper ─────────────── */}
+          {onNewTemplate ? (
+            <div className="mt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onNewTemplate}
+                className="w-full justify-start gap-2 text-[13px]"
+              >
+                <LayoutTemplate className="h-3.5 w-3.5" />
+                New template
+              </Button>
+              <p className="mt-1.5 px-0.5 text-[12px] leading-relaxed text-muted-foreground">
+                Define sections and question slots by hand, to reuse the next
+                time you generate a paper — nothing is written now.
+              </p>
+            </div>
+          ) : null}
 
           {/* ── Or don't write anything at all ────────────────────────── */}
           {onBuildFromBank ? (
