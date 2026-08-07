@@ -1,6 +1,6 @@
 import os
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from apps.accounts.models import User
 from services.cognito_service import (
@@ -24,19 +24,27 @@ class Command(BaseCommand):
         self.stdout.write(f"Ensuring Cognito group 'superadmin' exists...")
         ensure_cognito_group("superadmin", description="Platform-wide superadmin")
 
+        # Everything below keys off `sub`, never the Cognito Username: the pool
+        # uses email as an alias, so Usernames are opaque UUIDs unrelated to the
+        # `sub` that authentication.py builds User.id from.
         existing = get_cognito_user_by_email(email)
         if existing:
-            username = existing["Username"]
-            self.stdout.write(f"Cognito user {email} already exists (username={username}).")
+            sub = next(
+                (a["Value"] for a in existing.get("UserAttributes", []) if a["Name"] == "sub"),
+                None,
+            )
+            if not sub:
+                raise CommandError(f"Cognito user {email} exists but has no sub attribute.")
+            self.stdout.write(f"Cognito user {email} already exists (sub={sub}).")
         else:
             self.stdout.write(f"Creating Cognito user {email}...")
-            username = create_cognito_user(email=email, name="Super Admin", password=password)
-            self.stdout.write(self.style.SUCCESS(f"Created Cognito user {email} (username={username})."))
+            sub = create_cognito_user(email=email, name="Super Admin", password=password)
+            self.stdout.write(self.style.SUCCESS(f"Created Cognito user {email} (sub={sub})."))
 
-        add_user_to_group(username, "superadmin")
-        add_user_to_group(username, "approved")
+        add_user_to_group(sub, "superadmin")
+        add_user_to_group(sub, "approved")
 
-        user_id = username.replace("-", "")
+        user_id = sub.replace("-", "")
         user, created = User.objects.update_or_create(
             id=user_id,
             defaults={

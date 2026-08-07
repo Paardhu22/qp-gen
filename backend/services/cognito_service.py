@@ -1,4 +1,5 @@
 import logging
+import uuid
 import jwt
 import httpx
 from django.core.cache import cache
@@ -173,17 +174,39 @@ def get_cognito_user_by_email(email: str) -> dict | None:
         raise RuntimeError(f"Failed to look up Cognito user: {str(e)}")
 
 
+def _extract_sub(user_attributes: list[dict]) -> str | None:
+    """Pull the `sub` claim out of a Cognito UserAttributes list."""
+    for attr in user_attributes or []:
+        if attr.get("Name") == "sub":
+            return attr.get("Value")
+    return None
+
+
 def create_cognito_user(email: str, name: str, password: str) -> str:
     """
     Create a permanently-active Cognito user (no invite email, no forced
-    first-login reset) and return the Cognito `Username` (the sub-like UUID
-    the pool assigns, since this pool signs users in by email alias).
+    first-login reset) and return the user's `sub`.
+
+    The pool is configured with email as an ALIAS attribute, which makes
+    `Username=<an email address>` illegal — admin_create_user rejects it with
+    InvalidParameterException ("Username cannot be of email format, since user
+    pool is configured for email alias"). So we mint an opaque UUID as the
+    Username and carry the real address in the `email` attribute; the alias
+    still lets the user sign in with their email.
+
+    We return `sub`, not the Username we generated. Callers key their local
+    User row off this (seed_superadmin), and authentication.py derives the same
+    id from the token's `sub` claim — Cognito assigns `sub` independently of
+    the Username, so returning the Username would leave the two out of sync.
+    Admin APIs accept a `sub` in their `Username` parameter, so it stays usable
+    for add_user_to_group and friends.
     """
     client = get_cognito_client()
+    username = str(uuid.uuid4())
     try:
         create_response = client.admin_create_user(
             UserPoolId=settings.AWS_COGNITO_USER_POOL_ID,
-            Username=email,
+            Username=username,
             UserAttributes=[
                 {"Name": "email", "Value": email},
                 {"Name": "email_verified", "Value": "true"},
@@ -191,15 +214,36 @@ def create_cognito_user(email: str, name: str, password: str) -> str:
             ],
             MessageAction="SUPPRESS",
         )
-        username = create_response["User"]["Username"]
+    except client.exceptions.UsernameExistsException:
+        # Either our UUID collided (vanishingly unlikely) or the email alias is
+        # already taken by an existing user. Fall back to the lookup so a repeat
+        # call behaves like the idempotent "already exists" path callers expect.
+        existing = get_cognito_user_by_email(email)
+        if existing:
+            sub = _extract_sub(existing.get("UserAttributes", []))
+            if sub:
+                logger.info("Cognito user %s already exists; reusing sub %s", email, sub)
+                return sub
+        logger.error("Cognito reported %s as existing but it could not be looked up", email)
+        raise RuntimeError(f"Failed to create Cognito user: {email} already exists")
+    except Exception as e:
+        logger.error("Failed to create Cognito user %s: %s", email, e)
+        raise RuntimeError(f"Failed to create Cognito user: {str(e)}")
 
+    sub = _extract_sub(create_response.get("User", {}).get("Attributes", []))
+    if not sub:
+        logger.error("Cognito did not return a sub for newly created user %s", email)
+        raise RuntimeError("Failed to create Cognito user: no sub returned")
+
+    try:
         client.admin_set_user_password(
             UserPoolId=settings.AWS_COGNITO_USER_POOL_ID,
             Username=username,
             Password=password,
             Permanent=True,
         )
-        return username
     except Exception as e:
-        logger.error("Failed to create Cognito user %s: %s", email, e)
-        raise RuntimeError(f"Failed to create Cognito user: {str(e)}")
+        logger.error("Failed to set password for Cognito user %s: %s", email, e)
+        raise RuntimeError(f"Failed to set Cognito user password: {str(e)}")
+
+    return sub
