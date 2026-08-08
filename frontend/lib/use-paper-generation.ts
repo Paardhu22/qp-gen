@@ -200,7 +200,6 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
           metadata: question.metadata || {},
           bloom: question.bloom,
           or_choice: question.or_choice,
-          vi_alternative: question.vi_alternative,
         },
       });
     };
@@ -223,7 +222,6 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
           sets: parseInt(request.numberOfSets, 10),
           mathLevel: request.mathLevel || "standard",
           instructions: request.instructions || "",
-          include_vi_alternatives: false,
           // The reviewed structure. The backend resolves the template into
           // slots; sending the edited blueprint means the paper the teacher
           // approved in the Builder is the paper they get, with no second

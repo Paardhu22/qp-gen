@@ -42,7 +42,10 @@ class _FakeSlot:
         self.section_title = kwargs.get("section_title", "Section A")
         self.choice_required = kwargs.get("choice_required", False)
         self.generator = kwargs.get("generator", "question_pool")
-        self.vi_required = kwargs.get("vi_required", False)
+        self.asset_type = kwargs.get("asset_type", "")
+        self.constraints = kwargs.get("constraints", {})
+        self.validation = kwargs.get("validation", ())
+        self.instruction_hint = kwargs.get("instruction_hint", "")
 
 
 class BlueprintTotalsTests(TestCase):
@@ -125,23 +128,56 @@ class SlotSpecTests(TestCase):
         self.assertEqual(slot.source, SOURCE_GENERATE)
 
     def test_engine_fields_survive_a_builder_round_trip(self):
-        # The Builder does not show `generator` or `vi_required`, so nothing in
-        # the UI can preserve them — the passthrough is what stops an edited
-        # slot losing its routing and its CBSE compliance flag.
+        # The Builder does not show `generator`, so nothing in the UI can
+        # preserve it — the passthrough is what stops an edited slot losing
+        # its routing.
         original = TemplateBlueprint.from_plan(
-            [_FakeSlot(generator="reading", vi_required=True, question_type="MCQ")]
+            [_FakeSlot(generator="reading", question_type="MCQ")]
         )
         self.assertEqual(original.slots[0].passthrough["generator"], "reading")
 
         round_tripped = TemplateBlueprint.from_dict(original.as_dict())
         self.assertEqual(round_tripped.slots[0].passthrough["generator"], "reading")
-        self.assertTrue(round_tripped.slots[0].passthrough["vi_required"])
 
-    def test_falsey_engine_fields_are_not_carried(self):
-        # `vi_required=False` is the default, not a decision worth persisting
-        # on every slot of every template.
-        blueprint = TemplateBlueprint.from_plan([_FakeSlot(vi_required=False)])
-        self.assertNotIn("vi_required", blueprint.slots[0].passthrough)
+    def test_structural_detail_survives_a_builder_round_trip(self):
+        # `constraints`, `validation` and `instruction_hint` are not routing
+        # decisions like `generator` — they are the word counts, sub-question
+        # patterns and validation-rule names an asset generator needs, and the
+        # CBSE composite-question notes Model 1 needs. A Builder round trip
+        # that drops them makes an asset generator fall back to hardcoded
+        # defaults and a validation rule a permanent no-op.
+        engine_slot = _FakeSlot(
+            generator="reading",
+            question_type="READING_COMP",
+            asset_type="discursive_passage",
+            constraints={"word_count": (350, 450), "sub_questions": 8},
+            validation=("passage_word_count", "sub_question_count"),
+            instruction_hint="Q1 (10m): an unseen discursive passage.",
+        )
+        original = TemplateBlueprint.from_plan([engine_slot])
+        passthrough = original.slots[0].passthrough
+        self.assertEqual(
+            passthrough["constraints"], {"word_count": (350, 450), "sub_questions": 8}
+        )
+        self.assertEqual(
+            passthrough["validation"], ("passage_word_count", "sub_question_count")
+        )
+        self.assertEqual(
+            passthrough["instruction_hint"],
+            "Q1 (10m): an unseen discursive passage.",
+        )
+
+        # And through an actual JSON round trip — the shape the Builder
+        # travels over the wire in, which turns tuples into lists.
+        import json
+
+        wire = json.loads(json.dumps(original.as_dict()))
+        round_tripped = TemplateBlueprint.from_dict(wire)
+        rt_passthrough = round_tripped.slots[0].passthrough
+        self.assertEqual(rt_passthrough["validation"], [
+            "passage_word_count", "sub_question_count",
+        ])
+        self.assertEqual(rt_passthrough["instruction_hint"], engine_slot.instruction_hint)
 
 
 class SourceRatioTests(TestCase):
@@ -334,13 +370,62 @@ class BlueprintToPlanTests(TestCase):
                     {
                         "questionType": "READING_COMP",
                         "marks": 12,
-                        "passthrough": {"generator": "reading", "vi_required": True},
+                        "passthrough": {"generator": "reading"},
                     }
                 ]
             )
         )
         self.assertEqual(plan[0].generator, "reading")
-        self.assertTrue(plan[0].vi_required)
+
+    def test_structural_detail_survives_an_edit(self):
+        # `constraints` and `validation` are what let `services.assets.reading`
+        # write a real passage instead of falling back to its hardcoded
+        # defaults, and what let `services.assets.validation` run real checks
+        # instead of silently checking nothing. A slot the teacher only
+        # touched the marks on must keep both — and `validation`, which
+        # travels the wire as a JSON array, must come back as the tuple
+        # `slot_accepts` and the asset generators expect.
+        from services.templates import blueprint_to_plan
+
+        plan = blueprint_to_plan(
+            self._blueprint(
+                [
+                    {
+                        "questionType": "READING_COMP",
+                        "marks": 12,
+                        "passthrough": {
+                            "generator": "reading",
+                            "asset_type": "discursive_passage",
+                            "constraints": {"word_count": [350, 450], "sub_questions": 8},
+                            "validation": ["passage_word_count", "sub_question_count"],
+                            "instruction_hint": "Q1 (10m): an unseen discursive passage.",
+                        },
+                    }
+                ]
+            )
+        )
+        slot = plan[0]
+        self.assertEqual(
+            slot.constraints, {"word_count": [350, 450], "sub_questions": 8}
+        )
+        self.assertEqual(
+            slot.validation, ("passage_word_count", "sub_question_count")
+        )
+        self.assertIsInstance(slot.validation, tuple)
+        self.assertEqual(
+            slot.instruction_hint, "Q1 (10m): an unseen discursive passage."
+        )
+
+    def test_a_slot_with_no_passthrough_gets_empty_structural_detail(self):
+        # A hand-added Builder slot has no engine history to restore, so it
+        # must default to empty rather than error — never `None`, since every
+        # consumer does `getattr(slot, "constraints", {}) or {}`.
+        from services.templates import blueprint_to_plan
+
+        plan = blueprint_to_plan(self._blueprint([{"questionType": "MCQ"}]))
+        self.assertEqual(plan[0].constraints, {})
+        self.assertEqual(plan[0].validation, ())
+        self.assertEqual(plan[0].instruction_hint, "")
 
     def test_a_slot_with_no_passthrough_defaults_to_the_textbook_pool(self):
         # Everything a teacher adds by hand in the Builder lands here, and it
@@ -356,9 +441,102 @@ class BlueprintToPlanTests(TestCase):
         plan = blueprint_to_plan(self._blueprint([{"questionType": "MCQ"}]))
         for attribute in (
             "index", "marks", "question_type", "legacy_type", "section_title",
-            "generator", "vi_required", "choice_required", "requires_image",
+            "generator", "choice_required",
             "asset_type",
         ):
             self.assertTrue(
                 hasattr(plan[0], attribute), f"slots must expose {attribute}"
             )
+
+    def test_the_plan_exposes_every_attribute_asset_generators_read(self):
+        # Distinct from the Model-2 attribute set above: `constraints` and
+        # `validation` are read by services.assets.* and services.pool.recipes,
+        # never by Model 2, so they earn their own contract test rather than
+        # being folded into (or confused with) the Model-2 one.
+        from services.templates import blueprint_to_plan
+
+        plan = blueprint_to_plan(self._blueprint([{"questionType": "MCQ"}]))
+        for attribute in ("constraints", "validation", "instruction_hint"):
+            self.assertTrue(
+                hasattr(plan[0], attribute), f"slots must expose {attribute}"
+            )
+
+
+class BuilderPipelineEndToEndTests(TestCase):
+    """The full trip: an engine slot, through the Builder, into a real consumer.
+
+    `BlueprintToPlanTests` proves the dataclasses carry the data. This proves
+    it actually reaches something that acts on it — `batches_from_plan`, which
+    is the reason `instruction_hint` exists at all (a 12-mark composite slot
+    with no hint comes back from Model 1 as one plain essay instead of the
+    five-sub-question bundle the blueprint asked for).
+    """
+
+    def test_instruction_hint_reaches_model_1s_recipe_after_a_builder_round_trip(self):
+        import json
+
+        from services.pool.recipes import batches_from_plan
+        from services.templates import blueprint_to_plan
+
+        engine_slot = _FakeSlot(
+            question_type="SHORT_ANSWER",
+            marks=12,
+            asset_type="short_answer_bundle",
+            instruction_hint=(
+                "Q8 (12m): ONE question object containing FIVE numbered "
+                "sub-questions of 3 marks each; answer any four."
+            ),
+        )
+
+        # Project to the Builder, send it over the wire, and read it back —
+        # exactly what happens when a teacher opens the Builder on this
+        # template and saves it without touching this slot.
+        blueprint = TemplateBlueprint.from_plan([engine_slot])
+        wire = json.loads(json.dumps(blueprint.as_dict()))
+        rebuilt = TemplateBlueprint.from_dict(wire)
+
+        plan = blueprint_to_plan(rebuilt)
+        batches = batches_from_plan(plan)
+
+        self.assertEqual(len(batches), 1)
+        quota = batches[0].quotas[0]
+        self.assertIn(engine_slot.instruction_hint, quota.hints)
+
+    def test_asset_constraints_reach_the_reading_generator_after_a_builder_round_trip(self):
+        # The specific failure the audit named: "asset generators fall back to
+        # hardcoded defaults" when the Builder drops `constraints`. Proven here
+        # by calling the generator's real instruction builder and checking the
+        # word count it actually asks for — 350-450 (the blueprint's own
+        # figure) rather than 250-400 (`ReadingAssetGenerator`'s hardcoded
+        # fallback for a slot with no constraints at all).
+        import json
+
+        from services.assets.base import AssetRequest
+        from services.assets.reading import ReadingAssetGenerator
+        from services.templates import blueprint_to_plan
+
+        engine_slot = _FakeSlot(
+            question_type="READING_COMP",
+            marks=10,
+            generator="reading_asset_pool",
+            asset_type="discursive_passage",
+            constraints={"word_count": [350, 450], "sub_questions": 8},
+        )
+
+        blueprint = TemplateBlueprint.from_plan([engine_slot])
+        wire = json.loads(json.dumps(blueprint.as_dict()))
+        rebuilt = TemplateBlueprint.from_dict(wire)
+        plan = blueprint_to_plan(rebuilt)
+        slot = plan[0]
+
+        generator = ReadingAssetGenerator()
+        request = AssetRequest(
+            slots=(slot,), subject="English", subject_norm="english", class_num=10,
+        )
+        constraints = dict(getattr(slot, "constraints", {}) or {})
+        instruction = generator._instruction(
+            request, slot, constraints, wanted=1, avoid_topics=()
+        )
+        self.assertIn("350", instruction)
+        self.assertIn("450", instruction)
+        self.assertNotIn("250–400 words", instruction)

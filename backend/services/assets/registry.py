@@ -133,16 +133,6 @@ def routing_summary(plan: Sequence[Any]) -> List[Dict[str, Any]]:
     return summary
 
 
-def requires_uploaded_content(plan: Sequence[Any]) -> bool:
-    """True when at least one slot still needs the uploaded textbook.
-
-    The gate that lets an all-asset paper generate with no upload at all, and
-    keeps the hard "no readable content" error for papers that genuinely
-    cannot be built without one.
-    """
-    return bool(partition_plan(plan).get(DEFAULT_GENERATOR))
-
-
 def _autoload() -> None:
     """Import the built-in generators so importing the package registers them."""
     from services.assets import grammar, reading, writing  # noqa: F401

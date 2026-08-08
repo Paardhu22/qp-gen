@@ -22,7 +22,6 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
-from services.content_filters import clean_vi_alternative_text
 from utils.ids import generate_id
 
 # ── Canonical vocabularies ──────────────────────────────────────────────
@@ -192,12 +191,6 @@ class PoolQuestion:
     explanation: str = ""
     image: Optional[str] = None
 
-    #: Text-only restatement for visually impaired students, printed in lieu of
-    #: a figure-bearing question. CBSE requires it on map and picture slots
-    #: (the blueprint marks those `vi_required`), so it is part of the question
-    #: rather than a rendering concern.
-    vi_alternative: Optional[str] = None
-
     #: Provenance. `generator` names the pipeline that wrote this question and
     #: is the first thing `slot_accepts` checks — a Reading asset must never be
     #: eligible for a Literature slot, and vice versa, no matter how well the
@@ -294,17 +287,15 @@ class PoolQuestion:
             "content_hash": self.content_hash or None,
             "pool_id": self.pool_id or None,
             "source_type": self.source_type or None,
-            # VI text and provenance ride in metadata rather than their own
-            # columns: VI text is present on a small minority of questions
-            # (map/picture slots), and `generator`/`assetType` are read back by
-            # `from_model` only. Neither justifies a migration on the live
-            # table, and keeping them here means an older row simply reads back
-            # as `question_pool` — the pre-refactor meaning.
+            # Provenance rides in metadata rather than its own column:
+            # `generator`/`assetType` are read back by `from_model` only, which
+            # does not justify a migration on the live table, and keeping it
+            # here means an older row simply reads back as `question_pool` —
+            # the pre-refactor meaning.
             "metadata": {
                 **(self.metadata or {}),
                 "generator": self.generator or DEFAULT_GENERATOR,
                 **({"assetType": self.asset_type} if self.asset_type else {}),
-                **({"viAlternative": self.vi_alternative} if self.vi_alternative else {}),
             },
             "user": user,
             "project": project,
@@ -340,7 +331,6 @@ class PoolQuestion:
             answer=row.answer or "",
             explanation=getattr(row, "explanation", "") or "",
             image=getattr(row, "image_url", None),
-            vi_alternative=row_metadata.get("viAlternative"),
             # Rows banked before provenance existed have no `generator` and
             # correctly read back as textbook-pool questions.
             generator=str(row_metadata.get("generator") or DEFAULT_GENERATOR),
@@ -469,11 +459,6 @@ def normalize_pool_question(
     # `PoolQuestion.from_model`, which does not come through here.
     image = None
 
-    vi_raw = raw.get("vi_alternative") or raw.get("viAlternative")
-    vi_alternative = (
-        clean_vi_alternative_text(str(vi_raw).strip()) or None
-    ) if vi_raw else None
-
     return PoolQuestion(
         id=str(raw.get("id") or "").strip() or generate_id(),
         subject=subject,
@@ -488,7 +473,6 @@ def normalize_pool_question(
         answer=str(raw.get("answer") or "").strip(),
         explanation=str(raw.get("explanation") or "").strip(),
         image=image,
-        vi_alternative=vi_alternative,
         generator=generator or DEFAULT_GENERATOR,
         asset_type=asset_type,
         source_type=source_type,

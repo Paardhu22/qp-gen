@@ -23,10 +23,9 @@ from typing import Iterable, List, Sequence
 #     <alternate question text>
 #     - - - - - - - - - - - - -
 # When such a block survives ingestion, retrieval hands it to the LLM and
-# the LLM happily copies it into `content` (the s3b paper's Q31/Q37).
-# The ONLY legitimate carrier of VI text is the structured
-# `vi_alternative` field (gated by the per-paper toggle); anything inline
-# in content/chunks is contamination.
+# the LLM happily copies it into `content` (the s3b paper's Q31/Q37). VI
+# text has no legitimate carrier anywhere in the pipeline, so any such block
+# is always contamination and is stripped outright.
 
 _DASHED_LINE_RE = re.compile(r"^[\s\-–—_]{3,}$")
 _VI_NOTE_RE = re.compile(
@@ -109,8 +108,8 @@ _BLUEPRINT_LEAK_RES: Sequence[re.Pattern] = (
     re.compile(r"internal\s+choice\s*[—–-]+\s*answer\s+either", re.IGNORECASE),
     re.compile(r"answer\s+either\s*\(?\s*a\s*\)?\s+or\s+\(?\s*b\s*\)?", re.IGNORECASE),
     re.compile(r"as\s+given\s+in\s+the\s+question\s+content", re.IGNORECASE),
-    re.compile(r"question\.(?:or_choice|vi_alternative|image_url|figure)", re.IGNORECASE),
-    re.compile(r"\bor_choice\b|\bvi_alternative\b", re.IGNORECASE),
+    re.compile(r"question\.(?:or_choice|image_url|figure)", re.IGNORECASE),
+    re.compile(r"\bor_choice\b", re.IGNORECASE),
     re.compile(r"do\s+not\s+output\s+the\s+or\s+alternative", re.IGNORECASE),
     re.compile(r"^\s*set\s+`?question\.", re.IGNORECASE),
     re.compile(r"slot\s+contract|json\s+schema", re.IGNORECASE),
@@ -301,21 +300,3 @@ def clean_question_text(
     text = strip_vi_blocks(text)
     text = remove_orphan_or_tokens(text, or_labels)
     return wrap_bare_latex_tokens(text)
-
-
-def clean_vi_alternative_text(text: str) -> str:
-    """Scrub the structured `vi_alternative` FIELD (not content).
-
-    The field's text is legitimate — but if the model wrapped it in its
-    own dashed lines / "Note: … Visually Impaired …" header, the printer
-    (which adds its own framing) would double them. Strip framing only,
-    keep the alternate question itself, and rescue bare LaTeX.
-    """
-    if not text:
-        return text
-    kept = [
-        l
-        for l in text.split("\n")
-        if not _DASHED_LINE_RE.match(l) and not _VI_NOTE_RE.search(l)
-    ]
-    return wrap_bare_latex_tokens(_collapse_blank_lines("\n".join(kept)))

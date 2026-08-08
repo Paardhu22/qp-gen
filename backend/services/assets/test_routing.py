@@ -18,7 +18,6 @@ from services.assets.registry import (
     get_generator,
     partition_plan,
     registered_generators,
-    requires_uploaded_content,
     routing_summary,
 )
 from services.generation_router import build_question_plan
@@ -130,15 +129,6 @@ class EnglishRoutingTests(TestCase):
             self.assertTrue(slot.validation, f"Q{slot.index} declares no validation")
             unknown = set(slot.validation) - known
             self.assertFalse(unknown, f"Q{slot.index} names unknown rules {unknown}")
-
-    def test_the_paper_still_needs_an_upload_for_literature(self):
-        self.assertTrue(requires_uploaded_content(self.plan))
-
-    def test_dropping_literature_leaves_a_paper_that_needs_no_upload(self):
-        assets = [s for s in self.plan if s.generator != DEFAULT_GENERATOR]
-        self.assertFalse(requires_uploaded_content(assets))
-        self.assertEqual(sum(s.marks for s in assets), 40)
-
 
 class OtherSubjectsAreUntouchedTests(TestCase):
     """The refactor's hard constraint, asserted subject by subject."""

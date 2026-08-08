@@ -85,9 +85,7 @@ class QuestionGenerationSlot:
     exact_instruction: str
     retrieval_query: str
     choice_required: bool = False
-    requires_image: bool = False
     requires_figure: bool = False  # geometry/mensuration slots that MUST include an inline SVG diagram
-    vi_required: bool = False
     instruction_hint: str = ""
     # CONTENT | PASSAGE | GRAMMAR | COMPOSITION (see q_instructions.core.enums.GenerationMode).
     # Defaults to CONTENT so Science / Social Science / Mathematics behaviour is unchanged.
@@ -110,14 +108,6 @@ class QuestionGenerationSlot:
     )
     #: Names of rules in `services.assets.validation` to run on what comes back.
     validation: Tuple[str, ...] = ()
-    #: How the student chooses: "none", "internal_choice", "any_4_of_5", …
-    #: `choice_required` remains the machine-readable flag for OR handling.
-    optionality: str = "none"
-    #: "objective" | "descriptive" | "mixed" — what a marking scheme expects.
-    answer_type: str = ""
-    #: How the question prints: "passage_with_subquestions", "letter",
-    #: "paragraph", "numbered_task_list", …
-    output_format: str = ""
 
 
 def normalize_subject(subject: str) -> str:
@@ -307,8 +297,6 @@ def summarize_question_plan(plan: List[QuestionGenerationSlot]) -> Dict[str, Any
         "total_questions": len(plan),
         "total_marks": sum(slot.marks for slot in plan),
         "or_choices": sum(1 for slot in plan if slot.choice_required),
-        "image_questions": sum(1 for slot in plan if slot.requires_image),
-        "vi_alternatives": sum(1 for slot in plan if slot.vi_required),
         "exact_counts": exact_counts,
         "section_marks": section_marks,
         "section_questions": section_questions,
@@ -400,7 +388,6 @@ def build_plan_blueprint_instructions(
             f"- Internal OR choices required: {summary['or_choices']}. "
             "Each OR alternative MUST be nested in the parent question's `or_choice` field and MUST NOT be a separate question object. The backend prints OR visibly."
         ),
-        f"- Image/map/diagram slots: {summary['image_questions']}. VI alternatives required: {summary['vi_alternatives']}.",
         "- Use only retrieved chunks and supplied images. No unsupported facts.",
     ]
     is_custom = any(slot.stream == "INTEGRATED" for slot in plan)
@@ -1073,7 +1060,6 @@ def _slot_contract_footer(slot: QuestionGenerationSlot) -> List[str]:
         )
     else:
         lines.append("Set `question.or_choice` to null.")
-    lines.append("Set `question.vi_alternative` to null.")
     lines.append("Set `question.image_url` to an empty string.")
     return lines
 
@@ -1332,20 +1318,6 @@ def _build_content_instruction(slot: QuestionGenerationSlot) -> str:
     else:
         lines.append("Set `question.or_choice` to null.")
 
-    if slot.vi_required:
-        lines.append(
-            "Add a same-marks Visually Impaired alternative in `question.vi_alternative`. Do NOT hide it in metadata."
-        )
-    else:
-        lines.append("Set `question.vi_alternative` to null unless the slot explicitly requires it.")
-
-    if slot.requires_image:
-        lines.append(
-            "This is an image/map/diagram slot. Use the supplied image payload and copy its `image_url` into `question.image_url`."
-        )
-    else:
-        lines.append("Set `question.image_url` to an empty string unless the slot explicitly uses a retrieved image.")
-
     if getattr(slot, "requires_figure", False):
         lines.append(
             "MANDATORY FIGURE: This question MUST include an inline SVG diagram in the `figure` field. "
@@ -1371,8 +1343,6 @@ def build_retrieval_query(
     marks: int,
     difficulty: str,
     class_num: int,
-    requires_image: bool = False,
-    vi_required: bool = False,
     choice_required: bool = False,
     instruction_hint: str = "",
     instructions: str = "",
@@ -1395,8 +1365,6 @@ def build_retrieval_query(
         qtype_name.replace("_", " "),
         f"{marks} mark",
         difficulty,
-        "diagram map figure visual image" if requires_image else "",
-        "visually impaired alternative VI" if vi_required else "",
         "internal choice OR alternative" if choice_required else "",
         instruction_hint[:160].strip(),
         instructions[:240].strip(),
@@ -1417,18 +1385,13 @@ def _make_slot(
     topic: str,
     instructions: str,
     choice_required: bool = False,
-    requires_image: bool = False,
     requires_figure: bool = False,
-    vi_required: bool = False, # Force disabled
     instruction_hint: str = "",
     mode: str = "CONTENT",
     generator: str = POOL_GENERATOR,
     asset_type: str = "",
     constraints: Optional[Dict[str, Any]] = None,
     validation: Sequence[str] = (),
-    optionality: str = "",
-    answer_type: str = "",
-    output_format: str = "",
 ) -> QuestionGenerationSlot:
     legacy_type = _legacy_question_type(qtype_name)
     retrieval_query = build_retrieval_query(
@@ -1440,8 +1403,6 @@ def _make_slot(
         marks=marks,
         difficulty=difficulty,
         class_num=class_num,
-        requires_image=requires_image,
-        vi_required=vi_required,
         choice_required=choice_required,
         instruction_hint=instruction_hint,
         instructions=instructions,
@@ -1459,20 +1420,13 @@ def _make_slot(
         exact_instruction="",
         retrieval_query=retrieval_query,
         choice_required=choice_required,
-        requires_image=requires_image,
         requires_figure=requires_figure,
-        vi_required=vi_required,
         instruction_hint=instruction_hint,
         generation_mode=str(mode).upper(),
         generator=str(generator or POOL_GENERATOR),
         asset_type=str(asset_type or ""),
         constraints=dict(constraints or {}),
         validation=tuple(validation or ()),
-        optionality=str(
-            optionality or ("internal_choice" if choice_required else "none")
-        ),
-        answer_type=str(answer_type or ""),
-        output_format=str(output_format or ""),
     )
     return dataclasses.replace(draft, exact_instruction=_slot_instruction(draft))
 
@@ -1732,9 +1686,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "count": 1,
             "generator": "reading_asset_pool",
             "asset_type": "discursive_passage",
-            "optionality": "none",
-            "answer_type": "mixed",
-            "output_format": "passage_with_subquestions",
             "constraints": {
                 "word_count": (350, 450),
                 "paragraphs": "5 to 7",
@@ -1780,9 +1731,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "count": 1,
             "generator": "reading_asset_pool",
             "asset_type": "case_based_passage",
-            "optionality": "none",
-            "answer_type": "mixed",
-            "output_format": "passage_with_subquestions",
             "constraints": {
                 "word_count": (220, 300),
                 "paragraphs": "4 to 5",
@@ -1833,9 +1781,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "count": 1,
             "generator": "grammar_asset_pool",
             "asset_type": "grammar_task_set",
-            "optionality": "any_10_of_12",
-            "answer_type": "mixed",
-            "output_format": "numbered_task_list",
             "constraints": {
                 "tasks": 12,
                 "attempt": 10,
@@ -1869,9 +1814,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": "writing_asset_pool",
             "asset_type": "formal_letter_to_authority",
-            "optionality": "internal_choice",
-            "answer_type": "descriptive",
-            "output_format": "letter",
             "constraints": {
                 "word_limit": 120,
                 "formats": ("formal_letter_to_authority", "letter_to_editor"),
@@ -1896,9 +1838,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": "writing_asset_pool",
             "asset_type": "analytical_paragraph",
-            "optionality": "internal_choice",
-            "answer_type": "descriptive",
-            "output_format": "paragraph",
             "constraints": {
                 "word_limit": 120,
                 "formats": ("analytical_paragraph",),
@@ -1932,9 +1871,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": POOL_GENERATOR,
             "asset_type": "extract_prose",
-            "optionality": "internal_choice",
-            "answer_type": "mixed",
-            "output_format": "extract_with_subquestions",
             "hint": (
                 "Q6 (5m): a prose/drama extract from the uploaded chapter, quoted "
                 "verbatim, followed by 4 sub-questions worth 2+1+1+1 marks. Mix a "
@@ -1951,9 +1887,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": POOL_GENERATOR,
             "asset_type": "extract_poetry",
-            "optionality": "internal_choice",
-            "answer_type": "mixed",
-            "output_format": "extract_with_subquestions",
             "hint": (
                 "Q7 (5m): a poetry extract from the uploaded chapter, quoted "
                 "verbatim with its line breaks, followed by 4 sub-questions worth "
@@ -1969,9 +1902,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "count": 1,
             "generator": POOL_GENERATOR,
             "asset_type": "short_answer_bundle",
-            "optionality": "any_4_of_5",
-            "answer_type": "descriptive",
-            "output_format": "numbered_question_list",
             "constraints": {"questions": 5, "attempt": 4, "marks_each": 3},
             "hint": (
                 "Q8 (12m): ONE question object containing FIVE numbered "
@@ -1990,9 +1920,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "count": 1,
             "generator": POOL_GENERATOR,
             "asset_type": "short_answer_bundle",
-            "optionality": "any_2_of_3",
-            "answer_type": "descriptive",
-            "output_format": "numbered_question_list",
             "constraints": {"questions": 3, "attempt": 2, "marks_each": 3},
             "hint": (
                 "Q9 (6m): ONE question object containing THREE numbered "
@@ -2010,9 +1937,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": POOL_GENERATOR,
             "asset_type": "long_answer",
-            "optionality": "internal_choice",
-            "answer_type": "descriptive",
-            "output_format": "paragraph",
             "constraints": {"word_limit": (100, 120)},
             "hint": (
                 "Q10 (6m): a 100-120 word evaluative answer on theme, character "
@@ -2029,9 +1953,6 @@ def _exact_class10_blueprint_entries_english() -> List[Dict[str, Any]]:
             "choice_required": True,
             "generator": POOL_GENERATOR,
             "asset_type": "long_answer",
-            "optionality": "internal_choice",
-            "answer_type": "descriptive",
-            "output_format": "paragraph",
             "constraints": {"word_limit": (100, 120)},
             "hint": (
                 "Q11 (6m): a 100-120 word critical commentary on narrative "
@@ -2577,14 +2498,14 @@ def _exact_class10_blueprint_entries(subject_norm: str) -> List[Dict[str, Any]]:
     if subject_norm == "social science":
         return [
             {"section": "Section A - History", "stream": "HISTORY", "qtype": "MCQ", "marks": 1, "count": 1, "hint": "History Q1 must be a match-the-following MCQ with Column I and Column II."},
-            {"section": "Section A - History", "stream": "HISTORY", "qtype": "MCQ", "marks": 1, "count": 1, "requires_image": True, "vi_required": True, "hint": "History Q2 must be a picture/image identification MCQ with a VI alternative."},
+            {"section": "Section A - History", "stream": "HISTORY", "qtype": "MCQ", "marks": 1, "count": 1, "hint": "History Q2 must be a picture/image identification MCQ."},
             {"section": "Section A - History", "stream": "HISTORY", "qtype": "MCQ", "marks": 1, "count": 1, "hint": "History Q3 must be a standard four-option MCQ."},
             {"section": "Section A - History", "stream": "HISTORY", "qtype": "MCQ", "marks": 1, "count": 1, "hint": "History Q4 must be quotation/source-based."},
             {"section": "Section A - History", "stream": "HISTORY", "qtype": "SHORT_ANSWER", "marks": 2, "count": 1, "choice_required": True},
             {"section": "Section A - History", "stream": "HISTORY", "qtype": "SHORT_ANSWER", "marks": 3, "count": 1, "choice_required": True},
             {"section": "Section A - History", "stream": "HISTORY", "qtype": "LONG_ANSWER", "marks": 5, "count": 1, "choice_required": True},
             {"section": "Section A - History", "stream": "HISTORY", "qtype": "CASE_STUDY", "marks": 4, "count": 1, "hint": "CBQ must have exactly three sub-questions totalling 4 marks: 1+1+2."},
-            {"section": "Section A - History", "stream": "HISTORY", "qtype": "DIAGRAM", "marks": 2, "count": 1, "requires_image": True, "vi_required": True, "hint": "History map work: identify or locate two historical places on an India outline map."},
+            {"section": "Section A - History", "stream": "HISTORY", "qtype": "DIAGRAM", "marks": 2, "count": 1, "hint": "History map work: identify or locate two historical places on an India outline map."},
             {"section": "Section B - Geography", "stream": "GEOGRAPHY", "qtype": "MCQ", "marks": 1, "count": 1, "hint": "Geography Q10 must be a standard MCQ."},
             {"section": "Section B - Geography", "stream": "GEOGRAPHY", "qtype": "MCQ", "marks": 1, "count": 1, "hint": "Geography Q11 must be a diagram/table empty-box fill MCQ."},
             {"section": "Section B - Geography", "stream": "GEOGRAPHY", "qtype": "MCQ", "marks": 1, "count": 1, "hint": "Geography Q12 must be news article or data-based."},
@@ -2594,9 +2515,9 @@ def _exact_class10_blueprint_entries(subject_norm: str) -> List[Dict[str, Any]]:
             {"section": "Section B - Geography", "stream": "GEOGRAPHY", "qtype": "SHORT_ANSWER", "marks": 2, "count": 1, "hint": "Geography has no 3-mark SA in exact mode."},
             {"section": "Section B - Geography", "stream": "GEOGRAPHY", "qtype": "LONG_ANSWER", "marks": 5, "count": 1, "choice_required": True},
             {"section": "Section B - Geography", "stream": "GEOGRAPHY", "qtype": "CASE_STUDY", "marks": 4, "count": 1, "hint": "CBQ must have exactly three sub-questions totalling 4 marks: 1+2+1."},
-            {"section": "Section B - Geography", "stream": "GEOGRAPHY", "qtype": "DIAGRAM", "marks": 3, "count": 1, "choice_required": True, "requires_image": True, "vi_required": True, "hint": "Geography map work: Part I 1 mark with internal OR; Part II 2 marks locating two features."},
+            {"section": "Section B - Geography", "stream": "GEOGRAPHY", "qtype": "DIAGRAM", "marks": 3, "count": 1, "choice_required": True, "hint": "Geography map work: Part I 1 mark with internal OR; Part II 2 marks locating two features."},
             {"section": "Section C - Political Science", "stream": "CIVICS", "qtype": "MCQ", "marks": 1, "count": 1, "hint": "Civics Q20 must be multi-statement type."},
-            {"section": "Section C - Political Science", "stream": "CIVICS", "qtype": "MCQ", "marks": 1, "count": 1, "requires_image": True, "vi_required": True, "hint": "Civics Q21 must be cartoon-based with a VI alternative."},
+            {"section": "Section C - Political Science", "stream": "CIVICS", "qtype": "MCQ", "marks": 1, "count": 1, "hint": "Civics Q21 must be cartoon-based."},
             {"section": "Section C - Political Science", "stream": "CIVICS", "qtype": "MCQ", "marks": 1, "count": 1, "hint": "Civics Q22 must be case scenario or constitutional reasoning."},
             {"section": "Section C - Political Science", "stream": "CIVICS", "qtype": "ASSERTION_REASON", "marks": 1, "count": 1, "hint": "Assertion-Reason appears only in Civics for Social Science."},
             {"section": "Section C - Political Science", "stream": "CIVICS", "qtype": "SHORT_ANSWER", "marks": 2, "count": 2, "hint": "Civics has exactly two VSA questions and no OR at 2 marks."},
@@ -2640,7 +2561,6 @@ def _exact_class10_blueprint_entries(subject_norm: str) -> List[Dict[str, Any]]:
             "marks": 4,
             "count": 1,
             "choice_required": True,
-            "vi_required": True,
             "hint": "Biology competency/case-based question with exactly three sub-questions totalling 4 marks and a partial OR.",
         },
         {
@@ -2661,16 +2581,15 @@ def _exact_class10_blueprint_entries(subject_norm: str) -> List[Dict[str, Any]]:
             "qtype": "CASE_STUDY",
             "marks": 4,
             "count": 1,
-            "vi_required": True,
-            "hint": "Chemistry case-based question must include a VI alternative if a lab setup, table, structure, or diagram is referenced.",
+            "hint": "Chemistry case-based question.",
         },
         {"section": "Section B - Chemistry", "stream": "CHEMISTRY", "qtype": "LONG_ANSWER", "marks": 5, "count": 1, "choice_required": True},
         {"section": "Section C - Physics", "stream": "PHYSICS", "qtype": "MCQ", "marks": 1, "count": 2, "hint": "Standard Physics MCQs come before Assertion-Reason."},
         {"section": "Section C - Physics", "stream": "PHYSICS", "qtype": "ASSERTION_REASON", "marks": 1, "count": 1},
         {"section": "Section C - Physics", "stream": "PHYSICS", "qtype": "SHORT_ANSWER", "marks": 2, "count": 1, "choice_required": True},
-        {"section": "Section C - Physics", "stream": "PHYSICS", "qtype": "SHORT_ANSWER", "marks": 2, "count": 1, "vi_required": True, "hint": "This Physics 2-mark question must include a VI alternative."},
+        {"section": "Section C - Physics", "stream": "PHYSICS", "qtype": "SHORT_ANSWER", "marks": 2, "count": 1},
         {"section": "Section C - Physics", "stream": "PHYSICS", "qtype": "SHORT_ANSWER", "marks": 3, "count": 1, "hint": "This Physics question must be a numerical calculation using values not used elsewhere."},
-        {"section": "Section C - Physics", "stream": "PHYSICS", "qtype": "SHORT_ANSWER", "marks": 3, "count": 2, "vi_required": True, "hint": "Physics optics/circuit/data interpretation questions must include VI alternatives when visual-dependent."},
+        {"section": "Section C - Physics", "stream": "PHYSICS", "qtype": "SHORT_ANSWER", "marks": 3, "count": 2, "hint": "Physics optics/circuit/data interpretation questions."},
         {
             "section": "Section C - Physics",
             "stream": "PHYSICS",
@@ -2678,8 +2597,7 @@ def _exact_class10_blueprint_entries(subject_norm: str) -> List[Dict[str, Any]]:
             "marks": 4,
             "count": 1,
             "choice_required": True,
-            "vi_required": True,
-            "hint": "Physics competency/case-based question must have exactly three sub-questions totalling 4 marks, partial OR, and VI alternative.",
+            "hint": "Physics competency/case-based question must have exactly three sub-questions totalling 4 marks and partial OR.",
         },
         {
             "section": "Section C - Physics",
@@ -2688,7 +2606,6 @@ def _exact_class10_blueprint_entries(subject_norm: str) -> List[Dict[str, Any]]:
             "marks": 5,
             "count": 1,
             "choice_required": True,
-            "vi_required": True,
         },
     ]
 
@@ -2722,9 +2639,7 @@ def _build_exact_cbse_class10_plan(
                     topic=topic,
                     instructions=instructions,
                     choice_required=bool(entry.get("choice_required")) or local_index < choice_first,
-                    requires_image=bool(entry.get("requires_image")) or qtype_name == "DIAGRAM",
                     requires_figure=bool(entry.get("requires_figure")),
-                    vi_required=bool(entry.get("vi_required")),
                     instruction_hint=str(entry.get("hint") or ""),
                     mode=str(entry.get("mode") or "CONTENT").upper(),
                     # Routing declaration. Entries that omit these — every
@@ -2734,9 +2649,6 @@ def _build_exact_cbse_class10_plan(
                     asset_type=str(entry.get("asset_type") or ""),
                     constraints=entry.get("constraints") or {},
                     validation=entry.get("validation") or (),
-                    optionality=str(entry.get("optionality") or ""),
-                    answer_type=str(entry.get("answer_type") or ""),
-                    output_format=str(entry.get("output_format") or ""),
                 )
             )
 
@@ -2777,17 +2689,15 @@ def _build_exact_cbse_class10_plan(
                     f"Mathematics Section A invariant: Q{q_num} must be ASSERTION_REASON, got {s.legacy_type}."
                 )
 
-    # ── Mathematics-only picture/diagram cap (max 2) ─────────────────────
+    # ── Mathematics-only figure cap (max 2) ───────────────────────────────
     # Math papers must contain at most 2 figure-bearing questions across
-    # the whole paper; Social Science legitimately has more (History
-    # image-MCQ + History map + Geography map + Civics cartoon), so the
-    # cap is scoped to mathematics only.
+    # the whole paper.
     if subject_norm == "mathematics":
-        picture_slots = [s for s in slots if s.requires_figure or s.requires_image]
+        picture_slots = [s for s in slots if s.requires_figure]
         if len(picture_slots) > 2:
             raise ValueError(
-                f"Mathematics picture-based cap exceeded: blueprint produced "
-                f"{len(picture_slots)} figure/image slots; max 2."
+                f"Mathematics figure cap exceeded: blueprint produced "
+                f"{len(picture_slots)} figure slots; max 2."
             )
     return slots
 

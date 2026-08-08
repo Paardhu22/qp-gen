@@ -17,6 +17,7 @@
  */
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { BookMarked, Loader2, RefreshCcw, Search, X } from "lucide-react";
 
@@ -43,6 +44,7 @@ interface Props {
 }
 
 export function BuildFromBankDialog({ open, onOpenChange, onBuilt }: Props) {
+  const [mounted, setMounted] = React.useState(false);
   const [chapters, setChapters] = React.useState<BankChapter[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
@@ -51,6 +53,10 @@ export function BuildFromBankDialog({ open, onOpenChange, onBuilt }: Props) {
   const [numSets, setNumSets] = React.useState(1);
   const [isBuilding, setIsBuilding] = React.useState(false);
   const [status, setStatus] = React.useState("");
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const load = React.useCallback(async () => {
     setIsLoading(true);
@@ -206,10 +212,10 @@ export function BuildFromBankDialog({ open, onOpenChange, onBuilt }: Props) {
     }
   };
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={isBuilding ? undefined : () => onOpenChange(false)}
@@ -378,6 +384,7 @@ export function BuildFromBankDialog({ open, onOpenChange, onBuilt }: Props) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -139,7 +139,6 @@ class TestEnglishBlueprint(unittest.TestCase):
         self.assertEqual(len(q8), 1)
         entry = q8[0]
         self.assertEqual(entry["marks"], 12)
-        self.assertEqual(entry["optionality"], "any_4_of_5")
         self.assertEqual(entry["constraints"], {"questions": 5, "attempt": 4, "marks_each": 3})
         self.assertIn("DIFFERENT chapter", entry["hint"])
 
@@ -164,9 +163,6 @@ class TestEnglishBlueprint(unittest.TestCase):
             self.assertTrue(entry.get("asset_type"), label)
             self.assertTrue(entry.get("constraints"), label)
             self.assertTrue(entry.get("validation"), label)
-            self.assertTrue(entry.get("optionality"), label)
-            self.assertTrue(entry.get("answer_type"), label)
-            self.assertTrue(entry.get("output_format"), label)
 
 
 class TestHindiBlueprint(unittest.TestCase):

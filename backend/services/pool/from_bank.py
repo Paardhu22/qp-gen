@@ -434,7 +434,6 @@ def stream_paper_from_bank(
                 num_variants=num_sets - 1,
                 section_order=[s.get("title", "") for s in result["sections"]],
                 general_instructions=result["generalInstructions"],
-                include_vi_alternatives=True,
                 base_meta=result["meta"],
             )
         except Exception as exc:
