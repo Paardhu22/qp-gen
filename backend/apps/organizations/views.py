@@ -17,9 +17,11 @@ from apps.accounts.views import get_cognito_username
 from apps.common.permissions import IsOrgAdminOrSuperAdmin, IsSuperAdmin
 from apps.generation.models import ApiUsage
 from services.cognito_service import add_user_to_group, remove_user_from_group
+from apps.accounts.models import User
 from services.email_service import (
     send_join_request_email,
     send_membership_approved_email,
+    send_membership_moved_email,
     send_membership_rejected_email,
     send_membership_removed_email,
     send_organization_invite_email,
@@ -758,3 +760,108 @@ class OrganizationMemberRemoveView(_OrganizationMemberActionView):
 
         logger.info("%s removed member %s from organization %s", request.user.email, member.email, org_id)
         return Response(status=204)
+
+
+class OrganizationMemberAssignView(APIView):
+    """Put a user in a school — either their first one, or a different one.
+
+    Platform-level rather than nested under an organization, because the most
+    common case has no source org to nest under: an account that signed up and
+    never joined anywhere. One endpoint covers both, since "assign" and "move"
+    differ only in whether a membership row already exists.
+
+    Superadmin only. An org admin must not be able to push a user into a school
+    they do not manage, nor pull one out of another admin's school — both are
+    reachable from this endpoint, so the whole thing sits above them.
+    """
+
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+        organization_id = (request.data.get("organization_id") or "").strip()
+        if not organization_id:
+            return Response({"error": "organization_id is required"}, status=400)
+        target = _get_organization_or_404(organization_id)
+
+        # Defaults to teacher, and deliberately so: administering school A says
+        # nothing about school B, and silently carrying org_admin across would
+        # hand someone a new school's member list as a side effect of a move.
+        role = (request.data.get("role") or "teacher").strip()
+        valid_roles = {choice for choice, _ in Membership.ROLE_CHOICES}
+        if role not in valid_roles:
+            return Response(
+                {"error": f"role must be one of: {', '.join(sorted(valid_roles))}"},
+                status=400,
+            )
+
+        membership = getattr(user, "membership", None)
+        source = membership.organization if membership else None
+
+        if membership and membership.organization_id == target.id:
+            if membership.role == role:
+                # Caller and database already agree — let a stale table re-sync
+                # rather than reporting an error for a no-op.
+                return Response(MembershipSerializer(membership).data)
+            return Response(
+                {
+                    "error": "They are already at this school. Use the role "
+                    "picker to change what they can do there."
+                },
+                status=400,
+            )
+
+        if membership and _OrganizationMemberActionView._is_last_admin(membership):
+            return Response(
+                {
+                    "error": f"They are the only admin of {source.name}. Promote "
+                    "someone else there first, then move them."
+                },
+                status=400,
+            )
+
+        if membership:
+            # Status rides along: a teacher already approved at their old school
+            # was approved as a person, and making a superadmin's correction of
+            # a mis-joined school cost them a second approval round would be
+            # friction for no safety gained.
+            membership.organization = target
+            membership.role = role
+            membership.reviewed_by = request.user
+            membership.reviewed_at = timezone.now()
+            membership.save(
+                update_fields=["organization", "role", "reviewed_by", "reviewed_at"]
+            )
+        else:
+            # A first placement starts pending, exactly as joining does, so the
+            # receiving school's admin still gets their say — and so approval
+            # runs through the one path that syncs Cognito.
+            membership = Membership.objects.create(
+                user=user, organization=target, role=role, status="pending"
+            )
+
+        # Past ApiUsage rows keep pointing at the organization that actually
+        # spent the tokens. Reassigning history to the new school would silently
+        # rewrite another school's bill.
+        send_membership_moved_email(
+            to_email=user.email,
+            user_name=user.name,
+            from_organization=source.name if source else None,
+            to_organization=target.name,
+            new_role=role,
+            pending_approval=membership.status != "approved",
+        )
+
+        logger.info(
+            "%s assigned %s to organization %s (from %s) as %s",
+            request.user.email,
+            user.email,
+            target.id,
+            source.id if source else "none",
+            role,
+        )
+        return Response(MembershipSerializer(membership).data)

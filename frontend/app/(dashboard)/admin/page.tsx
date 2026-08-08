@@ -217,12 +217,12 @@ function SuperAdminDashboard({ currentUserId }: { currentUserId?: string }) {
         <CardHeader>
           <CardTitle>All users</CardTitle>
           <CardDescription>
-            Everyone on the platform. Change a role here and we&apos;ll email them
-            about it.
+            Everyone on the platform. Move them between schools, change their
+            role, approve or remove them — each one emails the user.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <UsersPanel currentUserId={currentUserId} />
+          <UsersPanel currentUserId={currentUserId} organizations={orgs} />
         </CardContent>
       </Card>
     </div>

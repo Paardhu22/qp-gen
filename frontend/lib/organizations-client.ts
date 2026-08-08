@@ -258,6 +258,27 @@ export async function changeMemberRole(
   });
 }
 
+/**
+ * Superadmin: put a user in a school, or move them to a different one.
+ *
+ * One call covers both because they differ only in whether a membership
+ * already exists — the common case (an account that signed up and never
+ * joined anywhere) has no source school to address the request to.
+ *
+ * `role` defaults to teacher server-side: administering one school says
+ * nothing about the next.
+ */
+export async function assignMemberToOrganization(
+  userId: string,
+  organizationId: string,
+  role?: OrganizationMember["role"],
+): Promise<OrganizationMember> {
+  return fetchJson<OrganizationMember>(`/api/organizations/members/${userId}/assign`, {
+    method: "POST",
+    body: JSON.stringify({ organization_id: organizationId, ...(role ? { role } : {}) }),
+  });
+}
+
 export async function removeMember(orgId: string, userId: string): Promise<void> {
   await fetchJson<void>(`/api/organizations/${orgId}/members/${userId}`, {
     method: "DELETE",

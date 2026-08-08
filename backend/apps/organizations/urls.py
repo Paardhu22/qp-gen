@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     OrganizationDetailView,
+    OrganizationMemberAssignView,
     OrganizationInviteAcceptView,
     OrganizationInviteCreateView,
     OrganizationJoinView,
@@ -26,6 +27,14 @@ urlpatterns = [
     path("join", OrganizationJoinView.as_view(), name="organizations-join"),
     path("usage", OrganizationUsageSummaryView.as_view(), name="organizations-usage"),
     path("analytics", SuperAdminAnalyticsView.as_view(), name="organizations-analytics"),
+    # Platform-level: assign a user to a school, or move them between schools.
+    # Must stay above the "<str:org_id>/..." block — "members" would otherwise
+    # be read as an organization id.
+    path(
+        "members/<str:user_id>/assign",
+        OrganizationMemberAssignView.as_view(),
+        name="organizations-member-assign",
+    ),
     path("", OrganizationListView.as_view(), name="organizations-list"),
 
     path("<str:org_id>", OrganizationDetailView.as_view(), name="organizations-detail"),

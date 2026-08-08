@@ -7,6 +7,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from apps.accounts.models import User
 from apps.organizations.models import Membership, Organization
 from apps.organizations.views import (
+    OrganizationMemberAssignView,
     OrganizationMemberRemoveView,
     OrganizationMemberRoleView,
 )
@@ -158,3 +159,122 @@ class MemberRoleChangeTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertTrue(Membership.objects.filter(user=self.admin).exists())
+
+
+class MemberAssignTests(TestCase):
+    """Placing a user in a school, and moving them between schools."""
+
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.source = Organization.objects.create(name="Nalanda High")
+        self.target = Organization.objects.create(name="Takshashila School")
+        self.superadmin = User.objects.create(
+            name="Root", email="root@qp.test", status="approved", is_superadmin=True
+        )
+        mail.outbox = []
+
+    def _user(self, email, org=None, role="teacher", status="approved"):
+        user = User.objects.create(
+            name=email.split("@")[0], email=email, status="approved"
+        )
+        if org:
+            Membership.objects.create(
+                user=user, organization=org, role=role, status=status
+            )
+        return user
+
+    def _assign(self, *, actor, target_user, organization_id, role=None):
+        body = {"organization_id": organization_id}
+        if role:
+            body["role"] = role
+        request = self.factory.post(
+            f"/api/organizations/members/{target_user.id}/assign", body, format="json"
+        )
+        force_authenticate(request, user=actor)
+        return OrganizationMemberAssignView.as_view()(request, user_id=target_user.id)
+
+    def test_a_user_with_no_school_is_placed_and_starts_pending(self):
+        """The receiving school still gets its say — approval syncs Cognito."""
+        user = self._user("nobody@school.test")
+        response = self._assign(
+            actor=self.superadmin, target_user=user, organization_id=self.target.id
+        )
+
+        self.assertEqual(response.status_code, 200)
+        membership = Membership.objects.get(user=user)
+        self.assertEqual(membership.organization_id, self.target.id)
+        self.assertEqual(membership.status, "pending")
+        self.assertEqual(membership.role, "teacher")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("added", mail.outbox[0].subject)
+
+    def test_moving_keeps_an_approved_member_approved(self):
+        user = self._user("teacher@school.test", org=self.source)
+        response = self._assign(
+            actor=self.superadmin, target_user=user, organization_id=self.target.id
+        )
+
+        self.assertEqual(response.status_code, 200)
+        membership = Membership.objects.get(user=user)
+        self.assertEqual(membership.organization_id, self.target.id)
+        self.assertEqual(membership.status, "approved")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("moved", mail.outbox[0].subject)
+
+    def test_an_admin_arrives_as_a_teacher_unless_asked_otherwise(self):
+        """Administering one school says nothing about the next."""
+        # A second admin so the move is not blocked by the last-admin rule.
+        self._user("other@school.test", org=self.source, role="org_admin")
+        user = self._user("head@school.test", org=self.source, role="org_admin")
+
+        self._assign(
+            actor=self.superadmin, target_user=user, organization_id=self.target.id
+        )
+        self.assertEqual(Membership.objects.get(user=user).role, "teacher")
+
+    def test_an_explicit_role_is_honoured(self):
+        user = self._user("teacher@school.test", org=self.source)
+        self._assign(
+            actor=self.superadmin,
+            target_user=user,
+            organization_id=self.target.id,
+            role="org_admin",
+        )
+        self.assertEqual(Membership.objects.get(user=user).role, "org_admin")
+
+    def test_the_source_school_cannot_be_stranded(self):
+        user = self._user("head@school.test", org=self.source, role="org_admin")
+        response = self._assign(
+            actor=self.superadmin, target_user=user, organization_id=self.target.id
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("only admin", response.data["error"])
+        self.assertEqual(Membership.objects.get(user=user).organization_id, self.source.id)
+        self.assertEqual(mail.outbox, [])
+
+    def test_assigning_to_the_school_they_are_already_at_is_a_no_op(self):
+        user = self._user("teacher@school.test", org=self.source)
+        response = self._assign(
+            actor=self.superadmin, target_user=user, organization_id=self.source.id
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mail.outbox, [])
+
+    def test_an_unknown_organization_is_a_404(self):
+        user = self._user("teacher@school.test")
+        response = self._assign(
+            actor=self.superadmin, target_user=user, organization_id="nope"
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_an_org_admin_cannot_move_anyone(self):
+        """Otherwise they could pull members out of a school they don't manage."""
+        admin = self._user("admin@school.test", org=self.source, role="org_admin")
+        user = self._user("teacher@school.test", org=self.source)
+
+        response = self._assign(
+            actor=admin, target_user=user, organization_id=self.target.id
+        )
+        self.assertEqual(response.status_code, 403)

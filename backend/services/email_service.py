@@ -228,6 +228,52 @@ def send_role_changed_email(
     return _safe_send(subject=subject, body=body, recipients=[to_email])
 
 
+def send_membership_moved_email(
+    *,
+    to_email: str,
+    user_name: Optional[str] = None,
+    from_organization: Optional[str] = None,
+    to_organization: str,
+    new_role: str,
+    pending_approval: bool = False,
+) -> bool:
+    """Tell a user their account was placed in, or moved to, a school.
+
+    `from_organization` is None when they had no school at all, which is a
+    different event to a transfer and reads wrongly if phrased as a move.
+
+    `pending_approval` matters more than it looks: a newly placed member starts
+    pending, so telling them "you're now at X" without saying they still cannot
+    sign in would send them straight into a rejection screen.
+    """
+    label = ROLE_LABELS.get(new_role, new_role)
+    subject = (
+        f"You've been moved to {to_organization} on qp-gen"
+        if from_organization
+        else f"You've been added to {to_organization} on qp-gen"
+    )
+    opening = (
+        f"Your account has been moved from {from_organization} to "
+        f"{to_organization} on qp-gen, as a {label}."
+        if from_organization
+        else f"Your account has been added to {to_organization} on qp-gen, as a {label}."
+    )
+    tail = (
+        "An administrator at your new school still needs to approve you before "
+        "you can sign in. We'll email you when that happens."
+        if pending_approval
+        else f"You can sign in and carry on as usual.\n\n{settings.FRONTEND_URL}"
+    )
+    body = (
+        f"{_greeting(user_name)}\n\n"
+        f"{opening}\n\n"
+        f"{tail}\n\n"
+        "If this looks wrong, contact your school's administrator.\n\n"
+        "— qp-gen\n"
+    )
+    return _safe_send(subject=subject, body=body, recipients=[to_email])
+
+
 def send_join_request_email(
     *,
     to_emails: list[str],
