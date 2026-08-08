@@ -17,7 +17,14 @@ from apps.accounts.views import get_cognito_username
 from apps.common.permissions import IsOrgAdminOrSuperAdmin, IsSuperAdmin
 from apps.generation.models import ApiUsage
 from services.cognito_service import add_user_to_group, remove_user_from_group
-from services.email_service import send_organization_invite_email
+from services.email_service import (
+    send_join_request_email,
+    send_membership_approved_email,
+    send_membership_rejected_email,
+    send_membership_removed_email,
+    send_organization_invite_email,
+    send_role_changed_email,
+)
 from services.organization_logo import (
     remove_organization_logo,
     store_organization_logo,
@@ -44,6 +51,20 @@ def _get_organization_or_404(org_id: str) -> Organization:
         return Organization.objects.get(id=org_id)
     except Organization.DoesNotExist:
         raise Http404("Organization not found")
+
+
+def _org_admin_emails(org: Organization) -> list[str]:
+    """Every approved admin of `org` — the people a request should reach.
+
+    A school can have more than one admin (that is the point of the role
+    endpoint below), and mailing only the first would leave the request
+    invisible to whoever is actually at their desk.
+    """
+    return list(
+        org.members.filter(role="org_admin", status="approved")
+        .select_related("user")
+        .values_list("user__email", flat=True)
+    )
 
 
 def _first_error(errors) -> str:
@@ -206,6 +227,15 @@ class OrganizationJoinView(APIView):
 
         org = _get_organization_or_404(organization_id)
         Membership.objects.create(user=request.user, organization=org, role="teacher", status="pending")
+
+        # The admins are the ones who have to act on this, and nothing else
+        # tells them it happened.
+        send_join_request_email(
+            to_emails=_org_admin_emails(org),
+            applicant_name=request.user.name,
+            applicant_email=request.user.email,
+            organization_name=org.name,
+        )
 
         logger.info("%s requested to join organization %s", request.user.email, org.id)
         return Response(UserSerializer(request.user).data, status=201)
@@ -518,11 +548,35 @@ class OrganizationMembersListView(APIView):
 class _OrganizationMemberActionView(APIView):
     permission_classes = [IsOrgAdminOrSuperAdmin]
 
+    #: Refused when the action would take away the school's last admin. Shared
+    #: by demote, reject and remove — all three end with nobody able to approve
+    #: a teacher, and all three are one click in a table.
+    LAST_ADMIN_ERROR = (
+        "This is the school's only admin. Promote someone else first, "
+        "then change this member."
+    )
+
+    @staticmethod
+    def _is_last_admin(membership) -> bool:
+        if membership.role != "org_admin" or membership.status != "approved":
+            return False
+        return not (
+            Membership.objects.filter(
+                organization_id=membership.organization_id,
+                role="org_admin",
+                status="approved",
+            )
+            .exclude(id=membership.id)
+            .exists()
+        )
+
     def _get_membership(self, request, org_id, user_id):
         if not request.user.is_superadmin and not OrganizationDetailView._is_admin_of(request.user, org_id):
             return None, Response({"error": "You do not manage this organization"}, status=403)
         try:
-            membership = Membership.objects.select_related("user").get(
+            # `organization` is joined too: every action below names the school
+            # in the notification email it sends.
+            membership = Membership.objects.select_related("user", "organization").get(
                 organization_id=org_id, user_id=user_id
             )
         except Membership.DoesNotExist:
@@ -553,6 +607,12 @@ class OrganizationMemberApproveView(_OrganizationMemberActionView):
         member.status = "approved"
         member.save(update_fields=["status"])
 
+        send_membership_approved_email(
+            to_email=member.email,
+            user_name=member.name,
+            organization_name=membership.organization.name,
+        )
+
         logger.info("%s approved member %s in organization %s", request.user.email, member.email, org_id)
         return Response(MembershipSerializer(membership).data)
 
@@ -562,6 +622,11 @@ class OrganizationMemberRejectView(_OrganizationMemberActionView):
         membership, error = self._get_membership(request, org_id, user_id)
         if error:
             return error
+
+        # Rejecting the sole admin locks the school out just as surely as
+        # removing them does.
+        if self._is_last_admin(membership):
+            return Response({"error": self.LAST_ADMIN_ERROR}, status=400)
 
         member = membership.user
         cognito_username = get_cognito_username(member)
@@ -580,7 +645,83 @@ class OrganizationMemberRejectView(_OrganizationMemberActionView):
         member.status = "rejected"
         member.save(update_fields=["status"])
 
+        send_membership_rejected_email(
+            to_email=member.email,
+            user_name=member.name,
+            organization_name=membership.organization.name,
+        )
+
         logger.info("%s rejected member %s in organization %s", request.user.email, member.email, org_id)
+        return Response(MembershipSerializer(membership).data)
+
+
+class OrganizationMemberRoleView(_OrganizationMemberActionView):
+    """Move a member between `teacher` and `org_admin`.
+
+    The role lives entirely in `Membership` — deliberately no Cognito group is
+    touched here. The pool's groups (pending/approved/admin/superadmin) encode
+    whether an account may sign in at all and whether it is platform staff;
+    which school someone administers is not a platform-wide fact, and pushing it
+    into the `admin` group would hand a school's admin the platform endpoints
+    guarded by `IsAdmin`. `IsOrgAdminOrSuperAdmin` reads the membership row, so
+    the change takes effect on the member's next request either way.
+    """
+
+    def post(self, request, org_id, user_id):
+        membership, error = self._get_membership(request, org_id, user_id)
+        if error:
+            return error
+
+        role = (request.data.get("role") or "").strip()
+        valid_roles = {choice for choice, _ in Membership.ROLE_CHOICES}
+        if role not in valid_roles:
+            return Response(
+                {"error": f"role must be one of: {', '.join(sorted(valid_roles))}"},
+                status=400,
+            )
+
+        if role == membership.role:
+            # Not an error — the caller and the database already agree. Answer
+            # with the row so an out-of-date table just re-syncs.
+            return Response(MembershipSerializer(membership).data)
+
+        # An admin demoting themselves would lose the very permission needed to
+        # undo it, from a dropdown, with no confirmation step.
+        if membership.user_id == request.user.id:
+            return Response(
+                {"error": "You cannot change your own role. Ask another admin to do it."},
+                status=400,
+            )
+
+        if role == "org_admin" and membership.status != "approved":
+            return Response(
+                {"error": "Approve this member before making them a school admin."},
+                status=400,
+            )
+
+        # Demoting the last admin would leave the school with nobody able to
+        # approve teachers — recoverable only by a superadmin.
+        if role != "org_admin" and self._is_last_admin(membership):
+            return Response({"error": self.LAST_ADMIN_ERROR}, status=400)
+
+        membership.role = role
+        membership.reviewed_by = request.user
+        membership.reviewed_at = timezone.now()
+        membership.save(update_fields=["role", "reviewed_by", "reviewed_at"])
+
+        member = membership.user
+        send_role_changed_email(
+            to_email=member.email,
+            user_name=member.name,
+            organization_name=membership.organization.name,
+            new_role=role,
+            changed_by=request.user.email,
+        )
+
+        logger.info(
+            "%s changed %s's role to %s in organization %s",
+            request.user.email, member.email, role, org_id,
+        )
         return Response(MembershipSerializer(membership).data)
 
 
@@ -590,7 +731,13 @@ class OrganizationMemberRemoveView(_OrganizationMemberActionView):
         if error:
             return error
 
+        # Same reasoning as the demotion guard: removing the last admin
+        # strands the school.
+        if self._is_last_admin(membership):
+            return Response({"error": self.LAST_ADMIN_ERROR}, status=400)
+
         member = membership.user
+        organization_name = membership.organization.name
         cognito_username = get_cognito_username(member)
         try:
             remove_user_from_group(cognito_username, "approved")
@@ -602,6 +749,12 @@ class OrganizationMemberRemoveView(_OrganizationMemberActionView):
 
         member.status = "pending"
         member.save(update_fields=["status"])
+
+        send_membership_removed_email(
+            to_email=member.email,
+            user_name=member.name,
+            organization_name=organization_name,
+        )
 
         logger.info("%s removed member %s from organization %s", request.user.email, member.email, org_id)
         return Response(status=204)

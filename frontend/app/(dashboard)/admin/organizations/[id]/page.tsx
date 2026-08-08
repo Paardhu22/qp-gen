@@ -75,12 +75,16 @@ export default function OrganizationDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle>Members</CardTitle>
-              <CardDescription>Approve, reject, or remove users in this school.</CardDescription>
+              <CardDescription>
+                Approve, reject, or remove users in this school, and move them
+                between teacher and school admin. Every change is emailed to them.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <MembersTable
                 orgId={org.id}
                 members={org.members}
+                currentUserId={user?.id}
                 onChange={(members) => setOrg({ ...org, members })}
               />
             </CardContent>

@@ -1,5 +1,6 @@
 import logging
 
+from django.db.models import Q
 from django.http import Http404
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -10,7 +11,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from apps.accounts.models import BrandAsset, User
 from apps.accounts.serializers import UserSerializer
-from apps.common.permissions import IsAdmin
+from apps.common.permissions import IsAdmin, IsAdminOrSuperAdmin
 from services.brand_kit import (
     delete_logo,
     get_or_create_kit,
@@ -20,6 +21,10 @@ from services.brand_kit import (
     valid_accent_color,
 )
 from services.cognito_service import add_user_to_group, remove_user_from_group
+from services.email_service import (
+    send_membership_approved_email,
+    send_membership_rejected_email,
+)
 
 logger = logging.getLogger("[ACCOUNTS_VIEWS]")
 
@@ -55,16 +60,31 @@ class ProfileView(APIView):
 
 class AdminUsersListView(APIView):
     """
-    List all local users. Accessible only to administrators.
+    List all local users. Accessible to platform admins and the superadmin.
+
+    `?q=` filters on name or email; `?status=` on the account status. Both are
+    applied before pagination, so `total` counts the filtered set rather than
+    the whole table — otherwise a search would report a page count for results
+    it isn't showing.
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdminOrSuperAdmin]
 
     def get(self, request):
         status_filter = request.query_params.get("status")
-        users = User.objects.all().order_by("-created_at")
+        query = (request.query_params.get("q") or "").strip()
+        # The membership join feeds UserSerializer.get_membership, which the
+        # admin table reads for every row — without it this is N+1.
+        users = User.objects.select_related(
+            "membership", "membership__organization"
+        ).order_by("-created_at")
 
         if status_filter:
             users = users.filter(status=status_filter)
+
+        if query:
+            users = users.filter(
+                Q(name__icontains=query) | Q(email__icontains=query)
+            )
 
         # Basic pagination
         limit = int(request.query_params.get("limit", 50))
@@ -107,6 +127,13 @@ class AdminUserApproveView(APIView):
         user.status = "approved"
         user.save(update_fields=["status"])
 
+        membership = getattr(user, "membership", None)
+        send_membership_approved_email(
+            to_email=user.email,
+            user_name=user.name,
+            organization_name=membership.organization.name if membership else None,
+        )
+
         logger.info("Admin %s approved user %s", request.user.email, user.email)
         return Response(UserSerializer(user).data)
 
@@ -138,6 +165,13 @@ class AdminUserRejectView(APIView):
         # Update local status to rejected
         user.status = "rejected"
         user.save(update_fields=["status"])
+
+        membership = getattr(user, "membership", None)
+        send_membership_rejected_email(
+            to_email=user.email,
+            user_name=user.name,
+            organization_name=membership.organization.name if membership else None,
+        )
 
         logger.info("Admin %s rejected user %s", request.user.email, user.email)
         return Response(UserSerializer(user).data)

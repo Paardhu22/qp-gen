@@ -30,6 +30,23 @@ class IsAdmin(BasePermission):
         return getattr(user, "status", "pending") == "admin"
 
 
+class IsAdminOrSuperAdmin(BasePermission):
+    """A platform-staff admin, or the platform superadmin.
+
+    `IsAdmin` alone is not enough for the platform user list: the superadmin is
+    flagged by `is_superadmin` and keeps `status="approved"`, so a check on
+    status would lock the one account that manages every school out of the
+    screen that lists every user.
+    """
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        return bool(getattr(user, "is_superadmin", False)) or (
+            getattr(user, "status", "pending") == "admin"
+        )
+
+
 class IsSuperAdmin(BasePermission):
     """
     Allows access only to the platform-wide superadmin.

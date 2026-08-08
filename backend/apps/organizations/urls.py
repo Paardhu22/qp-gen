@@ -10,6 +10,7 @@ from .views import (
     OrganizationMemberApproveView,
     OrganizationMemberRejectView,
     OrganizationMemberRemoveView,
+    OrganizationMemberRoleView,
     OrganizationMembersListView,
     OrganizationUsageSummaryView,
     PublicOrganizationListView,
@@ -39,6 +40,11 @@ urlpatterns = [
         "<str:org_id>/members/<str:user_id>/reject",
         OrganizationMemberRejectView.as_view(),
         name="organizations-member-reject",
+    ),
+    path(
+        "<str:org_id>/members/<str:user_id>/role",
+        OrganizationMemberRoleView.as_view(),
+        name="organizations-member-role",
     ),
     path(
         "<str:org_id>/members/<str:user_id>",

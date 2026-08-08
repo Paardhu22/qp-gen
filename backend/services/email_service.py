@@ -119,6 +119,141 @@ def send_organization_invite_email(*, to_email: str, invite_link: str) -> bool:
     return _safe_send(subject=subject, body=body, recipients=[to_email])
 
 
+# ── Membership notifications ────────────────────────────────────────────────
+# Every admin decision that changes what a user can do sends one of these. The
+# rule is deliberate: a teacher whose account is approved, rejected, removed or
+# re-roled has no other way to find out — the app simply behaves differently the
+# next time they sign in, which reads as a bug rather than a decision.
+#
+# All of them are best-effort, exactly like the welcome email. `_safe_send`
+# swallows and logs delivery failures, and no caller checks the return value:
+# an SMTP outage must never leave a membership half-updated, with the database
+# rolled back and the Cognito group already changed.
+
+#: What the role slugs are called in prose. The stored values ("org_admin")
+#: are not something to put in front of a school administrator.
+ROLE_LABELS = {
+    "org_admin": "school admin",
+    "teacher": "teacher",
+}
+
+
+def _greeting(user_name: Optional[str]) -> str:
+    return f"Hi {user_name}," if user_name else "Hello,"
+
+
+def _at(organization_name: Optional[str]) -> str:
+    """Render " at <school>" or nothing — org-less accounts share these bodies."""
+    return f" at {organization_name}" if organization_name else ""
+
+
+def send_membership_approved_email(
+    *, to_email: str, user_name: Optional[str] = None, organization_name: Optional[str] = None
+) -> bool:
+    subject = "Your qp-gen account has been approved"
+    body = (
+        f"{_greeting(user_name)}\n\n"
+        f"Your qp-gen account{_at(organization_name)} has been approved. You can "
+        "sign in now and start generating papers.\n\n"
+        f"{settings.FRONTEND_URL}\n\n"
+        "— qp-gen\n"
+    )
+    return _safe_send(subject=subject, body=body, recipients=[to_email])
+
+
+def send_membership_rejected_email(
+    *, to_email: str, user_name: Optional[str] = None, organization_name: Optional[str] = None
+) -> bool:
+    subject = "Your qp-gen account request was declined"
+    body = (
+        f"{_greeting(user_name)}\n\n"
+        f"Your request to join qp-gen{_at(organization_name)} was not approved, "
+        "so you won't be able to sign in for now.\n\n"
+        "If you think this is a mistake, reply to this email or contact your "
+        "school's administrator.\n\n"
+        "— qp-gen\n"
+    )
+    return _safe_send(subject=subject, body=body, recipients=[to_email])
+
+
+def send_membership_removed_email(
+    *, to_email: str, user_name: Optional[str] = None, organization_name: Optional[str] = None
+) -> bool:
+    subject = "You have been removed from your qp-gen school"
+    body = (
+        f"{_greeting(user_name)}\n\n"
+        f"Your account has been removed from{_at(organization_name) or ' your school'} "
+        "on qp-gen. Your papers are untouched, but you'll need to be added back "
+        "before you can sign in again.\n\n"
+        "If you think this is a mistake, contact your school's administrator.\n\n"
+        "— qp-gen\n"
+    )
+    return _safe_send(subject=subject, body=body, recipients=[to_email])
+
+
+def send_role_changed_email(
+    *,
+    to_email: str,
+    user_name: Optional[str] = None,
+    organization_name: Optional[str] = None,
+    new_role: str,
+    changed_by: Optional[str] = None,
+) -> bool:
+    """Tell a member their role changed, and what that now lets them do.
+
+    The "what changed for you" line matters more than the role name: "school
+    admin" means nothing until you know it's the person who approves teachers.
+    """
+    label = ROLE_LABELS.get(new_role, new_role)
+    if new_role == "org_admin":
+        consequence = (
+            "As a school admin you can now approve or remove teachers"
+            f"{_at(organization_name)} and manage the school's details."
+        )
+    else:
+        consequence = (
+            "As a teacher you can generate and edit papers. Managing the "
+            "school's members is no longer part of your account."
+        )
+    by = f" by {changed_by}" if changed_by else ""
+
+    subject = f"Your qp-gen role is now {label}"
+    body = (
+        f"{_greeting(user_name)}\n\n"
+        f"Your role{_at(organization_name)} was changed{by} to {label}.\n\n"
+        f"{consequence}\n\n"
+        f"{settings.FRONTEND_URL}\n\n"
+        "— qp-gen\n"
+    )
+    return _safe_send(subject=subject, body=body, recipients=[to_email])
+
+
+def send_join_request_email(
+    *,
+    to_emails: list[str],
+    applicant_name: str,
+    applicant_email: str,
+    organization_name: str,
+) -> bool:
+    """Tell a school's admins that someone is waiting on their approval.
+
+    Without this, a pending teacher's request sits invisible until an admin
+    happens to open the members page.
+    """
+    if not to_emails:
+        return False
+    who = f"{applicant_name} ({applicant_email})" if applicant_name else applicant_email
+    subject = f"{who} wants to join {organization_name}"
+    body = (
+        "Hello,\n\n"
+        f"{who} has asked to join {organization_name} on qp-gen and is waiting "
+        "for approval.\n\n"
+        f"Review the request here:\n{(settings.FRONTEND_URL or '').rstrip('/')}/admin\n\n"
+        "— qp-gen\n"
+    )
+    return _safe_send(subject=subject, body=body, recipients=to_emails)
+
+
 def _safe_send(*, subject: str, body: str, recipients: list[str]) -> bool:
     try:
         send_mail(

@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MembersTable } from "@/components/admin/members-table";
+import { UsersPanel } from "@/components/admin/users-panel";
 import { Loader2, Mail } from "lucide-react";
 
 function InviteOrganizationDialog({ onInvited }: { onInvited: () => void }) {
@@ -87,7 +88,7 @@ function InviteOrganizationDialog({ onInvited }: { onInvited: () => void }) {
   );
 }
 
-function SuperAdminDashboard() {
+function SuperAdminDashboard({ currentUserId }: { currentUserId?: string }) {
   const [orgs, setOrgs] = useState<OrganizationSummary[]>([]);
   const [analytics, setAnalytics] = useState<SuperAdminAnalytics | null>(null);
   const [days, setDays] = useState(30);
@@ -211,11 +212,30 @@ function SuperAdminDashboard() {
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>All users</CardTitle>
+          <CardDescription>
+            Everyone on the platform. Change a role here and we&apos;ll email them
+            about it.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <UsersPanel currentUserId={currentUserId} />
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
+function OrgAdminDashboard({
+  organizationId,
+  currentUserId,
+}: {
+  organizationId: string;
+  currentUserId?: string;
+}) {
   const [org, setOrg] = useState<OrganizationDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -256,12 +276,16 @@ function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
       <Card>
         <CardHeader>
           <CardTitle>Members</CardTitle>
-          <CardDescription>Approve, reject, or remove teachers from your school.</CardDescription>
+          <CardDescription>
+            Approve, reject, or remove teachers, and move them between teacher and
+            school admin. Every change is emailed to them.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <MembersTable
             orgId={org.id}
             members={org.members}
+            currentUserId={currentUserId}
             onChange={(members) => setOrg({ ...org, members })}
           />
         </CardContent>
@@ -283,11 +307,16 @@ export default function AdminPage() {
   }
 
   if (isSuperAdmin(user)) {
-    return <SuperAdminDashboard />;
+    return <SuperAdminDashboard currentUserId={user?.id} />;
   }
 
   if (isOrgAdmin(user) && user?.membership) {
-    return <OrgAdminDashboard organizationId={user.membership.organization_id} />;
+    return (
+      <OrgAdminDashboard
+        organizationId={user.membership.organization_id}
+        currentUserId={user.id}
+      />
+    );
   }
 
   return (

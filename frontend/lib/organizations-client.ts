@@ -242,6 +242,22 @@ export async function rejectMember(orgId: string, userId: string): Promise<Organ
   });
 }
 
+/**
+ * Move a member between teacher and school admin. The backend refuses a few
+ * cases the UI cannot know about on its own — demoting the school's only admin,
+ * changing your own role — so the error message is worth surfacing verbatim.
+ */
+export async function changeMemberRole(
+  orgId: string,
+  userId: string,
+  role: OrganizationMember["role"],
+): Promise<OrganizationMember> {
+  return fetchJson<OrganizationMember>(`/api/organizations/${orgId}/members/${userId}/role`, {
+    method: "POST",
+    body: JSON.stringify({ role }),
+  });
+}
+
 export async function removeMember(orgId: string, userId: string): Promise<void> {
   await fetchJson<void>(`/api/organizations/${orgId}/members/${userId}`, {
     method: "DELETE",
