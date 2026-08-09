@@ -142,6 +142,29 @@ def remove_user_from_group(username: str, group_name: str):
         raise RuntimeError(f"Failed to remove user from Cognito group: {str(e)}")
 
 
+def delete_cognito_user(username: str) -> bool:
+    """Delete a user from the pool. Returns False if they were already gone.
+
+    Irreversible, and it is the half of an account deletion that cannot be
+    rebuilt from our own database: sign-in credentials live only in Cognito.
+    A user who is already absent is not an error — the caller's goal is that
+    the account no longer exists, and it doesn't.
+    """
+    client = get_cognito_client()
+    try:
+        client.admin_delete_user(
+            UserPoolId=settings.AWS_COGNITO_USER_POOL_ID,
+            Username=username,
+        )
+        return True
+    except client.exceptions.UserNotFoundException:
+        logger.warning("Cognito user %s was already absent when deleting", username)
+        return False
+    except Exception as e:
+        logger.error("Failed to delete Cognito user %s: %s", username, e)
+        raise RuntimeError(f"Failed to delete Cognito user: {str(e)}")
+
+
 def ensure_cognito_group(group_name: str, description: str = ""):
     """Create a Cognito group if it doesn't already exist. Idempotent."""
     client = get_cognito_client()

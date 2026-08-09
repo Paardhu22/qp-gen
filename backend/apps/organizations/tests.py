@@ -5,11 +5,15 @@ from django.test import TestCase
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.accounts.models import User
+from apps.generation.models import ApiUsage
 from apps.organizations.models import Membership, Organization
+from apps.projects.models import Paper, Project
 from apps.organizations.views import (
     OrganizationMemberAssignView,
     OrganizationMemberRemoveView,
     OrganizationMemberRoleView,
+    PlatformSuperadminView,
+    PlatformUserDeleteView,
 )
 
 
@@ -278,3 +282,208 @@ class MemberAssignTests(TestCase):
             actor=admin, target_user=user, organization_id=self.target.id
         )
         self.assertEqual(response.status_code, 403)
+
+
+@patch("apps.organizations.views.get_cognito_username", lambda user: user.email)
+@patch("apps.organizations.views.ensure_cognito_group")
+@patch("apps.organizations.views.remove_user_from_group")
+@patch("apps.organizations.views.add_user_to_group")
+class PlatformSuperadminTests(TestCase):
+    """Granting and revoking platform superadmin.
+
+    The Cognito calls are mocked, but the assertions still check they were
+    made: `is_superadmin` is recomputed from the token's groups on every
+    request, so a promotion that skips the group write is undone by the
+    target's next call and would look like a flaky bug rather than a missing
+    line here.
+    """
+
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.org = Organization.objects.create(name="Nalanda High")
+        self.superadmin = User.objects.create(
+            name="Super", email="super@platform.test", status="admin", is_superadmin=True
+        )
+        mail.outbox = []
+
+    def _user(self, email: str, *, org=None, role: str = "teacher") -> User:
+        user = User.objects.create(name=email.split("@")[0], email=email, status="approved")
+        if org:
+            Membership.objects.create(
+                user=user, organization=org, role=role, status="approved"
+            )
+        return user
+
+    def _set(self, *, actor: User, target: User, value):
+        request = self.factory.post(
+            f"/api/organizations/members/{target.id}/superadmin",
+            {"is_superadmin": value},
+            format="json",
+        )
+        force_authenticate(request, user=actor)
+        return PlatformSuperadminView.as_view()(request, user_id=target.id)
+
+    def test_promoting_sets_the_flag_ends_the_membership_and_emails_them(self, add, remove, ensure):
+        target = self._user("teacher@school.test", org=self.org)
+
+        response = self._set(actor=self.superadmin, target=target, value=True)
+
+        self.assertEqual(response.status_code, 200)
+        target.refresh_from_db()
+        self.assertTrue(target.is_superadmin)
+        self.assertEqual(target.status, "admin")
+        self.assertFalse(Membership.objects.filter(user=target).exists())
+        add.assert_any_call(target.email, "superadmin")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("superadmin", mail.outbox[0].subject)
+        # The email must name the school they just left — it is the surprising
+        # half of the change.
+        self.assertIn("Nalanda High", mail.outbox[0].body)
+
+    def test_revoking_clears_the_flag_and_the_cognito_group(self, add, remove, ensure):
+        target = self._user("other@platform.test")
+        target.is_superadmin = True
+        target.save(update_fields=["is_superadmin"])
+
+        response = self._set(actor=self.superadmin, target=target, value=False)
+
+        self.assertEqual(response.status_code, 200)
+        target.refresh_from_db()
+        self.assertFalse(target.is_superadmin)
+        self.assertEqual(target.status, "pending")
+        remove.assert_any_call(target.email, "superadmin")
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_the_platform_always_keeps_one_superadmin(self, add, remove, ensure):
+        """The self-check is what guarantees it, so this pins that reasoning.
+
+        Demoting the last superadmin means demoting yourself — anyone else is,
+        by definition, a second one — and the endpoint refuses that outright.
+        """
+        second = User.objects.create(
+            name="Second", email="second@platform.test", status="admin", is_superadmin=True
+        )
+        self.assertEqual(
+            self._set(actor=second, target=self.superadmin, value=False).status_code, 200
+        )
+
+        self.assertEqual(self._set(actor=second, target=second, value=False).status_code, 400)
+        second.refresh_from_db()
+        self.assertTrue(second.is_superadmin)
+
+    def test_you_cannot_change_your_own_access(self, add, remove, ensure):
+        response = self._set(actor=self.superadmin, target=self.superadmin, value=False)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("your own", response.data["error"])
+        self.superadmin.refresh_from_db()
+        self.assertTrue(self.superadmin.is_superadmin)
+
+    def test_a_non_superadmin_is_refused(self, add, remove, ensure):
+        admin = self._user("admin@school.test", org=self.org, role="org_admin")
+        target = self._user("teacher@school.test", org=self.org)
+
+        response = self._set(actor=admin, target=target, value=True)
+
+        self.assertEqual(response.status_code, 403)
+        target.refresh_from_db()
+        self.assertFalse(target.is_superadmin)
+
+    def test_a_missing_flag_is_a_400(self, add, remove, ensure):
+        target = self._user("teacher@school.test", org=self.org)
+        response = self._set(actor=self.superadmin, target=target, value="yes")
+        self.assertEqual(response.status_code, 400)
+
+
+@patch("apps.organizations.views.get_cognito_username", lambda user: user.email)
+@patch("apps.organizations.views.delete_cognito_user")
+class PlatformUserDeleteTests(TestCase):
+    """Deleting an account outright, rather than removing it from a school."""
+
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.org = Organization.objects.create(name="Nalanda High")
+        self.superadmin = User.objects.create(
+            name="Super", email="super@platform.test", status="admin", is_superadmin=True
+        )
+        mail.outbox = []
+
+    def _user(self, email: str, *, org=None, role: str = "teacher") -> User:
+        user = User.objects.create(name=email.split("@")[0], email=email, status="approved")
+        if org:
+            Membership.objects.create(
+                user=user, organization=org, role=role, status="approved"
+            )
+        return user
+
+    def _delete(self, *, actor: User, target: User):
+        request = self.factory.delete(f"/api/organizations/members/{target.id}")
+        force_authenticate(request, user=actor)
+        return PlatformUserDeleteView.as_view()(request, user_id=target.id)
+
+    def test_deleting_removes_cognito_the_row_and_their_work(self, delete_cognito):
+        target = self._user("teacher@school.test", org=self.org)
+        project = Project.objects.create(name="Physics", user=target)
+        Paper.objects.create(title="Term 1", project=project, user=target)
+
+        response = self._delete(actor=self.superadmin, target=target)
+
+        self.assertEqual(response.status_code, 204)
+        delete_cognito.assert_called_once_with(target.email)
+        self.assertFalse(User.objects.filter(id=target.id).exists())
+        self.assertFalse(Paper.objects.filter(user_id=target.id).exists())
+        self.assertFalse(Membership.objects.filter(user_id=target.id).exists())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("deleted", mail.outbox[0].subject)
+
+    def test_a_cognito_failure_leaves_the_account_intact(self, delete_cognito):
+        """The row must not outlive its credentials, nor the other way round."""
+        delete_cognito.side_effect = RuntimeError("pool unreachable")
+        target = self._user("teacher@school.test", org=self.org)
+
+        response = self._delete(actor=self.superadmin, target=target)
+
+        self.assertEqual(response.status_code, 500)
+        self.assertTrue(User.objects.filter(id=target.id).exists())
+        self.assertEqual(mail.outbox, [])
+
+    def test_the_school_keeps_its_usage_record(self, delete_cognito):
+        """Deleting the person must not rewrite what their school was billed."""
+        target = self._user("teacher@school.test", org=self.org)
+        ApiUsage.objects.create(
+            user=target, organization=self.org, operation="generate", total_tokens=500
+        )
+
+        self.assertEqual(self._delete(actor=self.superadmin, target=target).status_code, 204)
+
+        usage = ApiUsage.objects.get(organization=self.org)
+        self.assertIsNone(usage.user_id)
+        self.assertEqual(usage.total_tokens, 500)
+
+    def test_a_superadmin_cannot_be_deleted_directly(self, delete_cognito):
+        other = self._user("staff@platform.test")
+        other.is_superadmin = True
+        other.save(update_fields=["is_superadmin"])
+
+        response = self._delete(actor=self.superadmin, target=other)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("superadmin access first", response.data["error"])
+        delete_cognito.assert_not_called()
+        self.assertTrue(User.objects.filter(id=other.id).exists())
+
+    def test_you_cannot_delete_yourself(self, delete_cognito):
+        response = self._delete(actor=self.superadmin, target=self.superadmin)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(User.objects.filter(id=self.superadmin.id).exists())
+
+    def test_an_org_admin_is_refused(self, delete_cognito):
+        admin = self._user("admin@school.test", org=self.org, role="org_admin")
+        target = self._user("teacher@school.test", org=self.org)
+
+        response = self._delete(actor=admin, target=target)
+
+        self.assertEqual(response.status_code, 403)
+        delete_cognito.assert_not_called()
+        self.assertTrue(User.objects.filter(id=target.id).exists())

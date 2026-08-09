@@ -16,6 +16,8 @@ from .views import (
     OrganizationMemberRoleView,
     OrganizationMembersListView,
     OrganizationUsageSummaryView,
+    PlatformSuperadminView,
+    PlatformUserDeleteView,
     PublicOrganizationListView,
     SuperAdminAnalyticsView,
 )
@@ -41,6 +43,16 @@ urlpatterns = [
         "members/<str:user_id>/assign",
         OrganizationMemberAssignView.as_view(),
         name="organizations-member-assign",
+    ),
+    path(
+        "members/<str:user_id>/superadmin",
+        PlatformSuperadminView.as_view(),
+        name="platform-superadmin",
+    ),
+    path(
+        "members/<str:user_id>",
+        PlatformUserDeleteView.as_view(),
+        name="platform-user-delete",
     ),
     path("", OrganizationListView.as_view(), name="organizations-list"),
 

@@ -44,6 +44,7 @@ export function MemberPapersDialog({
   onClose: () => void;
 }) {
   const [papers, setPapers] = useState<MemberPaper[] | null>(null);
+  const [bank, setBank] = useState<{ projects: number; questions: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,12 +52,15 @@ export function MemberPapersDialog({
     // Cleared on every open so the previous member's papers never flash up
     // under this member's name while the new request is in flight.
     setPapers(null);
+    setBank(null);
     setError(null);
 
     let cancelled = false;
     listMemberPapers(orgId, member.user_id)
       .then((res) => {
-        if (!cancelled) setPapers(res.papers);
+        if (cancelled) return;
+        setPapers(res.papers);
+        setBank(res.question_bank);
       })
       .catch((err: any) => {
         if (!cancelled) setError(err?.message || "Failed to load papers");
@@ -87,9 +91,20 @@ export function MemberPapersDialog({
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : papers.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            This member hasn&apos;t generated any papers yet.
-          </p>
+          <div className="space-y-2 py-8 text-center text-sm text-muted-foreground">
+            <p>This member hasn&apos;t saved any papers yet.</p>
+            {/* A paper only becomes a row when it is saved. Someone can
+                generate a great deal and save none of it, and "0 papers"
+                alone makes that look like the screen is broken. */}
+            {bank && bank.questions > 0 && (
+              <p>
+                They have {bank.questions.toLocaleString()} question
+                {bank.questions === 1 ? "" : "s"} in their question bank across{" "}
+                {bank.projects} project{bank.projects === 1 ? "" : "s"} — generated,
+                but not saved as a paper.
+              </p>
+            )}
+          </div>
         ) : (
           <div className="max-h-[55vh] space-y-2 overflow-y-auto">
             {papers.map((paper) => {

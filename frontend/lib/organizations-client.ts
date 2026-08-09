@@ -264,10 +264,27 @@ export type MemberPaper = {
 export async function listMemberPapers(
   orgId: string,
   userId: string,
-): Promise<{ user: { id: string; name: string; email: string }; papers: MemberPaper[] }> {
+): Promise<{
+  user: { id: string; name: string; email: string };
+  /** Saved papers only — a paper row exists once someone saves one. */
+  papers: MemberPaper[];
+  /** What they've generated but not turned into a saved paper. */
+  question_bank: { projects: number; questions: number };
+}> {
   return fetchJson(`/api/organizations/${orgId}/members/${userId}/papers`, {
     method: "GET",
   });
+}
+
+/**
+ * Superadmin: delete an account outright, from Cognito and from here.
+ *
+ * Not `removeMember` — that keeps the account and only ends its membership.
+ * This is irreversible: the credentials go, and the papers, projects and
+ * questions the user authored are deleted with the row.
+ */
+export async function deletePlatformUser(userId: string): Promise<void> {
+  await fetchJson(`/api/organizations/members/${userId}`, { method: "DELETE" });
 }
 
 export async function approveMember(orgId: string, userId: string): Promise<OrganizationMember> {
@@ -316,6 +333,24 @@ export async function assignMemberToOrganization(
   return fetchJson<OrganizationMember>(`/api/organizations/members/${userId}/assign`, {
     method: "POST",
     body: JSON.stringify({ organization_id: organizationId, ...(role ? { role } : {}) }),
+  });
+}
+
+/**
+ * Superadmin: grant or revoke platform superadmin access.
+ *
+ * Not part of `changeMemberRole` on purpose — teacher and school admin are
+ * roles *within* a school, held on the membership, while superadmin is a
+ * property of the account and sits above every school. Granting it ends the
+ * user's membership; revoking it leaves them with no school at all.
+ */
+export async function setPlatformSuperadmin(
+  userId: string,
+  isSuperadmin: boolean,
+): Promise<void> {
+  await fetchJson(`/api/organizations/members/${userId}/superadmin`, {
+    method: "POST",
+    body: JSON.stringify({ is_superadmin: isSuperadmin }),
   });
 }
 

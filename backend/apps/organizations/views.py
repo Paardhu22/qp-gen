@@ -16,8 +16,13 @@ from apps.accounts.serializers import UserSerializer
 from apps.accounts.views import get_cognito_username
 from apps.common.permissions import IsOrgAdminOrSuperAdmin, IsSuperAdmin
 from apps.generation.models import ApiUsage
-from apps.projects.models import Paper
-from services.cognito_service import add_user_to_group, remove_user_from_group
+from apps.projects.models import Paper, Project, Question
+from services.cognito_service import (
+    add_user_to_group,
+    delete_cognito_user,
+    ensure_cognito_group,
+    remove_user_from_group,
+)
 from apps.accounts.models import User
 from services.email_service import (
     send_join_request_email,
@@ -26,7 +31,9 @@ from services.email_service import (
     send_membership_rejected_email,
     send_membership_removed_email,
     send_organization_invite_email,
+    send_account_deleted_email,
     send_role_changed_email,
+    send_superadmin_changed_email,
 )
 from services.organization_logo import (
     remove_organization_logo,
@@ -645,12 +652,22 @@ class OrganizationMemberPapersView(_OrganizationMemberActionView):
             .annotate(set_count=Count("sets"))
             .order_by("-created_at")[:200]
         )
+        # A paper row only exists once someone saves one. Generating without
+        # saving still leaves questions behind, and reporting a bare "0 papers"
+        # for someone with a six-figure token count reads as a broken screen
+        # rather than as the distinction it actually is — so the bank is
+        # counted too, and the empty state can say which of the two happened.
+        projects = Project.objects.filter(user_id=user_id)
         return Response(
             {
                 "user": {
                     "id": membership.user.id,
                     "name": membership.user.name,
                     "email": membership.user.email,
+                },
+                "question_bank": {
+                    "projects": projects.count(),
+                    "questions": Question.objects.filter(project__user_id=user_id).count(),
                 },
                 "papers": [
                     {
@@ -841,6 +858,146 @@ class OrganizationMemberRemoveView(_OrganizationMemberActionView):
         )
 
         logger.info("%s removed member %s from organization %s", request.user.email, member.email, org_id)
+        return Response(status=204)
+
+
+class PlatformSuperadminView(APIView):
+    """Promote a user to platform superadmin, or take it back.
+
+    The Cognito group is the source of truth, not the column. `is_superadmin`
+    is recomputed from the token's `cognito:groups` on every authenticated
+    request (see common/authentication.py), so flipping only the local flag
+    would be undone the next time they called anything. That is why a Cognito
+    failure here is fatal rather than logged: a half-applied promotion is a
+    user who looks like a superadmin in the table and isn't one in practice.
+
+    Promotion also ends their school membership. A superadmin is platform
+    staff — they see every school — and the admin screens already render them
+    as belonging to none. Demotion therefore leaves an account with no school,
+    which is exactly the state the School picker exists to resolve.
+    """
+
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+        make = request.data.get("is_superadmin")
+        if not isinstance(make, bool):
+            return Response({"error": "is_superadmin must be true or false"}, status=400)
+
+        if user.id == request.user.id:
+            # Self-demotion is the one move that cannot be undone from this
+            # screen: the moment it lands, the caller loses the permission
+            # needed to reach the endpoint again. It is also what keeps the
+            # platform from losing its last superadmin — demoting the last one
+            # means demoting yourself, since anyone else is a second one.
+            return Response(
+                {"error": "You cannot change your own superadmin access."}, status=400
+            )
+
+        if user.is_superadmin == make:
+            return Response(UserSerializer(user).data)
+
+        cognito_username = get_cognito_username(user)
+        try:
+            if make:
+                ensure_cognito_group("superadmin", description="Platform-wide superadmin")
+                add_user_to_group(cognito_username, "superadmin")
+                # Superadmins are approved by definition — without this a
+                # promoted pending user still hits the approval wall.
+                add_user_to_group(cognito_username, "approved")
+                remove_user_from_group(cognito_username, "pending")
+            else:
+                remove_user_from_group(cognito_username, "superadmin")
+        except Exception as e:
+            logger.error("Failed to sync Cognito superadmin group for %s: %s", user.email, e)
+            return Response({"error": f"Failed to sync with Cognito: {str(e)}"}, status=500)
+
+        membership = getattr(user, "membership", None)
+        organization_name = membership.organization.name if membership else None
+        if make and membership:
+            membership.delete()
+
+        user.is_superadmin = make
+        # "admin" is the status the seeded superadmin carries; a demoted user
+        # keeps their access but is nobody's member until assigned a school.
+        user.status = "admin" if make else "pending"
+        user.save(update_fields=["is_superadmin", "status"])
+
+        send_superadmin_changed_email(
+            to_email=user.email,
+            user_name=user.name,
+            granted=make,
+            organization_name=organization_name,
+            changed_by=request.user.name or request.user.email,
+        )
+
+        logger.info(
+            "%s %s superadmin access for %s",
+            request.user.email,
+            "granted" if make else "revoked",
+            user.email,
+        )
+        return Response(UserSerializer(user).data)
+
+
+class PlatformUserDeleteView(APIView):
+    """Delete an account outright — from Cognito, and from here.
+
+    Distinct from removing someone from a school, which keeps the account and
+    everything in it. This ends the account: Cognito loses the credentials, and
+    the local row goes with its papers, projects and questions on cascade.
+
+    Cognito is deleted first and a failure there aborts. The other order leaves
+    the worst possible state — credentials that still authenticate against a
+    user row that no longer exists, which `authentication.py` would helpfully
+    recreate on the next request, undoing the deletion.
+
+    Superadmin only, and never another superadmin: revoke their access first,
+    so ending platform staff's account is always two deliberate steps.
+    """
+
+    permission_classes = [IsSuperAdmin]
+
+    def delete(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+        if user.id == request.user.id:
+            return Response({"error": "You cannot delete your own account."}, status=400)
+
+        if user.is_superadmin:
+            return Response(
+                {
+                    "error": "They are a superadmin. Remove their superadmin "
+                    "access first, then delete the account."
+                },
+                status=400,
+            )
+
+        email, name = user.email, user.name
+        try:
+            delete_cognito_user(get_cognito_username(user))
+        except Exception as e:
+            logger.error("Failed to delete Cognito user %s: %s", email, e)
+            return Response({"error": f"Failed to delete from Cognito: {str(e)}"}, status=500)
+
+        # Everything the user authored cascades. Their ApiUsage rows do not —
+        # that FK is SET_NULL, because the tokens were spent against a school's
+        # bill and deleting the person must not rewrite it.
+        user.delete()
+
+        # Told after the fact, not asked: the account is already gone, and this
+        # is the only notice they will get that it happened.
+        send_account_deleted_email(to_email=email, user_name=name)
+
+        logger.info("Superadmin %s deleted the account %s", request.user.email, email)
         return Response(status=204)
 
 

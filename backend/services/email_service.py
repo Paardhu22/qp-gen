@@ -461,6 +461,82 @@ def send_role_changed_email(
     )
 
 
+def send_account_deleted_email(
+    *, to_email: str, user_name: Optional[str] = None
+) -> bool:
+    """Tell someone their account was deleted. No button — there is nowhere to go."""
+    return _send(
+        recipients=[to_email],
+        subject=f"Your {BRAND} account has been deleted",
+        heading="Your account has been deleted",
+        greeting=_greeting(user_name),
+        paragraphs=[
+            f"Your {BRAND} account has been deleted by a platform administrator. "
+            "You can no longer sign in, and the papers and questions saved to "
+            "the account have been removed with it.",
+        ],
+        closing=(
+            "If you believe this was a mistake, reply to this email — a new "
+            "account can be created, but the old one's contents cannot be "
+            "recovered."
+        ),
+    )
+
+
+def send_superadmin_changed_email(
+    *,
+    to_email: str,
+    user_name: Optional[str] = None,
+    granted: bool,
+    organization_name: Optional[str] = None,
+    changed_by: Optional[str] = None,
+) -> bool:
+    """Tell someone they gained, or lost, platform superadmin access.
+
+    Being promoted also ends their school membership, and that half of the
+    change is the surprising one — a teacher who was at a school yesterday
+    needs telling that they now sit above all of them rather than in one.
+    """
+    by = f" by {changed_by}" if changed_by else ""
+    if granted:
+        paragraphs = [
+            f"You've been made a platform superadmin on {BRAND}{by}.",
+            "You can now see every school on the platform, invite new ones, "
+            "and manage anyone's account.",
+        ]
+        if organization_name:
+            paragraphs.append(
+                f"Because superadmins work across all schools, your membership "
+                f"of {organization_name} has ended. Nothing you created there "
+                "has been deleted."
+            )
+    else:
+        paragraphs = [
+            f"Your platform superadmin access on {BRAND} has been removed{by}.",
+            "Your account is intact, but it no longer belongs to a school. An "
+            "administrator will need to add you to one before you can sign in "
+            "and generate papers again.",
+        ]
+
+    return _send(
+        recipients=[to_email],
+        subject=(
+            f"You're now a {BRAND} superadmin"
+            if granted
+            else f"Your {BRAND} superadmin access was removed"
+        ),
+        heading=(
+            "You're now a platform superadmin"
+            if granted
+            else "Your superadmin access was removed"
+        ),
+        greeting=_greeting(user_name),
+        paragraphs=paragraphs,
+        button=("Open QP Gen", _app_url()) if granted else None,
+        closing="If this looks wrong, reply to this email.",
+    )
+
+
 def send_membership_moved_email(
     *,
     to_email: str,
