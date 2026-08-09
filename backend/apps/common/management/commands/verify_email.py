@@ -11,8 +11,10 @@ text, so the cause is named rather than guessed at.
 """
 
 from django.conf import settings
-from django.core.mail import get_connection, send_mail
+from django.core.mail import get_connection
 from django.core.management.base import BaseCommand, CommandError
+
+from services.email_service import send_test_email
 
 #: Provider rejections that mean something specific and actionable. Brevo's
 #: wording is matched loosely because the code (525/530) is the reliable part.
@@ -85,18 +87,10 @@ class Command(BaseCommand):
             self.stdout.write("Nothing sent. Pass --to <address> to deliver a test message.")
             return
 
+        # Goes through the same renderer as every real notification, so this
+        # also proves the HTML part survives the provider intact.
         try:
-            send_mail(
-                subject="qp-gen mail check",
-                message=(
-                    "This is a test message from qp-gen.\n\n"
-                    "If you are reading it, invites, approvals, rejections and role "
-                    "changes will reach their recipients too.\n\n— qp-gen\n"
-                ),
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[to],
-                fail_silently=False,
-            )
+            send_test_email(to_email=to, fail_silently=False)
         except Exception as exc:
             raise CommandError(self._explain(f"Accepted the login but refused the message to {to}", exc)) from exc
 

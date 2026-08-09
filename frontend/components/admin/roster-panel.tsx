@@ -9,11 +9,26 @@
  */
 
 import Link from "next/link";
+import { useState } from "react";
+import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { AlertTriangle, Clock, MailWarning, UserPlus } from "lucide-react";
-import type { SuperAdminAnalytics } from "@/lib/organizations-client";
+import {
+  revokeOrganizationInvite,
+  type SuperAdminAnalytics,
+} from "@/lib/organizations-client";
 
 function daysUntil(iso: string): number {
   const ms = new Date(iso).getTime() - Date.now();
@@ -28,14 +43,40 @@ function formatDate(iso: string): string {
   });
 }
 
+type PendingInvite = SuperAdminAnalytics["roster"]["pending_invites"][number];
+
 export function RosterPanel({ roster }: { roster: SuperAdminAnalytics["roster"] }) {
-  const { pending_invites, expired_invite_count, pending_members, empty_organizations } = roster;
+  const { expired_invite_count, pending_members, empty_organizations } = roster;
+
+  // Expiring an invite is a superadmin decision, not a page reload: the panel
+  // drops the row itself and counts it with the ones that timed out, so the
+  // card still adds up without re-fetching the whole analytics payload.
+  const [revoked, setRevoked] = useState<string[]>([]);
+  const [expiring, setExpiring] = useState<PendingInvite | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const pending_invites = roster.pending_invites.filter((i) => !revoked.includes(i.id));
+  const expiredCount = expired_invite_count + revoked.length;
+
+  const handleExpire = async (invite: PendingInvite) => {
+    setBusy(true);
+    try {
+      await revokeOrganizationInvite(invite.id);
+      setRevoked((ids) => [...ids, invite.id]);
+      toast.success(`The invite to ${invite.email} no longer works`);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to expire that invite");
+    } finally {
+      setBusy(false);
+      setExpiring(null);
+    }
+  };
 
   const nothingWaiting =
     pending_invites.length === 0 &&
     pending_members.length === 0 &&
     empty_organizations.length === 0 &&
-    expired_invite_count === 0;
+    expiredCount === 0;
 
   if (nothingWaiting) {
     return (
@@ -86,7 +127,7 @@ export function RosterPanel({ roster }: { roster: SuperAdminAnalytics["roster"] 
         </Card>
       )}
 
-      {(pending_invites.length > 0 || expired_invite_count > 0) && (
+      {(pending_invites.length > 0 || expiredCount > 0) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -94,8 +135,8 @@ export function RosterPanel({ roster }: { roster: SuperAdminAnalytics["roster"] 
               Invites not yet accepted
             </CardTitle>
             <CardDescription>
-              {expired_invite_count > 0
-                ? `${expired_invite_count} more have expired unused.`
+              {expiredCount > 0
+                ? `${expiredCount} more have expired unused.`
                 : "Sent, but the school has not signed up yet."}
             </CardDescription>
           </CardHeader>
@@ -115,16 +156,26 @@ export function RosterPanel({ roster }: { roster: SuperAdminAnalytics["roster"] 
                       Sent {formatDate(inv.created_at)}
                     </p>
                   </div>
-                  <Badge variant={soon ? "destructive" : "secondary"} className="shrink-0 gap-1">
-                    {soon && <MailWarning className="h-3 w-3" aria-hidden />}
-                    {left <= 0 ? "Expired" : `${left}d left`}
-                  </Badge>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge variant={soon ? "destructive" : "secondary"} className="gap-1">
+                      {soon && <MailWarning className="h-3 w-3" aria-hidden />}
+                      {left <= 0 ? "Expired" : `${left}d left`}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setExpiring(inv)}
+                    >
+                      Expire now
+                    </Button>
+                  </div>
                 </div>
               );
             })}
             {pending_invites.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                All {expired_invite_count} outstanding invites have expired. Send a fresh one.
+                All {expiredCount} outstanding invites have expired. Send a fresh one.
               </p>
             )}
           </CardContent>
@@ -154,6 +205,36 @@ export function RosterPanel({ roster }: { roster: SuperAdminAnalytics["roster"] 
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog
+        open={expiring !== null}
+        onOpenChange={(open) => {
+          if (!open) setExpiring(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Expire this invite now?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The link sent to {expiring?.email} will stop working immediately, and
+              they won&apos;t be able to set up their school with it. You can send a
+              fresh invite to the same address afterwards.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className={buttonVariants({ variant: "destructive" })}
+              disabled={busy}
+              onClick={() => {
+                if (expiring) void handleExpire(expiring);
+              }}
+            >
+              Expire now
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

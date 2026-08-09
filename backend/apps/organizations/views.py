@@ -16,6 +16,7 @@ from apps.accounts.serializers import UserSerializer
 from apps.accounts.views import get_cognito_username
 from apps.common.permissions import IsOrgAdminOrSuperAdmin, IsSuperAdmin
 from apps.generation.models import ApiUsage
+from apps.projects.models import Paper
 from services.cognito_service import add_user_to_group, remove_user_from_group
 from apps.accounts.models import User
 from services.email_service import (
@@ -115,6 +116,41 @@ class OrganizationInviteCreateView(APIView):
 
         logger.info("Superadmin %s invited %s to create an organization", request.user.email, email)
         return Response(OrganizationInviteSerializer(invite).data, status=201)
+
+
+class OrganizationInviteRevokeView(APIView):
+    """Expire a sent invite before its deadline, so its link stops working.
+
+    The row is kept rather than deleted: "we invited this address on the 8th
+    and pulled it on the 9th" is worth being able to answer, and the accept
+    view already refuses any invite whose status is not "pending".
+    """
+
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, invite_id):
+        invite = OrganizationInvite.objects.filter(id=invite_id).first()
+        if not invite:
+            return Response({"error": "Invite not found"}, status=404)
+        if invite.status == "accepted":
+            # Revoking it would say nothing about the account that already
+            # exists, so refuse rather than imply the school lost access.
+            return Response(
+                {"error": "That invite has already been accepted."}, status=400
+            )
+        if invite.status != "pending":
+            return Response({"error": "That invite is no longer active."}, status=400)
+
+        invite.status = "revoked"
+        # Expiring it too means anything reading `expires_at` (the dashboard's
+        # "7d left") agrees with the status instead of contradicting it.
+        invite.expires_at = timezone.now()
+        invite.save(update_fields=["status", "expires_at", "updated_at"])
+
+        logger.info(
+            "Superadmin %s revoked the invite to %s", request.user.email, invite.email
+        )
+        return Response(OrganizationInviteSerializer(invite).data)
 
 
 class OrganizationInviteAcceptView(APIView):
@@ -584,6 +620,52 @@ class _OrganizationMemberActionView(APIView):
         except Membership.DoesNotExist:
             return None, Response({"error": "Member not found"}, status=404)
         return membership, None
+
+
+class OrganizationMemberPapersView(_OrganizationMemberActionView):
+    """The papers one member has generated, for the admin looking at their row.
+
+    Inherits `_get_membership` for the same two guards as every other member
+    action: the caller must manage this school, and the user must actually be
+    in it — an admin cannot read a stranger's papers by guessing a user id.
+
+    Content is deliberately not returned. This answers "what has this teacher
+    been producing", which the titles and subjects already do; shipping the
+    question text of every paper would be a much larger disclosure than the
+    question it was asked.
+    """
+
+    def get(self, request, org_id, user_id):
+        membership, error = self._get_membership(request, org_id, user_id)
+        if error:
+            return error
+
+        papers = (
+            Paper.objects.filter(user_id=user_id)
+            .annotate(set_count=Count("sets"))
+            .order_by("-created_at")[:200]
+        )
+        return Response(
+            {
+                "user": {
+                    "id": membership.user.id,
+                    "name": membership.user.name,
+                    "email": membership.user.email,
+                },
+                "papers": [
+                    {
+                        "id": p.id,
+                        "title": p.title,
+                        "subject": p.subject,
+                        "grade_class": p.grade_class,
+                        "board": p.board,
+                        "set_count": p.set_count,
+                        "created_at": p.created_at,
+                    }
+                    for p in papers
+                ],
+            }
+        )
 
 
 class OrganizationMemberApproveView(_OrganizationMemberActionView):

@@ -78,6 +78,7 @@ export default function OrganizationDetailPage() {
               <CardDescription>
                 Approve, reject, or remove users in this school, and move them
                 between teacher and school admin. Every change is emailed to them.
+                Select a name to see the papers they&apos;ve generated.
               </CardDescription>
             </CardHeader>
             <CardContent>

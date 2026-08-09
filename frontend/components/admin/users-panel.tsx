@@ -12,8 +12,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -67,6 +77,15 @@ export function UsersPanel({
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // The two actions that ask before they act share one dialog: only ever one
+  // can be pending, and a per-row dialog would mean one mounted per user.
+  const [pending, setPending] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    destructive?: boolean;
+    act: () => void;
+  } | null>(null);
 
   const load = useCallback(async (q: string, nextOffset: number) => {
     setLoading(true);
@@ -129,26 +148,29 @@ export function UsersPanel({
     if (!target) return;
     // Moving someone between schools is a bigger step than the role picker
     // beside it, and both are one click — so this one asks first.
-    const verb = user.membership
-      ? `Move ${who(user)} from ${user.membership.organization_name} to ${target.name}?`
-      : `Add ${who(user)} to ${target.name}?`;
-    if (!confirm(`${verb} They'll be emailed about it.`)) return;
-
-    return run(user.id, async () => {
-      const updated = await assignMemberToOrganization(user.id, organizationId);
-      patchRow(user.id, {
-        membership: {
-          organization_id: organizationId,
-          organization_name: target.name,
-          role: updated.role,
-          status: updated.status,
-        },
-      });
-      toast.success(
-        updated.status === "approved"
-          ? `${who(user)} moved to ${target.name} — we've emailed them`
-          : `${who(user)} added to ${target.name}, pending approval — we've emailed them`,
-      );
+    setPending({
+      title: user.membership ? "Move to another school?" : "Add to a school?",
+      description: user.membership
+        ? `${who(user)} will move from ${user.membership.organization_name} to ${target.name}. They'll be emailed about it.`
+        : `${who(user)} will be added to ${target.name}. They'll be emailed about it.`,
+      confirmLabel: user.membership ? "Move" : "Add",
+      act: () =>
+        void run(user.id, async () => {
+          const updated = await assignMemberToOrganization(user.id, organizationId);
+          patchRow(user.id, {
+            membership: {
+              organization_id: organizationId,
+              organization_name: target.name,
+              role: updated.role,
+              status: updated.status,
+            },
+          });
+          toast.success(
+            updated.status === "approved"
+              ? `${who(user)} moved to ${target.name} — we've emailed them`
+              : `${who(user)} added to ${target.name}, pending approval — we've emailed them`,
+          );
+        }),
     });
   };
 
@@ -176,19 +198,20 @@ export function UsersPanel({
 
   const handleRemove = (user: PlatformUser) => {
     if (!user.membership) return;
-    if (
-      !confirm(
-        `Remove ${who(user)} from ${user.membership.organization_name}? ` +
-          `Their account stays, but they'll have no school. They'll be emailed about it.`,
-      )
-    )
-      return;
-
-    return run(user.id, async () => {
-      await removeMember(user.membership!.organization_id, user.id);
-      // The row stays — the user still exists, they just have no school now.
-      patchRow(user.id, { status: "pending", membership: null });
-      toast.success(`${who(user)} removed — we've emailed them`);
+    setPending({
+      title: `Remove from ${user.membership.organization_name}?`,
+      description:
+        `${who(user)}'s account stays, but they'll have no school until someone ` +
+        `assigns them one. They'll be emailed about it.`,
+      confirmLabel: "Remove",
+      destructive: true,
+      act: () =>
+        void run(user.id, async () => {
+          await removeMember(user.membership!.organization_id, user.id);
+          // The row stays — the user still exists, they just have no school now.
+          patchRow(user.id, { status: "pending", membership: null });
+          toast.success(`${who(user)} removed — we've emailed them`);
+        }),
     });
   };
 
@@ -302,7 +325,13 @@ export function UsersPanel({
                             disabled={busy}
                           >
                             <SelectTrigger size="sm" className="w-[150px]">
-                              <SelectValue />
+                              {/* Children, not a bare <SelectValue />: the
+                                  primitive renders the stored slug otherwise. */}
+                              <SelectValue>
+                                {membership.role === "org_admin"
+                                  ? "School admin"
+                                  : "Teacher"}
+                              </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="teacher">Teacher</SelectItem>
@@ -394,6 +423,29 @@ export function UsersPanel({
           )}
         </>
       )}
+
+      <AlertDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open) setPending(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{pending?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{pending?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={pending?.destructive ? buttonVariants({ variant: "destructive" }) : undefined}
+              onClick={() => pending?.act()}
+            >
+              {pending?.confirmLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

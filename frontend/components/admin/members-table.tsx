@@ -11,8 +11,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { MemberPapersDialog } from "@/components/admin/member-papers-dialog";
 import {
   Select,
   SelectContent,
@@ -57,6 +68,10 @@ export function MembersTable({
   currentUserId?: string;
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
+  /** The member awaiting a confirmed removal, if any. */
+  const [removing, setRemoving] = useState<OrganizationMember | null>(null);
+  /** The member whose generated papers are being viewed, if any. */
+  const [viewing, setViewing] = useState<OrganizationMember | null>(null);
 
   // Demoting the last admin strands the school with nobody able to approve
   // teachers, so the backend rejects it. Counting here lets the row explain
@@ -107,7 +122,6 @@ export function MembersTable({
   };
 
   const handleRemove = async (userId: string) => {
-    if (!confirm("Remove this user from the organization? They'll be emailed about it.")) return;
     setBusyId(userId);
     try {
       await removeMember(orgId, userId);
@@ -125,6 +139,7 @@ export function MembersTable({
   }
 
   return (
+    <>
     <Table>
       <TableHeader>
         <TableRow>
@@ -147,7 +162,18 @@ export function MembersTable({
 
           return (
             <TableRow key={member.id}>
-              <TableCell>{member.name}</TableCell>
+              <TableCell>
+                {/* The name opens what they've generated. The row itself isn't
+                    clickable: it holds pickers and a destructive button, and a
+                    row-wide target would swallow clicks meant for those. */}
+                <button
+                  type="button"
+                  className="text-left font-medium text-foreground underline-offset-4 hover:underline"
+                  onClick={() => setViewing(member)}
+                >
+                  {member.name || member.email}
+                </button>
+              </TableCell>
               <TableCell>{member.email}</TableCell>
               <TableCell>
                 {roleLocked ? (
@@ -173,7 +199,10 @@ export function MembersTable({
                     disabled={busy}
                   >
                     <SelectTrigger size="sm" className="w-[150px]">
-                      <SelectValue />
+                      {/* Children, not a bare <SelectValue />: the primitive
+                          renders the stored value otherwise, and "org_admin"
+                          is not what an administrator should be reading. */}
+                      <SelectValue>{roleLabel[member.role]}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="teacher">Teacher</SelectItem>
@@ -212,7 +241,7 @@ export function MembersTable({
                     size="sm"
                     variant="destructive"
                     disabled={busy}
-                    onClick={() => handleRemove(member.user_id)}
+                    onClick={() => setRemoving(member)}
                   >
                     Remove
                   </Button>
@@ -223,5 +252,36 @@ export function MembersTable({
         })}
       </TableBody>
     </Table>
+
+    <MemberPapersDialog orgId={orgId} member={viewing} onClose={() => setViewing(null)} />
+
+    <AlertDialog
+      open={removing !== null}
+      onOpenChange={(open) => {
+        if (!open) setRemoving(null);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove from this school?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {removing?.name || removing?.email}&apos;s account stays, but they&apos;ll lose
+            access to this school. They&apos;ll be emailed about it.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className={buttonVariants({ variant: "destructive" })}
+            onClick={() => {
+              if (removing) void handleRemove(removing.user_id);
+            }}
+          >
+            Remove
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

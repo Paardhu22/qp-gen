@@ -207,6 +207,19 @@ export async function sendOrganizationInvite(email: string): Promise<void> {
   });
 }
 
+/**
+ * Superadmin: expire a sent invite early, so its link stops working.
+ *
+ * The invite row survives as a record of what was sent — only its status and
+ * deadline change — so the caller should drop it from the pending list rather
+ * than expect it back as something still actionable.
+ */
+export async function revokeOrganizationInvite(inviteId: string): Promise<void> {
+  await fetchJson(`/api/organizations/invites/${inviteId}/revoke`, {
+    method: "POST",
+  });
+}
+
 /** Superadmin: every organization, with member count + token usage. */
 export async function listOrganizations(): Promise<OrganizationSummary[]> {
   // Trailing slash is required: the route is path("") under "api/organizations/",
@@ -228,6 +241,33 @@ export async function getOrganization(orgId: string): Promise<OrganizationDetail
 /** Org admin (own org) or superadmin: members list with usage. */
 export async function listMembers(orgId: string): Promise<OrganizationMember[]> {
   return fetchJson<OrganizationMember[]>(`/api/organizations/${orgId}/members`, { method: "GET" });
+}
+
+export type MemberPaper = {
+  id: string;
+  title: string;
+  subject: string | null;
+  grade_class: string | null;
+  board: string | null;
+  /** How many variants (Set A, Set B, …) were generated for this paper. */
+  set_count: number;
+  created_at: string;
+};
+
+/**
+ * Org admin (own org) or superadmin: what one member has generated.
+ *
+ * Metadata only — titles, subjects and dates, never the question text. The
+ * question this answers is "what has this teacher been producing", and the
+ * paper contents are a much larger disclosure than that.
+ */
+export async function listMemberPapers(
+  orgId: string,
+  userId: string,
+): Promise<{ user: { id: string; name: string; email: string }; papers: MemberPaper[] }> {
+  return fetchJson(`/api/organizations/${orgId}/members/${userId}/papers`, {
+    method: "GET",
+  });
 }
 
 export async function approveMember(orgId: string, userId: string): Promise<OrganizationMember> {
