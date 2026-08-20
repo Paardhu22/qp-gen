@@ -8,6 +8,7 @@ or continue another's chat by guessing a uuid.
 import json
 import logging
 
+from django.conf import settings as django_settings
 from django.http import StreamingHttpResponse
 from rest_framework import status
 from rest_framework.generics import get_object_or_404
@@ -156,10 +157,17 @@ class ChatMessageStreamView(APIView):
             conversation.title = suggest_title(content)
             conversation.save(update_fields=["title", "updated_at"])
 
-        history = [
-            {"role": m.role, "content": m.content}
-            for m in conversation.messages.all()
-        ]
+        # Only the tail of the transcript is loaded. `window_history` would
+        # discard the rest anyway, and a session with hundreds of turns should
+        # not pull every one of them out of the database to throw them away —
+        # `+ 4` is slack so the windowing, not the query, decides the cut.
+        recent = list(
+            conversation.messages.order_by("-created_at")[
+                : int(getattr(django_settings, "CHAT_HISTORY_MAX_MESSAGES", 24)) + 4
+            ]
+        )
+        recent.reverse()
+        history = [{"role": m.role, "content": m.content} for m in recent]
         if attachments:
             names = ", ".join(
                 str(a.get("name") or "a file") for a in attachments

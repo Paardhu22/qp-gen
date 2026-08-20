@@ -9,7 +9,7 @@ answer the teacher already gave.
 import json
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
@@ -24,6 +24,7 @@ from services.chat_service import (
     normalize_spec,
     spec_is_ready,
     suggest_title,
+    window_history,
 )
 
 
@@ -196,6 +197,43 @@ class HistoryTests(TestCase):
         )
         self.assertEqual(history[0]["role"], "system")
         self.assertEqual([m["role"] for m in history[1:]], ["user", "assistant"])
+
+    @override_settings(CHAT_HISTORY_MAX_MESSAGES=4, CHAT_HISTORY_MAX_CHARS=10000)
+    def test_only_the_most_recent_turns_are_re_sent(self):
+        # Every turn re-sends the transcript, so an unwindowed history costs
+        # more at each turn than it did at the last. Safe to drop old turns
+        # because the agreed spec lives on the Conversation row, not in them.
+        messages = [
+            {"role": "user", "content": f"turn {i}"} for i in range(10)
+        ]
+        windowed = window_history(messages)
+
+        self.assertEqual(len(windowed), 4)
+        self.assertEqual(windowed[-1]["content"], "turn 9")
+
+    @override_settings(CHAT_HISTORY_MAX_MESSAGES=50, CHAT_HISTORY_MAX_CHARS=3000)
+    def test_a_character_budget_catches_what_a_message_count_does_not(self):
+        # Ten pasted syllabi are ten messages and half a context window.
+        messages = [{"role": "user", "content": "x" * 900} for _ in range(10)]
+        windowed = window_history(messages)
+
+        self.assertLess(len(windowed), 10)
+        self.assertLessEqual(sum(len(m["content"]) for m in windowed), 3000)
+
+    @override_settings(CHAT_HISTORY_MAX_MESSAGES=50, CHAT_HISTORY_MAX_CHARS=3000)
+    def test_one_oversized_message_is_truncated_rather_than_dropped(self):
+        # Losing the teacher's latest instruction entirely is worse than
+        # losing its tail.
+        windowed = window_history([{"role": "user", "content": "y" * 50_000}])
+
+        self.assertEqual(len(windowed), 1)
+        self.assertLess(len(windowed[0]["content"]), 50_000)
+
+    def test_windowing_keeps_the_transcript_in_order(self):
+        messages = [{"role": "user", "content": str(i)} for i in range(5)]
+        self.assertEqual(
+            [m["content"] for m in window_history(messages)], ["0", "1", "2", "3", "4"]
+        )
 
     def test_a_title_is_derived_without_a_model_call(self):
         self.assertEqual(suggest_title("  class 10   science  "), "class 10 science")

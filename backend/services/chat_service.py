@@ -181,19 +181,62 @@ copied as they wrote it. Do not summarise, tidy or invent it.\
 """
 
 
+def window_history(
+    conversation_messages: List[Dict[str, str]],
+) -> List[Dict[str, str]]:
+    """The most recent slice of a transcript that is worth re-sending.
+
+    Every turn re-sends the whole conversation, so an unwindowed transcript
+    costs more at each turn than it did at the last: an hour of planning ends
+    up paying for its own history over and over, latency climbs with it, and a
+    long enough session eventually overruns the context window and starts
+    failing outright rather than degrading.
+
+    Dropping old turns is safe *here specifically* because the accumulated
+    paper spec lives on the `Conversation` row and is merged forward on every
+    extraction (see `normalize_spec`). A decision the teacher made twenty turns
+    ago is already recorded as a field; it is not being remembered by leaving
+    the sentence that produced it in the prompt.
+
+    Two caps, because either alone has a hole. A message count alone lets
+    twenty pasted syllabi through; a character budget alone lets a hundred
+    one-word turns through. The most recent turns are kept — they are what the
+    reply has to answer — and an oversized single message is truncated rather
+    than dropped, since losing the teacher's latest instruction entirely is
+    worse than losing its tail.
+    """
+    max_messages = int(getattr(settings, "CHAT_HISTORY_MAX_MESSAGES", 24))
+    max_chars = int(getattr(settings, "CHAT_HISTORY_MAX_CHARS", 24000))
+    per_message_cap = max(1000, max_chars // 3)
+
+    usable = [
+        {
+            "role": message.get("role"),
+            "content": (message.get("content") or "")[:per_message_cap],
+        }
+        for message in conversation_messages
+        if message.get("role") in ("user", "assistant")
+    ]
+
+    windowed: List[Dict[str, str]] = []
+    budget = max_chars
+    for message in reversed(usable[-max_messages:]):
+        cost = len(message["content"])
+        if windowed and cost > budget:
+            break
+        windowed.append(message)
+        budget -= cost
+    windowed.reverse()
+    return windowed
+
+
 def build_message_history(
     conversation_messages: List[Dict[str, str]],
 ) -> List[Dict[str, str]]:
     """Prior turns as the chat API wants them, system prompt included."""
-    history: List[Dict[str, str]] = [
-        {"role": "system", "content": _SYSTEM_PROMPT}
-    ]
-    for message in conversation_messages:
-        role = message.get("role")
-        if role not in ("user", "assistant"):
-            continue
-        history.append({"role": role, "content": message.get("content") or ""})
-    return history
+    return [{"role": "system", "content": _SYSTEM_PROMPT}] + window_history(
+        conversation_messages
+    )
 
 
 def normalize_spec(raw: Any, previous: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -390,7 +433,11 @@ def extract_spec(
     reply, and a spec that is one turn stale is corrected on the next one. So
     this logs and returns what it had rather than raising into the stream.
     """
-    transcript = [m for m in messages if m.get("role") in ("user", "assistant")]
+    # Windowed for the same reason the reply is (see `window_history`), and
+    # safe for the same reason: `previous` is merged forward by
+    # `normalize_spec`, so a field settled in a dropped turn is already
+    # recorded and is not being re-derived from the transcript each time.
+    transcript = window_history(messages)
 
     try:
         client = get_openai_client()
