@@ -4,18 +4,22 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 
-import { useSession, isSuperAdmin, isOrgAdmin } from "@/lib/auth-client";
+import { useSession, isSuperAdmin, approvedAdminMemberships } from "@/lib/auth-client";
 import {
+  formatInr,
   listOrganizations,
   sendOrganizationInvite,
   getOrganization,
   getSuperAdminAnalytics,
+  setMonthlyTokenLimit,
   type OrganizationSummary,
   type OrganizationDetail,
   type SuperAdminAnalytics,
 } from "@/lib/organizations-client";
 import { UsageAnalytics } from "@/components/admin/usage-analytics";
 import { RosterPanel } from "@/components/admin/roster-panel";
+import { TeacherInvites } from "@/components/admin/teacher-invites";
+import { SchoolDomains } from "@/components/admin/school-domains";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,6 +91,94 @@ function InviteOrganizationDialog({ onInvited }: { onInvited: () => void }) {
   );
 }
 
+function SpendCapDialog({
+  org,
+  onSaved,
+}: {
+  org: OrganizationSummary;
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(String(org.monthly_token_limit || 0));
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const limit = Number(value);
+    if (!Number.isFinite(limit) || limit < 0) {
+      toast.error("Enter a whole number of tokens, or 0 for no cap.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await setMonthlyTokenLimit(org.id, Math.floor(limit));
+      toast.success(
+        limit === 0
+          ? `${org.name} now has no monthly cap`
+          : `${org.name} is capped at ${Math.floor(limit).toLocaleString()} tokens a month`,
+      );
+      setOpen(false);
+      onSaved();
+    } catch (err: any) {
+      toast.error(err?.message || "Could not save that limit");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <Button size="sm" variant="ghost">
+            {org.monthly_token_limit > 0
+              ? `${compactTokens(org.monthly_token_limit)} cap`
+              : "No cap"}
+          </Button>
+        }
+      />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Monthly limit for {org.name}</DialogTitle>
+          <DialogDescription>
+            Once this school&apos;s usage for the calendar month reaches the limit,
+            new generation is blocked until the month rolls over. Zero means no cap.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="token-limit">Tokens per month</Label>
+            <Input
+              id="token-limit"
+              type="number"
+              min={0}
+              step={1000}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              This school has used {org.total_tokens.toLocaleString()} tokens in
+              total, about {formatInr(org.total_cost_inr)}.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving…" : "Save limit"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Short token counts for a control label, where 4,000,000 will not fit. */
+function compactTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}k`;
+  return String(n);
+}
+
 function SuperAdminDashboard() {
   const [orgs, setOrgs] = useState<OrganizationSummary[]>([]);
   const [analytics, setAnalytics] = useState<SuperAdminAnalytics | null>(null);
@@ -130,7 +222,7 @@ function SuperAdminDashboard() {
       {analytics && (
         <>
           <UsageAnalytics data={analytics} days={days} onDaysChange={setDays} />
-          <RosterPanel roster={analytics.roster} />
+          <RosterPanel roster={analytics.roster} onChange={() => void load(days)} />
         </>
       )}
 
@@ -158,6 +250,8 @@ function SuperAdminDashboard() {
                   <TableHead>Admin</TableHead>
                   <TableHead>Members</TableHead>
                   <TableHead className="text-right">Tokens used</TableHead>
+                  <TableHead className="text-right">Est. spend</TableHead>
+                  <TableHead className="text-right">Monthly cap</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -196,6 +290,15 @@ function SuperAdminDashboard() {
                     {/* tabular-nums: this one IS a column that must align. */}
                     <TableCell className="text-right tabular-nums">
                       {org.total_tokens.toLocaleString()}
+                    </TableCell>
+                    {/* An estimate — see formatInr. The column header says
+                        "Est." rather than leaving the reader to assume it will
+                        reconcile against an invoice. */}
+                    <TableCell className="text-right tabular-nums">
+                      {formatInr(org.total_cost_inr)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <SpendCapDialog org={org} onSaved={() => void load(days)} />
                     </TableCell>
                     <TableCell className="text-right">
                       <Link href={`/admin/organizations/${org.id}`}>
@@ -250,8 +353,16 @@ function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
         <h1 className="text-2xl font-semibold text-foreground">{org.name}</h1>
         <p className="text-sm text-muted-foreground">
           {org.member_count} users · {org.total_tokens.toLocaleString()} tokens used
+          {" · "}
+          {formatInr(org.total_cost_inr)} estimated
+          {org.monthly_token_limit > 0 &&
+            ` · capped at ${org.monthly_token_limit.toLocaleString()} tokens a month`}
         </p>
       </div>
+
+      <TeacherInvites orgId={org.id} />
+
+      <SchoolDomains org={org} onSaved={setOrg} />
 
       <Card>
         <CardHeader>
@@ -286,8 +397,18 @@ export default function AdminPage() {
     return <SuperAdminDashboard />;
   }
 
-  if (isOrgAdmin(user) && user?.membership) {
-    return <OrgAdminDashboard organizationId={user.membership.organization_id} />;
+  // Multi-org: an admin of two schools manages the one they are working as.
+  // The other is a switch away in the navbar — which is the same control that
+  // decides brand and billing, so there is only ever one place to change it.
+  const adminSchools = approvedAdminMemberships(user);
+  const activeAdminSchool =
+    adminSchools.find(
+      (m) => m.organization_id === user?.membership?.organization_id,
+    ) ?? adminSchools[0];
+  if (activeAdminSchool) {
+    return (
+      <OrgAdminDashboard organizationId={activeAdminSchool.organization_id} />
+    );
   }
 
   return (

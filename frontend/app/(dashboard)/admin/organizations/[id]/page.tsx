@@ -7,9 +7,15 @@ import { toast } from "sonner";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
 import { useSession, isSuperAdmin } from "@/lib/auth-client";
-import { getOrganization, type OrganizationDetail } from "@/lib/organizations-client";
+import {
+  formatInr,
+  getOrganization,
+  type OrganizationDetail,
+} from "@/lib/organizations-client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { MembersTable } from "@/components/admin/members-table";
+import { TeacherInvites } from "@/components/admin/teacher-invites";
+import { SchoolDomains } from "@/components/admin/school-domains";
 
 export default function OrganizationDetailPage() {
   const params = useParams<{ id: string }>();
@@ -69,8 +75,21 @@ export default function OrganizationDetailPage() {
             <h1 className="text-2xl font-semibold text-foreground">{org.name}</h1>
             <p className="text-sm text-muted-foreground">
               {org.member_count} users · {org.total_tokens.toLocaleString()} tokens used
+              {" · "}
+              {formatInr(org.total_cost_inr)} estimated
+              {org.monthly_token_limit > 0 &&
+                ` · capped at ${org.monthly_token_limit.toLocaleString()} tokens a month`}
             </p>
+            {org.email_domains.length > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Matches staff email at {org.email_domains.join(", ")}
+              </p>
+            )}
           </div>
+
+          <TeacherInvites orgId={org.id} />
+
+          <SchoolDomains org={org} onSaved={setOrg} />
 
           <Card>
             <CardHeader>

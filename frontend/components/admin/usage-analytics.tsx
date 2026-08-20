@@ -38,6 +38,7 @@ import {
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { formatInr } from "@/lib/organizations-client";
 import type {
   SuperAdminAnalytics,
   UsagePoint,
@@ -87,6 +88,14 @@ function VizTooltip({
         </span>
         tokens
       </p>
+      {typeof row.cost_inr === "number" && (
+        <p className="text-muted-foreground">
+          <span className="tabular-nums text-popover-foreground">
+            {formatInr(row.cost_inr)}
+          </span>{" "}
+          estimated
+        </p>
+      )}
       {typeof row.calls === "number" && (
         <p className="mt-0.5 text-muted-foreground">
           <span className="tabular-nums">{row.calls.toLocaleString()}</span> calls
@@ -150,7 +159,15 @@ export function UsageAnalytics({
         "[--viz-axis:#898781]",
       )}
     >
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {/* Spend first. Tokens are the mechanism; rupees are the decision —
+            "should we raise this school's cap" is answered in currency, and a
+            seven-digit token count answers nothing. */}
+        <StatTile
+          label="Estimated spend"
+          value={formatInr(totals.total_cost_inr)}
+          hint="Approximate — excludes cached-input discounts"
+        />
         <StatTile
           label="Tokens used"
           value={totals.total_tokens.toLocaleString()}
