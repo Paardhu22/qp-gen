@@ -119,6 +119,122 @@ def send_organization_invite_email(*, to_email: str, invite_link: str) -> bool:
     return _safe_send(subject=subject, body=body, recipients=[to_email])
 
 
+def send_teacher_invite_email(
+    *, to_email: str, invite_link: str, organization_name: str, inviter_name: str = ""
+) -> bool:
+    """Email a school admin's invite link for a teacher to join their school.
+
+    Distinct from `send_organization_invite_email` because the two links do
+    genuinely different things — one creates a school, one joins an existing
+    one already approved — and a teacher told to "set up your organization"
+    would reasonably think they were being asked to register the school again.
+    """
+    who = f"{inviter_name} has" if inviter_name else "You have been"
+    subject = f"Join {organization_name} on qp-gen"
+    body = (
+        "Hello,\n\n"
+        f"{who} invited you to join {organization_name} on qp-gen.\n\n"
+        "Use this link to sign up — you'll be added to the school straight "
+        f"away, with no approval to wait for:\n{invite_link}\n\n"
+        "If you weren't expecting this invite, you can safely ignore this email.\n\n"
+        "— qp-gen\n"
+    )
+    _log_link_in_dev(to_email, invite_link, "Teacher invite")
+    return _safe_send(subject=subject, body=body, recipients=[to_email])
+
+
+def send_join_request_email(
+    *,
+    to_emails: list[str],
+    teacher_name: str,
+    teacher_email: str,
+    organization_name: str,
+    review_link: str,
+) -> bool:
+    """Tell a school's admins that someone is waiting on their approval.
+
+    Without this the approval queue is invisible: a teacher signs up, lands on
+    a "waiting for approval" screen, and nobody is told there is anything to
+    approve. The request then sits until the teacher thinks to chase it by
+    other means, which is the single most common way an onboarding dies.
+    """
+    if not to_emails:
+        return False
+    who = teacher_name or teacher_email
+    subject = f"{who} asked to join {organization_name}"
+    body = (
+        "Hello,\n\n"
+        f"{who} ({teacher_email}) has asked to join {organization_name} on qp-gen.\n\n"
+        "They cannot generate anything until someone approves them. Review the "
+        f"request here:\n{review_link}\n\n"
+        "— qp-gen\n"
+    )
+    _log_link_in_dev(", ".join(to_emails), review_link, "Join request")
+    return _safe_send(subject=subject, body=body, recipients=list(to_emails))
+
+
+def send_membership_approved_email(
+    *, to_email: str, user_name: str = "", organization_name: str = ""
+) -> bool:
+    """Tell a teacher their access is live.
+
+    The approval happens on someone else's screen, so without this the teacher
+    finds out by trying again later and guessing.
+    """
+    greeting = f"Hi {user_name}," if user_name else "Hello,"
+    where = f" as a member of {organization_name}" if organization_name else ""
+    subject = "Your qp-gen account is approved"
+    body = (
+        f"{greeting}\n\n"
+        f"Your qp-gen account has been approved{where}. You can sign in and "
+        "start building papers now.\n\n"
+        f"{settings.FRONTEND_URL}\n\n"
+        "— qp-gen\n"
+    )
+    return _safe_send(subject=subject, body=body, recipients=[to_email])
+
+
+def send_membership_rejected_email(
+    *, to_email: str, user_name: str = "", organization_name: str = ""
+) -> bool:
+    """Tell a teacher their request was declined, and what they can do next.
+
+    Naming the next step matters: the usual cause is picking the wrong school
+    from the dropdown, and a bare "declined" leaves the teacher stuck with no
+    idea that choosing again is even possible.
+    """
+    greeting = f"Hi {user_name}," if user_name else "Hello,"
+    where = f" to join {organization_name}" if organization_name else ""
+    subject = "About your qp-gen access request"
+    body = (
+        f"{greeting}\n\n"
+        f"Your request{where} on qp-gen was not approved.\n\n"
+        "If you picked the wrong school, you can sign in and send a request to "
+        "the right one. Otherwise, contact your school's qp-gen administrator.\n\n"
+        f"{settings.FRONTEND_URL}\n\n"
+        "— qp-gen\n"
+    )
+    return _safe_send(subject=subject, body=body, recipients=[to_email])
+
+
+def _log_link_in_dev(to_email: str, link: str, label: str) -> None:
+    """Surface a link at WARNING while no real SMTP backend is configured.
+
+    Same reasoning as the password-reset path: with the console backend the
+    message goes to stdout and never reaches an inbox, so without this a local
+    invite flow is untestable.
+    """
+    backend = (settings.EMAIL_BACKEND or "").lower()
+    if "console" in backend or "dummy" in backend or "locmem" in backend:
+        logger.warning(
+            "%s email going through the %s backend (no actual SMTP). Link for %s: %s",
+            label,
+            settings.EMAIL_BACKEND,
+            to_email,
+            link,
+        )
+
+
 def _safe_send(*, subject: str, body: str, recipients: list[str]) -> bool:
     try:
         send_mail(

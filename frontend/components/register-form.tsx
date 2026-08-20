@@ -1,12 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 import { signUp, confirmSignUp, resendConfirmationCode } from "@/lib/auth-client";
-import { listPublicOrganizations, joinOrganization, type PublicOrganization } from "@/lib/organizations-client";
+import {
+  acceptTeacherInvite,
+  getOrganizationInvite,
+  joinOrganization,
+  listPublicOrganizations,
+  type InvitePreview,
+  type PublicOrganization,
+} from "@/lib/organizations-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +31,12 @@ export function RegisterForm({
   ...props
 }: React.ComponentProps<"div">) {
   const router = useRouter();
+  // `?invite=` — a school admin's link. When present the school is already
+  // decided and the address is fixed, so the picker comes off the form
+  // entirely rather than sitting there inviting a contradiction.
+  const inviteToken = useSearchParams().get("invite") ?? "";
+  const [invite, setInvite] = useState<InvitePreview | null>(null);
+  const [inviteError, setInviteError] = useState("");
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -47,11 +60,66 @@ export function RegisterForm({
   const [blink, setBlink] = useState(false);
 
   useEffect(() => {
-    listPublicOrganizations()
-      .then(setOrganizations)
-      .catch(() => setOrganizations([]))
-      .finally(() => setOrgsLoading(false));
-  }, []);
+    if (!inviteToken) return;
+    let cancelled = false;
+    getOrganizationInvite(inviteToken)
+      .then((preview) => {
+        if (cancelled) return;
+        setInvite(preview);
+        // The invite names the address it was issued to, and accepting checks
+        // it. Pre-filling something else would only fail at the last step.
+        setEmail(preview.email);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setInviteError(
+          err?.message || "That invite link is no longer valid. Sign up normally instead.",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteToken]);
+
+  useEffect(() => {
+    // An invited teacher never picks a school, so the list is not worth
+    // fetching — and showing one would suggest the invite is negotiable.
+    if (invite) {
+      setOrgsLoading(false);
+      return;
+    }
+    // Re-queried as the address is typed: the backend flags and promotes the
+    // school claiming that email domain, which turns "find your school in this
+    // list" into "confirm this is your school". Debounced because it runs per
+    // keystroke, and settled at 400ms because that is roughly a pause in
+    // typing rather than a gap between letters.
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      listPublicOrganizations(email)
+        .then((orgs) => {
+          if (cancelled) return;
+          setOrganizations(orgs);
+          // Auto-select the domain match, but never overwrite a choice the
+          // teacher has already made — they may genuinely work somewhere other
+          // than where their email says.
+          setOrganizationId((current) => {
+            if (current) return current;
+            const matched = orgs.find((org) => org.matches_email_domain);
+            return matched?.id ?? "";
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setOrganizations([]);
+        })
+        .finally(() => {
+          if (!cancelled) setOrgsLoading(false);
+        });
+    }, email.includes("@") ? 400 : 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [email, invite]);
 
   useEffect(() => {
     const handleMouse = (e: MouseEvent) =>
@@ -83,7 +151,7 @@ export function RegisterForm({
       return;
     }
 
-    if (organizations.length > 0 && !organizationId) {
+    if (!invite && organizations.length > 0 && !organizationId) {
       setError("Please select your school.");
       return;
     }
@@ -115,6 +183,23 @@ export function RegisterForm({
   // teacher here: otherwise their account has no membership request and no UI
   // to send one later.
   const finishSignup = async () => {
+    if (invite) {
+      try {
+        // Accepting joins the school already approved — the admin who issued
+        // the link is the person who would otherwise have approved it.
+        await acceptTeacherInvite(inviteToken);
+      } catch (err: any) {
+        console.warn("Failed to accept the teacher invite after signup:", err);
+        setError(
+          err?.message ||
+            "Your account was created, but we could not join you to the school. Try the invite link again.",
+        );
+        setLoading(false);
+        return;
+      }
+      router.push("/dashboard");
+      return;
+    }
     if (organizationId) {
       try {
         await joinOrganization(organizationId);
@@ -175,7 +260,9 @@ export function RegisterForm({
             <p className="text-sm text-muted-foreground">
               {phase === "confirm"
                 ? `Enter the code sent to ${email}`
-                : "Enter your details to get started"}
+                : invite?.organization_name
+                  ? `You've been invited to join ${invite.organization_name}`
+                  : "Enter your details to get started"}
             </p>
           </div>
 
@@ -271,10 +358,28 @@ export function RegisterForm({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
+                // Fixed by the invite: accepting checks the address, so an
+                // editable field here can only produce a failure at the end.
+                readOnly={Boolean(invite)}
                 required
               />
+              {invite && (
+                <p className="text-xs text-muted-foreground">
+                  This invite was sent to {invite.email}.
+                </p>
+              )}
             </div>
 
+            {invite ? (
+              <div className="rounded-lg border border-border bg-muted/40 p-3">
+                <p className="text-sm font-medium text-foreground">
+                  {invite.organization_name}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  You&apos;ll be added to this school straight away — nothing to wait for.
+                </p>
+              </div>
+            ) : (
             <div className="space-y-2">
               <Label htmlFor="organization">School</Label>
               {orgsLoading ? (
@@ -292,12 +397,19 @@ export function RegisterForm({
                     {organizations.map((org) => (
                       <SelectItem key={org.id} value={org.id}>
                         {org.name}
+                        {org.city ? ` — ${org.city}` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               )}
+              {organizations.some((org) => org.matches_email_domain) && (
+                <p className="text-xs text-muted-foreground">
+                  Matched from your email address. Change it if that is not your school.
+                </p>
+              )}
             </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
@@ -351,6 +463,7 @@ export function RegisterForm({
               </div>
             </div>
 
+            {inviteError && <p className="text-sm text-destructive">{inviteError}</p>}
             {error && <p className="text-sm text-destructive">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={loading}>

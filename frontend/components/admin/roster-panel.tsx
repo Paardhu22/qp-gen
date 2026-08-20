@@ -8,12 +8,15 @@
  * and a bar chart of it would be decoration over a list you still have to read.
  */
 
+import { useState } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Clock, MailWarning, UserPlus } from "lucide-react";
-import type { SuperAdminAnalytics } from "@/lib/organizations-client";
+import { AlertTriangle, Clock, MailWarning, UserPlus, X } from "lucide-react";
+import { revokeOrganizationInvite, type SuperAdminAnalytics } from "@/lib/organizations-client";
 
 function daysUntil(iso: string): number {
   const ms = new Date(iso).getTime() - Date.now();
@@ -28,8 +31,35 @@ function formatDate(iso: string): string {
   });
 }
 
-export function RosterPanel({ roster }: { roster: SuperAdminAnalytics["roster"] }) {
-  const { pending_invites, expired_invite_count, pending_members, empty_organizations } = roster;
+export function RosterPanel({
+  roster,
+  onChange,
+}: {
+  roster: SuperAdminAnalytics["roster"];
+  /** Called after a revoke, so the dashboard can refetch. */
+  onChange?: () => void;
+}) {
+  const { expired_invite_count, pending_members, empty_organizations } = roster;
+  // Revoked rows leave the list immediately rather than waiting on a refetch:
+  // the button's whole purpose is "this link should stop working now", and a
+  // row that lingers reads as though it did not.
+  const [revoked, setRevoked] = useState<string[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const pending_invites = roster.pending_invites.filter((i) => !revoked.includes(i.id));
+
+  const handleRevoke = async (inviteId: string, email: string) => {
+    setBusyId(inviteId);
+    try {
+      await revokeOrganizationInvite(inviteId);
+      setRevoked((ids) => [...ids, inviteId]);
+      toast.success(`The invite to ${email} no longer works`);
+      onChange?.();
+    } catch (err: any) {
+      toast.error(err?.message || "Could not withdraw that invite");
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const nothingWaiting =
     pending_invites.length === 0 &&
@@ -115,10 +145,27 @@ export function RosterPanel({ roster }: { roster: SuperAdminAnalytics["roster"] 
                       Sent {formatDate(inv.created_at)}
                     </p>
                   </div>
-                  <Badge variant={soon ? "destructive" : "secondary"} className="shrink-0 gap-1">
-                    {soon && <MailWarning className="h-3 w-3" aria-hidden />}
-                    {left <= 0 ? "Expired" : `${left}d left`}
-                  </Badge>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Badge variant={soon ? "destructive" : "secondary"} className="gap-1">
+                      {soon && <MailWarning className="h-3 w-3" aria-hidden />}
+                      {left <= 0 ? "Expired" : `${left}d left`}
+                    </Badge>
+                    {/* An invite is a live credential for a week. A typo'd
+                        address or someone who has left the school is exactly
+                        the case where the link is in the wrong inbox, and
+                        waiting it out was the only remedy before this. */}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      title={`Withdraw the invite to ${inv.email}`}
+                      aria-label={`Withdraw the invite to ${inv.email}`}
+                      disabled={busyId === inv.id}
+                      onClick={() => void handleRevoke(inv.id, inv.email)}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </Button>
+                  </div>
                 </div>
               );
             })}

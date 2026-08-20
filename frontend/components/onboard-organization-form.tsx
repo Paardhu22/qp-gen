@@ -40,6 +40,7 @@ const STEPS: { phase: Phase; label: string }[] = [
 ];
 
 const EMPTY_PROFILE: OrganizationProfile = {
+  email_domains: "",
   address_line1: "",
   address_line2: "",
   city: "",
@@ -89,12 +90,22 @@ export function OnboardOrganizationForm({
       return;
     }
     getOrganizationInvite(token)
-      .then(({ email }) => setEmail(email))
+      .then((preview) => {
+        // A teacher's invite joins an existing school; it has no organization
+        // to set up. Landing here would walk them through creating one and
+        // then quietly ignore everything they typed, so send them to the form
+        // that actually matches their link.
+        if (preview.role === "teacher") {
+          router.replace(`/register?invite=${encodeURIComponent(token)}`);
+          return;
+        }
+        setEmail(preview.email);
+      })
       .catch((err: any) =>
         setTokenError(err?.message || "This invite link is invalid or has expired."),
       )
       .finally(() => setTokenChecking(false));
-  }, [token]);
+  }, [token, router]);
 
   // Object URLs are leaked unless revoked; the preview only ever holds one.
   useEffect(() => {
@@ -496,6 +507,25 @@ export function OnboardOrganizationForm({
                   value={profile.website}
                   onChange={(e) => setField("website")(e.target.value)}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="email_domains">
+                  Staff email domain{" "}
+                  <span className="text-muted-foreground">(recommended)</span>
+                </Label>
+                <Input
+                  id="email_domains"
+                  placeholder="sunrisepublic.edu.in"
+                  value={profile.email_domains}
+                  onChange={(e) => setField("email_domains")(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Teachers signing up with an address at this domain will see your
+                  school pre-selected instead of hunting for it in a list. Separate
+                  several with commas. Public providers like gmail.com can&apos;t be
+                  used — they would match everybody.
+                </p>
               </div>
 
               <div className="space-y-2">

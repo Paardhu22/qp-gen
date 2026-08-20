@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   approveMember,
+  formatInr,
   rejectMember,
   removeMember,
   type OrganizationMember,
@@ -89,7 +90,8 @@ export function MembersTable({
           <TableHead>Email</TableHead>
           <TableHead>Role</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead>Tokens used</TableHead>
+          <TableHead className="text-right">Tokens used</TableHead>
+          <TableHead className="text-right">Est. spend</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
@@ -102,7 +104,14 @@ export function MembersTable({
             <TableCell>
               <Badge variant={statusVariant[member.status]}>{member.status}</Badge>
             </TableCell>
-            <TableCell>{member.tokens_consumed.toLocaleString()}</TableCell>
+            {/* tabular-nums on both: these are columns being scanned for
+                magnitude, not standalone figures. */}
+            <TableCell className="text-right tabular-nums">
+              {member.tokens_consumed.toLocaleString()}
+            </TableCell>
+            <TableCell className="text-right tabular-nums">
+              {formatInr(member.cost_inr)}
+            </TableCell>
             <TableCell className="text-right space-x-2">
               {member.status !== "approved" && member.role !== "org_admin" && (
                 <Button
