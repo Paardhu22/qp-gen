@@ -25,6 +25,29 @@ class User(TimeStampedModel):
     # Cognito "superadmin" group claim — see CognitoJWTAuthentication.
     is_superadmin = models.BooleanField(default=False)
 
+    #: Which school this account is currently acting as, when it belongs to
+    #: more than one.
+    #:
+    #: A teacher can hold several memberships — a subject specialist covering
+    #: two branches, someone mid-move between jobs — but at any moment they are
+    #: working *as* one school: one brand header on the paper, one budget the
+    #: tokens come out of, one set of colleagues in the admin screens. This
+    #: names that one. It lives on the user rather than as a flag on a
+    #: Membership row because it describes the person's current context, and
+    #: two rows can disagree about a flag in a way one column cannot.
+    #:
+    #: Null is normal and self-healing: `active_membership` falls back to the
+    #: sole approved membership, so an account with one school never has to set
+    #: this at all, and one whose active school is removed lands somewhere
+    #: sensible rather than nowhere.
+    active_organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="active_users",
+    )
+
     class Meta:
         db_table = "user"
 
@@ -33,11 +56,94 @@ class User(TimeStampedModel):
         return True
 
     @property
+    def active_membership(self):
+        """The membership currently in effect, or None.
+
+        Resolution order, and each step earns its place:
+
+        1.  The membership for `active_organization`, if there still is one.
+            This is the teacher's explicit choice and outranks everything.
+        2.  Otherwise the single approved membership — an account with one
+            school never has to choose, and must not be asked to.
+        3.  Otherwise the most recent membership of any status, so a teacher
+            whose only join request is still pending still has a membership to
+            show them (which is what tells them they are waiting on someone).
+
+        Never raises. A user with no memberships gets None, and every caller
+        already treats None as "no school".
+        """
+        memberships = list(self.memberships.all())
+        if not memberships:
+            return None
+
+        if self.active_organization_id:
+            for membership in memberships:
+                if membership.organization_id == self.active_organization_id:
+                    return membership
+
+        approved = [m for m in memberships if m.status == "approved"]
+        if approved:
+            # Deterministic without a second query: oldest approved wins, which
+            # is the school they have been at longest.
+            return sorted(approved, key=lambda m: m.created_at)[0]
+
+        return sorted(memberships, key=lambda m: m.created_at)[-1]
+
+    @property
+    def membership(self):
+        """Back-compatible alias for `active_membership`.
+
+        Every existing call site asks `user.membership` and means "the one that
+        is in effect". Keeping the name means multi-org did not have to touch
+        permissions, serializers and views to say the same thing differently.
+        """
+        return self.active_membership
+
+    @property
     def organization(self):
-        membership = getattr(self, "membership", None)
+        """The organization this user acts on behalf of, or None.
+
+        Approval-gated on purpose: this is the *authorisation* answer, and a
+        teacher whose join request is still pending must not read their
+        school's data. For the *billing* answer — who pays for what this
+        account spends — use `billing_organization`, which is not gated.
+        """
+        membership = self.active_membership
         if not membership or membership.status != "approved":
             return None
         return membership.organization
+
+    @property
+    def billing_organization(self):
+        """The organization whose budget this account's usage comes out of.
+
+        Deliberately NOT approval-gated, which is the whole point. A teacher
+        can spend tokens while their membership is pending or after it is
+        rejected — an admin approves them mid-session, they are downgraded
+        mid-session, or a request slips through between the two states — and
+        under the approval-gated `organization` every one of those calls was
+        written with `organization=None`. That did two bad things at once: the
+        spend vanished from the school's dashboard into "unassigned", and it
+        escaped the school's monthly token limit entirely, because a limit
+        check that resolves to no organization returns early.
+
+        Attribution follows the membership, not its status. If the account
+        belongs to a school at all, the school pays.
+        """
+        membership = self.active_membership
+        return membership.organization if membership else None
+
+    def membership_for(self, organization_id):
+        """This user's membership at one school, or None."""
+        if not organization_id:
+            return None
+        for membership in self.memberships.all():
+            if membership.organization_id == organization_id:
+                return membership
+        return None
+
+    def approved_memberships(self):
+        return [m for m in self.memberships.all() if m.status == "approved"]
 
 
 class BrandKit(TimeStampedModel):

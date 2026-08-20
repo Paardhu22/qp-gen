@@ -71,7 +71,19 @@ export type SessionUser = {
   image?: string | null;
   status: "pending" | "approved" | "admin" | "rejected";
   is_superadmin?: boolean;
+  /**
+   * The membership currently in effect — which school this account is working
+   * *as*. Every consumer that predates multi-org reads this and keeps working
+   * unchanged.
+   */
   membership?: SessionMembership | null;
+  /**
+   * Every school the account belongs to, whatever the status. Pending and
+   * rejected rows are included on purpose — they are what tells a teacher they
+   * are waiting on someone, or need to try a different school.
+   */
+  memberships?: SessionMembership[];
+  active_organization_id?: string | null;
 };
 
 type SessionData = {
@@ -175,9 +187,33 @@ export function isSuperAdmin(user?: SessionUser | null): boolean {
 
 /** School admin — manages users within their own organization only. */
 export function isOrgAdmin(user?: SessionUser | null): boolean {
-  return Boolean(
-    user?.membership && user.membership.role === "org_admin" && user.membership.status === "approved",
-  );
+  return approvedAdminMemberships(user).length > 0;
+}
+
+/**
+ * Every school this account administers.
+ *
+ * Reads `memberships`, not `membership`: an admin of two schools is still both
+ * schools' admin while working as one of them, and gating the admin screens on
+ * the active membership alone would hide the other school behind a switch.
+ * Falls back to the single active membership for a session payload that
+ * predates multi-org.
+ */
+export function approvedAdminMemberships(
+  user?: SessionUser | null,
+): SessionMembership[] {
+  const all =
+    user?.memberships ?? (user?.membership ? [user.membership] : []);
+  return all.filter((m) => m.role === "org_admin" && m.status === "approved");
+}
+
+/** Every school the account is an approved member of, admin or not. */
+export function approvedMemberships(
+  user?: SessionUser | null,
+): SessionMembership[] {
+  const all =
+    user?.memberships ?? (user?.membership ? [user.membership] : []);
+  return all.filter((m) => m.status === "approved");
 }
 
 export const signIn = {

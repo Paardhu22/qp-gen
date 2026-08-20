@@ -55,6 +55,15 @@ class Organization(TimeStampedModel):
     #: the limit.
     monthly_token_limit = models.PositiveIntegerField(default=0)
 
+    #: Comma-separated email domains this school's staff addresses end in, e.g.
+    #: "dpsbangalore.edu.in,dps-blr.org". Used to pre-select the right school on
+    #: the signup dropdown — a hint, never an authorisation. Membership still
+    #: starts pending and still needs an admin's approval; a domain is trivially
+    #: spoofable at signup. Stored as text rather than rows because it is a
+    #: short list edited as one field, and public providers are refused at the
+    #: API edge. See apps/organizations/domains.py.
+    email_domains = models.CharField(max_length=500, blank=True, default="")
+
     class Meta:
         db_table = "Organization"
         ordering = ["name"]
@@ -75,11 +84,34 @@ class Organization(TimeStampedModel):
 
 
 class OrganizationInvite(TimeStampedModel):
+    """A link that lets one named email address join the platform.
+
+    Two kinds, distinguished by `role`, and the difference matters:
+
+    *   `org_admin` — issued by the platform superadmin to an address with no
+        organization yet. Accepting it CREATES a school and makes the accepter
+        its administrator. `organization` is null until then.
+    *   `teacher` — issued by a school's own admin, for their own school.
+        `organization` is set at creation. Accepting it joins that school
+        **already approved**, because the admin who would have approved the
+        request is the person who sent the link. That is the entire point: it
+        collapses "sign up, pick your school from a list, wait" into one click,
+        and it is the only place a teacher skips the approval queue.
+
+    Either way the token is the secret and the email is the binding: accepting
+    checks that the authenticated caller's address matches the one invited, so
+    a leaked link is not a way into someone else's school.
+    """
+
     STATUS_CHOICES = [
         ("pending", "Pending"),
         ("accepted", "Accepted"),
         ("expired", "Expired"),
         ("revoked", "Revoked"),
+    ]
+    ROLE_CHOICES = [
+        ("org_admin", "Organization Admin"),
+        ("teacher", "Teacher"),
     ]
 
     id = models.CharField(primary_key=True, max_length=32, default=generate_id, editable=False)
@@ -95,6 +127,9 @@ class OrganizationInvite(TimeStampedModel):
         blank=True,
         related_name="invites",
     )
+    #: Defaults to org_admin so every row written before teacher invites
+    #: existed keeps its original meaning.
+    role = models.CharField(max_length=20, default="org_admin", choices=ROLE_CHOICES)
     status = models.CharField(max_length=20, default="pending", choices=STATUS_CHOICES)
     expires_at = models.DateTimeField()
 
@@ -103,7 +138,18 @@ class OrganizationInvite(TimeStampedModel):
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return f"{self.email} ({self.status})"
+        return f"{self.email} ({self.role}, {self.status})"
+
+    @property
+    def is_expired(self) -> bool:
+        from django.utils import timezone
+
+        return self.expires_at < timezone.now()
+
+    @property
+    def is_open(self) -> bool:
+        """Still usable: never accepted, never revoked, not past its date."""
+        return self.status == "pending" and not self.is_expired
 
 
 class Membership(TimeStampedModel):
@@ -118,7 +164,17 @@ class Membership(TimeStampedModel):
     ]
 
     id = models.CharField(primary_key=True, max_length=32, default=generate_id, editable=False)
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="membership")
+    #: A ForeignKey, not a OneToOne. Teachers genuinely work at more than one
+    #: school — a subject specialist covering two branches of the same trust, a
+    #: visiting examiner, someone mid-move between jobs — and a one-to-one made
+    #: the second school unreachable without deleting the first, which took the
+    #: first school's papers with it.
+    #:
+    #: Which of several memberships is *in effect* is not stored here. It is
+    #: `User.active_organization`, because that is a property of the person's
+    #: current session, not of any one membership; keeping it on the membership
+    #: would mean two rows can disagree about which is active.
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="memberships")
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="members")
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
     status = models.CharField(max_length=20, default="pending", choices=STATUS_CHOICES)
@@ -134,6 +190,13 @@ class Membership(TimeStampedModel):
     class Meta:
         db_table = "Membership"
         ordering = ["-created_at"]
+        constraints = [
+            # One membership per person per school. Two rows for the same pair
+            # would make "are they approved here?" a question with two answers.
+            models.UniqueConstraint(
+                fields=["user", "organization"], name="unique_membership_per_organization"
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.user.email} @ {self.organization.name} ({self.role}, {self.status})"

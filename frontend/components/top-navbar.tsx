@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession, signOut, isSuperAdmin, isOrgAdmin } from "@/lib/auth-client";
+import { SchoolSwitcher } from "@/components/school-switcher";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -37,7 +38,7 @@ const navItems = [
 ];
 
 export const TopNavbar = () => {
-  const { data: session } = useSession();
+  const { data: session, refresh: refreshSession } = useSession();
   const pathname = usePathname();
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -148,6 +149,9 @@ export const TopNavbar = () => {
                       {userEmail}
                     </span>
                   </div>
+                  {/* Renders nothing for the one-school accounts that are the
+                      overwhelming majority. */}
+                  <SchoolSwitcher user={user} onSwitched={refreshSession} />
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={handleSignOut}
@@ -255,7 +259,13 @@ export const TopNavbar = () => {
                 })}
               </nav>
 
-              {/* Drawer footer: logout */}
+              {/* Drawer footer: school switcher (multi-school accounts only)
+                  then logout */}
+              <SchoolSwitcher
+                user={user}
+                onSwitched={refreshSession}
+                className="border-t border-border px-3 py-3"
+              />
               <div className="px-3 py-3 border-t border-border">
                 <button
                   type="button"
