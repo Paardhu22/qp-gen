@@ -41,6 +41,7 @@ class PdfSourceContentTypeRegressionTests(TestCase):
             id="test-user-content-type",
             name="Tester",
             email="content-type@test.local",
+            status="approved",
         )
 
     def _patch_pipeline(self):
@@ -130,6 +131,7 @@ class UploadErrorLoggingTests(TestCase):
             id="loguser000000000000000000000001a",
             name="Logger",
             email="logger@test.local",
+            status="approved",
         )
 
     def setUp(self) -> None:
@@ -306,6 +308,7 @@ class SubjectDetectionOnIngestTests(TestCase):
             id="test-user-subject-detect",
             name="Tester",
             email="subject-detect@test.local",
+            status="approved",
         )
 
     def _source(self) -> PdfSource:

@@ -45,7 +45,7 @@ def an_upload(data: bytes, name: str = "crest.png", content_type: str = "image/p
 
 class BrandKitTestCase(TestCase):
     def setUp(self):
-        self.user = User.objects.create(email="t@example.com", name="T")
+        self.user = User.objects.create(email="t@example.com", name="T", status="approved")
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
@@ -129,7 +129,7 @@ class BrandKitApiTests(BrandKitTestCase):
         self.assertEqual(self.client.patch(self.URL, {}, format="json").status_code, 400)
 
     def test_a_teacher_only_ever_sees_their_own_kit(self):
-        other = User.objects.create(email="o@example.com", name="O")
+        other = User.objects.create(email="o@example.com", name="O", status="approved")
         BrandKit.objects.create(user=other, institute_name="Their School")
 
         kit = self.client.get(self.URL).json()["brandKit"]
@@ -237,7 +237,7 @@ class BrandAssetApiTests(BrandKitTestCase):
         self.assertFalse(default_storage.exists(path))
 
     def test_another_teachers_logo_is_untouchable(self):
-        other = User.objects.create(email="o@example.com", name="O")
+        other = User.objects.create(email="o@example.com", name="O", status="approved")
         their_kit = BrandKit.objects.create(user=other)
         theirs = BrandAsset.objects.create(
             kit=their_kit, storage_path="brand-assets/other/x.png", name="Theirs"

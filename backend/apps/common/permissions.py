@@ -15,8 +15,9 @@ class IsApprovedOrAdmin(BasePermission):
         user = getattr(request, "user", None)
         if not user or not getattr(user, "is_authenticated", False):
             return False
-        # status must be 'approved' or 'admin'
-        return getattr(user, "status", "pending") in ["approved", "admin"]
+        return bool(getattr(user, "is_superadmin", False)) or getattr(
+            user, "status", "pending"
+        ) in ["approved", "admin"]
 
 
 class IsAdmin(BasePermission):
@@ -27,7 +28,9 @@ class IsAdmin(BasePermission):
         user = getattr(request, "user", None)
         if not user or not getattr(user, "is_authenticated", False):
             return False
-        return getattr(user, "status", "pending") == "admin"
+        return bool(getattr(user, "is_superadmin", False)) or getattr(
+            user, "status", "pending"
+        ) == "admin"
 
 
 class IsSuperAdmin(BasePermission):

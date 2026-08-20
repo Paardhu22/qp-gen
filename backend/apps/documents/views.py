@@ -1,6 +1,5 @@
 import logging
 
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from services.document_service import process_pdf_upload, process_pdf_from_storage
@@ -11,8 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentUploadView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         serializer = DocumentUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -61,8 +58,6 @@ class DocumentStatusView(APIView):
     user can't probe another's sources.
     """
 
-    permission_classes = [IsAuthenticated]
-
     def get(self, request, source_id):
         from apps.documents.models import DocumentChunk, PdfSource
 
@@ -100,8 +95,6 @@ from django.core.files.storage import default_storage
 
 
 class PresignUploadView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         """Request body: { name, content_type, size }
         Returns presigned POST data or `{ enabled: false }` if S3 not configured.
@@ -143,8 +136,6 @@ class PresignUploadView(APIView):
 
 
 class ConfirmUploadView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         """Request body: { key, name?, content_type? }
 
@@ -174,8 +165,6 @@ class ConfirmUploadView(APIView):
 
 
 class DetectSubjectView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         """Accepts either a multipart file ('file') or 'pdfSourceId' and analyzes the
         first 2-5 pages of the PDF to auto-detect its educational subject.
@@ -218,8 +207,6 @@ class DetectSubjectView(APIView):
 
 
 class AnalyzePdfView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         """Analyzes an uploaded PDF buffer using GPT-4.1 Mini, with SHA-256 caching and
         smart page skipping.
@@ -259,8 +246,6 @@ class AnalyzePdfView(APIView):
 
 
 class ValidateMetadataView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         """Cross-validates metadata across multiple uploaded PDFs.
 
@@ -282,5 +267,4 @@ class ValidateMetadataView(APIView):
             expected_class=request.data.get("expectedClass") or None,
         )
         return Response(report)
-
 

@@ -11,7 +11,6 @@ from services.cognito_service import (
 )
 
 DEFAULT_SUPERADMIN_EMAIL = "superadmin@hsatedu.in"
-DEFAULT_SUPERADMIN_PASSWORD = "SuperAdmin@123!"
 
 
 class Command(BaseCommand):
@@ -19,7 +18,12 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         email = os.environ.get("SUPERADMIN_EMAIL", DEFAULT_SUPERADMIN_EMAIL)
-        password = os.environ.get("SUPERADMIN_PASSWORD", DEFAULT_SUPERADMIN_PASSWORD)
+        password = os.environ.get("SUPERADMIN_PASSWORD")
+        if not password:
+            raise CommandError(
+                "SUPERADMIN_PASSWORD is required. Refusing to create or reset "
+                "a platform superadmin with a committed default password."
+            )
 
         self.stdout.write(f"Ensuring Cognito group 'superadmin' exists...")
         ensure_cognito_group("superadmin", description="Platform-wide superadmin")
@@ -59,4 +63,4 @@ class Command(BaseCommand):
 
         verb = "Created" if created else "Updated"
         self.stdout.write(self.style.SUCCESS(f"{verb} local superadmin User row ({user.id})."))
-        self.stdout.write(self.style.SUCCESS(f"Superadmin login: {email} / {password}"))
+        self.stdout.write(self.style.SUCCESS(f"Superadmin login email: {email}"))

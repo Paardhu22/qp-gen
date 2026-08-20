@@ -3,6 +3,7 @@ import secrets
 from datetime import timedelta
 
 from django.conf import settings as django_settings
+from django.db import transaction
 from django.db.models import Count, Sum
 from django.db.models.functions import TruncDate
 from django.http import Http404
@@ -157,23 +158,27 @@ class OrganizationInviteAcceptView(APIView):
         if not profile.is_valid():
             return Response({"error": _first_error(profile.errors)}, status=400)
 
-        org = Organization.objects.create(
-            name=organization_name,
-            created_by=request.user,
-            **profile.validated_data,
-        )
-        Membership.objects.create(
-            user=request.user,
-            organization=org,
-            role="org_admin",
-            status="approved",
-            reviewed_by=request.user,
-            reviewed_at=timezone.now(),
-        )
+        with transaction.atomic():
+            org = Organization.objects.create(
+                name=organization_name,
+                created_by=request.user,
+                **profile.validated_data,
+            )
+            Membership.objects.create(
+                user=request.user,
+                organization=org,
+                role="org_admin",
+                status="approved",
+                reviewed_by=request.user,
+                reviewed_at=timezone.now(),
+            )
 
-        invite.status = "accepted"
-        invite.organization = org
-        invite.save(update_fields=["status", "organization"])
+            invite.status = "accepted"
+            invite.organization = org
+            invite.save(update_fields=["status", "organization"])
+
+            request.user.status = "approved"
+            request.user.save(update_fields=["status"])
 
         cognito_username = get_cognito_username(request.user)
         try:
@@ -181,9 +186,6 @@ class OrganizationInviteAcceptView(APIView):
             remove_user_from_group(cognito_username, "pending")
         except Exception as e:
             logger.error("Failed to sync Cognito groups for new org admin %s: %s", request.user.email, e)
-
-        request.user.status = "approved"
-        request.user.save(update_fields=["status"])
 
         logger.info("%s accepted invite %s and created organization %s", request.user.email, invite.id, org.id)
         return Response(OrganizationDetailSerializer(org).data, status=201)
@@ -201,11 +203,31 @@ class OrganizationJoinView(APIView):
         if not organization_id:
             return Response({"error": "organization_id is required"}, status=400)
 
-        if getattr(request.user, "membership", None):
+        existing = getattr(request.user, "membership", None)
+        if existing and existing.status != "rejected":
             return Response({"error": "Your account already belongs to an organization"}, status=400)
 
         org = _get_organization_or_404(organization_id)
-        Membership.objects.create(user=request.user, organization=org, role="teacher", status="pending")
+        if existing:
+            existing.organization = org
+            existing.role = "teacher"
+            existing.status = "pending"
+            existing.reviewed_by = None
+            existing.reviewed_at = None
+            existing.save(
+                update_fields=[
+                    "organization",
+                    "role",
+                    "status",
+                    "reviewed_by",
+                    "reviewed_at",
+                    "updated_at",
+                ]
+            )
+            request.user.status = "pending"
+            request.user.save(update_fields=["status"])
+        else:
+            Membership.objects.create(user=request.user, organization=org, role="teacher", status="pending")
 
         logger.info("%s requested to join organization %s", request.user.email, org.id)
         return Response(UserSerializer(request.user).data, status=201)
@@ -597,6 +619,7 @@ class OrganizationMemberRemoveView(_OrganizationMemberActionView):
             add_user_to_group(cognito_username, "pending")
         except Exception as e:
             logger.error("Failed to sync Cognito groups for %s: %s", member.email, e)
+            return Response({"error": f"Failed to sync with Cognito: {str(e)}"}, status=500)
 
         membership.delete()
 

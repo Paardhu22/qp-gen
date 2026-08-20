@@ -82,12 +82,18 @@ class PaperSetSerializer(serializers.ModelSerializer):
         fields = ["id", "label", "order", "content", "answers", "metadata"]
 
 
+class PaperSetListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaperSet
+        fields = ["id", "label", "order", "metadata"]
+
+
 class PaperListSerializer(serializers.ModelSerializer):
     projectName = serializers.CharField(source="project.name", read_only=True)
     answerScriptId = serializers.CharField(source="answer_script_id", read_only=True, allow_null=True)
     gradeClass = serializers.CharField(source="grade_class", read_only=True, allow_null=True)
     questionPoolId = serializers.CharField(source="question_pool_id", read_only=True, allow_null=True)
-    sets = PaperSetSerializer(many=True, read_only=True)
+    sets = PaperSetListSerializer(many=True, read_only=True)
 
     class Meta:
         model = Paper

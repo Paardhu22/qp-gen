@@ -19,7 +19,6 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from django.shortcuts import get_object_or_404
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -58,8 +57,6 @@ def _validate_book(grade: str, subject: str, book: str) -> Optional[Response]:
 
 class HsatCatalogView(APIView):
     """Return the catalog tree with per-book ingestion status."""
-
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         configured = s3_is_configured()
@@ -101,8 +98,6 @@ class HsatCatalogView(APIView):
 class HsatChaptersView(APIView):
     """Per-book chapter list with display labels + status flags."""
 
-    permission_classes = [IsAuthenticated]
-
     def get(self, request):
         grade = str(request.query_params.get("grade") or "").strip()
         subject = str(request.query_params.get("subject") or "").strip()
@@ -131,8 +126,6 @@ class HsatSourceStatusView(APIView):
     in one row lookup, which is what a 5-second poll should cost.
     """
 
-    permission_classes = [IsAuthenticated]
-
     def get(self, request, source_id: str):
         source = HsatSource.objects.filter(id=source_id).first()
         if source is None:
@@ -152,8 +145,6 @@ class HsatSourceStatusView(APIView):
 
 class HsatIngestView(APIView):
     """Trigger ingestion of a single HSAT book."""
-
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         if not s3_is_configured():
@@ -209,8 +200,6 @@ class HsatIngestView(APIView):
 
 class HsatApplyView(APIView):
     """Apply a book to a paper's RAG context (triggering ingest if needed)."""
-
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         if not s3_is_configured():
@@ -280,8 +269,6 @@ class HsatApplyView(APIView):
 
 class HsatPaperSourcesView(APIView):
     """List HSAT sources currently applied to a paper."""
-
-    permission_classes = [IsAuthenticated]
 
     def get(self, request, paper_id: str):
         paper = get_object_or_404(Paper, id=paper_id, user=request.user)

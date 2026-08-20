@@ -111,14 +111,18 @@ export function RegisterForm({
 
   // Runs once the user is authenticated for the first time (either the
   // auto-confirm signUp path or after confirmSignUp). Requests to join the
-  // selected school before landing on the dashboard — best-effort, since a
-  // failed join here shouldn't strand the user mid-signup.
+  // selected school before landing on the dashboard. If this fails, keep the
+  // teacher here: otherwise their account has no membership request and no UI
+  // to send one later.
   const finishSignup = async () => {
     if (organizationId) {
       try {
         await joinOrganization(organizationId);
       } catch (err) {
         console.warn("Failed to join organization after signup:", err);
+        setError("Your account was created, but we could not send the school join request. Check your connection and try again.");
+        setLoading(false);
+        return;
       }
     }
     router.push("/dashboard");

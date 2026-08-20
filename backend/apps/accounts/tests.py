@@ -60,6 +60,11 @@ class CognitoAuthAndPermissionsTests(TestCase):
         mock_request.user = self.admin_user
         self.assertTrue(permission.has_permission(mock_request, None))
 
+        # Superadmin implies approval even if the local status is stale.
+        self.pending_user.is_superadmin = True
+        mock_request.user = self.pending_user
+        self.assertTrue(permission.has_permission(mock_request, None))
+
     def test_is_admin_permission(self):
         permission = IsAdmin()
         mock_request = MagicMock()
@@ -156,6 +161,69 @@ class CognitoAuthAndPermissionsTests(TestCase):
         db_user = User.objects.get(id=self.approved_user.id)
         self.assertEqual(db_user.name, "Approved User Updated Name")
         self.assertEqual(db_user.status, "admin")
+
+    @patch("apps.common.authentication.CognitoTokenValidator")
+    def test_cognito_authentication_does_not_downgrade_from_stale_token(self, mock_validator_cls):
+        mock_validator = MagicMock()
+        mock_validator_cls.return_value = mock_validator
+        mock_validator.validate_token.return_value = {
+            "sub": "22222222-2222-2222-2222-222222222222",
+            "email": "approved@example.com",
+            "name": "Approved User",
+            "token_use": "id",
+            "cognito:groups": ["pending"],
+        }
+
+        authenticator = CognitoJWTAuthentication()
+        mock_request = MagicMock()
+        mock_request.META = {"HTTP_AUTHORIZATION": "Bearer valid_mock_token"}
+
+        user, _ = authenticator.authenticate(mock_request)
+
+        self.assertEqual(user.status, "approved")
+        self.assertEqual(User.objects.get(id=self.approved_user.id).status, "approved")
+
+    @patch("apps.common.authentication.CognitoTokenValidator")
+    def test_cognito_authentication_does_not_reapprove_rejected_user(self, mock_validator_cls):
+        mock_validator = MagicMock()
+        mock_validator_cls.return_value = mock_validator
+        mock_validator.validate_token.return_value = {
+            "sub": "44444444-4444-4444-4444-444444444444",
+            "email": "rejected@example.com",
+            "name": "Rejected User",
+            "token_use": "id",
+            "cognito:groups": ["approved"],
+        }
+
+        authenticator = CognitoJWTAuthentication()
+        mock_request = MagicMock()
+        mock_request.META = {"HTTP_AUTHORIZATION": "Bearer valid_mock_token"}
+
+        user, _ = authenticator.authenticate(mock_request)
+
+        self.assertEqual(user.status, "rejected")
+        self.assertEqual(User.objects.get(id=self.rejected_user.id).status, "rejected")
+
+    @patch("apps.common.authentication.CognitoTokenValidator")
+    def test_cognito_authentication_superadmin_implies_admin_status(self, mock_validator_cls):
+        mock_validator = MagicMock()
+        mock_validator_cls.return_value = mock_validator
+        mock_validator.validate_token.return_value = {
+            "sub": "55555555-5555-5555-5555-555555555555",
+            "email": "super@example.com",
+            "name": "Super Admin",
+            "token_use": "id",
+            "cognito:groups": ["superadmin"],
+        }
+
+        authenticator = CognitoJWTAuthentication()
+        mock_request = MagicMock()
+        mock_request.META = {"HTTP_AUTHORIZATION": "Bearer valid_mock_token"}
+
+        user, _ = authenticator.authenticate(mock_request)
+
+        self.assertTrue(user.is_superadmin)
+        self.assertEqual(user.status, "admin")
 
     def test_cognito_authentication_missing_header(self):
         authenticator = CognitoJWTAuthentication()

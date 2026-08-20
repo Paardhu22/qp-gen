@@ -50,7 +50,7 @@ def _pool_question(qid, *, subject="Science", chapter="Electricity", topic=None,
 
 
 def _make_user(email="pipeline@test.local", uid="pipeuser000000000000000000000001"):
-    return User.objects.create(id=uid, name="Pipe", email=email)
+    return User.objects.create(id=uid, name="Pipe", email=email, status="approved")
 
 
 #: Shapes a real CBSE Class 10 blueprint asks for. A pool of nothing but

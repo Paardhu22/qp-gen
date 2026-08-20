@@ -99,6 +99,7 @@ class GenerationHistoryStatelessnessTests(TestCase):
             id="histuser00000000000000000000001a",
             name="Hist",
             email="hist@test.local",
+            status="approved",
         )
         history = GenerationHistory.objects.create(
             prompt='{"blueprint": "..."}',

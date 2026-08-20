@@ -218,8 +218,8 @@ def _no_keepalive(stream):
 
 class ConversationApiTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create(name="Teacher", email="t@example.com")
-        self.other = User.objects.create(name="Other", email="o@example.com")
+        self.user = User.objects.create(name="Teacher", email="t@example.com", status="approved")
+        self.other = User.objects.create(name="Other", email="o@example.com", status="approved")
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
@@ -357,7 +357,7 @@ class ConversationApiTests(TestCase):
 
 class SessionStatusTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create(name="Teacher", email="t@example.com")
+        self.user = User.objects.create(name="Teacher", email="t@example.com", status="approved")
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 

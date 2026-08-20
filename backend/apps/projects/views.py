@@ -1,4 +1,3 @@
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -27,8 +26,6 @@ from services.project_service import (
 
 
 class ProjectListView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def get(self, request):
         # By default return a lightweight project summary (no nested questions)
         # Clients can request nested questions by setting ?withQuestions=true
@@ -69,8 +66,6 @@ class ProjectListView(APIView):
 
 
 class SaveQuestionsView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         serializer = SaveQuestionsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -83,8 +78,6 @@ class SaveQuestionsView(APIView):
 
 
 class PaperListView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def get(self, request):
         cache_key = f"user_papers:{request.user.id}"
         cached_data = cache.get(cache_key)
@@ -121,8 +114,6 @@ class PaperListView(APIView):
 
 
 class PaperDetailView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def get(self, request, paper_id: str):
         cache_key = f"user_paper:{request.user.id}:{paper_id}"
         cached_data = cache.get(cache_key)
@@ -182,8 +173,6 @@ class PaperDetailView(APIView):
 
 
 class QuestionDetailView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def delete(self, request, question_id: str):
         from apps.projects.models import Question
         try:
@@ -199,8 +188,6 @@ class QuestionDetailView(APIView):
 
 class ClearAllQuestionsView(APIView):
     """Delete every question belonging to the current user across all projects."""
-    permission_classes = [IsAuthenticated]
-
     def delete(self, request):
         from apps.projects.models import Question
         Question.objects.filter(project__user=request.user).delete()
@@ -211,8 +198,6 @@ class ClearAllQuestionsView(APIView):
 
 class ClearAllPapersView(APIView):
     """Delete every paper belonging to the current user."""
-    permission_classes = [IsAuthenticated]
-
     def delete(self, request):
         from apps.projects.models import Paper
         Paper.objects.filter(user=request.user).delete()
@@ -223,8 +208,6 @@ class ClearAllPapersView(APIView):
 
 
 class QuestionTypeListView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def get(self, request):
         cache_key = "all_question_types"
         cached_data = cache.get(cache_key)

@@ -1,5 +1,4 @@
 from django.http import StreamingHttpResponse
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -14,11 +13,10 @@ from apps.generation.serializers import (
 from services.openai_service import generate_answer_key
 from services.pool.keepalive import keepalive
 from services.pool.pipeline import stream_pool_questions
+from services.usage_limits import UsageLimitExceeded, check_monthly_token_limit
 
 
 class QuestionGenerationStreamView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         serializer = QuestionGenerationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -53,8 +51,6 @@ class PaperFromBankView(APIView):
     a chapter that has been generated once costs a single Model 2 call to
     re-paper — the reuse payoff of persisting the pool per-row.
     """
-
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         from services.pool.from_bank import stream_paper_from_bank
@@ -101,14 +97,17 @@ class ReplaceQuestionView(APIView):
     usually already in the teacher's bank.
     """
 
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         from services.pool.replace import ReplacementError, replace_question
 
         serializer = ReplaceQuestionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        if data.get("allowGeneration", True):
+            try:
+                check_monthly_token_limit(request.user)
+            except UsageLimitExceeded as exc:
+                return Response(exc.payload, status=402)
 
         try:
             result = replace_question(
@@ -160,8 +159,6 @@ class QuestionBankSummaryView(APIView):
     show what is available before the teacher commits to a selection.
     """
 
-    permission_classes = [IsAuthenticated]
-
     def get(self, request):
         from services.pool.store import bank_summary
 
@@ -169,18 +166,18 @@ class QuestionBankSummaryView(APIView):
 
 
 class AnswerKeyView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         serializer = AnswerKeySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        try:
+            check_monthly_token_limit(request.user)
+        except UsageLimitExceeded as exc:
+            return Response(exc.payload, status=402)
         answer_key_html = generate_answer_key(serializer.validated_data["paperContentHTML"], user=request.user)
         return Response({"answerKeyHtml": answer_key_html})
 
 
 class GenerationHistoryListView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def get(self, request):
         history = GenerationHistory.objects.filter(user=request.user).order_by("-created_at")
         serializer = GenerationHistorySerializer(history, many=True)
@@ -201,8 +198,6 @@ class TestScienceEngineView(APIView):
     Auth required: this endpoint triggers REAL LLM calls (it spends OpenAI
     budget), so it must never be reachable anonymously on a deployed host.
     """
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         from django.conf import settings
 
@@ -256,16 +251,17 @@ class AnswerScriptGenerateView(APIView):
     Returns:
         { "answer_script_paper_id": "...", "editor_url": "/editor?paperId=..." }
     """
-    permission_classes = [IsAuthenticated]
-
     def post(self, request, paper_id: str):
         from services.answer_script_service import generate_answer_script
 
         set_id = request.data.get("setId") if request.data else None
 
         try:
+            check_monthly_token_limit(request.user)
             result = generate_answer_script(paper_id=paper_id, user=request.user, set_id=set_id)
             return Response(result, status=201)
+        except UsageLimitExceeded as exc:
+            return Response(exc.payload, status=402)
         except ValueError as exc:
             return Response({"error": str(exc)}, status=400)
         except RuntimeError as exc:
@@ -279,4 +275,3 @@ class AnswerScriptGenerateView(APIView):
                 {"error": "Failed to generate answer script. Please try again."},
                 status=500,
             )
-

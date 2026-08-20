@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api-client";
 import {
   AUTH_EXPIRED_EVENT,
   isPending,
+  isSuperAdmin,
   signOut,
   startTokenRefreshWatcher,
   useSession,
@@ -91,7 +92,7 @@ export function ProtectedLayout({ children }: { children: React.ReactNode }) {
   // Fast path: useSession initialized from its module-level cache (any
   // prior navigation in this session) — render children with no flicker.
   if (data?.user) {
-    if (isPending(data.user)) {
+    if (!isSuperAdmin(data.user) && isPending(data.user)) {
       return <PendingApprovalNotice />;
     }
     return <>{children}</>;

@@ -35,7 +35,9 @@ class User(TimeStampedModel):
     @property
     def organization(self):
         membership = getattr(self, "membership", None)
-        return membership.organization if membership else None
+        if not membership or membership.status != "approved":
+            return None
+        return membership.organization
 
 
 class BrandKit(TimeStampedModel):

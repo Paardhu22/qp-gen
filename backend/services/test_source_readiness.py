@@ -37,8 +37,8 @@ def _chunk(*, pdf=None, hsat=None, idx=0):
 class CheckSourcesReadyTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.user = User.objects.create(id="u1", name="U1", email="u1@t.local")
-        cls.other = User.objects.create(id="u2", name="U2", email="u2@t.local")
+        cls.user = User.objects.create(id="u1", name="U1", email="u1@t.local", status="approved")
+        cls.other = User.objects.create(id="u2", name="U2", email="u2@t.local", status="approved")
 
     def test_ready_pdf_with_chunks_passes(self):
         src = _pdf(self.user, status="ready", sha="a")
@@ -131,7 +131,7 @@ class CheckSourcesReadyTests(TestCase):
 class PipelineGateTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.user = User.objects.create(id="pu", name="PU", email="pu@t.local")
+        cls.user = User.objects.create(id="pu", name="PU", email="pu@t.local", status="approved")
 
     def test_no_sources_at_all_is_a_hard_error_before_the_readiness_gate(self):
         # `QuestionGenerationSerializer.validate` already rejects this at the

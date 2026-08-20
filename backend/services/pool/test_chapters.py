@@ -7,9 +7,10 @@ from services.pool.chapters import build_chapters, split_chapter
 
 def _user():
     return User.objects.create(
-        id="chapteruser0000000000000000000001",
-        name="Chapters",
+        id="chuser000000000000000000000001a",
+        name="Ch",
         email="chapters@test.local",
+        status="approved",
     )
 
 

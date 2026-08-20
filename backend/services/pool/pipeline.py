@@ -669,6 +669,14 @@ def stream_pool_questions(
     hsat_source_ids = list(hsat_source_ids or [])
     started = time.monotonic()
 
+    from services.usage_limits import UsageLimitExceeded, check_monthly_token_limit
+
+    try:
+        check_monthly_token_limit(user)
+    except UsageLimitExceeded as exc:
+        yield _sse(exc.payload, event="error")
+        return
+
     # ── Sources are a required precondition ─────────────────────────────────
     # `QuestionGenerationSerializer.validate` already rejects a request with
     # neither list populated, so in production this can only be reached via

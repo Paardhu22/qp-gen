@@ -11,7 +11,7 @@ from apps.projects.models import ExportRecord, Paper, PaperSet, Project
 
 
 def _make_user(uid, email):
-    return User.objects.create(id=uid, name="Test", email=email)
+    return User.objects.create(id=uid, name="Test", email=email, status="approved")
 
 
 def _make_project(user):

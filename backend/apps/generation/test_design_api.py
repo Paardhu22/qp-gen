@@ -32,7 +32,7 @@ def a_design(*, marks=2, count=10, title="Section A"):
 
 class DesignApiTestCase(TestCase):
     def setUp(self):
-        self.user = User.objects.create(email="t@example.com", name="T")
+        self.user = User.objects.create(email="t@example.com", name="T", status="approved")
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
@@ -241,7 +241,7 @@ class PaperTemplateTests(DesignApiTestCase):
         self.assertEqual(template.settings["marks"], "30")
 
     def test_two_teachers_may_each_have_a_weekly_test(self):
-        other = User.objects.create(email="o@example.com", name="O")
+        other = User.objects.create(email="o@example.com", name="O", status="approved")
         PaperTemplate.objects.create(
             user=other, name="Weekly Test", instructions="theirs"
         )
@@ -252,7 +252,7 @@ class PaperTemplateTests(DesignApiTestCase):
         self.assertEqual(PaperTemplate.objects.count(), 2)
 
     def test_a_teacher_only_sees_their_own_templates(self):
-        other = User.objects.create(email="o@example.com", name="O")
+        other = User.objects.create(email="o@example.com", name="O", status="approved")
         PaperTemplate.objects.create(user=other, name="Theirs", instructions="x")
         PaperTemplate.objects.create(user=self.user, name="Mine", instructions="y")
 
@@ -286,7 +286,7 @@ class PaperTemplateTests(DesignApiTestCase):
         self.assertEqual(listed[0]["name"], "Recent")
 
     def test_another_teachers_template_is_not_reachable(self):
-        other = User.objects.create(email="o@example.com", name="O")
+        other = User.objects.create(email="o@example.com", name="O", status="approved")
         theirs = PaperTemplate.objects.create(
             user=other, name="Theirs", instructions="secret"
         )
@@ -401,7 +401,7 @@ class TemplateCatalogApiTests(DesignApiTestCase):
         self.assertEqual(response.data["blueprint"]["totalMarks"], 6)
 
     def test_another_teachers_template_id_is_not_resolvable(self):
-        other = User.objects.create(email="other@example.com", name="O")
+        other = User.objects.create(email="other@example.com", name="O", status="approved")
         theirs = PaperTemplate.objects.create(
             user=other, name="Theirs", blueprint={"slots": [{"questionType": "MCQ"}]}
         )
@@ -586,7 +586,7 @@ class TemplateFolderTests(DesignApiTestCase):
         self.assertEqual(folder.name, "Term One")
 
     def test_another_teachers_folder_is_not_found(self):
-        other = User.objects.create(email="o@example.com", name="O")
+        other = User.objects.create(email="o@example.com", name="O", status="approved")
         theirs = TemplateFolder.objects.create(user=other, name="Theirs")
 
         self.assertEqual(self.client.get(self.URL).json()["folders"], [])
@@ -682,7 +682,7 @@ class PaperTemplateEditTests(DesignApiTestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_another_teachers_template_cannot_be_edited(self):
-        other = User.objects.create(email="o@example.com", name="O")
+        other = User.objects.create(email="o@example.com", name="O", status="approved")
         theirs = PaperTemplate.objects.create(
             user=other, name="Theirs", instructions="x"
         )
@@ -829,7 +829,7 @@ class PaperTemplateDuplicateTests(DesignApiTestCase):
         self.assertIsNone(response.json()["template"]["last_used_at"])
 
     def test_another_teachers_template_cannot_be_duplicated(self):
-        other = User.objects.create(email="o@example.com", name="O")
+        other = User.objects.create(email="o@example.com", name="O", status="approved")
         theirs = PaperTemplate.objects.create(
             user=other, name="Theirs", instructions="x"
         )

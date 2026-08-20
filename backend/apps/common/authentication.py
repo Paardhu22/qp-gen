@@ -7,6 +7,11 @@ from services.cognito_service import CognitoTokenValidator, get_user_info_from_c
 
 logger = logging.getLogger("[COGNITO_AUTHENTICATION]")
 
+
+def _status_rank(status: str) -> int:
+    return {"pending": 0, "rejected": 0, "approved": 1, "admin": 2}.get(status, 0)
+
+
 class CognitoJWTAuthentication(BaseAuthentication):
     keyword = "Bearer"
 
@@ -37,19 +42,19 @@ class CognitoJWTAuthentication(BaseAuthentication):
         # Cognito sub is a 36-char UUID. Strip hyphens to fit local User.id (32 chars)
         user_id = sub.replace("-", "")
 
-        # Extract groups to determine status: admin > approved > pending
+        # Extract groups to determine status: superadmin/admin > approved > pending
         groups = payload.get("cognito:groups", [])
         if not isinstance(groups, list):
             groups = [groups]
 
-        if "admin" in groups:
+        is_superadmin = "superadmin" in groups
+
+        if is_superadmin or "admin" in groups:
             status = "admin"
         elif "approved" in groups:
             status = "approved"
         else:
             status = "pending"
-
-        is_superadmin = "superadmin" in groups
 
         try:
             user = User.objects.filter(id=user_id).first()
@@ -96,8 +101,14 @@ class CognitoJWTAuthentication(BaseAuthentication):
                 if name and user.name != name:
                     user.name = name
                     updated_fields.append("name")
-                if user.status != status:
-                    # Sync Cognito group status to local DB
+                if is_superadmin and user.status != "admin":
+                    user.status = "admin"
+                    updated_fields.append("status")
+                elif user.status != "rejected" and _status_rank(status) > _status_rank(
+                    user.status
+                ):
+                    # Cognito can raise privilege, but stale JWT groups must
+                    # not downgrade a row freshly approved in the database.
                     user.status = status
                     updated_fields.append("status")
                 if user.is_superadmin != is_superadmin:

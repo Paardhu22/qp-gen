@@ -82,6 +82,14 @@ def stream_paper_from_bank(
     is_gim = str(qp_type or "").strip().lower() == "general_instructions"
     num_sets = _resolve_num_sets(payload)
 
+    from services.usage_limits import UsageLimitExceeded, check_monthly_token_limit
+
+    try:
+        check_monthly_token_limit(user)
+    except UsageLimitExceeded as exc:
+        yield _sse(exc.payload, event="error")
+        return
+
     # ── Load the bank ───────────────────────────────────────────────────
     yield _sse(
         {"stage": "loading_bank", "message": "Loading your saved questions…"},

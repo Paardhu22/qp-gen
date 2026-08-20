@@ -93,7 +93,7 @@ class SlotReconstructionTests(TestCase):
 class ReplaceFromBankTests(TestCase):
     def setUp(self):
         self.user = User.objects.create(
-            id="replace00000000000000000000001", name="R", email="r@test.local"
+            id="replace00000000000000000000001", name="R", email="r@test.local", status="approved"
         )
         store.persist_pool(
             user=self.user,
@@ -182,7 +182,7 @@ class ReplaceFromBankTests(TestCase):
 class ReplaceByGeneratingTests(TestCase):
     def setUp(self):
         self.user = User.objects.create(
-            id="replace00000000000000000000002", name="G", email="g@test.local"
+            id="replace00000000000000000000002", name="G", email="g@test.local", status="approved"
         )
 
     def test_an_asset_slot_calls_its_own_generator_for_one_slot(self):
@@ -301,7 +301,7 @@ class ReplaceEndpointTests(TestCase):
 
     def setUp(self):
         self.user = User.objects.create(
-            id="replace00000000000000000000003", name="E", email="e@test.local"
+            id="replace00000000000000000000003", name="E", email="e@test.local", status="approved"
         )
         store.persist_pool(
             user=self.user,

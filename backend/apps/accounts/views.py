@@ -155,8 +155,6 @@ class BrandKitView(APIView):
     address must be able to send an empty string and have it stick.
     """
 
-    permission_classes = [IsAuthenticated]
-
     def get(self, request):
         kit = get_or_create_kit(request.user)
         return Response({"brandKit": serialize_kit(kit)})
@@ -211,7 +209,6 @@ class BrandAssetListView(APIView):
     uploading straight to a bucket cannot do.
     """
 
-    permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
@@ -240,8 +237,6 @@ class BrandAssetListView(APIView):
 
 class BrandAssetDetailView(APIView):
     """Rename or delete one logo."""
-
-    permission_classes = [IsAuthenticated]
 
     def _get(self, request, asset_id):
         # Scoped through the kit's owner, so another account's asset id is a

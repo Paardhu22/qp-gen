@@ -17,7 +17,7 @@ from services.chapter_markdown import (
 
 
 def _make_user(email="md@test.local"):
-    return User.objects.create(id="mduser00000000000000000000000001", name="MD", email=email)
+    return User.objects.create(id="mduser00000000000000000000000001", name="MD", email=email, status="approved")
 
 
 def _make_source(user, name="electricity.pdf"):

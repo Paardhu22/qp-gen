@@ -17,7 +17,6 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -35,6 +34,7 @@ from services.paper_design import (
     infer_settings,
     is_ready,
 )
+from services.usage_limits import UsageLimitExceeded, check_monthly_token_limit
 
 logger = logging.getLogger("[DESIGN]")
 
@@ -122,8 +122,6 @@ class DesignPaperView(APIView):
     the teacher is still typing — both surfaces debounce it. It writes nothing.
     """
 
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         payload = request.data or {}
         instructions = str(payload.get("instructions") or "").strip()
@@ -142,6 +140,10 @@ class DesignPaperView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        try:
+            check_monthly_token_limit(request.user)
+        except UsageLimitExceeded as exc:
+            return Response(exc.payload, status=status.HTTP_402_PAYMENT_REQUIRED)
 
         # Settings already on the form/spec win; anything the teacher only said
         # in prose is read out of the text so the flow does not ask for
@@ -191,8 +193,6 @@ class PaperTemplateListView(APIView):
     called — which is what lets "start from CBSE Class 10 Science" and "start
     from my Weekly Test" be the same interaction.
     """
-
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         from services.template_catalog import list_templates
@@ -289,8 +289,6 @@ class PaperTemplateListView(APIView):
 class TemplateFolderListView(APIView):
     """List and create the teacher's template folders."""
 
-    permission_classes = [IsAuthenticated]
-
     def get(self, request):
         folders = (
             TemplateFolder.objects.filter(user=request.user)
@@ -356,8 +354,6 @@ class TemplateFolderListView(APIView):
 
 class TemplateFolderDetailView(APIView):
     """Rename, move or delete one folder."""
-
-    permission_classes = [IsAuthenticated]
 
     def patch(self, request, folder_id):
         folder = _folder_for(request.user, folder_id)
@@ -450,8 +446,6 @@ class TemplateResolveView(APIView):
     rather than a browse.
     """
 
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         from services.template_catalog import resolve_builtin
         from services.templates import TemplateBlueprint, apply_source_ratio
@@ -540,8 +534,6 @@ class QuestionTypeCatalogView(APIView):
     mapping (coming later) ships without a frontend release.
     """
 
-    permission_classes = [IsAuthenticated]
-
     def get(self, request):
         from services.templates import question_types_for
 
@@ -561,8 +553,6 @@ class QuestionImageView(APIView):
     the pipeline does speculatively — the teacher has read the question and
     decided a figure helps before a single cent is spent.
     """
-
-    permission_classes = [IsAuthenticated]
 
     #: Long enough for a real question, short enough that the prompt cannot be
     #: used as a free text channel to the image model.
@@ -590,11 +580,14 @@ class QuestionImageView(APIView):
             question_text = question_text[: self.MAX_QUESTION_CHARS]
 
         try:
+            check_monthly_token_limit(request.user)
             result = generate_question_image(
                 question_text=question_text,
                 style=payload.get("style"),
                 user=request.user,
             )
+        except UsageLimitExceeded as exc:
+            return Response(exc.payload, status=status.HTTP_402_PAYMENT_REQUIRED)
         except QuestionImageError as exc:
             return Response(
                 {"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY
@@ -611,8 +604,6 @@ class PaperTemplateDetailView(APIView):
     "this recipe is wrong, change it". Collapsing them would make opening a
     template in the editor silently rewrite it.
     """
-
-    permission_classes = [IsAuthenticated]
 
     def _get(self, request, template_id):
         # Scoped to the requesting user, so an id from another account is a
@@ -806,8 +797,6 @@ class PaperTemplateForkView(APIView):
     at, not one re-derived later from prose that no longer describes it.
     """
 
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
         from services.template_catalog import get_entry, resolve_builtin
 
@@ -907,8 +896,6 @@ class PaperTemplateDuplicateView(APIView):
     original's, so a duplicate made to experiment with does not immediately
     outrank the template it was copied from in the picker.
     """
-
-    permission_classes = [IsAuthenticated]
 
     def post(self, request, template_id):
         source = PaperTemplate.objects.filter(

@@ -11,7 +11,6 @@ import logging
 from django.http import StreamingHttpResponse
 from rest_framework import status
 from rest_framework.generics import get_object_or_404
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -26,6 +25,7 @@ from services.chat_service import (
     suggest_title,
 )
 from services.pool.keepalive import keepalive
+from services.usage_limits import UsageLimitExceeded, check_monthly_token_limit
 
 from .models import ChatMessage, Conversation
 from .serializers import (
@@ -46,8 +46,6 @@ class ConversationListCreateView(APIView):
     POST /api/chat/conversations — start a new one.
     """
 
-    permission_classes = [IsAuthenticated]
-
     def get(self, request):
         conversations = request.user.conversations.all()
         return Response(ConversationSerializer(conversations, many=True).data)
@@ -65,8 +63,6 @@ class ConversationListCreateView(APIView):
 
 class ConversationDetailView(APIView):
     """GET a conversation with its messages, DELETE it, or PATCH its title."""
-
-    permission_classes = [IsAuthenticated]
 
     def get_object(self, request, conversation_id):
         return get_object_or_404(request.user.conversations, id=conversation_id)
@@ -97,8 +93,6 @@ class ConversationStatusView(APIView):
     they walked away from reads as paused instead of sitting at the top
     pretending to be in progress.
     """
-
-    permission_classes = [IsAuthenticated]
 
     ALLOWED = {
         Conversation.STATUS_ACTIVE,
@@ -138,8 +132,6 @@ class ChatMessageStreamView(APIView):
     still records what the model actually said.
     """
 
-    permission_classes = [IsAuthenticated]
-
     def post(self, request, conversation_id):
         conversation = get_object_or_404(request.user.conversations, id=conversation_id)
 
@@ -147,6 +139,11 @@ class ChatMessageStreamView(APIView):
         serializer.is_valid(raise_exception=True)
         content = serializer.validated_data["content"]
         attachments = serializer.validated_data.get("attachments") or []
+
+        try:
+            check_monthly_token_limit(request.user)
+        except UsageLimitExceeded as exc:
+            return Response(exc.payload, status=status.HTTP_402_PAYMENT_REQUIRED)
 
         is_first_turn = not conversation.messages.exists()
         ChatMessage.objects.create(

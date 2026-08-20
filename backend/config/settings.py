@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import sys
 
 import dj_database_url
 from corsheaders.defaults import default_headers
@@ -11,6 +12,11 @@ load_dotenv(BASE_DIR / ".env", override=True)
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "unsafe-dev-key")
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
+if "test" not in sys.argv and not DEBUG and SECRET_KEY == "unsafe-dev-key":
+    raise RuntimeError(
+        "DJANGO_SECRET_KEY is required when DJANGO_DEBUG=false. "
+        "Set it in backend/.env and restart the app."
+    )
 
 allowed_hosts = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 ALLOWED_HOSTS = [host.strip() for host in allowed_hosts if host.strip()]
@@ -74,7 +80,6 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # Require a PostgreSQL DATABASE_URL — do not fall back to SQLite unless running tests.
-import sys
 if "test" in sys.argv:
     DATABASES = {
         "default": {
@@ -623,4 +628,3 @@ LOGGING = {
         },
     },
 }
-

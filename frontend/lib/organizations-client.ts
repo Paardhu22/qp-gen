@@ -13,6 +13,7 @@ export type OrganizationSummary = {
   created_at: string;
   member_count: number;
   total_tokens: number;
+  monthly_token_limit: number;
   admin_email: string | null;
   logo_url: string | null;
   city: string;

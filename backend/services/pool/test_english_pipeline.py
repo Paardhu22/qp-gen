@@ -114,7 +114,7 @@ def _fake_assets(plan, **kwargs):
 class EnglishPipelineTests(TestCase):
     def setUp(self):
         self.user = User.objects.create(
-            id="engpipe00000000000000000000001", name="Eng", email="eng@test.local"
+            id="engpipe00000000000000000000001", name="Eng", email="eng@test.local", status="approved"
         )
         self.source = PdfSource.objects.create(
             name="footprints.pdf", size=100, status="ready", user=self.user
@@ -353,7 +353,7 @@ class EnglishFromBankTests(TestCase):
 
     def setUp(self):
         self.user = User.objects.create(
-            id="engbank0000000000000000000001", name="Bank", email="bank@test.local"
+            id="engbank0000000000000000000001", name="Bank", email="bank@test.local", status="approved"
         )
 
     def _seed_literature(self):

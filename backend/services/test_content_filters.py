@@ -231,7 +231,7 @@ class ViIngestionTests(TestCase):
         from apps.accounts.models import User
 
         cls.user = User.objects.create(
-            id="round4-vi-user", name="Round4", email="round4-vi@test.local"
+            id="round4-vi-user", name="Round4", email="round4-vi@test.local", status="approved"
         )
 
     def test_ingested_chunks_contain_no_vi_blocks(self):

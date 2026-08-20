@@ -73,6 +73,7 @@ class OrganizationListSerializer(serializers.ModelSerializer):
             "created_at",
             "member_count",
             "total_tokens",
+            "monthly_token_limit",
             "admin_email",
             "logo_url",
             "city",
@@ -114,7 +115,9 @@ class MembershipSerializer(serializers.ModelSerializer):
         ]
 
     def get_tokens_consumed(self, obj):
-        result = ApiUsage.objects.filter(user=obj.user).aggregate(total=Sum("total_tokens"))
+        result = ApiUsage.objects.filter(
+            user=obj.user, organization=obj.organization
+        ).aggregate(total=Sum("total_tokens"))
         return result["total"] or 0
 
 

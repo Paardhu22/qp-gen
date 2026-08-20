@@ -37,7 +37,7 @@ BACKFILL_CMD = "apps.projects.management.commands.backfill_set_content_to_s3"
 
 
 def _make_user(uid: str, email: str) -> User:
-    return User.objects.create(id=uid, name="Test", email=email)
+    return User.objects.create(id=uid, name="Test", email=email, status="approved")
 
 
 def _set_a(content: str) -> list:

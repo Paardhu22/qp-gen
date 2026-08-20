@@ -3,7 +3,7 @@
 /**
  * Building a paper's masthead from the school's brand kit.
  *
- * `defaultHeaderJSON` is a module constant reading "PA1 - CENTRAL OFFICE",
+ * `defaultHeaderJSON` is a module constant reading "SCHOOL NAME",
  * inserted at four points in the editor. It has to stay a constant — those
  * call sites are synchronous, inside ProseMirror transactions, and cannot wait
  * on a fetch — so the kit is fetched once and cached here instead, and the

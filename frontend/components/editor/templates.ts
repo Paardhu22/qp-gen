@@ -1,7 +1,7 @@
 export const defaultHeaderJSON = {
   type: "paperHeaderBlock",
   content: [
-    { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "PA1 - CENTRAL OFFICE" }] },
+    { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "SCHOOL NAME" }] },
     { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "CBSE - Question Paper" }] },
     {
       type: "table",
@@ -34,7 +34,7 @@ export const defaultHeaderJSON = {
 export const templates = {
   cbse: `
     <div data-type="paper-header-block">
-      <h1>PA1 - CENTRAL OFFICE</h1>
+      <h1>SCHOOL NAME</h1>
       <h2>CBSE - Question Paper</h2>
       <table>
         <thead>

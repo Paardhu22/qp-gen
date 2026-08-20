@@ -617,7 +617,7 @@ export const TiptapEditor = ({
   const uploadedDocsRef = useRef<{ id: string; name: string; size: number }[]>(uploadedDocs || []);
 
   // Warm the brand kit so a header inserted later carries the school's name and
-  // crest instead of the "PA1 - CENTRAL OFFICE" placeholder. The insertion
+  // crest instead of the "SCHOOL NAME" placeholder. The insertion
   // sites are synchronous ProseMirror transactions and cannot await, so the
   // cache has to be filled ahead of them; see lib/brand-header.ts.
   useEffect(() => {

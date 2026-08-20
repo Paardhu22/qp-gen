@@ -17,7 +17,6 @@ from datetime import datetime, timezone
 from botocore.exceptions import BotoCoreError, ClientError
 from django.conf import settings
 from django.utils.text import slugify
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -87,8 +86,6 @@ def _build_s3_key(
 
 class UploadExportView(APIView):
     """Accept a generated PDF/DOCX from the browser, store in S3, record key."""
-
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         if not is_configured():
@@ -190,8 +187,6 @@ class UploadExportView(APIView):
 
 class ExportUrlView(APIView):
     """Return a fresh presigned GET URL for a previously-uploaded export key."""
-
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         if not is_configured():

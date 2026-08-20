@@ -50,6 +50,11 @@ class Organization(TimeStampedModel):
     logo_width = models.IntegerField(null=True, blank=True)
     logo_height = models.IntegerField(null=True, blank=True)
 
+    #: Zero means no cap. A positive number blocks new billable model calls
+    #: once this organization's recorded usage for the calendar month reaches
+    #: the limit.
+    monthly_token_limit = models.PositiveIntegerField(default=0)
+
     class Meta:
         db_table = "Organization"
         ordering = ["name"]
