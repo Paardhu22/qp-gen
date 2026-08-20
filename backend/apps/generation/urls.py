@@ -17,6 +17,8 @@ from .views import (
     AnswerKeyView,
     AnswerScriptGenerateView,
     GenerationHistoryListView,
+    GenerationRunEventsView,
+    GenerationRunListView,
     PaperFromBankView,
     QuestionBankSummaryView,
     QuestionGenerationStreamView,
@@ -31,6 +33,13 @@ urlpatterns = [
     # Regenerate exactly one question, preserving its blueprint slot.
     path("replace-question", ReplaceQuestionView.as_view(), name="replace-question"),
     path("bank-summary", QuestionBankSummaryView.as_view(), name="bank-summary"),
+    # Durable runs: find a generation you lost, and re-attach to it.
+    path("runs", GenerationRunListView.as_view(), name="generation-runs"),
+    path(
+        "runs/<str:run_id>/events",
+        GenerationRunEventsView.as_view(),
+        name="generation-run-events",
+    ),
     # General Instructions Mode: turn prose into a paper structure, and report
     # the constraints it did not settle. Cheap, writes nothing, safe to call
     # while the teacher is still typing.

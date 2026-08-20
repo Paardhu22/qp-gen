@@ -207,3 +207,122 @@ class ApiUsage(TimeStampedModel):
 
     class Meta:
         db_table = "ApiUsage"
+
+
+class GenerationRun(TimeStampedModel):
+    """One generation, as a thing that exists apart from the request that started it.
+
+    Generation streams SSE for anywhere from thirty seconds to several minutes.
+    Before this, that stream *was* the run: close the laptop, lose signal, or
+    let a phone sleep, and the paper was gone — the pool questions had been
+    auto-saved to the bank, but the assembled paper the teacher was waiting for
+    had nowhere to be delivered and no way to be asked for again.
+
+    Recording the run separates producing the work from delivering it. The
+    pipeline writes frames here; an HTTP response reads them. A client can
+    disconnect and re-attach with `?cursor=`, replaying what it missed and then
+    following the rest live.
+
+    **What this does not promise.** The producer is a daemon thread inside a
+    gunicorn worker, so a run survives a client disconnect but not a worker
+    restart — `max-requests` recycling, a deploy, or an OOM kill all end it
+    mid-flight. That is why `heartbeat_at` exists: a run whose producer has
+    died stops being reported as running instead of hanging there forever. A
+    guarantee across restarts needs a real task queue, and this is deliberately
+    not pretending to be one.
+    """
+
+    STATUS_RUNNING = "running"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+    #: The producer stopped updating its heartbeat — almost always a worker
+    #: restart. Distinct from `failed`, which means the pipeline itself raised.
+    STATUS_ABANDONED = "abandoned"
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, "Running"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_FAILED, "Failed"),
+        (STATUS_ABANDONED, "Abandoned"),
+    ]
+
+    TERMINAL_STATUSES = frozenset(
+        {STATUS_COMPLETED, STATUS_FAILED, STATUS_ABANDONED}
+    )
+
+    id = models.CharField(primary_key=True, max_length=32, default=generate_id, editable=False)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        db_column="userId",
+        related_name="generation_runs",
+    )
+    #: Which stream this is — "questions", "paper_from_bank". Free text rather
+    #: than choices because the set grows with the product and a migration per
+    #: new stream would be friction for no safety.
+    kind = models.CharField(max_length=32)
+    status = models.CharField(max_length=16, default=STATUS_RUNNING, choices=STATUS_CHOICES)
+
+    #: What was asked for. Kept so a resumed run can be described to the
+    #: teacher ("Class 10 Science, 80 marks") without replaying its events, and
+    #: so a failed run can be re-submitted without retyping the form.
+    request = models.JSONField(default=dict, blank=True)
+
+    #: Last time the producer wrote anything. See the class docstring — this is
+    #: how a run whose worker died stops being reported as still running.
+    heartbeat_at = models.DateTimeField(auto_now_add=True, db_column="heartbeatAt")
+    finished_at = models.DateTimeField(null=True, blank=True, db_column="finishedAt")
+    error = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "GenerationRun"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-created_at"], name="genrun_user_recent_idx"),
+            models.Index(fields=["status", "heartbeat_at"], name="genrun_status_beat_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.kind} ({self.status})"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in self.TERMINAL_STATUSES
+
+
+class GenerationEvent(models.Model):
+    """One SSE frame of a run, stored verbatim.
+
+    Verbatim, and as its own row per frame, for two reasons. The frame is
+    already the wire format, so replaying a run is writing bytes back out
+    rather than reconstructing them — there is no second serializer to drift.
+    And appending is an INSERT: accumulating frames into a JSON column on the
+    run would rewrite the whole column on every one of a few hundred events.
+
+    `seq` is the cursor a re-attaching client sends. Monotonic per run, so
+    "everything after 47" is a single indexed range scan.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=generate_id, editable=False)
+    run = models.ForeignKey(
+        GenerationRun, on_delete=models.CASCADE, related_name="events"
+    )
+    seq = models.IntegerField()
+    #: The SSE event name ("question", "done", "error", …), lifted out of the
+    #: frame so a run can be summarised without parsing every frame back.
+    name = models.CharField(max_length=64, blank=True, default="")
+    #: The complete `event: …\ndata: …\n\n` block, ready to write to the wire.
+    frame = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "GenerationEvent"
+        ordering = ["seq"]
+        constraints = [
+            models.UniqueConstraint(fields=["run", "seq"], name="unique_event_seq_per_run")
+        ]
+        indexes = [
+            models.Index(fields=["run", "seq"], name="genevent_run_seq_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"#{self.seq} {self.name or 'message'}"

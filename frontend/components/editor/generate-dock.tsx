@@ -78,6 +78,14 @@ interface Props {
   /** Uploads + library books currently attached to this paper. */
   sourceCount?: number;
   /**
+   * A generation this browser started and lost sight of — a reload, a phone
+   * that slept, a connection that gave out. The work is still being produced
+   * on the server; this is the way back to it. Null for almost every mount.
+   */
+  resumable?: { startedAt: number } | null;
+  onResume?: () => void;
+  onDismissResume?: () => void;
+  /**
    * The review tray, when a single-set run has questions waiting on a
    * decision. It belongs in this panel rather than in a corner of the screen:
    * it is the tail of the run that started here, and as a floating overlay it
@@ -94,6 +102,16 @@ const EXAMPLES = [
   "Class 9 Maths, mostly application questions",
 ];
 
+/** "4 minutes ago", roughly. Precision is not the point — recency is. */
+function relativeTime(timestamp: number): string {
+  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60_000));
+  if (minutes < 1) return "moments ago";
+  if (minutes === 1) return "a minute ago";
+  if (minutes < 60) return `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  return hours === 1 ? "an hour ago" : `${hours} hours ago`;
+}
+
 export function GenerateDock({
   open,
   onOpenChange,
@@ -107,6 +125,9 @@ export function GenerateDock({
   generatedCount = 0,
   lastQuestion = null,
   sourceCount = 0,
+  resumable,
+  onResume,
+  onDismissResume,
   review,
 }: Props) {
   const [brief, setBrief] = React.useState("");
@@ -211,6 +232,41 @@ export function GenerateDock({
         </div>
 
         <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
+          {/* ── A generation we lost sight of ─────────────────────────────
+              Above the controls, because it is the only thing on this panel
+              that expires: the run is still being produced on the server, and
+              the offer to pick it up is worth more than the offer to start
+              another. Dismissible — a teacher who has moved on should not be
+              nagged by a paper they no longer want. */}
+          {!generating && resumable ? (
+            <div className="mb-3 rounded-lg border border-primary/40 bg-primary/5 p-3">
+              <p className="text-[13px] font-medium text-foreground">
+                A generation is still running
+              </p>
+              <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
+                You started one {relativeTime(resumable.startedAt)} and this tab
+                lost the connection. It kept going on the server — pick it back
+                up and nothing is lost.
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onResume}
+                  className="rounded-md bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground hover:opacity-90"
+                >
+                  Pick it back up
+                </button>
+                <button
+                  type="button"
+                  onClick={onDismissResume}
+                  className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                >
+                  Discard
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {/* ── While a run is in flight ──────────────────────────────────
               A count against the blueprint's own slot total once it is known
               (from the `plan` event — the one number in this stream that is
