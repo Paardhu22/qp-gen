@@ -427,10 +427,7 @@ export default function TemplatesPage() {
               ))}
             </div>
           ) : visibleTemplates.length === 0 ? (
-            <EmptyState
-              searching={Boolean(term)}
-              onBrowseBuiltins={() => setSelection({ kind: "builtin" })}
-            />
+            <EmptyState searching={Boolean(term)} />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {visibleTemplates.map((template) => (
@@ -524,13 +521,7 @@ function selectionMatches(a: FolderSelection, b: FolderSelection): boolean {
   return true;
 }
 
-function EmptyState({
-  searching,
-  onBrowseBuiltins,
-}: {
-  searching: boolean;
-  onBrowseBuiltins: () => void;
-}) {
+function EmptyState({ searching }: { searching: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
       <LayoutTemplate className="h-10 w-10 opacity-30" />
@@ -538,15 +529,10 @@ function EmptyState({
         {searching ? "No templates match that." : "Nothing here yet."}
       </p>
       {!searching ? (
-        <>
-          <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
-            Start from a built-in CBSE paper and make it yours, or save a
-            template the next time you generate one.
-          </p>
-          <Button size="sm" variant="outline" onClick={onBrowseBuiltins}>
-            Browse built-in templates
-          </Button>
-        </>
+        <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+          Start from a built-in CBSE paper under "Built-in" and make it
+          yours, or save a template the next time you generate one.
+        </p>
       ) : null}
     </div>
   );

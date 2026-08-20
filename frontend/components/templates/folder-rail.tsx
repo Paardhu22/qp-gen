@@ -18,7 +18,6 @@
 
 import * as React from "react";
 import {
-  ChevronRight,
   Folder,
   FolderPlus,
   Inbox,
@@ -30,7 +29,6 @@ import {
   FilePlus,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
@@ -387,16 +385,6 @@ export function FolderRail({
       ) : null}
 
       <div className="flex-1" />
-
-      <Button
-        variant="ghost"
-        size="sm"
-        className="justify-start gap-2 text-xs text-muted-foreground"
-        onClick={() => onSelect({ kind: "builtin" })}
-      >
-        <ChevronRight className="h-3.5 w-3.5" />
-        Browse built-in templates
-      </Button>
     </nav>
   );
 }
