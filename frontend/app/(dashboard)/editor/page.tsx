@@ -48,6 +48,7 @@ import {
   getLatestLiveDocumentForUser,
   getLiveDocument,
 } from "@/lib/live-document-db";
+import { deleteServerDraft, pullDrafts } from "@/lib/drafts-sync";
 import {
   basePaperId,
   withSetSuffix,
@@ -184,6 +185,10 @@ export default function EditorPage() {
     //    that was open a moment ago.
     if (userId) {
       await deleteLiveDocumentsForPaper(userId, DRAFT_PAPER_ID);
+      // Same reasoning as `discardDraftScope`: the legacy shared scope is
+      // being cleared, and leaving the server's copy would let the next pull
+      // put it straight back.
+      await deleteServerDraft(DRAFT_PAPER_ID);
     }
 
     // 2. Drop the multi-set references so the Set B/C tabs disappear and their
@@ -601,11 +606,25 @@ export default function EditorPage() {
           // un-suffixed key only exists for pre-set-tabs drafts. Read the
           // legacy key first, then Set A, so the page still recovers the
           // draft's title/class/subject instead of showing "Unsaved Draft".
-          const draft =
+          let draft =
             (await getLiveDocument(getLiveDocumentId(userId, paperId))) ??
             (await getLiveDocument(
               getLiveDocumentId(userId, withSetSuffix(paperId, "A")),
             ));
+          // Nothing local: this is either another device or a browser whose
+          // storage was cleared. Reconcile with the server before concluding
+          // the draft is empty — landing a teacher in a blank editor on a link
+          // to real work is the exact failure the server copy exists to
+          // prevent. Best-effort; if the server is unreachable we fall through
+          // to the blank state, which is what happened before it existed.
+          if (!draft) {
+            await pullDrafts(userId).catch(() => null);
+            draft =
+              (await getLiveDocument(getLiveDocumentId(userId, paperId))) ??
+              (await getLiveDocument(
+                getLiveDocumentId(userId, withSetSuffix(paperId, "A")),
+              ));
+          }
           if (draft && active) {
             setPaperContent(
               draft.editorJSON ? JSON.stringify(draft.editorJSON) : "",
@@ -732,6 +751,12 @@ export default function EditorPage() {
       const uid = sessionData?.user?.id;
       if (!uid || !scope || !isDraftPaperId(scope)) return;
       await deleteLiveDocumentsForPaper(uid, scope);
+      // The server copy goes at the same moment, and this is the one place
+      // that must not be missed: from here the Paper row is authoritative, and
+      // a surviving draft is a second copy of the same work that diverges from
+      // it and then reappears in the drafts strip as a ghost of a paper that
+      // already exists.
+      await deleteServerDraft(scope);
     },
     [sessionData?.user?.id],
   );
@@ -1119,6 +1144,9 @@ export default function EditorPage() {
               generatedCount={generation.generatedCount}
               lastQuestion={generation.lastQuestion}
               sourceCount={uploadedDocs.length + hsatSources.length}
+              resumable={generation.resumableRun}
+              onResume={() => void generation.resume()}
+              onDismissResume={generation.dismissResumable}
               review={reviewPending ? <ReviewTray /> : null}
             />
           }

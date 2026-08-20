@@ -39,8 +39,31 @@ class Paper(TimeStampedModel):
         max_length=32, null=True, blank=True, db_column="questionPoolId"
     )
 
+    #: When the teacher deleted this paper, or null while it is live.
+    #:
+    #: Delete is one click sitting next to "open", and what it destroys is a
+    #: term's worth of work — a paper carries its blueprint, three set variants,
+    #: an answer key and every question in it. A hard delete makes that click
+    #: unsurvivable, and "are you sure?" is not a safety net, it is a speed
+    #: bump people learn to click through.
+    #:
+    #: A stamp rather than a boolean because the retention window is measured
+    #: from it: `PAPER_TRASH_RETENTION_DAYS` after this moment the row is
+    #: genuinely removed. Every list must filter on it — a paper in the bin is
+    #: deleted as far as the rest of the product is concerned.
+    deleted_at = models.DateTimeField(
+        null=True, blank=True, db_column="deletedAt"
+    )
+
     class Meta:
         db_table = "Paper"
+        indexes = [
+            # Every papers listing is "mine, not deleted, newest first".
+            models.Index(
+                fields=["user", "deleted_at", "-updated_at"],
+                name="paper_user_deleted_idx",
+            ),
+        ]
 
 
 class PaperSet(TimeStampedModel):
@@ -75,6 +98,78 @@ class PaperSet(TimeStampedModel):
     class Meta:
         db_table = "PaperSet"
         ordering = ["order"]
+class Draft(TimeStampedModel):
+    """An unsaved paper, kept on the server instead of only in one browser.
+
+    Drafts used to live solely in IndexedDB. That made them invisible outside
+    the browser that made them, which is wrong in the two ways that matter to
+    a teacher: a paper started on a laptop at home cannot be finished on the
+    staffroom PC, and clearing site data — or a browser doing it for you —
+    destroys work with no copy anywhere. The local store is still the
+    authority for *speed*; this is the copy that survives the device.
+
+    One row per set tab, which is how the editor already writes them: a
+    three-set paper is three drafts sharing a `scope`. Folding them into one
+    row would mean rewriting the whole paper on every keystroke in any tab.
+
+    `document` is the editor's own payload, stored whole rather than unpacked
+    into columns. The alternative is a schema that has to be migrated in step
+    with the editor's document shape, and the server has no opinion about that
+    shape — it stores and returns it. The denormalised `title`, `class_name`
+    and `subject` beside it exist only so the drafts list can be drawn without
+    loading every document body.
+
+    A draft stops being a draft the moment it is saved as a paper: it gets a
+    real Paper row, and `DraftListView` deletes it. That is also what takes it
+    off the retention clock — the clock only ever runs on work left unsaved.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=generate_id, editable=False)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        db_column="userId",
+        related_name="drafts",
+    )
+    #: The base paper id the editor puts back into `?paperId=` — "draft-abc",
+    #: or "current" for the pre-set-tabs scope. NOT the set-suffixed id.
+    scope = models.CharField(max_length=64)
+    #: "A", "B", "C", or "" for the legacy un-suffixed document.
+    set_label = models.CharField(max_length=8, blank=True, default="")
+
+    title = models.CharField(max_length=255, blank=True, default="")
+    class_name = models.CharField(max_length=100, blank=True, default="", db_column="className")
+    subject = models.CharField(max_length=255, blank=True, default="")
+
+    #: The editor's `LiveEditorDocument`, verbatim. See the class docstring.
+    document = models.JSONField(default=dict, blank=True)
+
+    #: The client's own clock at the moment of the edit, in epoch ms.
+    #:
+    #: Conflict resolution is last-write-wins on THIS, not on `updated_at`:
+    #: two devices editing the same draft must be ordered by when the teacher
+    #: typed, not by which push happened to reach the server first over a slow
+    #: connection. Client clocks are imperfect, but a request arriving late is
+    #: the far more common failure and this is the one that handles it.
+    client_updated_at = models.BigIntegerField(default=0, db_column="clientUpdatedAt")
+
+    class Meta:
+        db_table = "Draft"
+        ordering = ["-client_updated_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "scope", "set_label"],
+                name="unique_draft_per_scope_and_set",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["user", "-client_updated_at"], name="draft_user_recent_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.title or 'Untitled draft'} ({self.scope}{self.set_label})"
+
+
 class ExportRecord(TimeStampedModel):
     """Tracks question_bank exports that are not tied to a specific Paper."""
 

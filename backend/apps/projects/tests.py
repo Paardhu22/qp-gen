@@ -20,15 +20,17 @@ All S3 traffic is patched at the single choke point
 """
 
 import json
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.projects.models import Paper, PaperSet, Project
+from apps.projects.models import Draft, Paper, PaperSet, Project
 from services.paper_content_service import read_set_content, set_content_s3_key
 from services.project_service import save_paper_to_project
 
@@ -679,3 +681,391 @@ class QuestionImagePersistenceTests(TestCase):
             if question["content"].startswith("Study the ray diagram")
         )
         self.assertEqual(match["image_url"], self.IMAGE)
+
+
+class PaperRecycleBinTests(TestCase):
+    """Deleting a paper is survivable. See `Paper.deleted_at`."""
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.user = User.objects.create(
+            id="ff111111111111111111111111111111",
+            name="Teacher",
+            email="bin@example.com",
+            status="approved",
+        )
+        self.other = User.objects.create(
+            id="ff222222222222222222222222222222",
+            name="Other",
+            email="other-bin@example.com",
+            status="approved",
+        )
+        self.client.force_authenticate(user=self.user)
+        self.paper = self._make_paper("Term 1 Science")
+
+    def _make_paper(self, title, user=None):
+        project, _ = Project.objects.get_or_create(name="P", user=user or self.user)
+        paper = Paper.objects.create(title=title, project=project, user=user or self.user)
+        PaperSet.objects.create(paper=paper, label="A", order=1, content="<p>Q1</p>")
+        return paper
+
+    def test_delete_moves_the_paper_to_the_bin_rather_than_destroying_it(self):
+        response = self.client.delete(f"/api/projects/papers/{self.paper.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.paper.refresh_from_db()
+        self.assertIsNotNone(self.paper.deleted_at)
+
+    def test_a_binned_paper_is_gone_from_the_library(self):
+        self.client.delete(f"/api/projects/papers/{self.paper.id}/")
+        response = self.client.get("/api/projects/papers/")
+        self.assertEqual(response.data, [])
+
+    def test_a_binned_paper_cannot_be_opened(self):
+        self.client.delete(f"/api/projects/papers/{self.paper.id}/")
+        response = self.client.get(f"/api/projects/papers/{self.paper.id}/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_binned_paper_cannot_be_written_back_to_life_by_a_stale_tab(self):
+        self.client.delete(f"/api/projects/papers/{self.paper.id}/")
+
+        response = self.client.put(
+            f"/api/projects/papers/{self.paper.id}/",
+            {
+                "projectName": "P",
+                "title": "Resurrected",
+                "sets": [{"label": "A", "order": 1, "content": "<p>x</p>"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.paper.refresh_from_db()
+        self.assertIsNotNone(self.paper.deleted_at)
+
+    def test_the_bin_lists_it_with_the_retention_window(self):
+        self.client.delete(f"/api/projects/papers/{self.paper.id}/")
+        response = self.client.get("/api/projects/papers/trash")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["papers"]), 1)
+        self.assertEqual(response.data["papers"][0]["id"], self.paper.id)
+        self.assertGreater(response.data["retention_days"], 0)
+
+    def test_restoring_puts_it_back_in_the_library(self):
+        self.client.delete(f"/api/projects/papers/{self.paper.id}/")
+
+        response = self.client.post(f"/api/projects/papers/{self.paper.id}/restore")
+
+        self.assertEqual(response.status_code, 200)
+        self.paper.refresh_from_db()
+        self.assertIsNone(self.paper.deleted_at)
+        self.assertEqual(len(self.client.get("/api/projects/papers/").data), 1)
+
+    def test_permanent_delete_is_a_separate_deliberate_step(self):
+        self.client.delete(f"/api/projects/papers/{self.paper.id}/")
+
+        response = self.client.delete(
+            f"/api/projects/papers/{self.paper.id}/?permanent=true"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Paper.objects.filter(id=self.paper.id).exists())
+
+    def test_clear_all_bins_rather_than_destroys(self):
+        self._make_paper("Second")
+        response = self.client.delete("/api/projects/papers/clear")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Paper.objects.filter(user=self.user).count(), 2)
+        self.assertEqual(
+            Paper.objects.filter(user=self.user, deleted_at__isnull=True).count(), 0
+        )
+
+    def test_another_teachers_bin_is_not_reachable(self):
+        theirs = self._make_paper("Theirs", user=self.other)
+        theirs.deleted_at = timezone.now()
+        theirs.save(update_fields=["deleted_at"])
+
+        self.assertEqual(self.client.get("/api/projects/papers/trash").data["papers"], [])
+        self.assertEqual(
+            self.client.post(f"/api/projects/papers/{theirs.id}/restore").status_code, 404
+        )
+
+    @override_settings(PAPER_TRASH_RETENTION_DAYS=30)
+    def test_a_paper_past_the_window_is_purged_and_cannot_be_restored(self):
+        self.paper.deleted_at = timezone.now() - timedelta(days=31)
+        self.paper.save(update_fields=["deleted_at"])
+
+        # Listing the bin purges what has aged out, so a deployment with no
+        # scheduler still honours the promise the UI makes.
+        response = self.client.get("/api/projects/papers/trash")
+
+        self.assertEqual(response.data["papers"], [])
+        self.assertFalse(Paper.objects.filter(id=self.paper.id).exists())
+
+    @override_settings(PAPER_TRASH_RETENTION_DAYS=30)
+    def test_the_purge_command_leaves_papers_inside_the_window_alone(self):
+        keep = self._make_paper("Recent")
+        keep.deleted_at = timezone.now() - timedelta(days=2)
+        keep.save(update_fields=["deleted_at"])
+        self.paper.deleted_at = timezone.now() - timedelta(days=45)
+        self.paper.save(update_fields=["deleted_at"])
+
+        call_command("purge_deleted_papers")
+
+        self.assertTrue(Paper.objects.filter(id=keep.id).exists())
+        self.assertFalse(Paper.objects.filter(id=self.paper.id).exists())
+
+    def test_a_live_paper_is_never_purged(self):
+        call_command("purge_deleted_papers")
+        self.assertTrue(Paper.objects.filter(id=self.paper.id).exists())
+
+
+class PaperListPaginationTests(TestCase):
+    """The library is unbounded; one request for it must not be."""
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.user = User.objects.create(
+            id="ff333333333333333333333333333333",
+            name="Teacher",
+            email="page@example.com",
+            status="approved",
+        )
+        self.client.force_authenticate(user=self.user)
+        project = Project.objects.create(name="P", user=self.user)
+        for i in range(5):
+            paper = Paper.objects.create(title=f"Paper {i}", project=project, user=self.user)
+            PaperSet.objects.create(
+                paper=paper, label="A", order=1, content="<p>a very long document</p>"
+            )
+
+    def test_without_a_limit_the_response_is_unchanged(self):
+        response = self.client.get("/api/projects/papers/")
+        self.assertEqual(len(response.data), 5)
+        self.assertEqual(response["X-Total-Count"], "5")
+
+    def test_a_page_carries_the_full_total_in_a_header(self):
+        response = self.client.get("/api/projects/papers/?limit=2")
+
+        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response["X-Total-Count"], "5")
+        self.assertEqual(response["X-Limit"], "2")
+
+    def test_offset_walks_the_library(self):
+        first = self.client.get("/api/projects/papers/?limit=2").data
+        second = self.client.get("/api/projects/papers/?limit=2&offset=2").data
+
+        self.assertEqual(len(second), 2)
+        self.assertNotEqual({p["id"] for p in first}, {p["id"] for p in second})
+
+    def test_an_absurd_limit_is_capped(self):
+        response = self.client.get("/api/projects/papers/?limit=100000")
+        self.assertEqual(response["X-Limit"], "200")
+
+    def test_a_nonsense_limit_does_not_error(self):
+        response = self.client.get("/api/projects/papers/?limit=abc&offset=-4")
+        self.assertEqual(response.status_code, 200)
+
+    def test_the_list_never_ships_the_document_bodies(self):
+        # `content` and `answers` are whole TipTap documents; a table of titles
+        # and dates has no use for them.
+        row = self.client.get("/api/projects/papers/").data[0]
+        self.assertNotIn("content", row["sets"][0])
+        self.assertNotIn("answers", row["sets"][0])
+
+    def test_the_list_does_not_scale_its_queries_with_the_number_of_papers(self):
+        cache.clear()
+        with self.assertNumQueries(3):
+            # papers + prefetched sets + the count for the total header.
+            self.client.get("/api/projects/papers/")
+
+        project = Project.objects.get(user=self.user)
+        for i in range(20):
+            paper = Paper.objects.create(title=f"More {i}", project=project, user=self.user)
+            PaperSet.objects.create(paper=paper, label="A", order=1, content="x")
+        cache.clear()
+        with self.assertNumQueries(3):
+            self.client.get("/api/projects/papers/")
+
+
+class DraftServerSyncTests(TestCase):
+    """The server's copy of unsaved work. See services/draft_service.py."""
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.user = User.objects.create(
+            id="aa444444444444444444444444444444",
+            name="Teacher",
+            email="drafts@example.com",
+            status="approved",
+        )
+        self.other = User.objects.create(
+            id="aa555555555555555555555555555555",
+            name="Other",
+            email="other-drafts@example.com",
+            status="approved",
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def _push(self, *, scope="draft-abc", set_label="A", title="Term 1", at=1000, user=None):
+        if user:
+            self.client.force_authenticate(user=user)
+        return self.client.put(
+            "/api/projects/drafts",
+            {
+                "scope": scope,
+                "setLabel": set_label,
+                "clientUpdatedAt": at,
+                "document": {
+                    "title": title,
+                    "editorJSON": {"type": "doc", "content": []},
+                    "metadata": {"title": title, "className": "10", "subject": "Science"},
+                },
+            },
+            format="json",
+        )
+
+    def test_a_draft_is_stored_and_read_back_whole(self):
+        self.assertEqual(self._push().status_code, 200)
+
+        response = self.client.get("/api/projects/drafts/draft-abc")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["document"]["title"], "Term 1")
+
+    def test_the_list_omits_the_document_bodies(self):
+        # The strip renders titles and dates; loading a dozen whole TipTap
+        # documents to draw them is the difference between fast and slow.
+        self._push()
+        response = self.client.get("/api/projects/drafts")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("document", response.data["drafts"][0])
+        self.assertEqual(response.data["drafts"][0]["title"], "Term 1")
+
+    def test_pushing_again_updates_rather_than_duplicates(self):
+        self._push(at=1000, title="First")
+        self._push(at=2000, title="Second")
+
+        self.assertEqual(Draft.objects.filter(user=self.user).count(), 1)
+        self.assertEqual(Draft.objects.get(user=self.user).title, "Second")
+
+    def test_an_older_push_never_overwrites_newer_work(self):
+        # Two devices are ordered by when the teacher typed, not by whose
+        # request happened to arrive first over a slow connection.
+        self._push(at=5000, title="Newer")
+        response = self._push(at=1000, title="Older, arrived late")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(response.data["stored"])
+        # The winning document comes back, so the client can reconcile rather
+        # than keep typing into a stale copy.
+        self.assertEqual(response.data["draft"]["document"]["title"], "Newer")
+        self.assertEqual(Draft.objects.get(user=self.user).title, "Newer")
+
+    def test_each_set_tab_is_its_own_row(self):
+        self._push(set_label="A")
+        self._push(set_label="B")
+
+        self.assertEqual(Draft.objects.filter(user=self.user, scope="draft-abc").count(), 2)
+        self.assertEqual(len(self.client.get("/api/projects/drafts/draft-abc").data), 2)
+
+    def test_deleting_a_scope_takes_every_set_tab_with_it(self):
+        self._push(set_label="A")
+        self._push(set_label="B")
+
+        response = self.client.delete("/api/projects/drafts/draft-abc")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Draft.objects.filter(user=self.user).count(), 0)
+
+    def test_an_unknown_set_label_is_refused(self):
+        response = self._push(set_label="Z")
+        self.assertEqual(response.status_code, 400)
+
+    def test_an_oversized_document_is_refused_with_a_usable_message(self):
+        response = self.client.put(
+            "/api/projects/drafts",
+            {
+                "scope": "draft-big",
+                "setLabel": "A",
+                "clientUpdatedAt": 1,
+                "document": {"blob": "x" * (3 * 1024 * 1024)},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("too large", response.data["error"].lower())
+        self.assertFalse(Draft.objects.filter(scope="draft-big").exists())
+
+    def test_another_teachers_drafts_are_invisible(self):
+        self._push(user=self.other, scope="theirs")
+        self.client.force_authenticate(user=self.user)
+
+        self.assertEqual(self.client.get("/api/projects/drafts").data["drafts"], [])
+        self.assertEqual(self.client.get("/api/projects/drafts/theirs").data, [])
+
+    def test_another_teachers_draft_cannot_be_deleted(self):
+        self._push(user=self.other, scope="theirs")
+        self.client.force_authenticate(user=self.user)
+
+        self.client.delete("/api/projects/drafts/theirs")
+
+        self.assertTrue(Draft.objects.filter(user=self.other, scope="theirs").exists())
+
+    def test_two_teachers_may_hold_the_same_scope_independently(self):
+        # Scopes are only unique within a user — "current" is shared by every
+        # account that predates per-draft ids.
+        self._push(scope="current", set_label="", title="Mine")
+        self._push(scope="current", set_label="", title="Theirs", user=self.other)
+
+        self.assertEqual(Draft.objects.filter(scope="current").count(), 2)
+
+    @override_settings(DRAFT_RETENTION_DAYS=10)
+    def test_a_draft_past_the_window_is_purged_when_the_list_is_read(self):
+        self._push()
+        Draft.objects.filter(user=self.user).update(
+            updated_at=timezone.now() - timedelta(days=11)
+        )
+
+        response = self.client.get("/api/projects/drafts")
+
+        self.assertEqual(response.data["drafts"], [])
+        self.assertFalse(Draft.objects.filter(user=self.user).exists())
+
+    @override_settings(DRAFT_RETENTION_DAYS=10)
+    def test_the_purge_command_leaves_recent_drafts_alone(self):
+        self._push(scope="recent")
+        self._push(scope="stale")
+        Draft.objects.filter(scope="stale").update(
+            updated_at=timezone.now() - timedelta(days=30)
+        )
+
+        call_command("purge_expired_drafts")
+
+        self.assertTrue(Draft.objects.filter(scope="recent").exists())
+        self.assertFalse(Draft.objects.filter(scope="stale").exists())
+
+    def test_the_response_states_the_retention_window(self):
+        # The strip tells the teacher how long a draft is kept; it has to read
+        # that from the server rather than duplicate the policy.
+        response = self.client.get("/api/projects/drafts")
+        self.assertGreater(response.data["retention_days"], 0)
+
+    def test_a_pending_teacher_cannot_reach_the_draft_store(self):
+        pending = User.objects.create(
+            id="aa666666666666666666666666666666",
+            name="Pending",
+            email="pending-drafts@example.com",
+            status="pending",
+        )
+        self.client.force_authenticate(user=pending)
+
+        self.assertEqual(self.client.get("/api/projects/drafts").status_code, 403)

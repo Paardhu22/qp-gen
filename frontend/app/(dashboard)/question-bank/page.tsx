@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchPapers,
+  fetchTrashedPapers,
   deletePaper,
+  restorePaper,
+  emptyPaperTrash,
   fetchJson,
   generateAnswerScript,
 } from "@/lib/api-client";
@@ -19,6 +22,7 @@ import {
   FileText,
   Search,
   Trash2,
+  Undo2,
   ArrowLeft,
   MoreHorizontal,
   Eye,
@@ -50,11 +54,11 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/lib/auth-client";
+import { deleteServerDraft, pullDrafts } from "@/lib/drafts-sync";
 import {
   deleteLiveDocument,
   clearLiveDocumentsForUser,
   getLiveDocumentId,
-  listLiveDocumentsForUser,
   purgeExpiredDrafts,
 } from "@/lib/live-document-db";
 import {
@@ -160,6 +164,14 @@ export default function QuestionBankPage() {
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   const [draftsLoading, setDraftsLoading] = useState(true);
 
+  // The recycle bin. Deleting a paper destroys a term's worth of work from a
+  // button that sits one row away from "open"; the bin is what makes that
+  // click survivable. Server-side, unlike drafts — a teacher who deletes a
+  // paper on their laptop must be able to get it back on the staffroom PC.
+  const [trashed, setTrashed] = useState<Paper[]>([]);
+  const [trashRetentionDays, setTrashRetentionDays] = useState(30);
+  const [showTrash, setShowTrash] = useState(false);
+
   // ---- fetch list ----
   useEffect(() => {
     setIsLoading(true);
@@ -168,6 +180,26 @@ export default function QuestionBankPage() {
       .catch(() => toast.error("Failed to load saved papers."))
       .finally(() => setIsLoading(false));
   }, []);
+
+  // ---- recycle bin ----
+  // Loaded alongside the library rather than behind the toggle: the count is
+  // part of the toggle's label, and a "Recycle bin" control that has to be
+  // opened before it can say whether it holds anything is a control nobody
+  // opens. Listing also purges what has aged out, server-side.
+  const loadTrash = useCallback(async () => {
+    try {
+      const data = await fetchTrashedPapers<Paper>();
+      setTrashed(data.papers ?? []);
+      setTrashRetentionDays(data.retention_days ?? 30);
+    } catch {
+      // Non-fatal: the bin is a recovery affordance, not the page.
+      setTrashed([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTrash();
+  }, [loadTrash]);
 
   // ---- drafts: purge what has expired, then list the rest ----
   // Purging here rather than on a timer: this is the one page that shows drafts,
@@ -180,7 +212,11 @@ export default function QuestionBankPage() {
     (async () => {
       try {
         await purgeExpiredDrafts(userId);
-        const documents = await listLiveDocumentsForUser(userId);
+        // Reconcile with the server first, so a draft started on another
+        // device shows up here. Falls back to whatever is local if the server
+        // cannot be reached — which is exactly what this page did before
+        // drafts had a server copy at all.
+        const { documents } = await pullDrafts(userId);
         if (active) setDrafts(summarizeDrafts(documents));
       } catch (error) {
         console.error("Failed to load drafts:", error);
@@ -195,13 +231,16 @@ export default function QuestionBankPage() {
 
   async function deleteDraft(draft: DraftSummary) {
     setDrafts((prev) => prev.filter((d) => d.id !== draft.id));
-    await Promise.all(
-      draft.documentIds.map((id) =>
+    await Promise.all([
+      ...draft.documentIds.map((id) =>
         deleteLiveDocument(id).catch((error) =>
           console.error("Failed to delete draft:", id, error),
         ),
       ),
-    );
+      // The server copy goes too, or the next `pullDrafts` faithfully brings
+      // the draft back and the delete looks like it did not work.
+      deleteServerDraft(draft.id),
+    ]);
     toast.success("Draft deleted.");
   }
 
@@ -278,7 +317,13 @@ export default function QuestionBankPage() {
             () => {},
           );
       }
-      toast.success("Paper deleted.");
+      await loadTrash();
+      // Undo right here, not just in the bin. The moment a teacher realises
+      // they deleted the wrong paper is the second after they clicked.
+      toast.success("Moved to the recycle bin.", {
+        description: `Kept for ${trashRetentionDays} days.`,
+        action: { label: "Undo", onClick: () => void restorePaperById(id, asId) },
+      });
     } catch {
       toast.error("Failed to delete paper.");
     } finally {
@@ -290,12 +335,44 @@ export default function QuestionBankPage() {
     }
   }
 
+  async function restorePaperById(id: string, answerScriptId?: string | null) {
+    try {
+      await restorePaper(id);
+      if (answerScriptId) await restorePaper(answerScriptId).catch(() => {});
+      const [live] = await Promise.all([fetchPapers<Paper[]>(), loadTrash()]);
+      setPapers(live ?? []);
+      toast.success("Paper restored.");
+    } catch {
+      toast.error("Could not restore that paper.");
+    }
+  }
+
+  async function purgePaperById(id: string) {
+    try {
+      await deletePaper(id, { permanent: true });
+      setTrashed((prev) => prev.filter((p) => p.id !== id));
+      toast.success("Paper deleted for good.");
+    } catch {
+      toast.error("Could not delete that paper.");
+    }
+  }
+
+  async function handleEmptyTrash() {
+    try {
+      await emptyPaperTrash();
+      setTrashed([]);
+      toast.success("Recycle bin emptied.");
+    } catch {
+      toast.error("Could not empty the recycle bin.");
+    }
+  }
+
   function handleDeletePaper(id: string) {
     const paper = papers.find((p) => p.id === id);
-    toast.warning("Delete this paper?", {
+    toast.warning("Move this paper to the recycle bin?", {
       description: paper?.answerScriptId
-        ? "The linked answer script will also be deleted."
-        : undefined,
+        ? "The linked answer script goes with it. Both are recoverable."
+        : `Recoverable for ${trashRetentionDays} days.`,
       action: { label: "Delete", onClick: () => deletePaperById(id) },
     });
   }
@@ -308,7 +385,14 @@ export default function QuestionBankPage() {
       setSelectedPaperId(null);
       const userId = sessionData?.user?.id;
       if (userId) await clearLiveDocumentsForUser(userId).catch(() => {});
-      toast.success("All papers cleared.");
+      // The server copies go with the local ones. Clearing only locally would
+      // leave the drafts on the server, and the next `pullDrafts` would put
+      // every one of them straight back — a "clear all" that visibly undoes
+      // itself on the next page load.
+      await Promise.all(drafts.map((draft) => deleteServerDraft(draft.id)));
+      setDrafts([]);
+      await loadTrash();
+      toast.success("All papers moved to the recycle bin.");
     } catch {
       toast.error("Failed to clear papers.");
     } finally {
@@ -645,8 +729,10 @@ export default function QuestionBankPage() {
                   <AlertDialogHeader>
                     <AlertDialogTitle>Clear all saved papers?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This will permanently delete every saved paper and its
-                      answer scripts. This action cannot be undone.
+                      Every saved paper and its answer scripts move to the
+                      recycle bin, where they stay recoverable for{" "}
+                      {trashRetentionDays} days. Unsaved drafts are deleted
+                      outright.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -759,6 +845,110 @@ export default function QuestionBankPage() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ── Recycle bin ─────────────────────────────────────────────
+          Collapsed by default and headed by a count, because a bin that is
+          always open is a second papers list competing with the real one. The
+          count is what makes the toggle worth reading: "Recycle bin" alone
+          gives a teacher no reason to open it, and the day they need it they
+          need to know at a glance that the paper is in there. */}
+      {trashed.length > 0 && (
+        <div className="shrink-0 border-b border-border bg-muted/20 px-4 py-3 sm:px-6">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <button
+              type="button"
+              onClick={() => setShowTrash((v) => !v)}
+              aria-expanded={showTrash}
+              className="flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+            >
+              <span>Recycle Bin</span>
+              <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums">
+                {trashed.length}
+              </span>
+              <ChevronRight
+                className={cn(
+                  "h-3.5 w-3.5 self-center transition-transform",
+                  showTrash && "rotate-90",
+                )}
+                aria-hidden
+              />
+            </button>
+            <span className="text-[11px] text-muted-foreground">
+              deleted · kept {trashRetentionDays} days, then removed for good
+            </span>
+            {showTrash && (
+              <AlertDialog>
+                <AlertDialogTrigger className="ml-auto text-[11px] text-muted-foreground underline underline-offset-2 hover:text-destructive">
+                  Empty bin
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Empty the recycle bin?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This permanently deletes all {trashed.length} papers in the
+                      bin, along with their questions and answer keys. This cannot
+                      be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => void handleEmptyTrash()}>
+                      Empty bin
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </div>
+
+          {showTrash && (
+            <div className="mt-2 flex gap-3 overflow-x-auto pb-1 custom-scrollbar">
+              {trashed.map((paper) => (
+                <div
+                  key={paper.id}
+                  className="relative w-56 shrink-0 rounded-lg border border-border bg-background p-3 text-left"
+                >
+                  <div className="flex items-start gap-2">
+                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {paper.title || "Untitled paper"}
+                      </p>
+                      <p className="truncate text-[11px] text-muted-foreground">
+                        {[paper.gradeClass, paper.subject]
+                          .filter(Boolean)
+                          .join(" · ") || "No class or subject"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 flex items-center gap-2">
+                    {/* Restore leads. The reason to open a bin is to get
+                        something back, not to finish destroying it. */}
+                    <button
+                      type="button"
+                      onClick={() => void restorePaperById(paper.id, paper.answerScriptId)}
+                      className="inline-flex items-center gap-1 rounded-sm border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
+                    >
+                      <Undo2 className="h-3 w-3" aria-hidden />
+                      Restore
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Permanently delete ${paper.title || "this paper"}`}
+                      onClick={() => void purgePaperById(paper.id)}
+                      className="inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 className="h-3 w-3" aria-hidden />
+                      Delete for good
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

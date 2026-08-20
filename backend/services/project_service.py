@@ -1,8 +1,12 @@
+from datetime import timedelta
 from typing import List, Optional
 
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Prefetch
+from django.utils import timezone
 
-from apps.projects.models import Project, Question, Paper
+from apps.projects.models import Paper, PaperSet, Project, Question
 from apps.projects.question_types import resolve_type_code
 
 
@@ -10,20 +14,118 @@ def list_projects_for_user(user) -> List[Project]:
     return Project.objects.filter(user=user).prefetch_related("questions").order_by("-created_at")
 
 
-def list_papers_for_user(user) -> List[Paper]:
-    # prefetch_related("sets") — the list serializer embeds every PaperSet, so
-    # without this the papers table issues one extra query per paper (N+1),
-    # which the redesigned enterprise list (hundreds of papers) would feel.
+#: The only PaperSet columns the papers list actually renders. Named here
+#: because the reason for the list is easy to lose: `content` and `answers` are
+#: whole TipTap documents, tens to hundreds of kilobytes each, and a paper has
+#: up to three sets. Prefetching sets without restricting the columns pulled
+#: every one of those documents out of the database and threw them away in the
+#: serializer — a library of 200 papers was moving tens of megabytes to render
+#: a table of titles and dates.
+_SET_LIST_FIELDS = ("id", "paper_id", "label", "order", "metadata")
+
+#: Likewise on Paper. `blueprint` is a JSON slot plan and `instructions` is
+#: prose; neither appears on a list row.
+_PAPER_LIST_DEFER = ("instructions", "blueprint")
+
+
+def _paper_list_queryset(user, *, deleted: bool):
+    """Papers for a list view: no document bodies, one query for the sets."""
+    queryset = Paper.objects.filter(user=user)
+    queryset = (
+        queryset.exclude(deleted_at__isnull=True)
+        if deleted
+        else queryset.filter(deleted_at__isnull=True)
+    )
     return (
-        Paper.objects.filter(user=user)
-        .select_related("project")
-        .prefetch_related("sets")
-        .order_by("-updated_at")
+        queryset.select_related("project")
+        .defer(*_PAPER_LIST_DEFER)
+        .prefetch_related(
+            # prefetch_related alone fixes the N+1; `.only()` inside it is what
+            # keeps each of those rows small. Both matter, for different reasons.
+            Prefetch("sets", queryset=PaperSet.objects.only(*_SET_LIST_FIELDS))
+        )
+        .order_by("-deleted_at" if deleted else "-updated_at")
+    )
+
+
+def list_papers_for_user(user) -> List[Paper]:
+    return _paper_list_queryset(user, deleted=False)
+
+
+def list_deleted_papers_for_user(user) -> List[Paper]:
+    """The recycle bin: papers deleted but still inside the retention window."""
+    return _paper_list_queryset(user, deleted=True).filter(
+        deleted_at__gte=timezone.now() - timedelta(days=trash_retention_days())
     )
 
 
 def get_paper_for_user(user, paper_id: str) -> Paper:
-    return Paper.objects.select_related("project").get(id=paper_id, user=user)
+    """One paper, in full. Never a deleted one.
+
+    A paper in the bin must be unreachable everywhere the product treats a
+    paper as live — opening it in the editor would let a teacher keep working
+    on something scheduled for permanent deletion. Restoring is the only way
+    back, and it goes through `restore_paper`.
+    """
+    return Paper.objects.select_related("project").get(
+        id=paper_id, user=user, deleted_at__isnull=True
+    )
+
+
+def trash_retention_days() -> int:
+    return int(getattr(settings, "PAPER_TRASH_RETENTION_DAYS", 30))
+
+
+def soft_delete_paper(user, paper_id: str) -> Paper:
+    """Move a paper to the bin. Raises `Paper.DoesNotExist` if it is not live."""
+    paper = Paper.objects.get(id=paper_id, user=user, deleted_at__isnull=True)
+    paper.deleted_at = timezone.now()
+    paper.save(update_fields=["deleted_at", "updated_at"])
+    return paper
+
+
+def soft_delete_all_papers(user) -> int:
+    """Bin every live paper. Returns how many moved."""
+    return Paper.objects.filter(user=user, deleted_at__isnull=True).update(
+        deleted_at=timezone.now()
+    )
+
+
+def restore_paper(user, paper_id: str) -> Paper:
+    """Take a paper back out of the bin.
+
+    Only from inside the retention window: a row past it is already eligible
+    for permanent deletion, and restoring one would produce a paper that the
+    purge removes again without warning.
+    """
+    cutoff = timezone.now() - timedelta(days=trash_retention_days())
+    paper = Paper.objects.get(
+        id=paper_id, user=user, deleted_at__isnull=False, deleted_at__gte=cutoff
+    )
+    paper.deleted_at = None
+    paper.save(update_fields=["deleted_at", "updated_at"])
+    return paper
+
+
+def purge_paper(user, paper_id: str) -> None:
+    """Delete a binned paper for real, at the teacher's explicit request."""
+    paper = Paper.objects.get(id=paper_id, user=user, deleted_at__isnull=False)
+    paper.delete()
+
+
+def purge_expired_papers(*, now=None) -> int:
+    """Permanently remove papers past the retention window. Returns the count.
+
+    Called both from the management command and lazily whenever a bin is
+    listed, so the promise the UI makes ("deleted after 30 days") holds on a
+    deployment with no scheduler as well as on one with cron.
+    """
+    cutoff = (now or timezone.now()) - timedelta(days=trash_retention_days())
+    expired = Paper.objects.filter(deleted_at__isnull=False, deleted_at__lt=cutoff)
+    count = expired.count()
+    if count:
+        expired.delete()
+    return count
 
 
 def save_questions_to_project(user, project_name: str, questions: List[dict]) -> Project:
@@ -109,8 +211,10 @@ def save_paper_to_project(
         project, _ = Project.objects.get_or_create(name=project_name, user=user)
 
         if paper_id:
-            # Update existing paper
-            paper = Paper.objects.get(id=paper_id, user=user)
+            # Update existing paper. `deleted_at__isnull=True` so a paper in the
+            # recycle bin cannot be written back to life by a stale editor tab
+            # autosaving over it — restoring is an explicit action.
+            paper = Paper.objects.get(id=paper_id, user=user, deleted_at__isnull=True)
             paper.title = title
             paper.subject = subject
             paper.grade_class = grade_class

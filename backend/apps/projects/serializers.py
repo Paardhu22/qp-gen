@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.projects.models import Project, Question, Paper, PaperSet, QuestionFamily, QuestionType
+from apps.projects.models import Draft, Project, Question, Paper, PaperSet, QuestionFamily, QuestionType
 from apps.projects.question_types import resolve_type_code
 
 
@@ -146,3 +146,49 @@ class SavePaperSerializer(serializers.Serializer):
     hsatSourceIds = serializers.ListField(
         child=serializers.CharField(), required=False, default=list
     )
+
+
+class DraftSummarySerializer(serializers.ModelSerializer):
+    """One draft, without its body — what the drafts strip renders."""
+
+    setLabel = serializers.CharField(source="set_label", read_only=True)
+    className = serializers.CharField(source="class_name", read_only=True)
+    clientUpdatedAt = serializers.IntegerField(source="client_updated_at", read_only=True)
+
+    class Meta:
+        model = Draft
+        fields = [
+            "id",
+            "scope",
+            "setLabel",
+            "title",
+            "className",
+            "subject",
+            "clientUpdatedAt",
+            "updated_at",
+        ]
+
+
+class DraftDetailSerializer(DraftSummarySerializer):
+    """A draft with its editor document, for hydrating the editor."""
+
+    class Meta(DraftSummarySerializer.Meta):
+        fields = DraftSummarySerializer.Meta.fields + ["document"]
+
+
+class SaveDraftSerializer(serializers.Serializer):
+    """One autosave push.
+
+    `clientUpdatedAt` is required and is the ordering key — see
+    `services/draft_service.upsert_draft`. `document` is the editor's own
+    payload and is deliberately un-modelled here; the server stores the shape
+    the editor sends rather than having an opinion that would need migrating
+    in step with it.
+    """
+
+    scope = serializers.CharField(max_length=64)
+    setLabel = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=8
+    )
+    document = serializers.DictField()
+    clientUpdatedAt = serializers.IntegerField(min_value=0)

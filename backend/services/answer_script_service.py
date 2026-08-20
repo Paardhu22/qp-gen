@@ -725,7 +725,7 @@ def generate_answer_script(paper_id: str, user, set_id: str = None) -> Dict[str,
     # Step 1: Load the paper
     try:
         paper = Paper.objects.select_related("project").get(
-            id=paper_id, user=user
+            id=paper_id, user=user, deleted_at__isnull=True
         )
     except Paper.DoesNotExist:
         raise ValueError(f"Paper '{paper_id}' not found.")

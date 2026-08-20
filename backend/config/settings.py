@@ -469,6 +469,65 @@ OPENAI_IMAGE_QUALITY = os.environ.get("OPENAI_IMAGE_QUALITY", "high").strip().lo
 OPENAI_IMAGE_CONCURRENCY = _int_env("OPENAI_IMAGE_CONCURRENCY", 1, minimum=1, maximum=4)
 
 # ---------------------------------------------------------------------------
+# Spend reporting — tokens converted to rupees (see services/usage_pricing.py).
+#
+# A school administrator reads an invoice in rupees, not in tokens, so every
+# usage panel reports both. Both knobs exist because both numbers go stale on
+# their own schedule: OpenAI reprices models, and the exchange rate moves
+# daily. Neither should need a deploy to correct.
+#
+#   USD_TO_INR              — conversion rate. Default is a working figure;
+#                             set it to whatever the finance team reconciles
+#                             against.
+#   MODEL_PRICING_USD_JSON  — per-model overrides, as
+#                             {"model": [prompt_usd_per_mtok, completion_usd_per_mtok]}.
+#                             Merged over the built-in table, so a single
+#                             corrected model does not require restating all of
+#                             them. A malformed value is logged and ignored.
+# ---------------------------------------------------------------------------
+USD_TO_INR = float(os.environ.get("USD_TO_INR", "88.0") or "88.0")
+MODEL_PRICING_USD_JSON = os.environ.get("MODEL_PRICING_USD_JSON", "")
+
+# ---------------------------------------------------------------------------
+# Dashboard assistant — how much of a transcript is re-sent each turn.
+#
+# The assistant re-sends the conversation on every message, so an hour-long
+# planning session pays for its own history again at every turn: cost and
+# latency grow with the square of the turn count, and a long enough session
+# eventually exceeds the context window and starts failing outright. Windowing
+# is safe here specifically because the accumulated paper spec lives on the
+# Conversation row, not in the transcript — dropping an old turn cannot lose a
+# decision the teacher already made.
+# ---------------------------------------------------------------------------
+CHAT_HISTORY_MAX_MESSAGES = _int_env("CHAT_HISTORY_MAX_MESSAGES", 24, minimum=4, maximum=200)
+CHAT_HISTORY_MAX_CHARS = _int_env("CHAT_HISTORY_MAX_CHARS", 24000, minimum=2000, maximum=400000)
+
+# ---------------------------------------------------------------------------
+# Recycle bin — how long a deleted paper is recoverable (see apps/projects).
+#
+# Deleting a paper is one click next to "open", and the thing being deleted is
+# a term's worth of a teacher's work. The bin is what makes that click
+# survivable.
+# ---------------------------------------------------------------------------
+PAPER_TRASH_RETENTION_DAYS = _int_env("PAPER_TRASH_RETENTION_DAYS", 30, minimum=1, maximum=365)
+
+# How long an unsaved draft is kept on the server. Must stay in step with
+# DRAFT_RETENTION_DAYS in frontend/lib/drafts.ts, which governs the local
+# IndexedDB copy — a server copy that outlives the local one would resurrect
+# drafts the teacher watched expire, and the reverse would delete work the UI
+# said was still there.
+DRAFT_RETENTION_DAYS = _int_env("DRAFT_RETENTION_DAYS", 10, minimum=1, maximum=365)
+
+# How long a recorded generation run and its SSE frames are kept, so a client
+# that dropped can re-attach. Runs are a delivery mechanism, not a record — the
+# questions themselves are already in the bank and the paper in the library —
+# so this only needs to outlive "my phone slept during the generation", not
+# serve as history. See services/generation_runs.py.
+GENERATION_RUN_RETENTION_DAYS = _int_env(
+    "GENERATION_RUN_RETENTION_DAYS", 7, minimum=1, maximum=90
+)
+
+# ---------------------------------------------------------------------------
 # Cache — Elasticache-ready (statelessness pass P3).
 #
 # REDIS_URL set   → shared Redis cache (django.core.cache.backends.redis,

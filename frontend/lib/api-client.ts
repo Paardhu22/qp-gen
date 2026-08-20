@@ -213,10 +213,120 @@ export { API_BASE_URL };
 
 export type SseEventHandler = (event: string, data: any) => void;
 
+/**
+ * Where a generation had got to when the connection dropped.
+ *
+ * `runId` is the recorded run on the server; `cursor` is how many of its
+ * frames this client has already seen. Together they are enough to pick the
+ * generation back up without losing or repeating anything — see
+ * services/generation_runs.py.
+ */
+export type SseRunPosition = { runId: string; cursor: number };
+
+export type StreamSseOptions = {
+  /** Told the run id and cursor as they advance, so a caller can persist them
+   *  and offer to resume after a page reload. */
+  onRunPosition?: (position: SseRunPosition) => void;
+  /** How many times to re-attach after the transport drops. */
+  maxResumes?: number;
+};
+
+/** Attempts to re-attach after a dropped connection, before giving up. */
+const DEFAULT_MAX_RESUMES = 3;
+
+/**
+ * Read one SSE response, dispatching frames and tracking where we got to.
+ *
+ * The cursor is counted rather than read off the wire: the server's `follow`
+ * emits its stored frames in sequence order, one per recorded event, preceded
+ * by a single synthetic `run` frame. So "frames seen since the start cursor,
+ * not counting `run`" is exactly the server's sequence number. Keeping the
+ * count here means the frames themselves stay byte-identical to what the
+ * pipeline produced.
+ */
+async function consumeSse(
+  response: Response,
+  onEvent: SseEventHandler,
+  position: { runId: string | null; cursor: number },
+  onRunPosition?: (position: SseRunPosition) => void,
+): Promise<boolean> {
+  if (!response.body) {
+    throw new ApiError(
+      "The server accepted the request but returned no stream. Check that no " +
+        "proxy is buffering text/event-stream responses.",
+      response.status,
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let sawTerminalEvent = false;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+
+    for (const part of parts) {
+      const lines = part.split("\n");
+      let event = "message";
+      let data = "";
+
+      for (const line of lines) {
+        // Lines beginning with ":" are SSE comments. The backend sends them
+        // as keepalive pings during long silent stages; they carry no data
+        // and must be skipped, not parsed.
+        if (line.startsWith(":")) continue;
+        if (line.startsWith("event:")) {
+          event = line.replace("event:", "").trim();
+        } else if (line.startsWith("data:")) {
+          data += line.replace("data:", "").trim();
+        }
+      }
+
+      if (!data) continue;
+
+      if (event === "run") {
+        // Synthetic, from the follower. It names the run and is not itself a
+        // recorded frame, so it does not advance the cursor.
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed?.runId) {
+            position.runId = String(parsed.runId);
+            onRunPosition?.({ runId: position.runId, cursor: position.cursor });
+          }
+        } catch {
+          // A malformed run frame costs the ability to resume, nothing else.
+        }
+        continue;
+      }
+
+      position.cursor += 1;
+      if (position.runId) {
+        onRunPosition?.({ runId: position.runId, cursor: position.cursor });
+      }
+
+      if (event === "done" || event === "error") sawTerminalEvent = true;
+      try {
+        onEvent(event, JSON.parse(data));
+      } catch (error) {
+        onEvent("error", { error: "Failed to parse stream payload" });
+      }
+    }
+  }
+
+  return sawTerminalEvent;
+}
+
 export async function streamSse(
   path: string,
   payload: Record<string, any>,
   onEvent: SseEventHandler,
+  options: StreamSseOptions = {},
 ): Promise<void> {
   const buildHeaders = () => {
     const headers: Record<string, string> = {
@@ -268,57 +378,138 @@ export async function streamSse(
     );
   }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let buffer = "";
   // A generation is only complete when the backend says so. Anything that
   // cuts the connection first — a proxy read timeout, a killed gunicorn
   // worker, a dropped network — surfaces as a clean `done: true` from
   // `reader.read()`, which used to make this function resolve as if the
   // generation had succeeded. The caller then saw no error and no result.
-  let sawTerminalEvent = false;
+  //
+  // Now it means something better: the run is still being produced on the
+  // server, and we can go back for the rest of it.
+  const position = { runId: null as string | null, cursor: 0 };
+  let sawTerminalEvent = await consumeSse(
+    response,
+    onEvent,
+    position,
+    options.onRunPosition,
+  );
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const parts = buffer.split("\n\n");
-    buffer = parts.pop() || "";
-
-    for (const part of parts) {
-      const lines = part.split("\n");
-      let event = "message";
-      let data = "";
-
-      for (const line of lines) {
-        // Lines beginning with ":" are SSE comments. The backend sends them
-        // as keepalive pings during long silent stages; they carry no data
-        // and must be skipped, not parsed.
-        if (line.startsWith(":")) continue;
-        if (line.startsWith("event:")) {
-          event = line.replace("event:", "").trim();
-        } else if (line.startsWith("data:")) {
-          data += line.replace("data:", "").trim();
-        }
-      }
-
-      if (!data) continue;
-      if (event === "done" || event === "error") sawTerminalEvent = true;
-      try {
-        onEvent(event, JSON.parse(data));
-      } catch (error) {
-        onEvent("error", { error: "Failed to parse stream payload" });
-      }
+  const maxResumes = options.maxResumes ?? DEFAULT_MAX_RESUMES;
+  for (let attempt = 0; !sawTerminalEvent && position.runId && attempt < maxResumes; attempt++) {
+    // A short, growing pause. The drop is usually a proxy timing out on a
+    // silent stretch, so reconnecting instantly just repeats it.
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+    try {
+      sawTerminalEvent = await consumeSse(
+        await openRunStream(position.runId, position.cursor),
+        onEvent,
+        position,
+        options.onRunPosition,
+      );
+    } catch {
+      // Keep trying until the attempts run out; the error below is the one
+      // the caller should see.
+      break;
     }
   }
 
   if (!sawTerminalEvent) {
     throw new ApiError(
-      "The connection closed before generation finished. This usually means " +
-        "the request took longer than the server allows — try again, or " +
-        "generate fewer chapters at once.",
+      position.runId
+        ? "The connection to this generation keeps dropping. It is still " +
+          "running on the server — reopen it from your recent generations " +
+          "once your connection settles."
+        : "The connection closed before generation finished. This usually means " +
+          "the request took longer than the server allows — try again, or " +
+          "generate fewer chapters at once.",
       response.status,
+    );
+  }
+}
+
+/** Open (or re-open) the event stream of a recorded run at `cursor`. */
+async function openRunStream(runId: string, cursor: number): Promise<Response> {
+  await ensureFreshTokens();
+  const headers: Record<string, string> = {};
+  const accessToken = getAccessToken();
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/generation/runs/${encodeURIComponent(runId)}/events?cursor=${cursor}`,
+    { method: "GET", headers },
+  );
+  if (!response.ok) {
+    throw new ApiError(
+      await errorMessageFrom(response, "Could not reopen that generation"),
+      response.status,
+    );
+  }
+  return response;
+}
+
+/**
+ * A generation recorded on the server, as the "recent generations" list shows.
+ *
+ * Runs are a delivery mechanism, not history — they are purged after a week.
+ * What they are for is the teacher whose phone slept during a four-minute
+ * generation and who would otherwise have lost the paper entirely.
+ */
+export type GenerationRunSummary = {
+  id: string;
+  kind: string;
+  status: "running" | "completed" | "failed" | "abandoned";
+  created_at: string;
+  finished_at: string | null;
+  error: string;
+  eventCount: number;
+  request: Record<string, any>;
+};
+
+export async function listGenerationRuns(): Promise<GenerationRunSummary[]> {
+  return fetchJson<GenerationRunSummary[]>("/api/generation/runs", {
+    method: "GET",
+  });
+}
+
+/**
+ * Re-attach to a run that was started earlier — after a page reload, or from
+ * the recent-generations list. Replays everything after `cursor`, then follows
+ * the rest live.
+ */
+export async function resumeSseRun(
+  runId: string,
+  cursor: number,
+  onEvent: SseEventHandler,
+  options: StreamSseOptions = {},
+): Promise<void> {
+  const position = { runId, cursor };
+  let sawTerminalEvent = await consumeSse(
+    await openRunStream(runId, cursor),
+    onEvent,
+    position,
+    options.onRunPosition,
+  );
+
+  const maxResumes = options.maxResumes ?? DEFAULT_MAX_RESUMES;
+  for (let attempt = 0; !sawTerminalEvent && attempt < maxResumes; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+    try {
+      sawTerminalEvent = await consumeSse(
+        await openRunStream(runId, position.cursor),
+        onEvent,
+        position,
+        options.onRunPosition,
+      );
+    } catch {
+      break;
+    }
+  }
+
+  if (!sawTerminalEvent) {
+    throw new ApiError(
+      "That generation could not be reopened. It may have been cleared, or it " +
+        "stopped on the server before it finished.",
+      200,
     );
   }
 }
@@ -489,10 +680,49 @@ export async function deleteQuestion(questionId: string): Promise<void> {
   });
 }
 
-export async function deletePaper(paperId: string): Promise<void> {
-  await fetchJson<void>(`/api/projects/papers/${paperId}/`, {
+/**
+ * Move a paper to the recycle bin.
+ *
+ * Not a hard delete. What this destroys is a term's worth of work — blueprint,
+ * every set variant, answer key, every question — and the button sits one row
+ * away from "open". `permanent` is the deliberate second step, offered only
+ * from inside the bin.
+ */
+export async function deletePaper(
+  paperId: string,
+  options: { permanent?: boolean } = {},
+): Promise<void> {
+  const query = options.permanent ? "?permanent=true" : "";
+  await fetchJson<void>(`/api/projects/papers/${paperId}/${query}`, {
     method: "DELETE",
   });
+}
+
+/** One binned paper, as the bin lists it. Same shape as a library row. */
+export type TrashedPapers<T> = {
+  /** How long a binned paper is kept before it is permanently removed. */
+  retention_days: number;
+  papers: T[];
+};
+
+/** The recycle bin. Listing it also purges whatever has aged out. */
+export async function fetchTrashedPapers<T>(): Promise<TrashedPapers<T>> {
+  return fetchJson<TrashedPapers<T>>("/api/projects/papers/trash", {
+    method: "GET",
+    timeoutMs: 60000,
+  });
+}
+
+/** Take one paper back out of the bin. */
+export async function restorePaper(paperId: string): Promise<void> {
+  await fetchJson<void>(`/api/projects/papers/${paperId}/restore`, {
+    method: "POST",
+  });
+}
+
+/** Permanently remove everything in the bin. */
+export async function emptyPaperTrash(): Promise<void> {
+  await fetchJson<void>("/api/projects/papers/trash", { method: "DELETE" });
 }
 
 export async function getExportUrl(

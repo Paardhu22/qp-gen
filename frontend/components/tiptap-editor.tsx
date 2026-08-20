@@ -75,6 +75,7 @@ import {
   saveLiveDocument,
   type LiveEditorDocument,
 } from "@/lib/live-document-db";
+import { pushDraft } from "@/lib/drafts-sync";
 import {
   backendSyncTarget,
   basePaperId,
@@ -843,14 +844,22 @@ export const TiptapEditor = ({
               //
               // For those tabs the local IndexedDB write IS the whole job, and
               // it just succeeded, so "synced" is the honest record.
-              await saveLiveDocument({
+              const syncedDocument: LiveEditorDocument = {
                 ...liveDocument,
                 sync: {
                   status: "synced",
                   lastSyncedAt: new Date().getTime(),
                   error: null,
                 },
-              });
+              };
+              await saveLiveDocument(syncedDocument);
+              // Second copy, on the server, for drafts only — a saved paper
+              // already has an authoritative row and was just PUT to it above.
+              // Deliberately not awaited into the save state: this is
+              // insurance against losing the browser, and a slow or failing
+              // server must not turn a successful local save into a visible
+              // failure. See lib/drafts-sync.ts.
+              void pushDraft(syncedDocument);
               setSaveState("saved");
             } catch (error: any) {
               // A newer sync cancelled this one — not an error, just move on.

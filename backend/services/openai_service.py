@@ -97,7 +97,12 @@ def _record_usage(user: Optional[User], operation: str, model: str, usage: objec
     try:
         ApiUsage.objects.create(
             user=user,
-            organization=getattr(user, "organization", None),
+            # `billing_organization`, not `organization`: the latter is
+            # approval-gated, so a member whose join request had not been
+            # approved yet had every call filed as "unassigned" — invisible on
+            # the school's dashboard and outside its monthly limit. See
+            # apps/accounts/models.User.
+            organization=getattr(user, "billing_organization", None),
             operation=operation,
             model=model,
             prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,

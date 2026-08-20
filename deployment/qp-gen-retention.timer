@@ -1,0 +1,15 @@
+[Unit]
+Description=Run the qp-gen retention sweep daily
+
+[Timer]
+# Daily is plenty: every window it enforces is measured in days, and the
+# lazy purge on each list read covers anyone actually looking.
+OnCalendar=daily
+# Catch up after a host that was off overnight, rather than skipping the day.
+Persistent=true
+# Schools all sit in one timezone, so an un-jittered `daily` would fire every
+# host at exactly midnight. Harmless at one host; not a habit worth forming.
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

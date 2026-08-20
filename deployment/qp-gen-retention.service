@@ -1,0 +1,31 @@
+[Unit]
+Description=qp-gen retention sweep — purge expired papers, drafts and generation runs
+After=network.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=www-data
+WorkingDirectory=/home/ubuntu/qp-gen/backend
+EnvironmentFile=/home/ubuntu/qp-gen/backend/.env
+
+# Three retention promises the product makes to a teacher, and the commands
+# that keep them true:
+#
+#   purge_deleted_papers   — a binned paper is permanently deleted after
+#                            PAPER_TRASH_RETENTION_DAYS (default 30).
+#   purge_expired_drafts   — a server-side draft nobody has touched for
+#                            DRAFT_RETENTION_DAYS (default 10) is dropped.
+#                            Must stay in step with DRAFT_RETENTION_DAYS in
+#                            frontend/lib/drafts.ts, which governs the local
+#                            IndexedDB copy.
+#   purge_generation_runs  — recorded SSE frames older than
+#                            GENERATION_RUN_RETENTION_DAYS (default 7). Runs
+#                            are a delivery mechanism, not history.
+#
+# Each of these ALSO purges lazily whenever the matching list is read, so a
+# host without this timer still honours every promise for anyone who opens the
+# screen. The timer is what covers the accounts nobody opens.
+ExecStart=/home/ubuntu/qp-gen/backend/venv/bin/python manage.py purge_deleted_papers
+ExecStart=/home/ubuntu/qp-gen/backend/venv/bin/python manage.py purge_expired_drafts
+ExecStart=/home/ubuntu/qp-gen/backend/venv/bin/python manage.py purge_generation_runs

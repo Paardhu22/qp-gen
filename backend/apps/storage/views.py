@@ -129,7 +129,11 @@ class UploadExportView(APIView):
                     status=400,
                 )
             try:
-                paper = Paper.objects.get(id=paper_id, user=request.user)
+                # Deleted papers are not exportable: a paper in the bin is
+                # deleted as far as the rest of the product is concerned.
+                paper = Paper.objects.get(
+                    id=paper_id, user=request.user, deleted_at__isnull=True
+                )
             except Paper.DoesNotExist:
                 return Response(
                     {"error": "Paper not found or access denied."},
