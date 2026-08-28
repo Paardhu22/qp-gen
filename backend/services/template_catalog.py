@@ -268,19 +268,16 @@ def resolve_detailed(
             # Calling the designer with nothing would spend a model call to be
             # told it has nothing to work with.
             return ResolvedTemplate(blueprint=TemplateBlueprint())
-        from services.paper_design import (
-            design_paper,
-            design_to_slot_specs,
-            validate_design,
-        )
+        from services.paper_design import design_paper, design_to_slot_specs
 
-        design = validate_design(
-            design_paper(
-                instructions,
-                subject=resolved_subject or "General",
-                academic_class=str(resolved_class),
-                user=user,
-            )
+        # No second `validate_design` here: `design_paper` validates every
+        # design it returns, and re-running the validator only risked reporting
+        # the same correction twice.
+        design = design_paper(
+            instructions,
+            subject=resolved_subject or "General",
+            academic_class=str(resolved_class),
+            user=user,
         )
         return ResolvedTemplate(
             blueprint=_blueprint_from_design_specs(design_to_slot_specs(design)),
