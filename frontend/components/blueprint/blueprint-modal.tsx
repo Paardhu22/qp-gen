@@ -67,6 +67,7 @@ import {
   type BlueprintSlot,
   type BuiltinTemplate,
   type PaperTemplate,
+  type DetectedSettings,
   type QuestionTypeOption,
 } from "@/lib/api-client";
 import { recomputeTotals } from "@/lib/blueprint-totals";
@@ -196,6 +197,39 @@ export function BlueprintModal({
   const [saveName, setSaveName] = React.useState("");
   const [savingTemplate, setSavingTemplate] = React.useState(false);
 
+  //: What the last resolve read off the brief or the card, kept so the rail can
+  //: say which of its values came from the teacher's own words rather than
+  //: from a default they never chose.
+  const [readFromBrief, setReadFromBrief] = React.useState<DetectedSettings>({});
+  //: What the designer had to correct — a stated 80-mark total that the
+  //: structure misses, and the like.
+  const [designNotes, setDesignNotes] = React.useState<string[]>([]);
+
+  /**
+   * Write what the resolve settled into the rail.
+   *
+   * This is the whole fix for a brief being read and then ignored. "Class 9
+   * Maths, 80 marks, one set" resolved a blueprint out of the prose and then
+   * generated with the rail's untouched defaults — Science, Class 10, 1 set —
+   * because nothing ever carried the teacher's own words back into the form
+   * that generation actually reads.
+   *
+   * Two rules, both deliberate. Only keys the resolve genuinely settled are
+   * present, so an unstated subject leaves the teacher's choice alone instead
+   * of blanking it. And it lands in the visible controls rather than in a
+   * hidden override: a paper that silently generates as Class 9 is the same
+   * bug as one that silently generates as Class 10, just pointing the other
+   * way. The teacher has to be able to see it and disagree.
+   */
+  const applyDetected = React.useCallback((detected?: DetectedSettings) => {
+    setReadFromBrief(detected ?? {});
+    if (!detected) return;
+    if (detected.subject) setSubject(detected.subject);
+    if (detected.academicClass) setAcademicClass(detected.academicClass);
+    if (detected.numberOfSets) setNumberOfSets(detected.numberOfSets);
+    if (detected.difficulty) setDifficulty(detected.difficulty);
+  }, []);
+
   // A detected subject should fill the field, never fight the teacher who has
   // already corrected it — so this only applies while nothing is chosen.
   React.useEffect(() => {
@@ -249,11 +283,12 @@ export function BlueprintModal({
         builtin.find((t) => t.id === id) ?? saved.find((t) => t.id === id);
       setTemplateName(match?.name ?? "");
 
-      // A board template carries its own subject and class; adopting them
-      // saves the teacher re-picking what the card already said.
+      // A board template carries its own subject and class, so they seed the
+      // REQUEST — but what gets adopted into the rail is what comes back, via
+      // `detected`. The resolve is the only place that can weigh a card's
+      // stated class against a brief that names a different one, so it is the
+      // one that decides; the client just applies the answer.
       const builtinMatch = builtin.find((t) => t.id === id);
-      if (builtinMatch?.subject) setSubject(builtinMatch.subject);
-      if (builtinMatch?.academicClass) setAcademicClass(builtinMatch.academicClass);
 
       setResolving(true);
       try {
@@ -268,6 +303,8 @@ export function BlueprintModal({
         if (result.template?.instructions) {
           setInstructions(result.template.instructions);
         }
+        applyDetected(result.detected);
+        setDesignNotes(result.corrections ?? []);
         // Always hand over to Sources. Skipping ahead to Questions when the
         // template happened to resolve slots was a shortcut that skipped the
         // one step the paper cannot be generated without — a teacher who
@@ -280,11 +317,13 @@ export function BlueprintModal({
           error?.message || "That template could not be opened. Try another.",
         );
         setBlueprint(EMPTY_BLUEPRINT);
+        setReadFromBrief({});
+        setDesignNotes([]);
       } finally {
         setResolving(false);
       }
     },
-    [builtin, saved, subject, academicClass, difficulty, instructions],
+    [builtin, saved, subject, academicClass, difficulty, instructions, applyDetected],
   );
 
   // ── Opened from the Studio dock with a brief ────────────────────────────

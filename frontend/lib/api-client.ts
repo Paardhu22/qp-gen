@@ -1275,6 +1275,29 @@ export async function fetchTemplateCatalog(params?: {
  * Compile a template into an editable blueprint. Writes nothing, so browsing
  * the picker never commits the teacher to anything.
  */
+/**
+ * Settings the resolve read off the template itself — out of a plain-English
+ * brief, or off the board card that was picked. Only the keys it actually
+ * settled are present, because the Builder writes these over a form the
+ * teacher may already have touched: absent means "leave their setting alone",
+ * which a null or an empty string could not say.
+ */
+export interface DetectedSettings {
+  subject?: string;
+  academicClass?: string;
+  totalMarks?: number;
+  numberOfSets?: string;
+  difficulty?: string;
+}
+
+export interface ResolvedTemplate {
+  blueprint: Blueprint;
+  template?: PaperTemplate;
+  detected?: DetectedSettings;
+  /** What the designer had to change, e.g. a stated total the slots miss. */
+  corrections?: string[];
+}
+
 export async function resolveTemplate(body: {
   templateId: string;
   subject?: string;
@@ -1282,11 +1305,11 @@ export async function resolveTemplate(body: {
   difficulty?: string;
   instructions?: string;
   savedCount?: number;
-}): Promise<{ blueprint: Blueprint; template?: PaperTemplate }> {
-  return fetchJson<{ blueprint: Blueprint; template?: PaperTemplate }>(
-    "/api/generation/templates/resolve",
-    { method: "POST", body: JSON.stringify(body) },
-  );
+}): Promise<ResolvedTemplate> {
+  return fetchJson<ResolvedTemplate>("/api/generation/templates/resolve", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 /**
