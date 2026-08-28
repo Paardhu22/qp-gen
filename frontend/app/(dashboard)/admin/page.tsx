@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MembersTable } from "@/components/admin/members-table";
+import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
 import { Loader2, Mail } from "lucide-react";
 
 function InviteOrganizationDialog({ onInvited }: { onInvited: () => void }) {
@@ -263,7 +264,7 @@ function SuperAdminDashboard() {
                         {org.logo_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={org.logo_url}
+                            src={resolveFigureSrc(org.logo_url)}
                             alt=""
                             className="h-7 w-7 shrink-0 rounded object-contain"
                           />

@@ -15,7 +15,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Check, ImageUp, Loader2, X } from "lucide-react";
+import { Check, Image as ImageIcon, ImageUp, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +23,7 @@ import {
   uploadBrandLogo,
   type BrandAsset,
 } from "@/lib/api-client";
+import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
 import { cn } from "@/lib/utils";
 
 /** Printed widths, in px on the 794px A4 page. */
@@ -57,6 +58,7 @@ export function HeaderLogoPicker({
   const [selectedUrl, setSelectedUrl] = React.useState(currentUrl);
   const [selectedWidth, setSelectedWidth] = React.useState(width);
   const [selectedAlign, setSelectedAlign] = React.useState(align);
+  const [failedImages, setFailedImages] = React.useState<Set<string>>(new Set());
   const fileRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
@@ -130,7 +132,7 @@ export function HeaderLogoPicker({
 
         <div className="mt-4">
           {isLoading ? (
-            <div className="flex h-20 items-center justify-center">
+            <div className="flex h-24 items-center justify-center">
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
           ) : logos.length === 0 ? (
@@ -139,31 +141,44 @@ export function HeaderLogoPicker({
               paper you make after this.
             </p>
           ) : (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-0.5">
               {logos.map((logo) => {
                 const active = logo.url === selectedUrl;
+                const resolvedSrc = resolveFigureSrc(logo.url);
+                const isFailed = failedImages.has(logo.id);
                 return (
                   <button
                     key={logo.id}
                     type="button"
                     onClick={() => setSelectedUrl(logo.url)}
-                    title={logo.name || "Logo"}
                     className={cn(
-                      "relative flex h-20 items-center justify-center rounded-lg border bg-muted/30 p-2 transition-colors",
+                      "group relative flex flex-col items-center justify-between h-24 rounded-xl border bg-muted/20 p-2 transition-all hover:bg-muted/40",
                       active
-                        ? "border-primary ring-2 ring-primary/30"
+                        ? "border-primary bg-primary/5 ring-2 ring-primary/30"
                         : "border-border hover:border-primary/40",
                     )}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={logo.url}
-                      alt={logo.name || ""}
-                      className="max-h-full max-w-full object-contain"
-                    />
+                    <div className="flex flex-1 w-full items-center justify-center overflow-hidden">
+                      {isFailed ? (
+                        <ImageIcon className="h-7 w-7 text-muted-foreground/50" />
+                      ) : (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={resolvedSrc}
+                          alt=""
+                          onError={() =>
+                            setFailedImages((prev) => new Set(prev).add(logo.id))
+                          }
+                          className="max-h-14 max-w-full object-contain transition-transform group-hover:scale-105"
+                        />
+                      )}
+                    </div>
+                    <span className="mt-1 w-full truncate text-center text-[10px] text-muted-foreground">
+                      {logo.name || "Logo"}
+                    </span>
                     {active ? (
-                      <span className="absolute right-1 top-1 rounded-full bg-primary p-0.5 text-primary-foreground">
-                        <Check className="h-2.5 w-2.5" />
+                      <span className="absolute right-1.5 top-1.5 rounded-full bg-primary p-0.5 text-primary-foreground shadow-xs">
+                        <Check className="h-3 w-3" />
                       </span>
                     ) : null}
                   </button>

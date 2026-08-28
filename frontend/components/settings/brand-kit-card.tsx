@@ -37,6 +37,7 @@ import {
   type BrandAsset,
   type BrandKit,
 } from "@/lib/api-client";
+import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
 
 export function BrandKitCard() {
   const [kit, setKit] = React.useState<BrandKit | null>(null);
@@ -165,7 +166,7 @@ export function BrandKitCard() {
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={logo.url}
+                        src={resolveFigureSrc(logo.url)}
                         alt={logo.name || ""}
                         className="max-h-full max-w-full object-contain"
                       />
