@@ -447,7 +447,7 @@ class TemplateResolveView(APIView):
     """
 
     def post(self, request):
-        from services.template_catalog import resolve_builtin
+        from services.template_catalog import resolve_detailed
         from services.templates import TemplateBlueprint, apply_source_ratio
 
         payload = request.data or {}
@@ -474,12 +474,22 @@ class TemplateResolveView(APIView):
             user=request.user, id=template_id
         ).first()
         if saved is not None:
+            detected: dict = {}
+            corrections: list = []
             if (saved.blueprint or {}).get("slots"):
                 blueprint = TemplateBlueprint.from_dict(saved.blueprint)
+                # A pinned blueprint carries the settings it was saved with;
+                # they are as much "what this template says" as a brief's
+                # detected values, and the Builder applies both the same way.
+                detected = {
+                    key: value
+                    for key in ("subject", "academicClass")
+                    if (value := (saved.settings or {}).get(key))
+                }
             else:
                 base = saved.base_template_id or "describe-it-yourself"
                 try:
-                    blueprint = resolve_builtin(
+                    resolved = resolve_detailed(
                         base,
                         subject=subject or (saved.settings or {}).get("subject", ""),
                         academic_class=academic_class
@@ -491,15 +501,20 @@ class TemplateResolveView(APIView):
                     return Response(
                         {"error": str(exc)}, status=status.HTTP_404_NOT_FOUND
                     )
+                blueprint = resolved.blueprint
+                detected = resolved.detected
+                corrections = resolved.corrections
             return Response(
                 {
                     "blueprint": blueprint.as_dict(),
                     "template": PaperTemplateSerializer(saved).data,
+                    "detected": detected,
+                    "corrections": corrections,
                 }
             )
 
         try:
-            blueprint = resolve_builtin(
+            resolved = resolve_detailed(
                 template_id,
                 subject=subject,
                 academic_class=academic_class,
@@ -520,11 +535,20 @@ class TemplateResolveView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        blueprint = resolved.blueprint
         saved_count = payload.get("savedCount")
         if saved_count is not None:
             apply_source_ratio(blueprint, saved=saved_count)
 
-        return Response({"blueprint": blueprint.as_dict()})
+        return Response(
+            {
+                "blueprint": blueprint.as_dict(),
+                # What the brief settled, for the Builder to write into its
+                # rail, and what the designer had to change, for it to say so.
+                "detected": resolved.detected,
+                "corrections": resolved.corrections,
+            }
+        )
 
 
 class QuestionTypeCatalogView(APIView):
