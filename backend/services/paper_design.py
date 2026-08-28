@@ -232,6 +232,61 @@ class DesignSection:
 
 
 @dataclass
+class DetectedSettings:
+    """What the brief said about the paper's *identity*, as opposed to its shape.
+
+    `PaperDesign` answers "how many of what kind, worth what". This answers
+    "whose paper is it" — class, subject, scale — and it exists because those
+    were the fields a plain-English brief silently lost. "Class 9 Maths, 80
+    marks, one set" used to resolve against whatever the Builder's rail
+    happened to be defaulted to (Science, Class 10, 1 set), so the teacher's
+    first four words were read by the designer as prose and then contradicted
+    by the settings actually sent to generation.
+
+    Every field is empty/None unless the teacher *stated* it. An unstated
+    subject must stay unstated: a guess here is worse than a blank, because a
+    blank leaves the rail's default visible and a guess overwrites it.
+    """
+
+    subject: str = ""
+    academic_class: str = ""
+    total_marks: Optional[int] = None
+    number_of_sets: Optional[int] = None
+    difficulty: str = ""
+
+    def is_empty(self) -> bool:
+        return not any(
+            (
+                self.subject,
+                self.academic_class,
+                self.total_marks,
+                self.number_of_sets,
+                self.difficulty,
+            )
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Only the fields that were actually read, in the client's casing.
+
+        Omitting rather than nulling matters: the Builder applies this over a
+        rail the teacher may have already touched, so `{}` has to mean "the
+        brief said nothing", never "the brief said blank".
+        """
+        out: Dict[str, Any] = {}
+        if self.subject:
+            out["subject"] = self.subject
+        if self.academic_class:
+            out["academicClass"] = self.academic_class
+        if self.total_marks:
+            out["totalMarks"] = self.total_marks
+        if self.number_of_sets:
+            out["numberOfSets"] = str(self.number_of_sets)
+        if self.difficulty:
+            out["difficulty"] = self.difficulty
+        return out
+
+
+@dataclass
 class PaperDesign:
     sections: List[DesignSection] = field(default_factory=list)
     #: Printed header lines, e.g. "Time: 1 hour". Free-form by design — a
@@ -243,6 +298,8 @@ class PaperDesign:
     corrections: List[str] = field(default_factory=list)
     #: True when the design came from the offline fallback parser.
     degraded: bool = False
+    #: Class/subject/scale read out of the brief. See `DetectedSettings`.
+    detected: DetectedSettings = field(default_factory=DetectedSettings)
 
     @property
     def total_marks(self) -> int:
@@ -262,6 +319,7 @@ class PaperDesign:
             "totalQuestions": self.total_questions,
             "corrections": list(self.corrections),
             "degraded": self.degraded,
+            "detected": self.detected.to_dict(),
         }
 
 
@@ -285,6 +343,70 @@ _DESIGN_SCHEMA = {
                 "are compulsory.' Only rules the teacher actually stated or "
                 "that follow directly from the structure."
             ),
+        },
+        "detected": {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "description": (
+                "What the teacher stated about the paper itself, as opposed "
+                "to its structure. Every field is null unless they actually "
+                "said it — these overwrite the form the teacher is looking "
+                "at, so a guess is worse than a null."
+            ),
+            "properties": {
+                "subject": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "One of: Science, Mathematics, Social Science, "
+                        "English, Hindi, Telugu. Null if not stated. Map what "
+                        "they wrote onto this list — 'maths'/'algebra' is "
+                        "Mathematics, 'physics'/'biology'/'chemistry' is "
+                        "Science, 'history'/'civics'/'geography' is Social "
+                        "Science — but return null rather than forcing a "
+                        "subject that is not one of these."
+                    ),
+                },
+                "academicClass": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "The class/grade/standard as a number 1-12, e.g. "
+                        "'9' for 'Class 9' or 'IX standard'. Null if not "
+                        "stated."
+                    ),
+                },
+                "totalMarks": {
+                    "type": ["integer", "null"],
+                    "description": (
+                        "The paper's total marks if the teacher stated one, "
+                        "e.g. 80 for '80 marks'. This is the same figure the "
+                        "sections must add up to. Null if not stated."
+                    ),
+                },
+                "numberOfSets": {
+                    "type": ["integer", "null"],
+                    "description": (
+                        "How many variant sets of the paper: 1, 2 or 3. "
+                        "'one set' is 1, 'sets A and B' is 2. Null if not "
+                        "stated."
+                    ),
+                },
+                "difficulty": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "One of: easy, medium, hard — only if the teacher "
+                        "described the paper's overall difficulty ('keep it "
+                        "easy', 'tough revision test'). Null otherwise. Do "
+                        "NOT infer difficulty from question types."
+                    ),
+                },
+            },
+            "required": [
+                "subject",
+                "academicClass",
+                "totalMarks",
+                "numberOfSets",
+                "difficulty",
+            ],
         },
         "sections": {
             "type": "array",
@@ -326,7 +448,13 @@ _DESIGN_SCHEMA = {
             },
         },
     },
-    "required": ["title", "duration", "generalInstructions", "sections"],
+    "required": [
+        "title",
+        "duration",
+        "generalInstructions",
+        "detected",
+        "sections",
+    ],
 }
 
 
@@ -352,8 +480,104 @@ not name any, use one section called "Questions".
 - Use `topic` only when the teacher tied a specific group to a specific topic.
 - `choice: true` only if they asked for internal choice / "or" options.
 - `generalInstructions` are rubric lines to print on the paper. Keep them to \
-what was stated or what plainly follows from the structure. No invented rules.\
+what was stated or what plainly follows from the structure. No invented rules.
+
+`detected` is separate from the structure and follows one rule: report only \
+what the teacher SAID, and null everything else. It is written straight into \
+the form on the teacher's screen, so a plausible guess silently overwrites a \
+choice they made, while a null leaves their own setting alone. Any Subject/\
+Class line given to you above the instructions is the form's current default, \
+NOT a fact about the paper — if the instructions name a different class or \
+subject, the instructions win and `detected` must say so.\
 """
+
+
+#: Words a teacher writes for a subject, mapped onto `SUBJECTS`. Used only by
+#: the offline path — the model handles the long tail when it is reachable.
+_SUBJECT_WORDS = {
+    "science": "Science",
+    "physics": "Science",
+    "chemistry": "Science",
+    "biology": "Science",
+    "bio": "Science",
+    "maths": "Mathematics",
+    "math": "Mathematics",
+    "mathematics": "Mathematics",
+    "algebra": "Mathematics",
+    "geometry": "Mathematics",
+    "trigonometry": "Mathematics",
+    "social": "Social Science",
+    "social science": "Social Science",
+    "sst": "Social Science",
+    "history": "Social Science",
+    "civics": "Social Science",
+    "geography": "Social Science",
+    "economics": "Social Science",
+    "english": "English",
+    "hindi": "Hindi",
+    "telugu": "Telugu",
+}
+
+_WORD_NUMBERS = {"one": 1, "two": 2, "three": 3, "single": 1}
+
+
+def detect_from_text(instructions: str) -> DetectedSettings:
+    """Read class/subject/marks/sets out of a brief without a model call.
+
+    The lifeboat for `_fallback_design`, and the reason it exists is that these
+    four fields decide which generator runs and how many papers come out. A
+    degraded *structure* is a worse paper; a degraded *subject* is the wrong
+    paper. Plain regex handles the phrasings that carry almost all of the real
+    traffic ("Class 10 Science", "80 marks", "2 sets"), which is enough to keep
+    the offline path pointing at the right syllabus.
+    """
+    text = (instructions or "").strip()
+    if not text:
+        return DetectedSettings()
+    lowered = text.lower()
+
+    academic_class = ""
+    class_match = re.search(
+        r"\b(?:class|grade|std|standard)\s*[-:]?\s*(\d{1,2})\b", lowered
+    )
+    if class_match and 1 <= int(class_match.group(1)) <= 12:
+        academic_class = str(int(class_match.group(1)))
+
+    subject = ""
+    # Longest word first, so "social science" is not matched as "science".
+    for word in sorted(_SUBJECT_WORDS, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(word)}\b", lowered):
+            subject = _SUBJECT_WORDS[word]
+            break
+
+    total_marks = None
+    marks_match = re.search(r"\b(\d{1,3})\s*(?:marks?|mks?)\b", lowered)
+    if marks_match:
+        value = int(marks_match.group(1))
+        if 1 <= value <= 999:
+            total_marks = value
+
+    number_of_sets = None
+    sets_match = re.search(r"\b(\d|one|two|three|single)\s*sets?\b", lowered)
+    if sets_match:
+        token = sets_match.group(1)
+        value = int(token) if token.isdigit() else _WORD_NUMBERS.get(token, 0)
+        if 1 <= value <= 3:
+            number_of_sets = value
+
+    difficulty = ""
+    if re.search(r"\b(easy|simple|basic)\b", lowered):
+        difficulty = "easy"
+    elif re.search(r"\b(hard|tough|difficult|challenging)\b", lowered):
+        difficulty = "hard"
+
+    return DetectedSettings(
+        subject=subject,
+        academic_class=academic_class,
+        total_marks=total_marks,
+        number_of_sets=number_of_sets,
+        difficulty=difficulty,
+    )
 
 
 def _fallback_design(
@@ -388,6 +612,7 @@ def _fallback_design(
     return PaperDesign(
         sections=[sections[t] for t in order],
         degraded=True,
+        detected=detect_from_text(instructions),
         corrections=[
             "Designed from a simplified reading of your instructions — the "
             "paper designer was unavailable."
@@ -410,11 +635,17 @@ def design_paper(
     if not text:
         return PaperDesign()
 
+    # Subject and class are labelled as the form's defaults rather than stated
+    # as fact. They usually ARE just defaults — the Builder's rail starts on
+    # Science/Class 10 — and presenting them as given had the designer laying
+    # out a Class 10 Science paper while the teacher's own words underneath
+    # said Class 9 Maths. Marks and counts are different: those reach here only
+    # when a caller genuinely fixed them, so they stay requirements.
     context_lines = []
     if subject:
-        context_lines.append(f"Subject: {subject}")
+        context_lines.append(f"Form default subject (may be wrong): {subject}")
     if academic_class:
-        context_lines.append(f"Class: {academic_class}")
+        context_lines.append(f"Form default class (may be wrong): {academic_class}")
     if total_marks:
         context_lines.append(f"Total marks required: {total_marks}")
     if exact_count:
@@ -463,7 +694,15 @@ def design_paper(
         logger.warning("Paper design returned no sections; falling back")
         return _fallback_design(text, source_count, exact_count)
 
-    return validate_design(design, total_marks=total_marks, exact_count=exact_count)
+    # A mark total the teacher wrote into the brief is as binding as one a
+    # caller passed in — it is the same number, just arriving as prose. Without
+    # this, "80 marks" was read by the model and then checked against nothing,
+    # so a design that came to 74 was reported as fine.
+    return validate_design(
+        design,
+        total_marks=total_marks or design.detected.total_marks,
+        exact_count=exact_count,
+    )
 
 
 def _design_from_raw(raw: Any) -> PaperDesign:
@@ -513,6 +752,59 @@ def _design_from_raw(raw: Any) -> PaperDesign:
             for line in (instructions if isinstance(instructions, list) else [])
             if str(line).strip()
         ],
+        detected=_detected_from_raw(raw.get("detected")),
+    )
+
+
+def _detected_from_raw(raw: Any) -> DetectedSettings:
+    """Pull `detected` back onto the closed sets the rest of the app accepts.
+
+    The same argument the module header makes about arithmetic applies to these
+    fields, and more sharply: they are written into a form the teacher is
+    looking at. A subject outside `SUBJECTS` would render as a blank select; a
+    class of "10th" would not match the option list. Anything that does not
+    land cleanly on a known value is dropped back to "not stated", which leaves
+    the teacher's own setting standing.
+    """
+    if not isinstance(raw, dict):
+        return DetectedSettings()
+
+    subject = ""
+    stated_subject = str(raw.get("subject") or "").strip()
+    if stated_subject:
+        for known in SUBJECTS:
+            if known.lower() == stated_subject.lower():
+                subject = known
+                break
+
+    academic_class = ""
+    stated_class = str(raw.get("academicClass") or "").strip()
+    if stated_class:
+        digits = re.search(r"\d{1,2}", stated_class)
+        if digits and 1 <= int(digits.group()) <= 12:
+            academic_class = str(int(digits.group()))
+
+    def positive_int(key: str, ceiling: int) -> Optional[int]:
+        try:
+            value = int(raw.get(key) or 0)
+        except (TypeError, ValueError):
+            return None
+        return value if 1 <= value <= ceiling else None
+
+    difficulty = ""
+    stated_difficulty = str(raw.get("difficulty") or "").strip().lower()
+    if stated_difficulty in {"easy", "medium", "hard"}:
+        difficulty = stated_difficulty
+
+    return DetectedSettings(
+        subject=subject,
+        academic_class=academic_class,
+        # The ceiling is `MAX_QUESTIONS * MAX_MARKS_PER_QUESTION` in spirit;
+        # in practice no school paper is worth four figures, and a total that
+        # large is a misread digit rather than a request.
+        total_marks=positive_int("totalMarks", 999),
+        number_of_sets=positive_int("numberOfSets", 3),
+        difficulty=difficulty,
     )
 
 

@@ -31,7 +31,7 @@ actually picks one.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from typing import Any, Dict, List, Optional
 
 from services.templates import TemplateBlueprint
@@ -191,6 +191,27 @@ def get_entry(template_id: str) -> Optional[CatalogEntry]:
     return None
 
 
+@dataclass
+class ResolvedTemplate:
+    """A compiled blueprint plus everything else the compile learned.
+
+    `resolve_builtin` used to return the blueprint alone, which is fine for a
+    board template — a CBSE card already knows its class and subject, because
+    the teacher picked them off the card. It is not fine for "Describe It
+    Yourself", where the brief is the only place the class, subject, marks and
+    set count are ever stated. Dropping those on the floor is what let a paper
+    described as Class 9 Maths generate as Class 10 Science.
+    """
+
+    blueprint: TemplateBlueprint
+    #: Settings read out of a plain-English brief, in the client's casing.
+    #: Only ever carries keys the brief actually settled.
+    detected: Dict[str, Any] = dataclass_field(default_factory=dict)
+    #: What the designer had to correct — e.g. a stated total the structure
+    #: misses. Empty unless something needs saying.
+    corrections: List[str] = dataclass_field(default_factory=list)
+
+
 def resolve_builtin(
     template_id: str,
     *,
@@ -200,6 +221,31 @@ def resolve_builtin(
     instructions: str = "",
     user=None,
 ) -> TemplateBlueprint:
+    """The blueprint alone, for callers that only need slots.
+
+    Kept as the narrow entry point because most callers genuinely do not want
+    the rest; `resolve_detailed` is for the one surface — the Builder — that
+    can act on what the brief said.
+    """
+    return resolve_detailed(
+        template_id,
+        subject=subject,
+        academic_class=academic_class,
+        difficulty=difficulty,
+        instructions=instructions,
+        user=user,
+    ).blueprint
+
+
+def resolve_detailed(
+    template_id: str,
+    *,
+    subject: str = "",
+    academic_class: str = "",
+    difficulty: str = "medium",
+    instructions: str = "",
+    user=None,
+) -> ResolvedTemplate:
     """Compile a built-in entry into an editable blueprint.
 
     Overrides win over the entry's own subject/class so one CBSE template can
@@ -211,7 +257,7 @@ def resolve_builtin(
         raise ValueError(f"Unknown template {template_id!r}.")
 
     if entry.kind == KIND_BLANK:
-        return TemplateBlueprint()
+        return ResolvedTemplate(blueprint=TemplateBlueprint())
 
     resolved_subject = subject or entry.subject
     resolved_class = academic_class or entry.academic_class or "10"
@@ -221,7 +267,7 @@ def resolve_builtin(
             # No prose yet — the Builder opens empty and the teacher types.
             # Calling the designer with nothing would spend a model call to be
             # told it has nothing to work with.
-            return TemplateBlueprint()
+            return ResolvedTemplate(blueprint=TemplateBlueprint())
         from services.paper_design import (
             design_paper,
             design_to_slot_specs,
@@ -236,7 +282,11 @@ def resolve_builtin(
                 user=user,
             )
         )
-        return _blueprint_from_design_specs(design_to_slot_specs(design))
+        return ResolvedTemplate(
+            blueprint=_blueprint_from_design_specs(design_to_slot_specs(design)),
+            detected=design.detected.to_dict(),
+            corrections=list(design.corrections),
+        )
 
     # KIND_CBSE — the blueprint engine is the authority.
     from services.generation_router import build_question_plan, extract_class_number
@@ -252,7 +302,21 @@ def resolve_builtin(
             count_variation="cbse",
         )
     )
-    return TemplateBlueprint.from_plan(plan)
+    # A board card states its own class and subject, so echo them back through
+    # the same channel a brief uses. That keeps one rule on the client — "apply
+    # what the resolve told you" — instead of a second copy of the adopt-the-
+    # card logic that already lives above.
+    return ResolvedTemplate(
+        blueprint=TemplateBlueprint.from_plan(plan),
+        detected={
+            key: value
+            for key, value in (
+                ("subject", entry.subject),
+                ("academicClass", entry.academic_class),
+            )
+            if value
+        },
+    )
 
 
 def _blueprint_from_design_specs(specs: List[Dict[str, Any]]) -> TemplateBlueprint:
