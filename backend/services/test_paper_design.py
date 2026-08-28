@@ -11,6 +11,7 @@ from django.test import TestCase
 
 from services.paper_design import (
     DesignSection,
+    DetectedSettings,
     Gap,
     MAX_MARKS_PER_QUESTION,
     MAX_QUESTIONS,
@@ -25,6 +26,8 @@ from services.paper_design import (
     normalize_question_type,
     validate_design,
     _design_from_raw,
+    _detected_from_raw,
+    detected_from_prose,
 )
 
 
@@ -365,6 +368,156 @@ class InferSettingsTests(TestCase):
         self.assertEqual(
             [g.field for g in gaps], [], f"re-asked for something stated: {gaps}"
         )
+
+
+class DetectedSettingsTests(TestCase):
+    """The brief's own words about class, subject, marks and sets.
+
+    These are the fields that decide which generator runs and how many papers
+    come out, so a wrong value here is a wrong paper — not a badly shaped one.
+    The bar is therefore "claim nothing that was not said", and most of these
+    tests are about what is NOT claimed.
+    """
+
+    def test_a_full_brief_is_read_back_in_the_clients_casing(self):
+        detected = _detected_from_raw(
+            {
+                "subject": "Mathematics",
+                "academicClass": "9",
+                "totalMarks": 80,
+                "numberOfSets": 2,
+                "difficulty": "hard",
+            }
+        )
+        self.assertEqual(
+            detected.to_dict(),
+            {
+                "subject": "Mathematics",
+                "academicClass": "9",
+                "totalMarks": 80,
+                "numberOfSets": "2",
+                "difficulty": "hard",
+            },
+        )
+
+    def test_an_unstated_field_is_absent_not_blank(self):
+        # Absent means "leave the teacher's setting alone". A null or an empty
+        # string would read as "the brief said blank" and wipe it.
+        detected = _detected_from_raw(
+            {
+                "subject": None,
+                "academicClass": None,
+                "totalMarks": None,
+                "numberOfSets": None,
+                "difficulty": None,
+            }
+        )
+        self.assertEqual(detected.to_dict(), {})
+        self.assertTrue(detected.is_empty())
+
+    def test_a_subject_outside_the_vocabulary_is_dropped(self):
+        # It would render as a blank <select> on the rail, which is worse than
+        # leaving the teacher's own subject standing.
+        self.assertEqual(_detected_from_raw({"subject": "Sanskrit"}).subject, "")
+
+    def test_subject_matching_ignores_casing(self):
+        self.assertEqual(
+            _detected_from_raw({"subject": "social science"}).subject,
+            "Social Science",
+        )
+
+    def test_a_class_is_pulled_out_of_ordinal_phrasing(self):
+        self.assertEqual(_detected_from_raw({"academicClass": "9th"}).academic_class, "9")
+
+    def test_an_out_of_range_class_is_not_claimed(self):
+        self.assertEqual(_detected_from_raw({"academicClass": "47"}).academic_class, "")
+
+    def test_sets_are_capped_at_what_the_generator_offers(self):
+        self.assertIsNone(_detected_from_raw({"numberOfSets": 9}).number_of_sets)
+        self.assertEqual(_detected_from_raw({"numberOfSets": 3}).number_of_sets, 3)
+
+    def test_an_invented_difficulty_is_dropped(self):
+        self.assertEqual(_detected_from_raw({"difficulty": "brutal"}).difficulty, "")
+
+    def test_junk_yields_nothing_rather_than_raising(self):
+        self.assertTrue(_detected_from_raw(None).is_empty())
+        self.assertTrue(_detected_from_raw("nonsense").is_empty())
+        self.assertTrue(_detected_from_raw({"totalMarks": "eighty"}).is_empty())
+
+
+class DetectedFromProseTests(TestCase):
+    """The offline path — same fields, no model call."""
+
+    def test_the_dock_placeholder_reads_end_to_end(self):
+        # Literally the example the Studio dock shows as its placeholder. If
+        # this stops working, the interface is advertising an input it drops.
+        detected = detected_from_prose("Class 10 Science mid-term, 80 marks, one set")
+        self.assertEqual(detected.academic_class, "10")
+        self.assertEqual(detected.subject, "Science")
+        self.assertEqual(detected.total_marks, 80)
+        self.assertEqual(detected.number_of_sets, 1)
+
+    def test_the_dock_example_chip_reads_as_maths_not_science(self):
+        # "Class 9 Maths" resolving to Class 10 Science was the original bug.
+        detected = detected_from_prose("Class 9 Maths, mostly application questions")
+        self.assertEqual(detected.academic_class, "9")
+        self.assertEqual(detected.subject, "Mathematics")
+
+    def test_per_question_marks_are_not_read_as_the_paper_total(self):
+        self.assertIsNone(detected_from_prose("six questions of 5 marks each").total_marks)
+
+    def test_nothing_is_claimed_from_an_empty_brief(self):
+        self.assertTrue(detected_from_prose("").is_empty())
+
+
+class DesignDetectionWiringTests(TestCase):
+    def test_a_design_carries_its_detection_into_the_dict(self):
+        payload = design(DesignSection(title="Questions", groups=[group()]))
+        payload.detected = DetectedSettings(subject="Hindi", academic_class="7")
+        self.assertEqual(
+            payload.to_dict()["detected"],
+            {"subject": "Hindi", "academicClass": "7"},
+        )
+
+    def test_detection_survives_the_raw_read(self):
+        raw = {
+            "title": "Unit Test",
+            "duration": None,
+            "generalInstructions": None,
+            "detected": {"subject": "English", "academicClass": "6"},
+            "sections": [
+                {
+                    "title": "Questions",
+                    "instruction": None,
+                    "groups": [
+                        {
+                            "type": "MCQ",
+                            "marks": 1,
+                            "count": 4,
+                            "topic": None,
+                            "choice": None,
+                        }
+                    ],
+                }
+            ],
+        }
+        parsed = _design_from_raw(raw)
+        self.assertEqual(parsed.detected.subject, "English")
+        self.assertEqual(parsed.detected.academic_class, "6")
+
+    def test_a_response_with_no_detection_block_is_not_a_failure(self):
+        # Older/degraded responses simply say nothing about identity.
+        parsed = _design_from_raw(
+            {
+                "sections": [
+                    {
+                        "title": "Questions",
+                        "groups": [{"type": "MCQ", "marks": 1, "count": 2}],
+                    }
+                ]
+            }
+        )
+        self.assertTrue(parsed.detected.is_empty())
 
 
 class HeaderLineTests(TestCase):

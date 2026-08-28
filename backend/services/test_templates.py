@@ -19,6 +19,7 @@ from services.template_catalog import (
     get_entry,
     list_templates,
     resolve_builtin,
+    resolve_detailed,
 )
 from services.templates import (
     SOURCE_GENERATE,
@@ -240,6 +241,28 @@ class CatalogTests(TestCase):
     def test_an_unknown_template_id_raises(self):
         with self.assertRaises(ValueError):
             resolve_builtin("no-such-template")
+
+    def test_a_board_card_reports_the_class_and_subject_it_stands_for(self):
+        # The Builder adopts these into its rail. Before they were returned,
+        # the client kept its own copy of "a CBSE card carries a class", and a
+        # card whose class disagreed with the rail resolved one paper and
+        # generated another.
+        resolved = resolve_detailed("cbse-science-10")
+        self.assertEqual(resolved.detected["subject"], "Science")
+        self.assertEqual(resolved.detected["academicClass"], "10")
+
+    def test_templates_with_nothing_to_say_report_nothing(self):
+        # Absent, not blank: the Builder reads a missing key as "leave the
+        # teacher's own setting alone".
+        self.assertEqual(resolve_detailed("blank").detected, {})
+        self.assertEqual(
+            resolve_detailed("describe-it-yourself", instructions="").detected, {}
+        )
+
+    def test_resolve_builtin_still_hands_back_a_bare_blueprint(self):
+        # The narrow entry point is what most callers use; it must not start
+        # returning the richer object underneath them.
+        self.assertIsInstance(resolve_builtin("cbse-science-10"), TemplateBlueprint)
 
     def test_the_catalog_covers_the_engine_matrix(self):
         # The catalog is derived from _NEW_ENGINE_ELIGIBILITY precisely so a

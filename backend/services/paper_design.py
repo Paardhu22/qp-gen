@@ -492,91 +492,36 @@ subject, the instructions win and `detected` must say so.\
 """
 
 
-#: Words a teacher writes for a subject, mapped onto `SUBJECTS`. Used only by
-#: the offline path — the model handles the long tail when it is reachable.
-_SUBJECT_WORDS = {
-    "science": "Science",
-    "physics": "Science",
-    "chemistry": "Science",
-    "biology": "Science",
-    "bio": "Science",
-    "maths": "Mathematics",
-    "math": "Mathematics",
-    "mathematics": "Mathematics",
-    "algebra": "Mathematics",
-    "geometry": "Mathematics",
-    "trigonometry": "Mathematics",
-    "social": "Social Science",
-    "social science": "Social Science",
-    "sst": "Social Science",
-    "history": "Social Science",
-    "civics": "Social Science",
-    "geography": "Social Science",
-    "economics": "Social Science",
-    "english": "English",
-    "hindi": "Hindi",
-    "telugu": "Telugu",
-}
+def detected_from_prose(instructions: str) -> DetectedSettings:
+    """`infer_settings` in `DetectedSettings` clothing, for the offline path.
 
-_WORD_NUMBERS = {"one": 1, "two": 2, "three": 3, "single": 1}
-
-
-def detect_from_text(instructions: str) -> DetectedSettings:
-    """Read class/subject/marks/sets out of a brief without a model call.
-
-    The lifeboat for `_fallback_design`, and the reason it exists is that these
-    four fields decide which generator runs and how many papers come out. A
-    degraded *structure* is a worse paper; a degraded *subject* is the wrong
-    paper. Plain regex handles the phrasings that carry almost all of the real
-    traffic ("Class 10 Science", "80 marks", "2 sets"), which is enough to keep
-    the offline path pointing at the right syllabus.
+    The regex reader already exists and is already the conservative one — it
+    guards "of 2 marks each" against being read as the paper total, which a
+    second implementation would have had to rediscover. So this is an adapter,
+    not a parser: same rules, typed shape.
     """
-    text = (instructions or "").strip()
-    if not text:
-        return DetectedSettings()
-    lowered = text.lower()
+    found = infer_settings(instructions)
 
-    academic_class = ""
-    class_match = re.search(
-        r"\b(?:class|grade|std|standard)\s*[-:]?\s*(\d{1,2})\b", lowered
-    )
-    if class_match and 1 <= int(class_match.group(1)) <= 12:
-        academic_class = str(int(class_match.group(1)))
+    marks: Optional[int] = None
+    if found.get("marks"):
+        try:
+            marks = int(found["marks"])
+        except ValueError:
+            marks = None
 
-    subject = ""
-    # Longest word first, so "social science" is not matched as "science".
-    for word in sorted(_SUBJECT_WORDS, key=len, reverse=True):
-        if re.search(rf"\b{re.escape(word)}\b", lowered):
-            subject = _SUBJECT_WORDS[word]
-            break
-
-    total_marks = None
-    marks_match = re.search(r"\b(\d{1,3})\s*(?:marks?|mks?)\b", lowered)
-    if marks_match:
-        value = int(marks_match.group(1))
-        if 1 <= value <= 999:
-            total_marks = value
-
-    number_of_sets = None
-    sets_match = re.search(r"\b(\d|one|two|three|single)\s*sets?\b", lowered)
-    if sets_match:
-        token = sets_match.group(1)
-        value = int(token) if token.isdigit() else _WORD_NUMBERS.get(token, 0)
-        if 1 <= value <= 3:
-            number_of_sets = value
-
-    difficulty = ""
-    if re.search(r"\b(easy|simple|basic)\b", lowered):
-        difficulty = "easy"
-    elif re.search(r"\b(hard|tough|difficult|challenging)\b", lowered):
-        difficulty = "hard"
+    sets: Optional[int] = None
+    if found.get("numberOfSets"):
+        try:
+            sets = int(found["numberOfSets"])
+        except ValueError:
+            sets = None
 
     return DetectedSettings(
-        subject=subject,
-        academic_class=academic_class,
-        total_marks=total_marks,
-        number_of_sets=number_of_sets,
-        difficulty=difficulty,
+        subject=found.get("subject", ""),
+        academic_class=found.get("academicClass", ""),
+        total_marks=marks,
+        number_of_sets=sets,
+        difficulty=found.get("difficulty", ""),
     )
 
 
@@ -612,11 +557,32 @@ def _fallback_design(
     return PaperDesign(
         sections=[sections[t] for t in order],
         degraded=True,
-        detected=detect_from_text(instructions),
+        detected=detected_from_prose(instructions),
         corrections=[
             "Designed from a simplified reading of your instructions — the "
             "paper designer was unavailable."
         ],
+    )
+
+
+def _degraded_design(
+    text: str,
+    source_count: int,
+    exact_count: Optional[int],
+    total_marks: Optional[int],
+) -> PaperDesign:
+    """The lifeboat, validated the way the model's design is.
+
+    `design_paper` promises every caller a *validated* design. The fallback
+    used to be returned raw — so the one design most likely to need checking
+    was the one that skipped it, and a caller wanting the guarantee had to
+    re-run the validator over everything to cover this branch.
+    """
+    design = _fallback_design(text, source_count, exact_count)
+    return validate_design(
+        design,
+        total_marks=total_marks or design.detected.total_marks,
+        exact_count=exact_count,
     )
 
 
@@ -679,7 +645,7 @@ def design_paper(
         )
     except Exception as exc:
         logger.warning("Paper design call failed, falling back to the parser: %s", exc)
-        return _fallback_design(text, source_count, exact_count)
+        return _degraded_design(text, source_count, exact_count, total_marks)
 
     _record_usage(user, "paper_design", _model(), completion.usage)
 
@@ -687,12 +653,12 @@ def design_paper(
         raw = json.loads(completion.choices[0].message.content or "{}")
     except (json.JSONDecodeError, TypeError):
         logger.warning("Paper design returned unparseable JSON")
-        return _fallback_design(text, source_count, exact_count)
+        return _degraded_design(text, source_count, exact_count, total_marks)
 
     design = _design_from_raw(raw)
     if not design.sections:
         logger.warning("Paper design returned no sections; falling back")
-        return _fallback_design(text, source_count, exact_count)
+        return _degraded_design(text, source_count, exact_count, total_marks)
 
     # A mark total the teacher wrote into the brief is as binding as one a
     # caller passed in — it is the same number, just arriving as prose. Without
@@ -1121,7 +1087,7 @@ def header_lines(design: PaperDesign, settings_in: Dict[str, Any]) -> List[str]:
 
 
 _WORD_NUMBERS = {
-    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "one": 1, "single": 1, "two": 2, "three": 3, "four": 4, "five": 5,
     "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
 }
 
@@ -1165,7 +1131,10 @@ def infer_settings(instructions: str) -> Dict[str, str]:
             found["difficulty"] = level
             break
 
-    sets = re.search(r"\b(\d|two|three)\s*(?:parallel\s*)?sets?\b", text)
+    # "one"/"single" belong here as much as "two": the Studio dock's own
+    # placeholder reads "…80 marks, one set", and leaving the word out meant
+    # the interface advertised an input this function then dropped.
+    sets = re.search(r"\b(\d|one|single|two|three)\s*(?:parallel\s*)?sets?\b", text)
     if sets:
         raw = sets.group(1)
         count = _WORD_NUMBERS.get(raw, None)

@@ -400,6 +400,41 @@ class TemplateCatalogApiTests(DesignApiTestCase):
         self.assertEqual([s["questionType"] for s in slots], ["MCQ", "LONG_ANSWER"])
         self.assertEqual(response.data["blueprint"]["totalMarks"], 6)
 
+    def test_a_resolve_reports_the_settings_the_template_stands_for(self):
+        # The Builder writes these into the controls that generation actually
+        # reads. Without them, a paper resolved from a board card or a brief
+        # generated against whatever the rail was left defaulted to.
+        response = self.client.post(
+            self.RESOLVE_URL, {"templateId": "cbse-science-10"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["detected"]["subject"], "Science")
+        self.assertEqual(response.data["detected"]["academicClass"], "10")
+        self.assertEqual(response.data["corrections"], [])
+
+    def test_a_pinned_template_reports_the_settings_it_was_saved_with(self):
+        template = PaperTemplate.objects.create(
+            user=self.user,
+            name="Pinned",
+            blueprint={"slots": [{"questionType": "MCQ", "marks": 1}]},
+            settings={"subject": "Hindi", "academicClass": "7"},
+        )
+        response = self.client.post(
+            self.RESOLVE_URL, {"templateId": template.id}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data["detected"],
+            {"subject": "Hindi", "academicClass": "7"},
+        )
+
+    def test_a_template_that_settles_nothing_reports_an_empty_detection(self):
+        response = self.client.post(
+            self.RESOLVE_URL, {"templateId": "blank"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["detected"], {})
+
     def test_another_teachers_template_id_is_not_resolvable(self):
         other = User.objects.create(email="other@example.com", name="O", status="approved")
         theirs = PaperTemplate.objects.create(
