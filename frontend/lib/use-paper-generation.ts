@@ -516,14 +516,40 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
 
   // Mirror produced sets into the store so the Comparison Workspace (mounted
   // by the editor page, not here) can read them.
+  //
+  // Staged while the run is in flight, ADOPTED — i.e. approved — the moment it
+  // finishes. Staging alone is what left Set A blank: `comparisonSets` is only
+  // consulted for tabs B and C (see `lib/set-content.ts`), so a staged Set A
+  // reached the tab strip but never the document, and the teacher got three
+  // tabs of which the first was empty. Approving is the only source that
+  // carries Set A, and nothing else can do it here: the review workspace that
+  // used to approve gates on `comparisonOpen`, which nothing ever opens.
+  //
+  // Asking for the generation is the "use this paper" instruction, exactly as
+  // it is on the dashboard — so this mirrors the dashboard's `adoptGeneratedSets`
+  // rather than inventing a second rule. `awaitPaper: false` because this
+  // editor is already open on the paper; there is no navigation to hand off to.
   const setComparisonSets = useEditorStore((s) => s.setComparisonSets);
+  const adoptGeneratedSets = useEditorStore((s) => s.adoptGeneratedSets);
   React.useEffect(() => {
-    if (state.multiSetMode && allSets.length >= 2) {
-      setComparisonSets(
-        allSets.map((s) => ({ label: s.label, result: s.result })),
-      );
+    if (!state.multiSetMode || allSets.length < 2) return;
+    const sets = allSets.map((s) => ({ label: s.label, result: s.result }));
+    // `isGenerating` flips false only after the stream closes, so the adopt
+    // path sees the final Set A from the `done` frame — and fires once, since
+    // `allSets` no longer changes afterwards. Bumping `approvedAt` per
+    // streamed set instead would remount the editor mid-run.
+    if (state.isGenerating) {
+      setComparisonSets(sets);
+    } else {
+      adoptGeneratedSets(sets, { awaitPaper: false });
     }
-  }, [state.multiSetMode, allSets, setComparisonSets]);
+  }, [
+    state.multiSetMode,
+    state.isGenerating,
+    allSets,
+    setComparisonSets,
+    adoptGeneratedSets,
+  ]);
 
   return {
     ...state,

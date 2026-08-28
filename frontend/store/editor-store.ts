@@ -275,8 +275,18 @@ interface EditorState {
   removeComparisonQuestion: (label: string, slotIndex: number) => void;
   approveComparisonSets: () => void;
   /** Put an already-generated paper straight into the editor tabs, approved.
-   *  For generations that happen outside the review workspace (the dashboard). */
-  adoptGeneratedSets: (sets: ComparisonSet[]) => void;
+   *  For generations that happen outside the review workspace — the dashboard,
+   *  and the editor's own Blueprint Builder.
+   *
+   *  `awaitPaper` arms the "a generated paper is on its way" handoff and is
+   *  only right when the editor is about to be NAVIGATED to (the dashboard).
+   *  An editor that is already open on a paper must pass `false`: nothing is
+   *  in flight, and the flag would otherwise persist and make the NEXT visit
+   *  to a bare `/editor` skip resuming the teacher's most recent draft. */
+  adoptGeneratedSets: (
+    sets: ComparisonSet[],
+    options?: { awaitPaper?: boolean },
+  ) => void;
   /** One-shot: the editor calls this on mount to take the pending handoff. */
   consumeGeneratedPaperHandoff: () => void;
   clearApprovedSets: () => void;
@@ -534,21 +544,24 @@ export const useEditorStore = create<EditorState>()(
           comparisonOpen: false,
         })),
 
-      // The dashboard runs the generation itself and then navigates to the
-      // editor, so there is no review workspace in between for the teacher to
-      // approve from. Without this the sets landed in `comparisonSets` and
-      // stopped there: tab A reads `approvedSets` first and `comparisonSets`
-      // only for tabs B/C, so Set A never reached the document, and because
-      // nothing was approved the editor was free to rehydrate the tab's
-      // IndexedDB draft — the PREVIOUS paper — over the top of the blank tab.
+      // Neither generation entry point has a review workspace in between for
+      // the teacher to approve from — the dashboard navigates to the editor
+      // afterwards, and the editor's Blueprint Builder closes straight back
+      // into the document. Without this the sets landed in `comparisonSets`
+      // and stopped there: tab A reads `approvedSets` first and
+      // `comparisonSets` only for tabs B/C, so Set A never reached the
+      // document, and because nothing was approved the editor was free to
+      // rehydrate the tab's IndexedDB draft — the PREVIOUS paper, or nothing
+      // at all — over the top of the blank tab. A three-set run therefore
+      // showed three tabs with Sets B and C filled and Set A empty.
       // Worse, a single-set request never rendered the "Review & approve sets"
       // panel at all (it needs two sets to compare), so there was no way to
       // reach the paper the teacher had just waited minutes for.
       //
-      // Generating from the dashboard is itself the "use this paper"
-      // instruction, so it approves. The sets stay in `comparisonSets` so the
-      // review workspace is still reachable afterwards for a multi-set run.
-      adoptGeneratedSets: (sets) =>
+      // Asking for a generation is itself the "use this paper" instruction, so
+      // it approves. The sets stay in `comparisonSets` so the review workspace
+      // is still reachable afterwards for a multi-set run.
+      adoptGeneratedSets: (sets, options) =>
         set((state) => ({
           comparisonSets: sets,
           comparisonSetsPaperId: state.activeEditorPaperId,
@@ -557,7 +570,7 @@ export const useEditorStore = create<EditorState>()(
           ),
           approvedAt: Date.now(),
           comparisonOpen: false,
-          awaitingGeneratedPaper: true,
+          awaitingGeneratedPaper: options?.awaitPaper ?? true,
         })),
 
       consumeGeneratedPaperHandoff: () =>

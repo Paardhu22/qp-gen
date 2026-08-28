@@ -95,9 +95,13 @@ export function HeaderLogoPicker({
     }
   };
 
+  // The picker lives inside the TipTap node view, so it sits under
+  // `.document-editor` in the DOM and inherits the *paper's* typography —
+  // Times New Roman at 12pt in black. Right for the sheet, wrong for a dialog,
+  // so the root re-asserts the app's UI font and text colour.
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 font-sans text-sm text-foreground"
       contentEditable={false}
     >
       <div
