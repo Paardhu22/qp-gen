@@ -339,6 +339,8 @@ export function BlueprintModal({
   React.useEffect(() => {
     if (!open) {
       appliedBriefRef.current = null;
+      setReadFromBrief({});
+      setDesignNotes([]);
       return;
     }
     const brief = (initialInstructions || "").trim();
@@ -465,6 +467,23 @@ export function BlueprintModal({
       instructions,
     });
   };
+
+  // The rail's own labels, so the receipt below reads like the controls it is
+  // reporting on rather than like a dump of an API response.
+  const briefChips: string[] = [];
+  if (readFromBrief.academicClass) briefChips.push(`Class ${readFromBrief.academicClass}`);
+  if (readFromBrief.subject) briefChips.push(readFromBrief.subject);
+  if (readFromBrief.totalMarks) briefChips.push(`${readFromBrief.totalMarks} marks`);
+  if (readFromBrief.numberOfSets) {
+    briefChips.push(
+      `${readFromBrief.numberOfSets} set${readFromBrief.numberOfSets === "1" ? "" : "s"}`,
+    );
+  }
+  if (readFromBrief.difficulty) {
+    briefChips.push(
+      readFromBrief.difficulty[0].toUpperCase() + readFromBrief.difficulty.slice(1),
+    );
+  }
 
   const stepIndex = STEPS.findIndex((s) => s.id === step);
 
@@ -628,6 +647,48 @@ export function BlueprintModal({
 
           {/* Step content */}
           <div className="min-w-0 flex-1 overflow-y-auto p-6">
+            {/* A receipt for what the brief was taken to mean.
+                Applying the teacher's words to the rail silently would trade
+                one invisible decision for another, so what was read is stated
+                where they are about to press Generate — and every chip
+                corresponds to a control they can still change. */}
+            {!resolving && (briefChips.length > 0 || designNotes.length > 0) ? (
+              <div className="mb-5 rounded-lg border border-border bg-muted/30 px-3.5 py-3">
+                {briefChips.length > 0 ? (
+                  <>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Read from what you wrote
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {briefChips.map((chip) => (
+                        <span
+                          key={chip}
+                          className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-foreground"
+                        >
+                          {chip}
+                        </span>
+                      ))}
+                      <span className="text-[11px] text-muted-foreground">
+                        — change any of it on the left.
+                      </span>
+                    </div>
+                  </>
+                ) : null}
+                {designNotes.length > 0 ? (
+                  <ul
+                    className={cn(
+                      "space-y-1 text-[11px] leading-relaxed text-muted-foreground",
+                      briefChips.length > 0 && "mt-2.5 border-t border-border pt-2.5",
+                    )}
+                  >
+                    {designNotes.map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+
             {resolving ? (
               <Spinner size="page" label="Preparing the blueprint…" />
             ) : step === "template" ? (
