@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   fetchPapers,
   fetchTrashedPapers,
@@ -967,9 +968,20 @@ export default function QuestionBankPage() {
                 : "No saved papers yet."}
             </p>
             {!search.trim() && (
-              <p className="max-w-xs text-xs text-muted-foreground">
-                Create a paper in the Editor and save it to see it here.
-              </p>
+              <>
+                <p className="max-w-xs text-xs text-muted-foreground">
+                  Create a paper in the Editor and save it to see it here.
+                </p>
+                {/* The copy names the Editor; this opens it. A link rather
+                    than a router push, so it behaves like any other link. */}
+                <Link
+                  href="/editor"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Open the Editor
+                </Link>
+              </>
             )}
             {search.trim() && (
               <button

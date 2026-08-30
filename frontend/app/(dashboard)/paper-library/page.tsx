@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   fetchProjectsWithQuestions,
   deleteQuestion,
@@ -757,9 +758,21 @@ export default function SavedQuestionsPage() {
                 Clear filters
               </button>
             ) : (
-              <p className="max-w-xs text-xs text-muted-foreground">
-                Generate and save questions from the Editor to see them here.
-              </p>
+              <>
+                <p className="max-w-xs text-xs text-muted-foreground">
+                  Generate and save questions from the Editor to see them here.
+                </p>
+                {/* The copy above already names the way out; without this it
+                    named it and did not open it. A real link, not a push, so
+                    it can be opened in a new tab like any other. */}
+                <Link
+                  href="/editor"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Open the Editor
+                </Link>
+              </>
             )}
           </div>
         ) : (

@@ -427,7 +427,10 @@ export default function TemplatesPage() {
               ))}
             </div>
           ) : visibleTemplates.length === 0 ? (
-            <EmptyState searching={Boolean(term)} />
+            <EmptyState
+              searching={Boolean(term)}
+              onBrowseBuiltins={() => setSelection({ kind: "builtin" })}
+            />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {visibleTemplates.map((template) => (
@@ -521,18 +524,36 @@ function selectionMatches(a: FolderSelection, b: FolderSelection): boolean {
   return true;
 }
 
-function EmptyState({ searching }: { searching: boolean }) {
+function EmptyState({
+  searching,
+  onBrowseBuiltins,
+}: {
+  searching: boolean;
+  onBrowseBuiltins: () => void;
+}) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-      <LayoutTemplate className="h-10 w-10 opacity-30" />
+      <LayoutTemplate className="empty-breathe h-10 w-10 opacity-30" />
       <p className="text-sm font-medium">
         {searching ? "No templates match that." : "Nothing here yet."}
       </p>
       {!searching ? (
-        <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
-          Start from a built-in CBSE paper under "Built-in" and make it
-          yours, or save a template the next time you generate one.
-        </p>
+        <>
+          <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+            Start from a built-in CBSE paper under &quot;Built-in&quot; and make
+            it yours, or save a template the next time you generate one.
+          </p>
+          {/* Switches the rail selection in place rather than navigating --
+              the built-ins are a view of this same page. */}
+          <button
+            type="button"
+            onClick={onBrowseBuiltins}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            <LayoutTemplate className="h-3.5 w-3.5" />
+            Browse built-in templates
+          </button>
+        </>
       ) : null}
     </div>
   );
