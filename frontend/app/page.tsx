@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import Grainient from "@/components/Grainient";
+import { Grainient } from "@/components/ui/grainient";
 import { useEffect, useState } from "react";
 import { getAccessToken } from "@/lib/token-storage";
 
