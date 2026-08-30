@@ -230,7 +230,13 @@ export default function EditorPage() {
   // switch and would otherwise reset them. Both default open — the point of
   // the layout is that the document's structure and the way to generate one
   // are visible without hunting.
-  const [outlineOpen, setOutlineOpen] = useState(true);
+  // Closed by default. Outline (240px) + A4 page (794px) + dock (320px) asks
+  // for 1354px, and the panels first appear at `lg` = 1024px; a 1366px laptop
+  // has around 1350px of usable width. Opening both meant the first view of
+  // the workspace was cramped and the teacher's first act was closing one.
+  // The dock earns the space -- it is how papers get made -- so the outline
+  // starts collapsed to its rail, one click from open.
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const [dockOpen, setDockOpen] = useState(true);
 
   // A template picked on the Templates page. Held here so the Builder opens on
