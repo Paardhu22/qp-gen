@@ -173,9 +173,37 @@ export function DocumentOutline({
 
   const pageCount = pages.length;
 
-  if (!open) {
-    return (
-      <div className="hidden w-12 flex-shrink-0 flex-col items-center gap-1 border-r border-border bg-background py-2 lg:flex print:hidden">
+  /**
+   * As a drawer, the panel covers the thing it navigates to, so picking a
+   * destination has to dismiss it. As a column it must stay put — closing on
+   * every click would make the outline unusable for reading down a paper.
+   * Resolved at click time rather than with a breakpoint hook, so it cannot
+   * disagree with the CSS that decides which shape is on screen.
+   */
+  const dismissIfDrawer = React.useCallback(() => {
+    if (
+      typeof window !== "undefined" &&
+      !window.matchMedia("(min-width: 1024px)").matches
+    ) {
+      onOpenChange(false);
+    }
+  }, [onOpenChange]);
+
+  return (
+    <>
+      {/* ── The rail ───────────────────────────────────────────────────────
+          Present at every width. It used to be `lg:flex`, matching the panel,
+          which meant that below 1024px neither existed — and since the set
+          tabs live only in this panel, a multi-set paper lost Sets B and C
+          entirely on a tablet. A panel may collapse; a feature that lives
+          only inside it may not disappear. Above `lg` the rail is what the
+          panel collapses to, so it steps aside while the panel is open. */}
+      <div
+        className={cn(
+          "flex w-12 flex-shrink-0 flex-col items-center gap-1 border-r border-border bg-background py-2 print:hidden",
+          open && "lg:hidden",
+        )}
+      >
         <button
           type="button"
           onClick={() => onOpenChange(true)}
@@ -186,11 +214,29 @@ export function DocumentOutline({
           <PanelLeftOpen className="h-[18px] w-[18px]" />
         </button>
       </div>
-    );
-  }
 
-  return (
-    <aside className="hidden w-60 flex-shrink-0 flex-col border-r border-border bg-background lg:flex print:hidden xl:w-64">
+      {/* Scrim for the drawer form only. Above `lg` the panel is a column in
+          the layout and dims nothing. */}
+      {open ? (
+        <div
+          className="fixed inset-0 z-30 bg-black/30 lg:hidden print:hidden"
+          onClick={() => onOpenChange(false)}
+        />
+      ) : null}
+
+      {/* ── The panel ──────────────────────────────────────────────────────
+          One component, two shapes. Below `lg` it is a fixed drawer over the
+          canvas — `fixed`, so it needs no positioned ancestor and costs the
+          flex row no width while open. At `lg` and up it returns to being an
+          ordinary column beside the page. */}
+      <aside
+        className={cn(
+          "flex-col border-r border-border bg-background print:hidden",
+          "fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] shadow-xl",
+          "lg:static lg:z-auto lg:w-60 lg:max-w-none lg:shadow-none xl:w-64",
+          open ? "flex" : "hidden",
+        )}
+      >
       {/* Header. The way back to just the page, and nothing else — the
           document's name already has its own row above the toolbar, and
           repeating it here would spend the panel's most valuable line on
@@ -219,7 +265,10 @@ export function DocumentOutline({
               <li key={tab.id}>
                 <button
                   type="button"
-                  onClick={() => onSelectTab(tab.id)}
+                  onClick={() => {
+                    onSelectTab(tab.id);
+                    dismissIfDrawer();
+                  }}
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-full px-3 py-1.5 text-left text-[13px] transition-colors",
@@ -275,7 +324,10 @@ export function DocumentOutline({
                     <li>
                       <button
                         type="button"
-                        onClick={() => goTo(entry.index)}
+                        onClick={() => {
+                          goTo(entry.index);
+                          dismissIfDrawer();
+                        }}
                         title={entry.text}
                         className={cn(
                           "block w-full truncate rounded-sm px-2 py-1 text-left text-[13px] transition-colors",
@@ -300,6 +352,7 @@ export function DocumentOutline({
           )}
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
