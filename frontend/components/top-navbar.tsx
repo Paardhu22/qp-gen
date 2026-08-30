@@ -30,9 +30,9 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-  { icon: ListChecks, label: "Question Bank", href: "/paper-library" },
+  { icon: ListChecks, label: "Question Bank", href: "/questions" },
   { icon: FileText, label: "Editor", href: "/editor" },
-  { icon: BookOpen, label: "Papers", href: "/question-bank" },
+  { icon: BookOpen, label: "Papers", href: "/papers" },
   { icon: LayoutTemplate, label: "Templates", href: "/templates" },
   { icon: Settings, label: "Settings", href: "/settings" },
 ];

@@ -1342,7 +1342,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             size="sm"
             className="h-7 text-[10px] px-3 font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:text-amber-300 dark:hover:bg-amber-950/30"
             onClick={() => {
-              router.push("/question-bank");
+              router.push("/papers");
             }}
           >
             <FolderOpen className="h-3 w-3 mr-1" /> Open Paper

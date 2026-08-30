@@ -695,12 +695,10 @@ export default function QuestionBankPage() {
           <div className="flex items-center gap-2.5">
             <BookOpen className="h-5 w-5 text-primary" />
             {/* This route is the PAPERS list — "Search papers…", "No saved
-                papers yet", "Clear all saved papers". The heading said
-                "Question Bank", which is the OTHER page (/paper-library), so
-                both pages claimed the same title and the nav item that
-                correctly reads "Papers" landed on a screen calling itself
-                something else. The route name is the misleading part, not the
-                nav label. */}
+                papers yet", "Clear all saved papers". It used to live at
+                /question-bank while the questions lived at /paper-library,
+                so both the URL and the heading described the other page. The
+                heading was fixed first; the routes followed. */}
             <h1 className="text-lg font-semibold tracking-tight">Papers</h1>
             <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
               {isLoading ? "…" : questionPapers.length}
