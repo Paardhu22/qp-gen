@@ -22,6 +22,14 @@
  * The dashboard chat's "What can I help with?" is deliberately **not** a
  * `PageTitle`. It is a greeting that disappears once a conversation starts,
  * not a label for a place, and it should keep its own hero sizing.
+ *
+ * ## The face
+ *
+ * `font-display` (Playfair) rather than the body Inter. This is the reason the
+ * scale had to be settled first: a display face needs one place to attach to,
+ * and before `PageTitle` there were eight. Component chrome — card and dialog
+ * titles — stays on Inter through `--font-heading`, which is a different token
+ * and deliberately unchanged.
  */
 
 import { cn } from "@/lib/utils";
@@ -42,7 +50,7 @@ export function PageTitle({
   return (
     <Tag
       className={cn(
-        "text-lg font-semibold tracking-tight text-foreground",
+        "font-display text-lg font-semibold tracking-tight text-foreground",
         className,
       )}
       {...props}

@@ -121,6 +121,9 @@ body {
     --font-sans: var(--font-inter);
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     --font-heading: var(--font-inter);
+    /* Page identity only -- see the note in app/layout.tsx. `--font-heading`
+       stays on Inter deliberately; this is not a rename of it. */
+    --font-display: var(--font-playfair), Georgia, "Times New Roman", serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -415,6 +418,7 @@ html[data-auth-page] *.dark {
 /* ===== Landing page ===== */
 
 .landing-title {
+    font-family: var(--font-display);
     font-size: clamp(2.5rem, 6vw, 5.25rem);
     font-weight: 600;
     line-height: 1.05;
