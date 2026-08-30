@@ -26,6 +26,7 @@ import { LayoutTemplate, Search, X, Plus } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { PageTitle } from "@/components/ui/page-title";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import {
   AlertDialog,
@@ -334,7 +335,7 @@ export default function TemplatesPage() {
         <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2">
             <LayoutTemplate className="h-4 w-4 text-primary" />
-            <h1 className="text-sm font-semibold">{heading}</h1>
+            <PageTitle>{heading}</PageTitle>
           </div>
 
           <Button 

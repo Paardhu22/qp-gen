@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageTitle } from "@/components/ui/page-title";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
@@ -177,9 +178,9 @@ function ChangePasswordModal({
 
         {step === "verify" ? (
           <>
-            <h2 className="text-lg font-semibold text-foreground mb-1">
+            <PageTitle as="h2" className="mb-1">
               Verify your identity
-            </h2>
+            </PageTitle>
             <p className="text-sm text-muted-foreground mb-6">
               Enter your current password to continue.
             </p>
@@ -228,9 +229,9 @@ function ChangePasswordModal({
           </>
         ) : (
           <>
-            <h2 className="text-lg font-semibold text-foreground mb-1">
+            <PageTitle as="h2" className="mb-1">
               Set a new password
-            </h2>
+            </PageTitle>
             <p className="text-sm text-muted-foreground mb-6">
               Choose a strong password with at least 8 characters.
             </p>
@@ -366,9 +367,7 @@ export default function SettingsPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto space-y-6 bg-background min-h-full">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight text-foreground">
-          Settings
-        </h2>
+        <PageTitle>Settings</PageTitle>
         <p className="text-muted-foreground mt-1">
           Manage your account preferences, credentials, and API usage.
         </p>

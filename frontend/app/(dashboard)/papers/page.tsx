@@ -38,6 +38,7 @@ import {
   Award,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { PageTitle } from "@/components/ui/page-title";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -699,7 +700,7 @@ export default function QuestionBankPage() {
                 /question-bank while the questions lived at /paper-library,
                 so both the URL and the heading described the other page. The
                 heading was fixed first; the routes followed. */}
-            <h1 className="text-lg font-semibold tracking-tight">Papers</h1>
+            <PageTitle>Papers</PageTitle>
             <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
               {isLoading ? "…" : questionPapers.length}
             </span>

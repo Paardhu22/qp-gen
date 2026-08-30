@@ -22,6 +22,7 @@ import { TeacherInvites } from "@/components/admin/teacher-invites";
 import { SchoolDomains } from "@/components/admin/school-domains";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageTitle } from "@/components/ui/page-title";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -212,7 +213,7 @@ function SuperAdminDashboard() {
     <div className="max-w-6xl mx-auto w-full p-4 sm:p-6 space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Platform</h1>
+          <PageTitle>Platform</PageTitle>
           <p className="text-sm text-muted-foreground">
             Usage, schools, and everything waiting on you.
           </p>
@@ -351,7 +352,7 @@ function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
   return (
     <div className="max-w-5xl mx-auto w-full p-4 sm:p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">{org.name}</h1>
+        <PageTitle>{org.name}</PageTitle>
         <p className="text-sm text-muted-foreground">
           {org.member_count} users · {org.total_tokens.toLocaleString()} tokens used
           {" · "}
@@ -414,7 +415,7 @@ export default function AdminPage() {
 
   return (
     <div className="flex flex-col items-center justify-center py-16 gap-2">
-      <h1 className="text-xl font-semibold text-foreground">Admin access required</h1>
+      <PageTitle>Admin access required</PageTitle>
       <p className="text-sm text-muted-foreground">You don&apos;t have permission to view this page.</p>
     </div>
   );

@@ -31,6 +31,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { PageTitle } from "@/components/ui/page-title";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import {
   Select,
@@ -593,9 +594,7 @@ export default function SavedQuestionsPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <ListChecks className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-semibold tracking-tight">
-              Question Bank
-            </h1>
+            <PageTitle>Question Bank</PageTitle>
             <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
               {isLoading ? "…" : allQuestions.length}
             </span>
