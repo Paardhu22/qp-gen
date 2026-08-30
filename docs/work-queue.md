@@ -42,7 +42,7 @@ All six shipped on `fix/tier0-quick-fixes`. Note 1.4 landed as `/questions` and 
 
 ---
 
-## Tier 2 — Substantial, well-defined  (6 of 11 shipped)
+## Tier 2 — Substantial, well-defined  (10 of 11 shipped)
 
 Known scope, no open questions, 1–3 hours each.
 
@@ -54,13 +54,15 @@ Known scope, no open questions, 1–3 hours each.
 | ~~2.4~~ ✅ | One export hook for PDF + DOCX | ~2 hr | Feature — supersedes 0.3, do 0.3 first anyway |
 | ~~2.5~~ ✅ | Merge the two diverged `Grainient` copies | ~1.5 hr | Feature Overlap 4 — 180 differing lines |
 | ~~2.6~~ ✅ | State-aware dashboard suggestions | ~2 hr | Guidance Gap 5 |
-| 2.7 | Unify the 8 page-title treatments | ~2 hr | Visual #15 — **blocks the display-typeface work** |
-| 2.8 | Adopt the loading system already built | ~2.5 hr | Visual #18 — 14 raw `Loader2`, wrong skeleton on Templates, 3 blank auth fallbacks |
-| 2.9 | `--success` / `--warning` tokens, retire 71 hardcoded colour utilities | ~3 hr | Visual #10 |
-| 2.10 | Dark-mode treatment for the A4 sheet | ~1 hr | Visual #16 — see correction below |
+| ~~2.7~~ ✅ | Unify the 8 page-title treatments | ~2 hr | Visual #15 — **blocks the display-typeface work** |
+| ~~2.8~~ ✅ | Adopt the loading system already built | ~2.5 hr | Visual #18 — 14 raw `Loader2`, wrong skeleton on Templates, 3 blank auth fallbacks |
+| ~~2.9~~ ✅ | `--success` / `--warning` tokens, retire 71 hardcoded colour utilities | ~3 hr | Visual #10 |
+| ~~2.10~~ ✅ | Dark-mode treatment for the A4 sheet | ~1 hr | Visual #16 — see correction below |
 | ~~2.11~~ ✅ | `TestScienceEngineView` → management command | ~1 hr | Feature — removes a routed LLM-spending endpoint |
 
-Remaining in Tier 2: 2.3 (error recovery), 2.7 (page titles — blocks 3.6), 2.8 (loading system), 2.9 (success/warning tokens), 2.10 (A4 sheet in dark mode).
+Remaining in Tier 2: **2.3 only** (error recovery — 95 dead-end toasts).
+
+Two corrections found while doing these. **2.9's premise was wrong**: `--success` and `--warning` already existed in `globals.css` for both themes and were already mapped in `@theme inline`; only adoption was missing, so it cost far less than the ~3 hr estimate and unblocked the work that depended on it immediately. **2.7 turned out to be the real blocker** for the display typeface — there was no heading scale to attach a face to, and now there is (`components/ui/page-title.tsx`), so 3.6 is unblocked.
 
 **Correction on 2.10.** The visual audit states the A4 page "has no visible edge in dark mode." Re-verified: overstated. The sheet is hardcoded `#ffffff` (`editor.css:45`) against a darkened canvas (`globals.css:640`), so the edge is plainly visible by luminance. What is actually lost is the *lift* — `editor.css` has 0 `.dark` selectors in 1,361 lines, so the hairline `rgb(0 0 0 / 0.08)` border and the slate-tinted shadow stack (`:55-59`) both do nothing against dark. The file's own comment says the shadow is what makes the sheet "read as lifted rather than as drawn"; that intent is defeated. Real, but cosmetic — not Tier 0.
 

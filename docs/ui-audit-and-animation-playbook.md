@@ -111,10 +111,22 @@ The palette inverts in dark mode by design — `globals.css:261` sets `--primary
 
 **Impact:** White `#ffffff` on sand `#D7C3A3` measures **1.72:1** contrast (relative luminance 0.561 vs 1.0). The correct token pairing — ink on sand — measures **7.98:1**. Every primary action in the editor, in Settings, in the review tray and in the comparison workspace is effectively invisible in dark mode. `components/settings/brand-kit-card.tsx:177` has the same defect against `bg-destructive`.
 
-### 10. There is no `--success` or `--warning` token, so ten greens and ten ambers were invented
+### 10. ~~There is no `--success` or `--warning` token~~ — PREMISE WRONG, work now DONE ✓
 
-**Status:** Open
-**Problem:** `globals.css` defines `--destructive` (`:196` light, `:269` dark) and nothing else for status. Counted with `grep -rn '(green|emerald)-[0-9]00' app/ components/ --include=*.tsx`:
+> **Correction, 2026-08-31.** The tokens exist and always did in this revision:
+> `globals.css:196-200` (light) and `:269-273` (dark) define `--success`,
+> `--success-foreground`, `--warning` and `--warning-foreground`, and
+> `@theme inline:141-144` maps all four. Three call sites were already using
+> them. The finding was right about the symptom and wrong about the cause —
+> the gap was **adoption**, not absence.
+>
+> Fixed in `60ea6a6`: the genuine status uses now go through the tokens.
+> Three groups stay hardcoded deliberately, because they are not status —
+> `questions/page.tsx` `difficultyTint` (a scale; its own comment argues a
+> hard question is not an error), and the toolbar's block-type colour coding
+> plus the two buttons that mirror it.
+
+**Original problem statement, kept for the shade counts:** `globals.css` defines `--destructive` (`:196` light, `:269` dark). Counted with `grep -rn '(green|emerald)-[0-9]00' app/ components/ --include=*.tsx`:
 
 - **Success / "live" green:** 10 distinct shades — `emerald-100/300/400/500/600/700/900`, `green-400/500/600` — across 10 files: `editor/page.tsx`, `paper-library/page.tsx`, `comparison-workspace.tsx`, `editor/generate-dock.tsx`, `editor/toolbar.tsx`, `file-upload.tsx`, `hsat-source-picker.tsx`, `paper-design-panel.tsx`, `review-tray.tsx`, `tiptap-editor.tsx`.
 - **Warning amber/orange:** 10 distinct shades — `amber-100/300/400/500/600/700/800/900`, `orange-400/600` — across 8 files.
@@ -853,7 +865,7 @@ The font should add personality to 2-3 key moments (landing title, major heading
 |-------|------|--------|--------|----------------|
 | 15 | `text-white` → `text-primary-foreground` (7 sites) + `brand-kit-card:177` | ~20 min | TODO | Issue 9. Every primary CTA in the editor, Settings, review tray and comparison workspace is at 1.72:1 in dark mode. Cheapest high-severity fix in the document |
 | 16 | Kill `animate-shake`; dark-mode elevation for `.doc-page` | ~45 min | TODO | Issues 17 and 16. A dead class on the autosave-failed state, and the A4 sheet has no visible edge on a dark canvas — both are shipped UI that does not work |
-| 17 | Add `--success` / `--warning` token pairs to `globals.css`, then map the 71 hardcoded colours | ~3 hrs | TODO | Issue 10. Blocks 18 and 21 — there is nothing to map to until the tokens exist. Same shape of work as phase 5, in the surfaces phase 5 never reached |
+| ~~17~~ | ~~Add `--success` / `--warning` token pairs, then map the hardcoded colours~~ | ~3 hrs | ✓ DONE `60ea6a6` | Issue 10. The tokens already existed — only the mapping was needed, so this unblocked 18 and 21 immediately |
 | 18 | Finish the loading migration: 14 raw `Loader2` → `<Spinner>`, grid skeleton on Templates, real fallbacks on 3 auth routes | ~1.5 hrs | TODO | Issue 18. The primitives already exist and are well-documented; this is adoption, not design |
 | 19 | Declare a z-index scale in `globals.css`; retire `z-[9999]`, the two `z-[60]`s and the inline `zIndex: 60` | ~1 hr | TODO | Issue 13. Do it before phase 20 adds a shared modal shell, so the shell can own the layer |
 | 20 | Shared modal shell: move 5 hand-rolled dialogs onto `Dialog`, one theme-aware scrim | ~2.5 hrs | TODO | Issue 12. Delivers enter/exit animation on five surfaces as a side effect, which is why it is cheaper than animating them individually |
