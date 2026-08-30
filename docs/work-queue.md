@@ -42,7 +42,7 @@ All six shipped on `fix/tier0-quick-fixes`. Note 1.4 landed as `/questions` and 
 
 ---
 
-## Tier 2 — Substantial, well-defined  (10 of 11 shipped)
+## Tier 2 — Substantial, well-defined  ✅ CLEARED
 
 Known scope, no open questions, 1–3 hours each.
 
@@ -50,7 +50,7 @@ Known scope, no open questions, 1–3 hours each.
 |---|---|---|---|
 | ~~2.1~~ ✅ | First-run primitive (`useFirstRun`) | ~3 hr | Guidance Gap 2 — gates 2.2 and 2.6 |
 | ~~2.2~~ ✅ | Editor blank state | ~3 hr | Guidance Gap 3 |
-| 2.3 | Error recovery pass — 95 dead-end toasts | ~2.5 hr | Guidance Gap 4 |
+| ~~2.3~~ ✅ | Error recovery pass — 88 dead-end toasts | ~2.5 hr | Guidance Gap 4 |
 | ~~2.4~~ ✅ | One export hook for PDF + DOCX | ~2 hr | Feature — supersedes 0.3, do 0.3 first anyway |
 | ~~2.5~~ ✅ | Merge the two diverged `Grainient` copies | ~1.5 hr | Feature Overlap 4 — 180 differing lines |
 | ~~2.6~~ ✅ | State-aware dashboard suggestions | ~2 hr | Guidance Gap 5 |
@@ -60,15 +60,13 @@ Known scope, no open questions, 1–3 hours each.
 | ~~2.10~~ ✅ | Dark-mode treatment for the A4 sheet | ~1 hr | Visual #16 — see correction below |
 | ~~2.11~~ ✅ | `TestScienceEngineView` → management command | ~1 hr | Feature — removes a routed LLM-spending endpoint |
 
-Remaining in Tier 2: **2.3 only** (error recovery — 95 dead-end toasts).
-
 Two corrections found while doing these. **2.9's premise was wrong**: `--success` and `--warning` already existed in `globals.css` for both themes and were already mapped in `@theme inline`; only adoption was missing, so it cost far less than the ~3 hr estimate and unblocked the work that depended on it immediately. **2.7 turned out to be the real blocker** for the display typeface — there was no heading scale to attach a face to, and now there is (`components/ui/page-title.tsx`), so 3.6 is unblocked.
 
 **Correction on 2.10.** The visual audit states the A4 page "has no visible edge in dark mode." Re-verified: overstated. The sheet is hardcoded `#ffffff` (`editor.css:45`) against a darkened canvas (`globals.css:640`), so the edge is plainly visible by luminance. What is actually lost is the *lift* — `editor.css` has 0 `.dark` selectors in 1,361 lines, so the hairline `rgb(0 0 0 / 0.08)` border and the slate-tinted shadow stack (`:55-59`) both do nothing against dark. The file's own comment says the shadow is what makes the sheet "read as lifted rather than as drawn"; that intent is defeated. Real, but cosmetic — not Tier 0.
 
 ---
 
-## Tier 3 — Larger or needs a decision first
+## Tier 3 — Larger or needs a decision first  (2 of 9 shipped)
 
 | # | What | Effort | Note |
 |---|---|---|---|
@@ -76,11 +74,15 @@ Two corrections found while doing these. **2.9's premise was wrong**: `--success
 | 3.2 | Share generation state between the two SSE consumers | ~4 hr | Transport is already shared; the state handling is not |
 | 3.3 | Consolidate 5 hand-rolled modals onto `Dialog` | ~4 hr | Visual #12/#13 — 5 scrim recipes, 4 z-index escapes |
 | 3.4 | Motion phases: page transitions → stagger → list-detail morph | ~6 hr | Visual 6–9. Reduced-motion work gates these |
-| 3.5 | Dashboard home state | ~3 hr | Visual #5 / overlaps Guidance Gap 5 |
-| 3.6 | Display typeface | ~1 hr | **Blocked by 2.7** |
+| ~~3.5~~ ✅ | Dashboard home state | ~3 hr | Shipped as recent-papers on the empty state — see note below |
+| ~~3.6~~ ✅ | Display typeface | ~1 hr | Playfair, scoped to page identity. 2.7 was the unblocker |
 | 3.7 | Tooltips on dense surfaces | ~2.5 hr | Weak until 2.2 lands |
 | 3.8 | Delete `/api/generation/answer-key` | ~30 min + verification | Only proven unused by *this* frontend. Check deployment logs first |
 | 3.9 | **Resolve the three-engine question** | days | Product decision, not a refactor. ~14,000 LOC hangs on it |
+
+**On 3.5.** Shipped as the part that fits the surface as it stands: the last three papers on the dashboard's empty state, below the prompt box. Deliberately *not* the full stats board the audit sketched — the chat is what that page is, and starting something new should stay the primary act on it.
+
+**On 3.7 (tooltips).** Deprioritised rather than done. The audit ranked it weakest, and the premise is softer than it looked: the editor toolbar already carries 29 native `title=` attributes, so those controls are labelled — they are just labelled with slow, unstyled browser tooltips rather than the app's own. Worth doing eventually; not worth a 1400-line JSX rewrite ahead of the items below. Note there is no `components/ui/tooltip.tsx` — the only styled tooltip lives inside `ui/ai-prompt-box.tsx` on `@base-ui/react`, and promoting it to a primitive is the real first step.
 
 ---
 

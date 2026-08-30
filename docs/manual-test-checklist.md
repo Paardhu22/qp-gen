@@ -2,7 +2,7 @@
 
 *Living document. The top section is what is currently shipped-but-unverified; the suites below it are standing regressions to re-run whenever the queue touches that area.*
 
-**Last updated:** 2026-08-31, branch `fix/tier0-quick-fixes` (15 commits, not pushed).
+**Last updated:** 2026-08-31, branch `fix/tier0-quick-fixes` (25 commits, not pushed).
 
 ---
 
@@ -11,6 +11,43 @@
 - [ ] **`npm install` in `frontend/`.** `recharts` is declared in `package.json:71` (`^3.10.1`) but is **not present in `node_modules`**. Until it installs, `components/admin/usage-analytics.tsx` fails to resolve and the admin usage page will not build. This is pre-existing, not from any recent change.
 - [ ] `npm run dev` in `frontend/`, backend running separately.
 - [ ] Have a **multi-set paper** (Sets A/B/C) saved — several tests below need one and generating it takes longer than the tests do.
+
+---
+
+## Batch 3 — shipped, not yet verified
+
+The rest of Tier 2, plus two Tier 3 items.
+
+### 3.1 Page titles on one scale + display face — `450a9f3`, `a633e02`
+- [ ] Every page heading is the serif (Playfair): papers, questions, templates, settings, admin, admin org detail, landing title.
+- [ ] Card titles and dialog titles are **still Inter** — they use a different token on purpose.
+- [ ] Settings now has a real `<h1>`; previously it was an `<h2>` with no `<h1>` on the page.
+- [ ] Titles are not smeared or fake-bold anywhere (the reason a variable-weight face was chosen).
+
+### 3.2 Loading system — `59dd622`
+- [ ] Admin dashboard, admin org detail and teacher invites show a centred page spinner while loading.
+- [ ] Templates now loads a **card grid** skeleton, not a stack of bars — watch that the page does not jump when the cards land.
+- [ ] Blueprint modal template step shows the same grid skeleton.
+- [ ] `/register`, `/onboard`, `/reset-password` on a slow connection show a spinner, not a blank screen.
+
+### 3.3 Status colour tokens — `60ea6a6`
+- [ ] Light **and** dark: sync status, design-panel warnings/checks, source-panel warnings, review-tray and comparison badges, the draft marker on papers, the generating pulse.
+- [ ] Difficulty chips on the questions list are **unchanged** — deliberately still raw emerald/amber, because difficulty is a scale, not a status.
+- [ ] Editor toolbar block-type colours unchanged for the same reason.
+
+### 3.4 Error retry + copy — `cad3c7c`
+- [ ] Stop the backend, then load templates / questions / papers / invites / admin. Each error toast shows a **Retry** button, and Retry actually refetches once the backend is back.
+- [ ] No error toast says "Failed to …" any more.
+- [ ] Validation errors (empty name, nothing selected) have **no** Retry — retrying those would rerun a guaranteed failure.
+
+### 3.5 A4 sheet in dark mode — `d4b75ff`
+- [ ] Dark mode editor: the page reads as a lifted sheet, with a soft light edge and a deeper shadow.
+- [ ] Light mode unchanged.
+- [ ] Exported PDF and print preview have **no** border or shadow baked in.
+
+### 3.6 Dashboard recent papers — `c13f831`
+- [ ] Account with papers → empty chat shows up to three, below the prompt box, each opening in the editor. "All papers →" reaches the list.
+- [ ] Brand-new account → the row is absent entirely, not an empty heading.
 
 ---
 
