@@ -623,6 +623,33 @@ html[data-auth-page] *.dark {
   }
 }
 
+/* Autosave failure. `animate-shake` was already on the "Sync failed" state in
+   tiptap-editor.tsx, but no such keyframe existed anywhere — so the one sync
+   state that most needs to be noticed was the only one of the four that never
+   moved, while "Offline" right above it pulsed. A short, finite shudder: this
+   reports a fault, so it fires once and stops rather than nagging the way an
+   infinite loop would. */
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-2px);
+  }
+  40%,
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .animate-shake {
+    animation: shake 0.4s ease-in-out 2;
+  }
+}
+
 /* ── The editor canvas ───────────────────────────────────────────────────
    The surface the A4 sheet sits on. A word processor needs the page to read
    as a physical object on a desk, and that only works if the surround is a
