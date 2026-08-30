@@ -1404,7 +1404,7 @@ export default function EditorPage() {
             <Button
               onClick={handleInsertSelectedQuestions}
               disabled={selectedBankQuestions.size === 0}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="bg-success text-success-foreground hover:bg-success/90"
             >
               Insert{" "}
               {selectedBankQuestions.size > 0 &&

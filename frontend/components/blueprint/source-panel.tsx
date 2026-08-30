@@ -118,7 +118,7 @@ function SourceRow({
         tone === "error" && "border-destructive/40 bg-destructive/5",
         // Amber, not red: the source works fine, it just may not be the one
         // the teacher meant.
-        tone === "warning" && "border-amber-500/40 bg-amber-500/5",
+        tone === "warning" && "border-warning/40 bg-warning/5",
         tone !== "error" && tone !== "warning" && "border-border bg-card",
       )}
     >
@@ -127,7 +127,7 @@ function SourceRow({
           "size-4 shrink-0",
           tone === "busy" && "animate-spin",
           tone === "error" && "text-destructive",
-          tone === "warning" && "text-amber-600 dark:text-amber-500",
+          tone === "warning" && "text-warning",
           tone !== "error" && tone !== "warning" && "text-muted-foreground",
         )}
       />
@@ -138,7 +138,7 @@ function SourceRow({
             className={cn(
               "truncate text-xs",
               tone === "error" && "text-destructive",
-              tone === "warning" && "text-amber-700 dark:text-amber-400",
+              tone === "warning" && "text-warning",
               tone !== "error" && tone !== "warning" && "text-muted-foreground",
             )}
           >
@@ -315,8 +315,8 @@ export function SourcePanel({
                     like so an accidental drag of the wrong PDF is caught
                     before it becomes a paper full of the wrong questions. */}
                 {mismatch ? (
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2">
-                    <p className="min-w-0 flex-1 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2">
+                    <p className="min-w-0 flex-1 text-xs leading-relaxed text-warning">
                       This chapter reads like <strong>{mismatch}</strong>, but
                       this paper is <strong>{expectedSubject}</strong>. Using it
                       will produce {expectedSubject} questions from{" "}

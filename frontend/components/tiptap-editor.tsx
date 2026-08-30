@@ -360,13 +360,13 @@ const StatusBar = memo(({ editor }: { editor: any }) => {
     switch (saveState) {
       case "saving":
         return (
-          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium animate-pulse">
+          <span className="flex items-center gap-1 text-warning font-medium animate-pulse">
             <RefreshCw className="h-3 w-3 animate-spin" /> Saving...
           </span>
         );
       case "saved":
         return (
-          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+          <span className="flex items-center gap-1 text-success font-medium">
             <Cloud className="h-3 w-3" /> Saved
           </span>
         );

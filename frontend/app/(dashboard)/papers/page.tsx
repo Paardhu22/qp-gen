@@ -790,7 +790,7 @@ export default function QuestionBankPage() {
                   className="group relative w-56 shrink-0 cursor-pointer rounded-lg border border-border bg-background p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/40"
                 >
                   <div className="flex items-start gap-2">
-                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-foreground">
                         {draft.title || "Untitled draft"}

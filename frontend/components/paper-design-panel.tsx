@@ -137,7 +137,7 @@ export function PaperDesignPanel({
           than one that says it did. */}
       {design.corrections.length > 0 && (
         <div className="flex gap-2 border-t border-border px-3 py-2">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
           <ul className="space-y-0.5 text-[11.5px] text-muted-foreground">
             {design.corrections.map((correction, index) => (
               <li key={index}>{correction}</li>
@@ -194,7 +194,7 @@ export function PaperDesignPanel({
 
       {required.length === 0 && (
         <div className="flex items-center gap-1.5 border-t border-border px-3 py-2 text-[11.5px] text-muted-foreground">
-          <Check className="h-3.5 w-3.5 text-emerald-500" />
+          <Check className="h-3.5 w-3.5 text-success" />
           Ready to generate.
         </div>
       )}
