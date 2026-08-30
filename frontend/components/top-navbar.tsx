@@ -192,7 +192,7 @@ export const TopNavbar = () => {
           >
             {/* Backdrop */}
             <motion.div
-              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              className="absolute inset-0 app-scrim"
               variants={{ open: { opacity: 1 }, closed: { opacity: 0 } }}
               transition={{ duration: 0.2 }}
               onClick={() => setDrawerOpen(false)}

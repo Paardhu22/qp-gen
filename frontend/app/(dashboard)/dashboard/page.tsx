@@ -783,7 +783,7 @@ export default function DashboardPage() {
 
         {sidebarOpen && (
           <div
-            className="absolute inset-0 z-20 bg-black/30 lg:hidden"
+            className="absolute inset-0 z-20 app-scrim lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}

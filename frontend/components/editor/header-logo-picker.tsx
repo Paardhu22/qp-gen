@@ -108,7 +108,7 @@ export function HeaderLogoPicker({
       contentEditable={false}
     >
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 app-scrim"
         onClick={onClose}
         aria-hidden="true"
       />

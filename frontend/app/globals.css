@@ -105,6 +105,41 @@ body {
     margin-top: env(safe-area-inset-top);
 }
 
+/* One scrim, for every overlay this app rolls by hand.
+   
+   There were four recipes across the hand-rolled modals -- black at 30%, 40%
+   and 50%, with and without a blur -- so which dimming a teacher got depended
+   on which modal they happened to open. This is the majority recipe, and the
+   one `ui/alert-dialog.tsx` already uses.
+   
+   Deliberately not theme-aware. A scrim's job is to darken what is behind it,
+   and that is the same job in both themes; a "dark-mode scrim" that lightens
+   would push the surface it is meant to recede *forward*. The shadcn `Dialog`
+   primitive keeps its own lighter, animated overlay -- it is vendor-owned and
+   already consistent with itself.
+
+   ## The z-index scale
+   
+   Layers, so the next overlay does not have to guess or escalate:
+   
+     30  in-page drawer scrims (editor outline, dashboard sidebar)
+     40  the sticky top navbar
+     50  modals and their scrims -- the default for anything app-modal
+     60  something that must sit above an open modal (a picker launched from
+         inside one, the question hover menu)
+     99999 the curtain theme transition, which by definition covers everything
+   
+   Anything reaching past 60 outside that list is a bug, not a requirement. */
+@utility app-scrim {
+    /* Appearance only. Positioning stays at the call site, because some of
+       these scrims are `absolute` inside a positioned parent and some are
+       `fixed` over the viewport -- baking `position` in here would put this
+       utility in a source-order fight with the `fixed`/`absolute` class next
+       to it, and which one won would depend on stylesheet order. */
+    background-color: rgb(0 0 0 / 0.5);
+    backdrop-filter: blur(4px);
+}
+
 /* Hide the scrollbar but keep scrolling — used by horizontally scrollable
    toolbars / chip rows / tab strips on mobile. */
 @utility no-scrollbar {

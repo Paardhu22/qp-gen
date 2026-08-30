@@ -219,7 +219,7 @@ export function DocumentOutline({
           the layout and dims nothing. */}
       {open ? (
         <div
-          className="fixed inset-0 z-30 bg-black/30 lg:hidden print:hidden"
+          className="fixed inset-0 z-30 app-scrim lg:hidden print:hidden"
           onClick={() => onOpenChange(false)}
         />
       ) : null}

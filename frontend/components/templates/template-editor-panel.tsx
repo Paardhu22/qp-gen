@@ -185,7 +185,7 @@ export function TemplateEditorPanel({
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-end">
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 app-scrim"
         onClick={isDirty ? undefined : onClose}
         aria-hidden="true"
       />
