@@ -52,12 +52,12 @@ import { deleteServerDraft, pullDrafts } from "@/lib/drafts-sync";
 import {
   basePaperId,
   withSetSuffix,
-  splitPaperId,
   isDraftPaperId,
   newLocalDraftId,
   persistablePaperId,
   DRAFT_PAPER_ID,
 } from "@/lib/paper-id";
+import { exportPaper } from "@/lib/export-paper";
 import { draftScopeOfDocument } from "@/lib/drafts";
 import { resolveTabContent } from "@/lib/set-content";
 
@@ -406,66 +406,17 @@ export default function EditorPage() {
     const IMPORT_TIMEOUT = 800; // ms — give the editor time to hydrate
     const t = setTimeout(async () => {
       if (actionParam === "export-pdf") {
-        try {
-          const { exportToPDF } = await import("@/lib/export-pdf");
-          const defaultName = `paper-${Date.now()}.pdf`;
-          const rawName = window.prompt("Enter a filename for the PDF", defaultName);
-          if (rawName) {
-            const filename = rawName.trim().endsWith(".pdf")
-              ? rawName.trim()
-              : `${rawName.trim()}.pdf`;
-            const blob = await exportToPDF("tiptap-paper-container", filename);
-            toast.success("PDF downloaded!");
-            // `persistablePaperId` + `setLabel`, matching the toolbar: `paperId`
-            // arrives as the per-tab composed id ("{base}_A") and the backend
-            // only knows the base row, so sending the composed id 404'd every
-            // upload. The download still succeeded, so the failure was silent.
-            const backupId = persistablePaperId(paperId);
-            if (backupId) {
-              const { uploadExportToS3 } = await import("@/lib/s3-upload");
-              uploadExportToS3(blob, {
-                exportType: exportTypeParam,
-                fileFormat: "pdf",
-                paperId: backupId,
-                setLabel: splitPaperId(paperId).set ?? undefined,
-              })
-                .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
-                .catch((err) => console.error("[S3 upload]", err));
-            }
-          }
-        } catch {
-          toast.error("PDF export failed. Please try from the toolbar.");
-        }
+        await exportPaper({
+          format: "pdf",
+          exportType: exportTypeParam,
+          paperId,
+        });
       } else if (actionParam === "export-docx") {
-        try {
-          const { exportToDocx } = await import("@/lib/export-docx");
-          const defaultName = `paper-${Date.now()}.docx`;
-          const rawName = window.prompt("Enter a filename for the DOCX", defaultName);
-          if (rawName) {
-            const trimmed = rawName.trim();
-            const filename = /\.docx$/i.test(trimmed) ? trimmed : `${trimmed}.docx`;
-            const container = document.getElementById("tiptap-paper-container");
-            if (container) {
-              const blob = await exportToDocx(container, filename);
-              toast.success("DOCX downloaded!");
-              // Same composed-id fix as the PDF path above.
-              const backupId = persistablePaperId(paperId);
-              if (backupId) {
-                const { uploadExportToS3 } = await import("@/lib/s3-upload");
-                uploadExportToS3(blob, {
-                  exportType: exportTypeParam,
-                  fileFormat: "docx",
-                  paperId: backupId,
-                  setLabel: splitPaperId(paperId).set ?? undefined,
-                })
-                  .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
-                  .catch((err) => console.error("[S3 upload]", err));
-              }
-            }
-          }
-        } catch {
-          toast.error("DOCX export failed. Please try from the toolbar.");
-        }
+        await exportPaper({
+          format: "docx",
+          exportType: exportTypeParam,
+          paperId,
+        });
       } else if (actionParam === "print") {
         // Per-set print: the active set tab is already selected via ?set=,
         // and the editor's @media print rules isolate #tiptap-paper-container,
