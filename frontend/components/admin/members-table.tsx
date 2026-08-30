@@ -92,7 +92,13 @@ export function MembersTable({
           <TableHead>Status</TableHead>
           <TableHead className="text-right">Tokens used</TableHead>
           <TableHead className="text-right">Est. spend</TableHead>
-          <TableHead className="text-right">Actions</TableHead>
+          {/* Pinned. Seven columns overflow a narrow viewport and the
+              container scrolls, which put Actions -- approve, reject, remove
+              -- off-screen with nothing saying it was there. The inset border
+              stands in for the edge the scroll used to hide. */}
+          <TableHead className="sticky right-0 z-10 bg-background text-right shadow-[inset_1px_0_0_0_var(--border)]">
+            Actions
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -112,7 +118,7 @@ export function MembersTable({
             <TableCell className="text-right tabular-nums">
               {formatInr(member.cost_inr)}
             </TableCell>
-            <TableCell className="text-right space-x-2">
+            <TableCell className="sticky right-0 z-10 space-x-2 bg-background text-right shadow-[inset_1px_0_0_0_var(--border)] transition-colors [tr:hover>&]:bg-muted">
               {member.status !== "approved" && member.role !== "org_admin" && (
                 <Button
                   size="sm"
