@@ -4,6 +4,7 @@ import { BlueprintModal, type BlueprintSubmission } from "@/components/blueprint
 import { ReviewTray } from "@/components/review-tray";
 import { DocumentOutline } from "@/components/editor/document-outline";
 import { GenerateDock } from "@/components/editor/generate-dock";
+import { EditorBlankState } from "@/components/editor/blank-state";
 import { BuildFromBankDialog } from "@/components/editor/build-from-bank-dialog";
 import { HsatSourcePicker } from "@/components/hsat-source-picker";
 import { usePaperGeneration } from "@/lib/use-paper-generation";
@@ -117,6 +118,12 @@ export default function EditorPage() {
   // this content supersedes whatever draft is in IndexedDB for that tab.
   const approvedSets = useEditorStore((state) => state.approvedSets);
   const approvedAt = useEditorStore((state) => state.approvedAt);
+
+  // Drives the blank state. `pages` is the paginated view of the live
+  // document, so this tracks what is actually rendered rather than whatever
+  // was last loaded from the server.
+  const pages = useEditorStore((state) => state.pages);
+  const documentIsEmpty = pages.every((page) => (page.blocks?.length ?? 0) === 0);
 
   const [activeSetTab, setActiveSetTab] = useState("A");
   const [loadedSets, setLoadedSets] = useState<any[]>([]);
@@ -1069,6 +1076,22 @@ export default function EditorPage() {
           one: the document's name, then the toolbar (rendered inside
           TiptapEditor), then the page flanked by its panels. */}
       <div className="relative z-10 flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Nothing on the page yet. Sits above the sheet rather than replacing
+            it, so the A4 page a teacher may simply want to type on is never
+            taken away. Suppressed while a paper is loading or generating --
+            both are about to put content there, and offering "start a paper"
+            on top of one arriving reads as a failure. */}
+        {documentIsEmpty &&
+        !paperLoading &&
+        !paperError &&
+        !generation.isGenerating ? (
+          <EditorBlankState
+            onGenerate={() => openBuilder()}
+            onBuildFromBank={() => setBankDialogOpen(true)}
+            onUseTemplate={openTemplateCreator}
+          />
+        ) : null}
+
         {/* Document name. Its own row above the toolbar, the way every editor
             does it — not a status line squeezed into small caps. */}
         <div className="flex h-11 min-h-11 flex-shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:px-4">
