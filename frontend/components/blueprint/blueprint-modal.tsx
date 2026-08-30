@@ -513,6 +513,52 @@ export function BlueprintModal({
           </button>
         </div>
 
+        {/* Step dots, below `sm` only. The rail hides at that width, and with
+            only Back and Next left this becomes the sequential wizard the
+            header comment argues against. Same reachability rules as the
+            rail, so it cannot offer a step the rail would refuse. */}
+        <nav
+          aria-label="Steps"
+          className="flex shrink-0 items-center gap-1 border-b border-border bg-muted/20 px-3 py-2 sm:hidden"
+        >
+          {STEPS.map((entry, i) => {
+            const active = entry.id === step;
+            const reachable = i === 0 || templateId !== null;
+            const done = i < stepIndex && templateId !== null;
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                disabled={!reachable}
+                onClick={() => setStep(entry.id)}
+                aria-current={active ? "step" : undefined}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : reachable
+                      ? "text-foreground hover:bg-muted"
+                      : "cursor-not-allowed text-muted-foreground/50",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+                    active
+                      ? "bg-primary-foreground/20"
+                      : done
+                        ? "bg-primary/15 text-primary"
+                        : "bg-muted-foreground/15",
+                  )}
+                >
+                  {done ? <Check className="size-2.5" /> : i + 1}
+                </span>
+                <span className="truncate">{entry.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
         <div className="flex min-h-0 flex-1">
           {/* Step rail */}
           <nav className="hidden w-48 shrink-0 border-r border-border bg-muted/20 p-3 sm:block">
