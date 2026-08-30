@@ -167,7 +167,7 @@ function ChangePasswordModal({
             className={cn(
               "flex items-center justify-center h-7 w-7 rounded-full text-xs font-bold transition-colors",
               step === "new-password"
-                ? "bg-primary text-white"
+                ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground",
             )}
           >
@@ -214,7 +214,7 @@ function ChangePasswordModal({
               <Button
                 type="submit"
                 disabled={isVerifying}
-                className="w-full bg-primary hover:bg-primary/90 text-white font-semibold gap-2"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold gap-2"
               >
                 {isVerifying ? (
                   "Verifying…"
@@ -329,7 +329,7 @@ function ChangePasswordModal({
                     (!!newPassword && newPassword === currentPassword) ||
                     (!!confirmPassword && confirmPassword !== newPassword)
                   }
-                  className="flex-1 bg-primary hover:bg-primary/90 text-white font-semibold"
+                  className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
                 >
                   {isSaving ? "Saving…" : "Save Password"}
                 </Button>

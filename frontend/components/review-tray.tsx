@@ -175,7 +175,7 @@ export function ReviewTray() {
           size="sm"
           onClick={insertSelected}
           disabled={selected.size === 0}
-          className="bg-primary hover:bg-primary/90 text-white h-8"
+          className="bg-primary hover:bg-primary/90 text-primary-foreground h-8"
         >
           Insert selected ({selected.size})
         </Button>

@@ -335,7 +335,7 @@ export function ComparisonWorkspace() {
           <Button
             size="sm"
             onClick={approve}
-            className="h-8 bg-primary hover:bg-primary/90 text-white text-xs font-semibold"
+            className="h-8 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold"
             title="Put every set into its own editor tab"
           >
             <Check className="h-4 w-4 mr-1" />

@@ -1250,7 +1250,7 @@ export default function EditorPage() {
             <Button
               disabled={isSaving}
               onClick={handleSavePaper}
-              className="bg-primary hover:bg-primary/90 text-white w-full gap-2"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground w-full gap-2"
             >
               {isSaving ? "Updating..." : "Update Details"}
             </Button>
@@ -1317,7 +1317,7 @@ export default function EditorPage() {
             <Button
               disabled={isSaving}
               onClick={handleSaveQuestions}
-              className="bg-primary hover:bg-primary/90 text-white w-full gap-2"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground w-full gap-2"
             >
               {isSaving ? "Saving..." : "Save Questions"}
             </Button>
