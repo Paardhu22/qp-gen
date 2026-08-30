@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { errorWithRetry } from "@/lib/toasts";
 
 import { useSession, isSuperAdmin, approvedAdminMemberships } from "@/lib/auth-client";
 import {
@@ -55,7 +56,7 @@ function InviteOrganizationDialog({ onInvited }: { onInvited: () => void }) {
       setOpen(false);
       onInvited();
     } catch (err: any) {
-      toast.error(err?.message || "Failed to send invite");
+      toast.error(err?.message || "Could not send that invite.");
     } finally {
       setLoading(false);
     }
@@ -188,7 +189,7 @@ function SuperAdminDashboard() {
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async (windowDays: number) => {
+  const load = useCallback(async function load(windowDays: number) {
     setLoading(true);
     try {
       // Both in flight together: the table and the charts are one screen, and
@@ -200,7 +201,9 @@ function SuperAdminDashboard() {
       setOrgs(orgList);
       setAnalytics(stats);
     } catch (err: any) {
-      toast.error(err?.message || "Failed to load the dashboard");
+      errorWithRetry(err?.message || "Could not load the dashboard.", () =>
+        load(windowDays),
+      );
     } finally {
       setLoading(false);
     }
@@ -330,7 +333,7 @@ function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
     try {
       setOrg(await getOrganization(organizationId));
     } catch (err: any) {
-      toast.error(err?.message || "Failed to load organization");
+      errorWithRetry(err?.message || "Could not load that organisation.", load);
     } finally {
       setLoading(false);
     }

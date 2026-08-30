@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { errorWithRetry } from "@/lib/toasts";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,12 +59,12 @@ export function TeacherInvites({ orgId }: { orgId: string }) {
   const [sending, setSending] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async function load() {
     setLoading(true);
     try {
       setInvites(await listTeacherInvites(orgId));
     } catch (err: any) {
-      toast.error(err?.message || "Could not load your invites");
+      errorWithRetry(err?.message || "Could not load your invites.", load);
     } finally {
       setLoading(false);
     }

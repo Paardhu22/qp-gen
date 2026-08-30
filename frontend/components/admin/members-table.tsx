@@ -45,7 +45,7 @@ export function MembersTable({
       onChange(members.map((m) => (m.user_id === userId ? updated : m)));
       toast.success("Member approved");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to approve member");
+      toast.error(err?.message || "Could not approve that member.");
     } finally {
       setBusyId(null);
     }
@@ -58,7 +58,7 @@ export function MembersTable({
       onChange(members.map((m) => (m.user_id === userId ? updated : m)));
       toast.success("Member rejected");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to reject member");
+      toast.error(err?.message || "Could not reject that member.");
     } finally {
       setBusyId(null);
     }
@@ -72,7 +72,7 @@ export function MembersTable({
       onChange(members.filter((m) => m.user_id !== userId));
       toast.success("Member removed");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to remove member");
+      toast.error(err?.message || "Could not remove that member.");
     } finally {
       setBusyId(null);
     }

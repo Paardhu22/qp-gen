@@ -19,6 +19,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
+import { errorWithRetry } from "@/lib/toasts";
 import { BookMarked, RefreshCcw, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -59,13 +60,13 @@ export function BuildFromBankDialog({ open, onOpenChange, onBuilt }: Props) {
     setMounted(true);
   }, []);
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async function load() {
     setIsLoading(true);
     try {
       const data = await fetchBankSummary();
       setChapters(data.chapters || []);
     } catch (error: any) {
-      toast.error(error?.message || "Could not load your question bank.");
+      errorWithRetry(error?.message || "Could not load your question bank.", load);
     } finally {
       setIsLoading(false);
     }

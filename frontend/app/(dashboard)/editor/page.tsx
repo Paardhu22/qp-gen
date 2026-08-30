@@ -701,7 +701,7 @@ export default function EditorPage() {
         } else {
           setPaperError("Failed to load paper. Please try again.");
           setPaperContent("");
-          toast.error(error?.message || "Failed to load paper.");
+          toast.error(error?.message || "Could not load that paper.");
         }
       })
       .finally(() => {
@@ -872,7 +872,7 @@ export default function EditorPage() {
       toast.success(`Paper details updated.`);
     } catch (error: any) {
       console.error(error);
-      toast.error(error?.message || "Failed to update paper details.");
+      toast.error(error?.message || "Could not update the paper details.");
     } finally {
       setIsSaving(false);
     }
@@ -912,7 +912,7 @@ export default function EditorPage() {
       setQuestionTopic("");
     } catch (error: any) {
       console.error(error);
-      toast.error(error?.message || "Failed to save questions.");
+      toast.error(error?.message || "Could not save those questions.");
     } finally {
       setIsSaving(false);
     }
@@ -927,7 +927,7 @@ export default function EditorPage() {
           if (active) setBrowserQuestions(data);
         })
         .catch((error) => {
-          if (active) toast.error("Failed to fetch questions from bank.");
+          if (active) toast.error("Could not load questions from the bank.");
         })
         .finally(() => {
           if (active) setBrowserLoading(false);

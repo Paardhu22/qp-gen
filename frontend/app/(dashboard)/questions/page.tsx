@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   fetchProjectsWithQuestions,
@@ -43,6 +43,7 @@ import {
 import { useEditorStore } from "@/store/editor-store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { errorWithRetry } from "@/lib/toasts";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                       */
@@ -266,30 +267,26 @@ export default function SavedQuestionsPage() {
   /*  Data                                                                 */
   /* -------------------------------------------------------------------- */
 
-  useEffect(() => {
-    let cancelled = false;
+  // Named rather than inline so the failure toast can retry it. The old copy
+  // read "Please refresh", asking the teacher to perform an action the toast
+  // is perfectly able to perform itself.
+  const loadBank = useCallback(function loadBank() {
     setIsLoading(true);
-    Promise.all([
+    return Promise.all([
       fetchProjectsWithQuestions<Project[]>(),
-      fetchQuestionTypes<QuestionType[]>()
+      fetchQuestionTypes<QuestionType[]>(),
     ])
       .then(([projData, typesData]) => {
-        if (!cancelled) {
-          setProjects(projData ?? []);
-          setQuestionTypes(typesData ?? []);
-        }
+        setProjects(projData ?? []);
+        setQuestionTypes(typesData ?? []);
       })
-      .catch(() => {
-        if (!cancelled)
-          toast.error("Failed to load question bank. Please refresh.");
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => errorWithRetry("Could not load the question bank.", loadBank))
+      .finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    void loadBank();
+  }, [loadBank]);
 
   const allQuestions = useMemo(() => flattenProjects(projects), [projects]);
 
@@ -494,7 +491,7 @@ export default function SavedQuestionsPage() {
       });
       toast.success("Question deleted.");
     } catch {
-      toast.error("Failed to delete question. Please try again.");
+      toast.error("Could not delete that question.");
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -520,7 +517,7 @@ export default function SavedQuestionsPage() {
       setSelectedIds(new Set());
       toast.success("Question bank cleared.");
     } catch {
-      toast.error("Failed to clear questions. Please try again.");
+      toast.error("Could not clear your questions.");
     } finally {
       setIsClearing(false);
     }
@@ -576,7 +573,7 @@ export default function SavedQuestionsPage() {
         await navigator.clipboard.writeText(textContent);
         toast.success(`Copied ${selected.length} question(s) to clipboard.`);
       } catch (e) {
-        toast.error("Failed to copy to clipboard.");
+        toast.error("Could not copy to the clipboard.");
       }
     }
   };

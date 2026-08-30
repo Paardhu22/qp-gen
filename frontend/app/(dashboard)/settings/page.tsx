@@ -124,7 +124,7 @@ function ChangePasswordModal({
       toast.success("Password changed successfully.");
       resetAndClose();
     } catch (err: any) {
-      toast.error(err.message || "Failed to change password.");
+      toast.error(err.message || "Could not change your password.");
     } finally {
       setIsSaving(false);
     }
@@ -358,7 +358,7 @@ export default function SettingsPage() {
       await refresh();
       toast.success("Token consumption metric updated.");
     } catch {
-      toast.error("Failed to refresh token usage.");
+      toast.error("Could not refresh your token usage.");
     } finally {
       setIsRefreshingTokens(false);
     }

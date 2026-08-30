@@ -22,6 +22,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { errorWithRetry } from "@/lib/toasts";
 import { LayoutTemplate, Search, X, Plus } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
@@ -93,7 +94,7 @@ export default function TemplatesPage() {
     null,
   );
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async function load() {
     setIsLoading(true);
     try {
       const [catalog, folderRows] = await Promise.all([
@@ -104,7 +105,7 @@ export default function TemplatesPage() {
       setBuiltins(catalog.builtin);
       setFolders(folderRows);
     } catch (error: any) {
-      toast.error(error?.message || "Could not load your templates.");
+      errorWithRetry(error?.message || "Could not load your templates.", load);
     } finally {
       setIsLoading(false);
     }

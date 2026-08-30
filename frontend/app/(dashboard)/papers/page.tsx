@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { errorWithRetry } from "@/lib/toasts";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/lib/auth-client";
 import { deleteServerDraft, pullDrafts } from "@/lib/drafts-sync";
@@ -175,13 +176,20 @@ export default function QuestionBankPage() {
   const [showTrash, setShowTrash] = useState(false);
 
   // ---- fetch list ----
-  useEffect(() => {
+  // Named rather than inline so the failure toast has something to retry.
+  const loadPapers = useCallback(function loadPapers() {
     setIsLoading(true);
-    fetchPapers<Paper[]>()
+    return fetchPapers<Paper[]>()
       .then((data) => setPapers(data ?? []))
-      .catch(() => toast.error("Failed to load saved papers."))
+      .catch(() =>
+        errorWithRetry("Could not load your saved papers.", loadPapers),
+      )
       .finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    void loadPapers();
+  }, [loadPapers]);
 
   // ---- recycle bin ----
   // Loaded alongside the library rather than behind the toggle: the count is
@@ -281,7 +289,7 @@ export default function QuestionBankPage() {
           setSelectedSetId(null);
         }
       })
-      .catch(() => toast.error("Failed to load paper details."))
+      .catch(() => toast.error("Could not load those paper details."))
       .finally(() => setDetailLoading(false));
   }, [selectedPaperId]);
 
@@ -327,7 +335,7 @@ export default function QuestionBankPage() {
         action: { label: "Undo", onClick: () => void restorePaperById(id, asId) },
       });
     } catch {
-      toast.error("Failed to delete paper.");
+      toast.error("Could not delete that paper.");
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -396,7 +404,7 @@ export default function QuestionBankPage() {
       await loadTrash();
       toast.success("All papers moved to the recycle bin.");
     } catch {
-      toast.error("Failed to clear papers.");
+      toast.error("Could not clear your papers.");
     } finally {
       setIsClearing(false);
     }
@@ -428,7 +436,7 @@ export default function QuestionBankPage() {
       );
       toast.success("Answer script generated!");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to generate answer script.");
+      toast.error(err?.message || "Could not generate the answer script.");
     } finally {
       setGeneratingIds((prev) => {
         const next = new Set(prev);

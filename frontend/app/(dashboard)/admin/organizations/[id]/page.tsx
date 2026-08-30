@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
+import { errorWithRetry } from "@/lib/toasts";
 import { ArrowLeft } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -33,7 +34,7 @@ export default function OrganizationDetailPage() {
     try {
       setOrg(await getOrganization(orgId));
     } catch (err: any) {
-      toast.error(err?.message || "Failed to load organization");
+      errorWithRetry(err?.message || "Could not load that organisation.", load);
     } finally {
       setLoading(false);
     }
