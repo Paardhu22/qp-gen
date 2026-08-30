@@ -52,6 +52,7 @@ import { deleteServerDraft, pullDrafts } from "@/lib/drafts-sync";
 import {
   basePaperId,
   withSetSuffix,
+  splitPaperId,
   isDraftPaperId,
   newLocalDraftId,
   persistablePaperId,
@@ -409,13 +410,18 @@ export default function EditorPage() {
               : `${rawName.trim()}.pdf`;
             const blob = await exportToPDF("tiptap-paper-container", filename);
             toast.success("PDF downloaded!");
-            const realPaperId = paperId && paperId !== "current" ? paperId : null;
-            if (realPaperId) {
+            // `persistablePaperId` + `setLabel`, matching the toolbar: `paperId`
+            // arrives as the per-tab composed id ("{base}_A") and the backend
+            // only knows the base row, so sending the composed id 404'd every
+            // upload. The download still succeeded, so the failure was silent.
+            const backupId = persistablePaperId(paperId);
+            if (backupId) {
               const { uploadExportToS3 } = await import("@/lib/s3-upload");
               uploadExportToS3(blob, {
                 exportType: exportTypeParam,
                 fileFormat: "pdf",
-                paperId: realPaperId,
+                paperId: backupId,
+                setLabel: splitPaperId(paperId).set ?? undefined,
               })
                 .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
                 .catch((err) => console.error("[S3 upload]", err));
@@ -436,13 +442,15 @@ export default function EditorPage() {
             if (container) {
               const blob = await exportToDocx(container, filename);
               toast.success("DOCX downloaded!");
-              const realPaperId = paperId && paperId !== "current" ? paperId : null;
-              if (realPaperId) {
+              // Same composed-id fix as the PDF path above.
+              const backupId = persistablePaperId(paperId);
+              if (backupId) {
                 const { uploadExportToS3 } = await import("@/lib/s3-upload");
                 uploadExportToS3(blob, {
                   exportType: exportTypeParam,
                   fileFormat: "docx",
-                  paperId: realPaperId,
+                  paperId: backupId,
+                  setLabel: splitPaperId(paperId).set ?? undefined,
                 })
                   .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
                   .catch((err) => console.error("[S3 upload]", err));
