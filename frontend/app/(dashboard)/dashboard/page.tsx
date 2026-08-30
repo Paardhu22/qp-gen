@@ -40,6 +40,10 @@ import {
   type PressStageId,
 } from "@/components/dashboard/press-check";
 import { ChatBackdrop } from "@/components/dashboard/chat-backdrop";
+import {
+  pickSuggestions,
+  type TeacherInventory,
+} from "@/lib/dashboard-suggestions";
 import { PaperDesignPanel } from "@/components/paper-design-panel";
 import { usePaperDesign } from "@/lib/use-paper-design";
 import { Button } from "@/components/ui/button";
@@ -53,6 +57,9 @@ import {
   setConversationStatus,
   streamChatMessage,
   streamSse,
+  fetchPapers,
+  fetchPaperTemplates,
+  fetchBankSummary,
   uploadPdfSource,
   waitForPdfSource,
   type ChatMessage,
@@ -63,12 +70,7 @@ import {
 } from "@/lib/api-client";
 import { asStatusText, planSummaryLine } from "@/lib/plan-summary";
 
-const SUGGESTIONS = [
-  "Make a class 10 Science unit test on Light.",
-  "What does the class 10 English paper look like?",
-  "Draft a note to parents about the term test.",
-  "Explain the CBSE competency-based question format.",
-];
+
 
 // The pipeline's own stage names, mapped onto the press. `pool_progress` is a
 // tick inside `generating_pool`, not a stage of its own.
@@ -235,6 +237,45 @@ export default function DashboardPage() {
   const [streamingText, setStreamingText] = React.useState("");
   const [isStreaming, setIsStreaming] = React.useState(false);
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
+
+  // What the teacher already has, used to choose the starter prompts. Loaded
+  // once, in parallel, and never awaited by anything the chat needs: until it
+  // arrives `pickSuggestions(null)` returns the original four, so the empty
+  // state is complete from the first paint and simply sharpens a moment later.
+  // Any failure leaves it null, which is the same fallback.
+  const [inventory, setInventory] = React.useState<TeacherInventory | null>(
+    null,
+  );
+
+  React.useEffect(() => {
+    let active = true;
+    void (async () => {
+      const [papers, templates, bank] = await Promise.all([
+        fetchPapers<Array<{ title?: string }>>().catch(() => null),
+        fetchPaperTemplates().catch(() => null),
+        fetchBankSummary().catch(() => null),
+      ]);
+      // All three failing means the account could not be read at all; leaving
+      // `inventory` null keeps the generic starters rather than telling a
+      // teacher with a full account that they have nothing.
+      if (!active || (!papers && !templates && !bank)) return;
+      setInventory({
+        paperCount: papers?.length ?? 0,
+        templateCount: templates?.length ?? 0,
+        bankQuestionCount:
+          bank?.chapters?.reduce((sum, c) => sum + (c.count ?? 0), 0) ?? 0,
+        recentPaperTitle: papers?.[0]?.title ?? null,
+      });
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const suggestions = React.useMemo(
+    () => pickSuggestions(inventory),
+    [inventory],
+  );
   const [generation, setGeneration] = React.useState<GenerationState>(IDLE);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -778,7 +819,7 @@ export default function DashboardPage() {
                 {promptBox}
 
                 <div className="flex flex-wrap justify-center gap-2">
-                  {SUGGESTIONS.map((suggestion) => (
+                  {suggestions.map((suggestion) => (
                     <button
                       key={suggestion}
                       onClick={() => handleSend(suggestion, [])}
