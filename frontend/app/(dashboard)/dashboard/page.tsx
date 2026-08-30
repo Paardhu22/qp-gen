@@ -17,10 +17,12 @@
  */
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowRight,
+  FileText,
   MessageSquarePlus,
   PanelLeft,
   Pause,
@@ -247,11 +249,17 @@ export default function DashboardPage() {
     null,
   );
 
+  // The last few papers, for the pick-up-where-you-left-off row. Same fetch as
+  // the inventory, so this costs no extra request.
+  const [recentPapers, setRecentPapers] = React.useState<
+    Array<{ id: string; title: string }>
+  >([]);
+
   React.useEffect(() => {
     let active = true;
     void (async () => {
       const [papers, templates, bank] = await Promise.all([
-        fetchPapers<Array<{ title?: string }>>().catch(() => null),
+        fetchPapers<Array<{ id: string; title?: string }>>().catch(() => null),
         fetchPaperTemplates().catch(() => null),
         fetchBankSummary().catch(() => null),
       ]);
@@ -266,6 +274,11 @@ export default function DashboardPage() {
           bank?.chapters?.reduce((sum, c) => sum + (c.count ?? 0), 0) ?? 0,
         recentPaperTitle: papers?.[0]?.title ?? null,
       });
+      setRecentPapers(
+        (papers ?? [])
+          .slice(0, 3)
+          .map((paper) => ({ id: paper.id, title: paper.title || "Untitled paper" })),
+      );
     })();
     return () => {
       active = false;
@@ -817,6 +830,39 @@ export default function DashboardPage() {
                 </div>
 
                 {promptBox}
+
+                {/* Pick up where you left off. Only on the empty state, and
+                    only when there is something to pick up -- a teacher
+                    returning to the app was previously shown a blank prompt
+                    with no trace of their own work, and had to guess that a
+                    papers list existed and where the nav hid it. Below the
+                    prompt box, not above it: starting something new stays the
+                    primary act on this screen. */}
+                {recentPapers.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Pick up where you left off
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {recentPapers.map((paper) => (
+                        <Link
+                          key={paper.id}
+                          href={`/editor?paperId=${paper.id}`}
+                          className="flex max-w-[15rem] items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+                        >
+                          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">{paper.title}</span>
+                        </Link>
+                      ))}
+                      <Link
+                        href="/papers"
+                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        All papers →
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="flex flex-wrap justify-center gap-2">
                   {suggestions.map((suggestion) => (
