@@ -28,7 +28,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Loader2, MailPlus, X } from "lucide-react";
+import { MailPlus, X } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import {
   inviteTeacher,
   listTeacherInvites,
@@ -138,7 +139,7 @@ export function TeacherInvites({ orgId }: { orgId: string }) {
 
         {loading ? (
           <div className="flex justify-center py-4">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <Spinner size="page" />
           </div>
         ) : visible.length === 0 ? (
           <p className="text-sm text-muted-foreground">

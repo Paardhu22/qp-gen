@@ -27,7 +27,7 @@ import { LayoutTemplate, Search, X, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { PageTitle } from "@/components/ui/page-title";
-import { SkeletonRows } from "@/components/ui/skeleton";
+import { SkeletonCards } from "@/components/ui/skeleton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -414,7 +414,7 @@ export default function TemplatesPage() {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           {isLoading ? (
-            <SkeletonRows rows={6} height="h-24" />
+            <SkeletonCards cards={6} className="xl:grid-cols-3" />
           ) : showingBuiltins ? (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {visibleBuiltins.map((builtin) => (

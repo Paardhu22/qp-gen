@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 import { useSession, isSuperAdmin } from "@/lib/auth-client";
 import {
@@ -45,7 +46,7 @@ export default function OrganizationDetailPage() {
   if (sessionLoading) {
     return (
       <div className="flex justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Spinner size="page" />
       </div>
     );
   }
@@ -68,7 +69,7 @@ export default function OrganizationDetailPage() {
 
       {loading || !org ? (
         <div className="flex justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <Spinner size="page" />
         </div>
       ) : (
         <>

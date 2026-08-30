@@ -37,7 +37,8 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MembersTable } from "@/components/admin/members-table";
 import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
-import { Loader2, Mail } from "lucide-react";
+import { Mail } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 function InviteOrganizationDialog({ onInvited }: { onInvited: () => void }) {
   const [open, setOpen] = useState(false);
@@ -238,7 +239,7 @@ function SuperAdminDashboard() {
         <CardContent>
           {loading ? (
             <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <Spinner size="page" />
             </div>
           ) : orgs.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">
@@ -342,7 +343,7 @@ function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
   if (loading) {
     return (
       <div className="flex justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Spinner size="page" />
       </div>
     );
   }
@@ -390,7 +391,7 @@ export default function AdminPage() {
   if (isLoading) {
     return (
       <div className="flex justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Spinner size="page" />
       </div>
     );
   }

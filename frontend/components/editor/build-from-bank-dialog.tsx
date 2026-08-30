@@ -19,7 +19,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { BookMarked, Loader2, RefreshCcw, Search, X } from "lucide-react";
+import { BookMarked, RefreshCcw, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ import {
   type BankChapter,
 } from "@/lib/api-client";
 import { useEditorStore } from "@/store/editor-store";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 const chapterKey = (row: BankChapter) => row.chapter || row.projectName;
@@ -377,7 +378,7 @@ export function BuildFromBankDialog({ open, onOpenChange, onBuilt }: Props) {
               className="gap-1.5"
             >
               {isBuilding ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Spinner />
               ) : null}
               {isBuilding ? "Building…" : "Build paper"}
             </Button>
