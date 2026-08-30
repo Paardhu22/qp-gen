@@ -66,17 +66,17 @@ Two corrections found while doing these. **2.9's premise was wrong**: `--success
 
 ---
 
-## Tier 3 — Larger or needs a decision first  (2 of 9 shipped)
+## Tier 3 — Larger or needs a decision first  (2 shipped, 1 half)
 
 | # | What | Effort | Note |
 |---|---|---|---|
 | 3.1 | Merge the two source pickers | ~4 hr | Two live call sites; they already share a type |
 | 3.2 | Share generation state between the two SSE consumers | ~4 hr | Transport is already shared; the state handling is not |
-| 3.3 | Consolidate 5 hand-rolled modals onto `Dialog` | ~4 hr | Visual #12/#13 — 5 scrim recipes, 4 z-index escapes |
+| 3.3 ◐ | Consolidate 5 hand-rolled modals onto `Dialog` | ~4 hr | **Half done** (`658e939`): one scrim recipe and a documented z-index scale. The `Dialog` migration itself is not attempted — five different shapes, and focus traps are not verifiable without a browser |
 | 3.4 | Motion phases: page transitions → stagger → list-detail morph | ~6 hr | Visual 6–9. Reduced-motion work gates these |
 | ~~3.5~~ ✅ | Dashboard home state | ~3 hr | Shipped as recent-papers on the empty state — see note below |
 | ~~3.6~~ ✅ | Display typeface | ~1 hr | Playfair, scoped to page identity. 2.7 was the unblocker |
-| 3.7 | Tooltips on dense surfaces | ~2.5 hr | Weak until 2.2 lands |
+| 3.7 | Tooltips on dense surfaces | ~2.5 hr | Deprioritised — see note below. First step is promoting the tooltip out of `ui/ai-prompt-box.tsx` into a primitive |
 | 3.8 | Delete `/api/generation/answer-key` | ~30 min + verification | Only proven unused by *this* frontend. Check deployment logs first |
 | 3.9 | **Resolve the three-engine question** | days | Product decision, not a refactor. ~14,000 LOC hangs on it |
 
