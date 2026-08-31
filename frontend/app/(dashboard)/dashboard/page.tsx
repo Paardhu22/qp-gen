@@ -12,8 +12,10 @@
  * setting up a paper gets interrupted.
  *
  * The generation itself is untouched — this calls the same
- * `/api/generation/questions/stream` the generator form does, and hands the
- * result to the editor through the same store.
+ * `/api/generation/questions/stream` the editor does, and hands the result to
+ * the editor through the same store. The two clients read that stream through
+ * one shared contract (`lib/generation-stream.ts`); what they do with an event
+ * differs, what an event *means* does not.
  */
 
 import * as React from "react";
@@ -71,6 +73,10 @@ import {
   type PaperSpec,
 } from "@/lib/api-client";
 import { asStatusText, planSummaryLine } from "@/lib/plan-summary";
+import {
+  decodeGenerationEvent,
+  handleAmbientEvent,
+} from "@/lib/generation-stream";
 
 
 
@@ -589,24 +595,30 @@ export default function DashboardPage() {
           contentScopePolicy: "strict",
           sets: Number(resolvedSpec.numberOfSets || "1"),
         },
-        (event, data) => {
-          if (event === "status") {
-            const stage = STAGE_MAP[data.stage];
+        (rawEvent, rawData) => {
+          const ev = decodeGenerationEvent(rawEvent, rawData);
+          // `notice` and `warning` are the pool pipeline's only channel for
+          // telling a teacher something went sideways but was recovered. This
+          // surface used to drop both on the floor, along with `saved`.
+          if (handleAmbientEvent(ev)) return;
+
+          if (ev.name === "status") {
+            const stage = ev.stage ? STAGE_MAP[ev.stage] : undefined;
             setGeneration((g) => ({
               ...g,
               stage: stage ?? g.stage,
-              status: asStatusText(data.message) || g.status,
+              status: asStatusText(ev.message) || g.status,
             }));
-          } else if (event === "plan") {
+          } else if (ev.name === "plan") {
             setGeneration((g) => ({
               ...g,
               stage: "plan",
-              plannedSlots: Number(data.total) || g.plannedSlots,
-              status: planSummaryLine(data.summary) || "Blueprint compiled",
+              plannedSlots: ev.total || g.plannedSlots,
+              status: planSummaryLine(ev.summary) || "Blueprint compiled",
             }));
-          } else if (event === "pool") {
-            setGeneration((g) => ({ ...g, poolCount: Number(data.total) || g.poolCount }));
-          } else if (event === "question") {
+          } else if (ev.name === "pool") {
+            setGeneration((g) => ({ ...g, poolCount: ev.total || g.poolCount }));
+          } else if (ev.name === "question") {
             setGeneration((g) => ({
               ...g,
               stage: "printing",
@@ -614,28 +626,47 @@ export default function DashboardPage() {
                 ...g.rows,
                 {
                   section:
-                    g.rows[g.rows.length - 1]?.section === data.section
+                    g.rows[g.rows.length - 1]?.section === ev.section
                       ? undefined
-                      : data.section,
+                      : ev.section,
                   number: g.rows.length + 1,
-                  marks: Number(data.question?.marks ?? 1),
-                  text: String(data.question?.content ?? ""),
+                  marks: Number(ev.question?.marks ?? 1),
+                  text: String(ev.question?.content ?? ""),
                 },
               ],
             }));
-          } else if (event === "set") {
-            variantSets.push({ label: data.label, result: data.result });
+          } else if (ev.name === "set") {
+            // Replace rather than append. A label can be re-emitted — the
+            // editor's copy of this has always deduped, this one appended, so
+            // a repeat put the same set on the press twice and then handed
+            // the editor two tabs of it.
+            const index = variantSets.findIndex((v) => v.label === ev.label);
+            if (index >= 0) variantSets[index] = { label: ev.label, result: ev.result };
+            else variantSets.push({ label: ev.label, result: ev.result });
             setGeneration((g) => ({
               ...g,
               stage: "sets",
-              sets: [...g.sets, data.label],
+              sets: g.sets.includes(ev.label) ? g.sets : [...g.sets, ev.label],
             }));
-          } else if (event === "done") {
-            setA = data.result ?? setA;
-          } else if (event === "update" || event === "message") {
-            setA = data;
-          } else if (event === "error") {
-            throw new Error(data.error || "Generation failed");
+          } else if (ev.name === "saved") {
+            if (ev.saved) {
+              toast.success(
+                `${ev.saved} question${ev.saved === 1 ? "" : "s"} saved to your bank${
+                  ev.projectName ? ` in ${ev.projectName}` : ""
+                }.`,
+              );
+            }
+          } else if (ev.name === "done") {
+            setA = ev.result ?? setA;
+          } else if (ev.name === "update") {
+            setA = ev.result;
+          } else if (ev.name === "error") {
+            // Thrown to abort the stream. It reaches the `catch` below with
+            // its own message now — `api-client` used to wrap a throwing
+            // handler as a parse failure, so every real reason a generation
+            // failed on this path was replaced by "Failed to parse stream
+            // payload" one frame after it arrived.
+            throw new Error(ev.error);
           }
         },
       );

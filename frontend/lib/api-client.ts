@@ -311,11 +311,26 @@ async function consumeSse(
       }
 
       if (event === "done" || event === "error") sawTerminalEvent = true;
+
+      // Parse and dispatch are separated on purpose. One `try` used to wrap
+      // both, which meant a *handler* that threw was reported to the teacher
+      // as a parse failure — and the dashboard's handler threw deliberately,
+      // as its way of aborting the stream on an `error` event. So every
+      // backend generation error on the chat path ("No usable content in
+      // those chapters") arrived as "Failed to parse stream payload", and the
+      // real reason was destroyed one frame after it was received.
+      //
+      // Now a malformed frame is still reported as one, and a throwing
+      // handler propagates with its own message, which is what a handler that
+      // throws is asking for.
+      let payload: unknown;
       try {
-        onEvent(event, JSON.parse(data));
-      } catch (error) {
+        payload = JSON.parse(data);
+      } catch {
         onEvent("error", { error: "Failed to parse stream payload" });
+        continue;
       }
+      onEvent(event, payload);
     }
   }
 

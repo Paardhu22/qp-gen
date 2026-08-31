@@ -30,6 +30,11 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { resumeSseRun, streamSse, type SseRunPosition } from "@/lib/api-client";
+import {
+  decodeGenerationEvent,
+  handleAmbientEvent,
+  splitPendingDocuments,
+} from "@/lib/generation-stream";
 import { useEditorStore, type TrayItem } from "@/store/editor-store";
 
 /**
@@ -249,58 +254,49 @@ function makeStreamHandler(deps: {
     });
   };
 
-  return (event: string, data: any) => {
-    if (event === "error") {
-      deps.onError(data.error || "Generation failed");
-      if (data.code === "DOCUMENTS_NOT_READY") {
-        const pending: any[] = Array.isArray(data.pendingDocuments)
-          ? data.pendingDocuments
-          : [];
-        const pdfPending = pending.filter((p) => p.kind === "pdf");
-        deps.onSourcesNotReady?.({
-          drop: pdfPending
-            .filter((p) => p.reason === "not_found")
-            .map((p) => p.id),
-          requeue: pdfPending
-            .filter((p) => p.reason !== "not_found")
-            .map((p) => ({ id: p.id, name: p.name || "Document" })),
-        });
+  return (rawEvent: string, rawData: unknown) => {
+    const ev = decodeGenerationEvent(rawEvent, rawData);
+    // `notice`, `warning` and anything this build has no case for. Same
+    // handling on every surface, so it does not live here.
+    if (handleAmbientEvent(ev)) return;
+
+    if (ev.name === "error") {
+      deps.onError(ev.error);
+      if (ev.code === "DOCUMENTS_NOT_READY") {
+        deps.onSourcesNotReady?.(
+          splitPendingDocuments(ev.pendingDocuments ?? []),
+        );
       }
-    } else if (event === "status") {
+    } else if (ev.name === "status") {
       deps.setState((s) => ({
         ...s,
         poolStatus:
-          data.stage === "pool_progress"
+          ev.stage === "pool_progress"
             ? "Writing questions…"
-            : data.message || s.poolStatus,
+            : ev.message || s.poolStatus,
       }));
-    } else if (event === "pool") {
+    } else if (ev.name === "pool") {
       deps.setState((s) => ({
         ...s,
-        poolStatus: `Questions ready — ${data.total} across ${
-          Object.keys(data.byType || {}).length
+        poolStatus: `Questions ready — ${ev.total} across ${
+          Object.keys(ev.byType || {}).length
         } types.`,
       }));
-    } else if (event === "saved") {
+    } else if (ev.name === "saved") {
       deps.setState((s) => ({
         ...s,
         savedToBank: {
-          saved: data.saved ?? 0,
-          duplicatesSkipped: data.duplicatesSkipped ?? 0,
-          projectName: data.projectName || "",
+          saved: ev.saved ?? 0,
+          duplicatesSkipped: ev.duplicatesSkipped ?? 0,
+          projectName: ev.projectName || "",
         },
       }));
-    } else if (event === "notice") {
-      if (data.message) toast.info(data.message);
-    } else if (event === "warning") {
-      if (data.message) toast.warning(data.message);
-    } else if (event === "plan") {
-      const generalInstructions = data.generalInstructions || [];
+    } else if (ev.name === "plan") {
+      const generalInstructions = ev.generalInstructions || [];
       deps.setState((s) => ({
         ...s,
         result: { sections: [], generalInstructions },
-        plannedTotal:
-          typeof data.total === "number" ? data.total : s.plannedTotal,
+        plannedTotal: ev.total ?? s.plannedTotal,
       }));
       // Only auto-insert the instruction block when auto-insert is on.
       // In review mode the editor rebuilds instructions from what was
@@ -314,37 +310,39 @@ function makeStreamHandler(deps: {
       ) {
         useEditorStore.getState().appendInstructions(generalInstructions);
       }
-    } else if (event === "question") {
+    } else if (ev.name === "question") {
+      const section = ev.section || "";
+      const question = ev.question ?? {};
       deps.setState((s) => ({
         ...s,
-        result: appendQuestionToResult(s.result, data.section, data.question),
+        result: appendQuestionToResult(s.result, section, question),
         generatedCount: s.generatedCount + 1,
         lastQuestion: {
-          section: data.section || "",
-          type: data.question?.type || "",
-          marks: data.question?.marks || 0,
+          section,
+          type: question.type || "",
+          marks: question.marks || 0,
         },
       }));
       if (isMultiSet) {
         // Preview only — sets are inserted from the comparison view so
         // two of them can never merge into one document.
       } else if (useEditorStore.getState().insertionMode === "auto") {
-        appendToEditor(data.section, data.question);
+        appendToEditor(section, question);
       } else {
-        stageForReview(data.section, data.question);
+        stageForReview(section, question);
       }
-    } else if (event === "set") {
+    } else if (ev.name === "set") {
       deps.setState((s) => ({
         ...s,
         variantSets: [
-          ...s.variantSets.filter((v) => v.label !== data.label),
-          { label: data.label, result: data.result },
+          ...s.variantSets.filter((v) => v.label !== ev.label),
+          { label: ev.label, result: ev.result },
         ],
       }));
-    } else if (event === "update" || event === "message") {
-      deps.setState((s) => ({ ...s, result: data }));
-    } else if (event === "done" && data.result) {
-      deps.setState((s) => ({ ...s, result: data.result }));
+    } else if (ev.name === "update") {
+      deps.setState((s) => ({ ...s, result: ev.result }));
+    } else if (ev.name === "done" && ev.result) {
+      deps.setState((s) => ({ ...s, result: ev.result }));
     }
   };
 }
