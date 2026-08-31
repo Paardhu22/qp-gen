@@ -87,7 +87,7 @@ import {
 import { useSession } from "@/lib/auth-client";
 import { updatePaperAction } from "@/actions/savePaper";
 import { SyncCancelledError } from "@/lib/api-client";
-import { type AppliedHsatSource } from "@/components/hsat-source-picker";
+import { type AppliedHsatSource } from "@/lib/hsat-source";
 
 // ==================================
 // Auto-numbering utility

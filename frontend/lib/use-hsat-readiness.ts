@@ -21,7 +21,7 @@
 import * as React from "react";
 
 import { fetchJson } from "@/lib/api-client";
-import type { AppliedHsatSource } from "@/components/hsat-source-picker";
+import type { AppliedHsatSource } from "@/lib/hsat-source";
 
 /** Ingestion runs in minutes, so a slow poll is plenty. */
 const POLL_INTERVAL_MS = 5_000;

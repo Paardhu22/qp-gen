@@ -71,7 +71,7 @@ import {
   type QuestionTypeOption,
 } from "@/lib/api-client";
 import { recomputeTotals } from "@/lib/blueprint-totals";
-import type { AppliedHsatSource } from "@/components/hsat-source-picker";
+import type { AppliedHsatSource } from "@/lib/hsat-source";
 
 import { TemplatePickerGrid } from "./template-picker-grid";
 import { SlotEditor } from "./slot-editor";

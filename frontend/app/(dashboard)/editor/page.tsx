@@ -13,7 +13,7 @@ import { useHsatReadiness } from "@/lib/use-hsat-readiness";
 import { TiptapEditor, normalizeInitialContent } from "@/components/tiptap-editor";
 import { ComparisonWorkspace } from "@/components/comparison-workspace";
 import { useEditorStore } from "@/store/editor-store";
-import { type AppliedHsatSource } from "@/components/hsat-source-picker";
+import { type AppliedHsatSource } from "@/lib/hsat-source";
 import { fetchJson, fetchTemplateFolders, type TemplateFolder } from "@/lib/api-client";
 import { TemplateEditorPanel } from "@/components/templates/template-editor-panel";
 import {

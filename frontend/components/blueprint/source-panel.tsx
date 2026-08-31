@@ -30,7 +30,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { AppliedHsatSource } from "@/components/hsat-source-picker";
+import type { AppliedHsatSource } from "@/lib/hsat-source";
 
 export interface UploadedDoc {
   id: string;
