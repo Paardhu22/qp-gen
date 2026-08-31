@@ -3,7 +3,9 @@
 This was a routed endpoint, `POST /api/generation/test-science-engine`. Its own
 docstring warned that it "triggers REAL LLM calls (it spends OpenAI budget), so
 it must never be reachable anonymously on a deployed host", and it was gated
-behind ENABLE_TEST_ENDPOINTS, which defaults to DEBUG.
+behind an ENABLE_TEST_ENDPOINTS setting that defaulted to DEBUG. That setting
+has since been removed: this command was its only reason to exist, and a
+command is not reachable over HTTP for it to gate.
 
 That gate was sound but the shape was wrong: a test fixture was being carried
 as application code on the public router, and its safety rested on DEBUG being

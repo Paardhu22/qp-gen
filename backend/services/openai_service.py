@@ -126,7 +126,14 @@ def generate_answer_key(paper_content_html: str, user: Optional[User] = None) ->
         "Do not include markdown code block wrappers in your output, just return the raw HTML string."
     )
 
-    answer_model = getattr(settings, "ANSWER_MODEL", settings.OPENAI_MODEL)
+    # Read directly, not `getattr(..., settings.OPENAI_MODEL)`. Every stage
+    # model is unconditionally defined in settings, so that fallback could
+    # never fire -- but it is the exact inheritance the settings comment
+    # forbids, written into the code that comment is about. An attribute that
+    # should always exist is better read as one: if it ever goes missing, an
+    # AttributeError names the problem instead of a 30k-TPM model quietly
+    # taking over.
+    answer_model = settings.ANSWER_MODEL
     completion = client.chat.completions.create(
         model=answer_model,
         messages=[

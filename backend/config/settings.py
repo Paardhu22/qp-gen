@@ -364,12 +364,13 @@ OPENAI_TIMEOUT_SECONDS = float(os.environ.get("OPENAI_TIMEOUT_SECONDS", "120"))
 
 QG_NEW_ENGINE_ENABLED = os.environ.get("QG_NEW_ENGINE_ENABLED", "false").lower() == "true"
 
-# Routes diagnostic endpoints that spend real OpenAI budget on hard-coded
-# inputs (currently /api/generation/test-science-engine). Off in production —
-# they are developer tools, not product surface. Defaults to DEBUG.
-ENABLE_TEST_ENDPOINTS = (
-    os.environ.get("ENABLE_TEST_ENDPOINTS", str(DEBUG)).lower() == "true"
-)
+# ENABLE_TEST_ENDPOINTS was removed. It gated exactly one thing —
+# /api/generation/test-science-engine — and that is now the management command
+# `run_engine_slice`, which cannot be reached over HTTP at all. A flag that
+# guards nothing is worse than no flag: it reads as a live safety control, so
+# every deployment review spends time confirming a value that has stopped
+# meaning anything. If a diagnostic endpoint is ever wanted again, a management
+# command is the shape to reach for first.
 OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 # Retained for the (now-optional) vision-caption helper; ingestion no longer
 # calls it (no GPT calls during ingestion — see services.document_service).
