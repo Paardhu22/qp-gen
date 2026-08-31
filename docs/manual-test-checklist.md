@@ -2,7 +2,7 @@
 
 *Living document. The top section is what is currently shipped-but-unverified; the suites below it are standing regressions to re-run whenever the queue touches that area.*
 
-**Last updated:** 2026-08-31, branch `fix/tier0-quick-fixes` (31 commits, not pushed).
+**Last updated:** 2026-08-31, branch `fix/tier0-quick-fixes` (33 commits, not pushed).
 
 ---
 
@@ -87,6 +87,33 @@ Type-only move, no behaviour. One smoke check:
 
 - [ ] Blueprint Builder → step 2 → "Choose from the library" opens the picker,
       a book applies, and it appears in "Selected sources" with its status.
+
+---
+
+### 4.7 Reduced motion — `e1ddf38`
+
+**Turn the OS setting on first.** Windows: Settings → Accessibility → Visual
+effects → Animation effects **off**. Then reload the page — some of this is
+read at load.
+
+- [ ] **Outline click does not glide.** Editor → open the document panel →
+      click an outline entry. The page *jumps* to the heading rather than
+      scrolling to it. This is the single most important check in this batch.
+- [ ] Same for the editor's own scroll-to-question after an insert.
+- [ ] Dialogs and dropdowns **fade** in rather than sliding or zooming. They
+      should still fade — an instant pop is not the goal.
+- [ ] Nothing is left visibly offset, half-scaled or rotated after opening.
+- [ ] **Spinners still spin** and skeletons still pulse. If a spinner is
+      frozen, that is a bug in this change, not the intended behaviour.
+- [ ] Now turn the setting **back off** and confirm smooth scrolling and the
+      slide/zoom dialogs return. The preference must be readable both ways.
+
+### 4.8 Full build — `e1ddf38`
+
+- [x] ~~`npx tsc --noEmit`~~ clean.
+- [x] ~~`npm run build`~~ passes — all 17 routes, first full green production
+      build on this branch.
+- [x] ~~871 backend tests~~ pass (`a43e1e3`).
 
 ---
 

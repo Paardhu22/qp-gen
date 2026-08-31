@@ -73,7 +73,7 @@ Two corrections found while doing these. **2.9's premise was wrong**: `--success
 | ~~3.1~~ ✗ | ~~Merge the two source pickers~~ | — | **Withdrawn — the premise was wrong.** See below |
 | ~~3.2~~ ✅ | Share generation state between the two SSE consumers | ~2 hr | Reframed and shipped; **uncovered two live bugs** — see below |
 | 3.3 ◐ | Consolidate 5 hand-rolled modals onto `Dialog` | ~4 hr | **Half done** (`658e939`): one scrim recipe and a documented z-index scale. The `Dialog` migration itself is not attempted — five different shapes, and focus traps are not verifiable without a browser |
-| 3.4 | Motion phases: page transitions → stagger → list-detail morph | ~6 hr | Visual 6–9. Reduced-motion work gates these |
+| 3.4 | Motion phases: page transitions → stagger → list-detail morph | ~6 hr | **Gate cleared** (`e1ddf38`) — reduced-motion is now honoured app-wide. See below |
 | ~~3.5~~ ✅ | Dashboard home state | ~3 hr | Shipped as recent-papers on the empty state — see note below |
 | ~~3.6~~ ✅ | Display typeface | ~1 hr | Playfair, scoped to page identity. 2.7 was the unblocker |
 | 3.7 | Tooltips on dense surfaces | ~2.5 hr | Deprioritised — see note below. First step is promoting the tooltip out of `ui/ai-prompt-box.tsx` into a primitive |
@@ -167,6 +167,33 @@ the code its prohibition is about.
 ---
 
 **On 3.5.** Shipped as the part that fits the surface as it stands: the last three papers on the dashboard's empty state, below the prompt box. Deliberately *not* the full stats board the audit sketched — the chat is what that page is, and starting something new should stay the primary act on it.
+
+### 3.4's gate is cleared — and it was not where the queue thought
+
+The item lists reduced-motion work as its blocker, so I went to see what that
+needed. Every animation *written on this branch* was already scoped to
+`no-preference` — button press, card lift, `empty-breathe`, `shake`. The
+discipline was real and consistent.
+
+What was unguarded was everything not written here:
+
+1. **Three unconditional smooth scrolls** (`document-outline.tsx:170`, two in
+   `tiptap-editor.tsx`). The sharpest of the three: smooth scrolling is the
+   canonical vestibular trigger, and worse than an animation because the user
+   asked for it and cannot look away. The ornament honoured the preference;
+   the one motion that can make somebody ill did not. Now routed through
+   `lib/scroll.ts`, which reads the preference at call time.
+2. **`tw-animate-css` enter/exit** on every dialog, dropdown and popover.
+   Neutralised to a plain crossfade by zeroing the library's own translate /
+   scale / rotate custom properties — the travel goes, the fade stays.
+3. **`animate-bounce` / `animate-ping`** stopped. `animate-spin` and
+   `animate-pulse` deliberately kept: both are liveness indicators, and
+   freezing a spinner reads as "hung", not as "reduced motion".
+
+So 3.4 is unblocked, but note what this implies for it — any new page
+transition, stagger or morph must be authored inside a `no-preference` block
+from the start. The blanket reset was deliberately *not* used, so there is no
+safety net catching an unguarded animation.
 
 **On 3.7 (tooltips).** Deprioritised rather than done. The audit ranked it weakest, and the premise is softer than it looked: the editor toolbar already carries 29 native `title=` attributes, so those controls are labelled — they are just labelled with slow, unstyled browser tooltips rather than the app's own. Worth doing eventually; not worth a 1400-line JSX rewrite ahead of the items below. Note there is no `components/ui/tooltip.tsx` — the only styled tooltip lives inside `ui/ai-prompt-box.tsx` on `@base-ui/react`, and promoting it to a primitive is the real first step.
 
