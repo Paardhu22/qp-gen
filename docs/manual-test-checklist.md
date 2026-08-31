@@ -2,15 +2,91 @@
 
 *Living document. The top section is what is currently shipped-but-unverified; the suites below it are standing regressions to re-run whenever the queue touches that area.*
 
-**Last updated:** 2026-08-31, branch `fix/tier0-quick-fixes` (25 commits, not pushed).
+**Last updated:** 2026-08-31, branch `fix/tier0-quick-fixes` (31 commits, not pushed).
 
 ---
 
 ## Before anything
 
-- [ ] **`npm install` in `frontend/`.** `recharts` is declared in `package.json:71` (`^3.10.1`) but is **not present in `node_modules`**. Until it installs, `components/admin/usage-analytics.tsx` fails to resolve and the admin usage page will not build. This is pre-existing, not from any recent change.
+- [x] ~~**`npm install` in `frontend/`.**~~ **Done.** `recharts` was declared in `package.json:71` (`^3.10.1`) and missing from `node_modules`, so `components/admin/usage-analytics.tsx` would not resolve. Installed; `tsc --noEmit` is now clean across the whole frontend for the first time on this branch. Re-run `npm install` only if you pull.
 - [ ] `npm run dev` in `frontend/`, backend running separately.
 - [ ] Have a **multi-set paper** (Sets A/B/C) saved — several tests below need one and generating it takes longer than the tests do.
+
+---
+
+---
+
+## Batch 4 — the generation stream, and two bugs it was hiding
+
+New since the last update. **`4526520` fixes two live defects on the dashboard
+chat path**, so this batch is the highest-value one to run: unlike most of the
+branch, these were breaking things rather than looking wrong.
+
+### 4.1 Chat-path generation errors say what actually went wrong — `4526520`
+
+This is the important one. Before the fix, **every** backend generation failure
+started from the dashboard chat showed the toast `Failed to parse stream
+payload`, regardless of cause.
+
+- [ ] Start a generation from the **dashboard chat** (not the editor) that you
+      expect to fail. Easiest reliable trigger: attach a source and generate
+      before it finishes indexing, so the readiness gate rejects it.
+- [ ] The error toast names the **real reason** — a sentence about the sources
+      or the content, not "Failed to parse stream payload".
+- [ ] If you can, also force a genuinely malformed frame (or trust the code
+      path): a real parse failure should *still* say "Failed to parse stream
+      payload". Both messages exist; they should no longer be the same message.
+
+### 4.2 Duplicate sets on the press — `4526520`
+
+- [ ] Generate a **multi-set paper (2 or 3 sets) from the dashboard chat**.
+- [ ] The press check lists each set label **once** — no "Set B" twice.
+- [ ] After it lands in the editor, the tab strip has exactly as many tabs as
+      sets requested, with no repeated label.
+
+### 4.3 Events the dashboard used to discard — `4526520`
+
+The chat path silently dropped `saved`, `notice` and `warning`. All three now
+surface as toasts.
+
+- [ ] Run a generation from the chat that saves questions to the bank. A
+      success toast names how many were saved (and the project, if it has one).
+- [ ] If the pipeline emits a recovery notice or warning during the run — e.g.
+      a chapter with no usable figures — it appears as a toast. This is
+      opportunistic; it depends on the sources, so do not treat its absence on
+      one clean run as a failure.
+- [ ] **Regression check:** the same events on the **editor** path still behave
+      exactly as before. That path already handled them; it was only rewired,
+      not changed.
+
+### 4.4 Editor generation is unchanged — `4526520`
+
+Both consumers moved onto a shared decoder, so the editor path needs a
+regression pass even though nothing about it was meant to change.
+
+- [ ] Generate a single-set paper from the editor. Questions stream in and land
+      in the document as before.
+- [ ] Switch insertion to **review mode** and generate. Questions stage in the
+      review tray rather than inserting.
+- [ ] The status line still reads as prose ("Writing questions…"), never as a
+      count like "83/78".
+- [ ] Kill your connection mid-generation, reload, and take the resume offer.
+      The paper completes rather than arriving half-written.
+
+### 4.5 Backend flag removal — `a43e1e3`
+
+- [ ] Backend starts. (871 tests pass locally, and `settings.py` imports clean,
+      so this is a smoke check, not a hunt.)
+- [ ] **On the deployed host:** `ENABLE_TEST_ENDPOINTS` can be deleted from
+      `/home/ubuntu/qp-gen/backend/.env`. Leaving it set is harmless — nothing
+      reads it — but it should go so nobody trusts it later.
+
+### 4.6 HSAT source types moved — `18058b6`
+
+Type-only move, no behaviour. One smoke check:
+
+- [ ] Blueprint Builder → step 2 → "Choose from the library" opens the picker,
+      a book applies, and it appears in "Selected sources" with its status.
 
 ---
 

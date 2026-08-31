@@ -66,19 +66,105 @@ Two corrections found while doing these. **2.9's premise was wrong**: `--success
 
 ---
 
-## Tier 3 — Larger or needs a decision first  (2 shipped, 1 half)
+## Tier 3 — Larger or needs a decision first  (4 shipped, 1 withdrawn, 1 half)
 
 | # | What | Effort | Note |
 |---|---|---|---|
-| 3.1 | Merge the two source pickers | ~4 hr | Two live call sites; they already share a type |
-| 3.2 | Share generation state between the two SSE consumers | ~4 hr | Transport is already shared; the state handling is not |
+| ~~3.1~~ ✗ | ~~Merge the two source pickers~~ | — | **Withdrawn — the premise was wrong.** See below |
+| ~~3.2~~ ✅ | Share generation state between the two SSE consumers | ~2 hr | Reframed and shipped; **uncovered two live bugs** — see below |
 | 3.3 ◐ | Consolidate 5 hand-rolled modals onto `Dialog` | ~4 hr | **Half done** (`658e939`): one scrim recipe and a documented z-index scale. The `Dialog` migration itself is not attempted — five different shapes, and focus traps are not verifiable without a browser |
 | 3.4 | Motion phases: page transitions → stagger → list-detail morph | ~6 hr | Visual 6–9. Reduced-motion work gates these |
 | ~~3.5~~ ✅ | Dashboard home state | ~3 hr | Shipped as recent-papers on the empty state — see note below |
 | ~~3.6~~ ✅ | Display typeface | ~1 hr | Playfair, scoped to page identity. 2.7 was the unblocker |
 | 3.7 | Tooltips on dense surfaces | ~2.5 hr | Deprioritised — see note below. First step is promoting the tooltip out of `ui/ai-prompt-box.tsx` into a primitive |
-| 3.8 | Delete `/api/generation/answer-key` | ~30 min + verification | Only proven unused by *this* frontend. Check deployment logs first |
+| 3.8 | Delete `/api/generation/answer-key` | ~30 min + verification | Evidence upgraded — it is a *superseded predecessor*, not merely unused. Still your call; see below |
 | 3.9 | **Resolve the three-engine question** | days | Product decision, not a refactor. ~14,000 LOC hangs on it |
+
+---
+
+### 3.1 withdrawn — there is only one picker
+
+The audit read two files that both mention sources and called them rivals.
+They are not. `hsat-source-picker.tsx` browses the catalogue and starts an
+ingest; `blueprint/source-panel.tsx` lists what is already attached and offers
+the two ways to attach more. Its "Choose from the library" tile calls
+`onOpenHsatPicker`, which lifts through `blueprint-modal.tsx:113` to the editor
+page and opens the picker. **They compose.** A teacher does not meet two
+interfaces; they meet a panel and the dialog that panel opens.
+
+They shared `AppliedHsatSource` because one produces it and the other renders
+it — correct, except for where it lived. Five modules were importing a domain
+type out of a leaf dialog. Moved to `lib/hsat-source.ts` (`18058b6`). That is
+the whole of what 3.1 was worth: ~15 minutes, not ~4 hours.
+
+### 3.2 shipped, reframed — and it was hiding two bugs
+
+Sharing the *state* was the wrong goal. The editor builds a document out of
+this stream; the dashboard runs a printing-press animation over it. A common
+reducer would have produced a shape wrong for both. What needed sharing was
+what the events **mean**, and that had already drifted.
+
+The backend emits 13 event types on `/api/generation/questions/stream`. The
+editor handled 12. The dashboard handled 9 — dropping `saved`, `notice` and
+`warning` on the floor. The last two are the pool pipeline's only channel for
+telling a teacher something went sideways but was recovered; on the chat path
+they went nowhere at all.
+
+`lib/generation-stream.ts` now holds the vocabulary — a union verified against
+the backend rather than against either client, a decoder that cannot throw, and
+`handleAmbientEvent` for the events whose right response is identical
+everywhere. Both consumers read through it; state stays where it was.
+
+**Bug 1 — every chat-path generation error read "Failed to parse stream
+payload".** `readSseStream` wrapped the JSON parse and the handler dispatch in
+one `try`. The dashboard's handler throws on an `error` event, which is how it
+aborts the stream. So the throw was caught by the parse handler, re-entered
+with the parse message, threw again from inside the catch, and reached the
+teacher as a parse error. "No usable content in those chapters", the readiness
+gate's rejection, a model timeout — all replaced, one frame after the real
+reason arrived. Parse and dispatch are now separate.
+
+**Bug 2 — the dashboard appended duplicate sets.** The editor always replaced
+by label; the dashboard pushed. A re-emitted label put the same set on the
+press twice and handed the editor two tabs of it.
+
+Both in `4526520`.
+
+### 3.8 — stronger evidence, still your call
+
+The audit had it as "zero callers in this frontend, so check deployment logs
+before removing." It is more clear-cut than that. `AnswerKeyView`
+(`POST /api/generation/answer-key`) takes paper HTML, returns answer HTML, and
+saves nothing. `AnswerScriptGenerateView`
+(`POST /api/generation/papers/<id>/generate-answer-script/`) is the shipped
+feature — called from `lib/api-client.ts:757`, used across `papers/page.tsx`,
+backed by a 500-line service with retries and marking-scheme structure.
+
+`generate_answer_key` has exactly one caller in the whole backend: the dead
+view. So this is not an endpoint that happens to be unused — it is the
+**superseded predecessor** of a feature that shipped. The frontend is the only
+client, and it uses the successor.
+
+Still not deleted, because deleting a routed endpoint is outward-facing and I
+cannot read the deployment logs. But the question is narrower than it was:
+not "does anything call this?" but "did anything ever call this that was not
+our frontend?"
+
+### A flag that was guarding nothing
+
+Found while checking 3.8. `ENABLE_TEST_ENDPOINTS` existed for exactly one
+route, which became a management command in 2.11 — so it had been gating
+nothing since that commit. Removed (`a43e1e3`), which **closes the handoff's
+loose end** about checking it on the host: there is no longer a value to check.
+
+Same commit: `pool/model1.py:430` and `openai_service.py:129` both wrote
+`getattr(settings, "<STAGE>_MODEL", settings.OPENAI_MODEL)` — the exact
+inheritance `settings.py:337-343` forbids by name, at the call site the
+prohibition exists to protect. Inert (settings always defines the stage
+models), so nothing changes; fixed so the forbidden pattern stops living in
+the code its prohibition is about.
+
+---
 
 **On 3.5.** Shipped as the part that fits the surface as it stands: the last three papers on the dashboard's empty state, below the prompt box. Deliberately *not* the full stats board the audit sketched — the chat is what that page is, and starting something new should stay the primary act on it.
 
