@@ -706,3 +706,60 @@ html[data-auth-page] *.dark {
 .dark .editor-canvas {
   background: color-mix(in oklab, var(--background) 90%, black);
 }
+
+/* ── Reduced motion: the utilities this app did not write ────────────────
+   Every animation authored on this branch is already scoped to
+   `no-preference` — the button press, the card lift, `empty-breathe`,
+   `shake`. What was left unguarded was the motion that arrives from
+   libraries: `tw-animate-css`'s enter/exit utilities on every dialog,
+   dropdown and popover, plus Tailwind's own `animate-bounce` and
+   `animate-ping`. A user who asks for less motion should not have to know
+   which parts of a screen we wrote ourselves.
+
+   ## Why this trims rather than disables
+
+   The blanket `*, *::before, *::after { animation-duration: 0.01ms }` reset
+   is the usual advice and it is too blunt here. It freezes spinners, and a
+   spinner that does not turn does not read as "reduced motion" — it reads as
+   "this app has hung", which is a worse outcome for the same user.
+
+   So: the *travel* goes and the *fade* stays. `tw-animate-css` composes its
+   enter and exit animations from custom properties, so neutralising the
+   translate, scale and rotate leaves a plain opacity crossfade — a dialog
+   still announces itself as arriving, it just no longer flies in from
+   somewhere. Nothing is left mid-transform, because the properties are the
+   animation's own inputs rather than an override fighting it.
+
+   Opacity is deliberately untouched. Fading is not vestibular; a modal that
+   appears with no transition at all is a harsher event than one that does
+   not move. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-enter-scale: 1 !important;
+    --tw-enter-rotate: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-exit-scale: 1 !important;
+    --tw-exit-rotate: 0 !important;
+  }
+
+  /* Position-changing loops with no progress meaning. `animate-spin` and
+     `animate-pulse` are deliberately NOT in this list: both are liveness
+     indicators sitting in one small place, and stopping them removes
+     information rather than distraction. */
+  .animate-bounce,
+  .animate-ping {
+    animation: none;
+  }
+
+  /* Anchor jumps and `scroll-behavior: smooth` set by anything else. The
+     three scripted scrolls go through `lib/scroll.ts`, which reads the same
+     preference; this covers the CSS path. */
+  html {
+    scroll-behavior: auto;
+  }
+}

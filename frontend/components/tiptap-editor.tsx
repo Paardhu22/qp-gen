@@ -88,6 +88,7 @@ import { useSession } from "@/lib/auth-client";
 import { updatePaperAction } from "@/actions/savePaper";
 import { SyncCancelledError } from "@/lib/api-client";
 import { type AppliedHsatSource } from "@/lib/hsat-source";
+import { scrollIntoView } from "@/lib/scroll";
 
 // ==================================
 // Auto-numbering utility
@@ -538,15 +539,9 @@ function scrollToDocumentPosition(editor: any, position: number) {
       const node = domAtPos.node;
       const element = node instanceof HTMLElement ? node : node.parentElement;
 
-      element?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
+      scrollIntoView(element, { block: "center" });
     } catch {
-      editor.view.dom.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
-      });
+      scrollIntoView(editor.view.dom, { block: "end" });
     }
   });
 }

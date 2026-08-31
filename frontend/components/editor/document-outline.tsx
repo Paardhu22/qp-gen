@@ -38,6 +38,7 @@ import * as React from "react";
 import { FileText, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { scrollIntoView } from "@/lib/scroll";
 import { useEditorStore } from "@/store/editor-store";
 
 export interface DocumentTab {
@@ -167,7 +168,7 @@ export function DocumentOutline({
     const { elements } = collectOutline();
     const element = elements[index];
     if (!element) return;
-    element.scrollIntoView({ behavior: "smooth", block: "start" });
+    scrollIntoView(element, { block: "start" });
     setActiveIndex(index);
   }, []);
 
