@@ -27,13 +27,12 @@ import { Button } from "@/components/ui/button";
 import { fetchJson, ApiError } from "@/lib/api-client";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
+import type { AppliedHsatSource, HsatBookStatus } from "@/lib/hsat-source";
 
-export type HsatBookStatus =
-  | "not_ingested"
-  | "pending"
-  | "processing"
-  | "ready"
-  | "error";
+/* The wire shapes below belong to this file: they are what `/api/hsat/catalog/`,
+   `/api/hsat/chapters/` and `/api/hsat/ingest/` return, and nothing else calls
+   those three endpoints. The domain types they are built from live in
+   `lib/hsat-source.ts`, because five other modules speak in them. */
 
 interface HsatChapterEntry {
   s3_key: string;
@@ -74,16 +73,6 @@ interface HsatIngestResponse {
   book: string;
   status: HsatBookStatus;
   chunk_count: number;
-}
-
-export interface AppliedHsatSource {
-  id: string;
-  grade: string;
-  subject: string;
-  book: string;
-  status: HsatBookStatus;
-  chunkCount: number;
-  selectedChapterCount?: number;
 }
 
 interface Props {

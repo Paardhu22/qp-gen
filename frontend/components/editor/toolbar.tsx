@@ -68,10 +68,8 @@ import {
 } from "../ui/select";
 import { Badge } from "../ui/badge";
 import { useEditorStore } from "@/store/editor-store";
-import { exportToPDF } from "@/lib/export-pdf";
-import { exportToDocx } from "@/lib/export-docx";
-import { uploadExportToS3, type ExportType } from "@/lib/s3-upload";
-import { persistablePaperId, splitPaperId } from "@/lib/paper-id";
+import { exportPaper } from "@/lib/export-paper";
+import type { ExportType } from "@/lib/s3-upload";
 import { toast } from "sonner";
 import { extractPagesFromDoc } from "./pagination-utils";
 
@@ -808,72 +806,11 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
     (h) => h.value > 0 && editor.isActive("heading", { level: h.value }),
   );
 
-  const handleExportPDF = async () => {
-    const defaultName = `paper-${Date.now()}.pdf`;
-    const rawName = window.prompt("Enter a filename for the PDF", defaultName);
-    if (!rawName) return;
-    const filename = rawName.trim().endsWith(".pdf")
-      ? rawName.trim()
-      : `${rawName.trim()}.pdf`;
-    const toastId = toast.loading("Generating PDF…");
-    try {
-      const blob = await exportToPDF("tiptap-paper-container", filename);
-      toast.success("PDF downloaded!", { id: toastId });
-      // Fire-and-forget cloud backup — never blocks the local download.
-      // `paperId` arrives as the per-tab composed id ("{base}_A"); the backend
-      // only knows the base row, so send that plus the set this export is of.
-      // Sending the composed id 404'd every upload.
-      const backupId = persistablePaperId(paperId);
-      if (backupId) {
-        uploadExportToS3(blob, {
-          exportType,
-          fileFormat: "pdf",
-          paperId: backupId,
-          setLabel: splitPaperId(paperId).set ?? undefined,
-        })
-          .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
-          .catch((err) => console.error("[S3 upload]", err));
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to export PDF. Please try again.", { id: toastId });
-    }
-  };
+  const handleExportPDF = () =>
+    void exportPaper({ format: "pdf", exportType, paperId });
 
-  const handleExportDocx = async () => {
-    const defaultName = `paper-${Date.now()}.docx`;
-    const rawName = window.prompt("Enter a filename for the DOCX", defaultName);
-    if (!rawName) return;
-    const trimmed = rawName.trim();
-    const baseName = /\.docx$/i.test(trimmed)
-      ? trimmed
-      : trimmed.replace(/\s*docx$/i, "");
-    const filename = /\.docx$/i.test(baseName)
-      ? baseName
-      : `${baseName}.docx`;
-    const toastId = toast.loading("Generating DOCX…");
-    try {
-      const container = document.getElementById("tiptap-paper-container");
-      if (!container) throw new Error("Editor container not found.");
-      const blob = await exportToDocx(container, filename);
-      toast.success("DOCX downloaded!", { id: toastId });
-      // Fire-and-forget cloud backup — never blocks the local download.
-      const backupId = persistablePaperId(paperId);
-      if (backupId) {
-        uploadExportToS3(blob, {
-          exportType,
-          fileFormat: "docx",
-          paperId: backupId,
-          setLabel: splitPaperId(paperId).set ?? undefined,
-        })
-          .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
-          .catch((err) => console.error("[S3 upload]", err));
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to export DOCX. Please try again.", { id: toastId });
-    }
-  };
+  const handleExportDocx = () =>
+    void exportPaper({ format: "docx", exportType, paperId });
 
   const insertAfterCurrentBlock = (
     type: string,
@@ -1342,7 +1279,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             size="sm"
             className="h-7 text-[10px] px-3 font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:text-amber-300 dark:hover:bg-amber-950/30"
             onClick={() => {
-              router.push("/question-bank");
+              router.push("/papers");
             }}
           >
             <FolderOpen className="h-3 w-3 mr-1" /> Open Paper

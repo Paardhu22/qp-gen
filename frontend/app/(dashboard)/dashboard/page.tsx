@@ -12,15 +12,19 @@
  * setting up a paper gets interrupted.
  *
  * The generation itself is untouched — this calls the same
- * `/api/generation/questions/stream` the generator form does, and hands the
- * result to the editor through the same store.
+ * `/api/generation/questions/stream` the editor does, and hands the result to
+ * the editor through the same store. The two clients read that stream through
+ * one shared contract (`lib/generation-stream.ts`); what they do with an event
+ * differs, what an event *means* does not.
  */
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowRight,
+  FileText,
   MessageSquarePlus,
   PanelLeft,
   Pause,
@@ -40,6 +44,10 @@ import {
   type PressStageId,
 } from "@/components/dashboard/press-check";
 import { ChatBackdrop } from "@/components/dashboard/chat-backdrop";
+import {
+  pickSuggestions,
+  type TeacherInventory,
+} from "@/lib/dashboard-suggestions";
 import { PaperDesignPanel } from "@/components/paper-design-panel";
 import { usePaperDesign } from "@/lib/use-paper-design";
 import { Button } from "@/components/ui/button";
@@ -53,6 +61,9 @@ import {
   setConversationStatus,
   streamChatMessage,
   streamSse,
+  fetchPapers,
+  fetchPaperTemplates,
+  fetchBankSummary,
   uploadPdfSource,
   waitForPdfSource,
   type ChatMessage,
@@ -62,13 +73,12 @@ import {
   type PaperSpec,
 } from "@/lib/api-client";
 import { asStatusText, planSummaryLine } from "@/lib/plan-summary";
+import {
+  decodeGenerationEvent,
+  handleAmbientEvent,
+} from "@/lib/generation-stream";
 
-const SUGGESTIONS = [
-  "Make a class 10 Science unit test on Light.",
-  "What does the class 10 English paper look like?",
-  "Draft a note to parents about the term test.",
-  "Explain the CBSE competency-based question format.",
-];
+
 
 // The pipeline's own stage names, mapped onto the press. `pool_progress` is a
 // tick inside `generating_pool`, not a stage of its own.
@@ -235,6 +245,56 @@ export default function DashboardPage() {
   const [streamingText, setStreamingText] = React.useState("");
   const [isStreaming, setIsStreaming] = React.useState(false);
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
+
+  // What the teacher already has, used to choose the starter prompts. Loaded
+  // once, in parallel, and never awaited by anything the chat needs: until it
+  // arrives `pickSuggestions(null)` returns the original four, so the empty
+  // state is complete from the first paint and simply sharpens a moment later.
+  // Any failure leaves it null, which is the same fallback.
+  const [inventory, setInventory] = React.useState<TeacherInventory | null>(
+    null,
+  );
+
+  // The last few papers, for the pick-up-where-you-left-off row. Same fetch as
+  // the inventory, so this costs no extra request.
+  const [recentPapers, setRecentPapers] = React.useState<
+    Array<{ id: string; title: string }>
+  >([]);
+
+  React.useEffect(() => {
+    let active = true;
+    void (async () => {
+      const [papers, templates, bank] = await Promise.all([
+        fetchPapers<Array<{ id: string; title?: string }>>().catch(() => null),
+        fetchPaperTemplates().catch(() => null),
+        fetchBankSummary().catch(() => null),
+      ]);
+      // All three failing means the account could not be read at all; leaving
+      // `inventory` null keeps the generic starters rather than telling a
+      // teacher with a full account that they have nothing.
+      if (!active || (!papers && !templates && !bank)) return;
+      setInventory({
+        paperCount: papers?.length ?? 0,
+        templateCount: templates?.length ?? 0,
+        bankQuestionCount:
+          bank?.chapters?.reduce((sum, c) => sum + (c.count ?? 0), 0) ?? 0,
+        recentPaperTitle: papers?.[0]?.title ?? null,
+      });
+      setRecentPapers(
+        (papers ?? [])
+          .slice(0, 3)
+          .map((paper) => ({ id: paper.id, title: paper.title || "Untitled paper" })),
+      );
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const suggestions = React.useMemo(
+    () => pickSuggestions(inventory),
+    [inventory],
+  );
   const [generation, setGeneration] = React.useState<GenerationState>(IDLE);
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -535,24 +595,30 @@ export default function DashboardPage() {
           contentScopePolicy: "strict",
           sets: Number(resolvedSpec.numberOfSets || "1"),
         },
-        (event, data) => {
-          if (event === "status") {
-            const stage = STAGE_MAP[data.stage];
+        (rawEvent, rawData) => {
+          const ev = decodeGenerationEvent(rawEvent, rawData);
+          // `notice` and `warning` are the pool pipeline's only channel for
+          // telling a teacher something went sideways but was recovered. This
+          // surface used to drop both on the floor, along with `saved`.
+          if (handleAmbientEvent(ev)) return;
+
+          if (ev.name === "status") {
+            const stage = ev.stage ? STAGE_MAP[ev.stage] : undefined;
             setGeneration((g) => ({
               ...g,
               stage: stage ?? g.stage,
-              status: asStatusText(data.message) || g.status,
+              status: asStatusText(ev.message) || g.status,
             }));
-          } else if (event === "plan") {
+          } else if (ev.name === "plan") {
             setGeneration((g) => ({
               ...g,
               stage: "plan",
-              plannedSlots: Number(data.total) || g.plannedSlots,
-              status: planSummaryLine(data.summary) || "Blueprint compiled",
+              plannedSlots: ev.total || g.plannedSlots,
+              status: planSummaryLine(ev.summary) || "Blueprint compiled",
             }));
-          } else if (event === "pool") {
-            setGeneration((g) => ({ ...g, poolCount: Number(data.total) || g.poolCount }));
-          } else if (event === "question") {
+          } else if (ev.name === "pool") {
+            setGeneration((g) => ({ ...g, poolCount: ev.total || g.poolCount }));
+          } else if (ev.name === "question") {
             setGeneration((g) => ({
               ...g,
               stage: "printing",
@@ -560,28 +626,47 @@ export default function DashboardPage() {
                 ...g.rows,
                 {
                   section:
-                    g.rows[g.rows.length - 1]?.section === data.section
+                    g.rows[g.rows.length - 1]?.section === ev.section
                       ? undefined
-                      : data.section,
+                      : ev.section,
                   number: g.rows.length + 1,
-                  marks: Number(data.question?.marks ?? 1),
-                  text: String(data.question?.content ?? ""),
+                  marks: Number(ev.question?.marks ?? 1),
+                  text: String(ev.question?.content ?? ""),
                 },
               ],
             }));
-          } else if (event === "set") {
-            variantSets.push({ label: data.label, result: data.result });
+          } else if (ev.name === "set") {
+            // Replace rather than append. A label can be re-emitted — the
+            // editor's copy of this has always deduped, this one appended, so
+            // a repeat put the same set on the press twice and then handed
+            // the editor two tabs of it.
+            const index = variantSets.findIndex((v) => v.label === ev.label);
+            if (index >= 0) variantSets[index] = { label: ev.label, result: ev.result };
+            else variantSets.push({ label: ev.label, result: ev.result });
             setGeneration((g) => ({
               ...g,
               stage: "sets",
-              sets: [...g.sets, data.label],
+              sets: g.sets.includes(ev.label) ? g.sets : [...g.sets, ev.label],
             }));
-          } else if (event === "done") {
-            setA = data.result ?? setA;
-          } else if (event === "update" || event === "message") {
-            setA = data;
-          } else if (event === "error") {
-            throw new Error(data.error || "Generation failed");
+          } else if (ev.name === "saved") {
+            if (ev.saved) {
+              toast.success(
+                `${ev.saved} question${ev.saved === 1 ? "" : "s"} saved to your bank${
+                  ev.projectName ? ` in ${ev.projectName}` : ""
+                }.`,
+              );
+            }
+          } else if (ev.name === "done") {
+            setA = ev.result ?? setA;
+          } else if (ev.name === "update") {
+            setA = ev.result;
+          } else if (ev.name === "error") {
+            // Thrown to abort the stream. It reaches the `catch` below with
+            // its own message now — `api-client` used to wrap a throwing
+            // handler as a parse failure, so every real reason a generation
+            // failed on this path was replaced by "Failed to parse stream
+            // payload" one frame after it arrived.
+            throw new Error(ev.error);
           }
         },
       );
@@ -729,7 +814,7 @@ export default function DashboardPage() {
 
         {sidebarOpen && (
           <div
-            className="absolute inset-0 z-20 bg-black/30 lg:hidden"
+            className="absolute inset-0 z-20 app-scrim lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
@@ -777,8 +862,41 @@ export default function DashboardPage() {
 
                 {promptBox}
 
+                {/* Pick up where you left off. Only on the empty state, and
+                    only when there is something to pick up -- a teacher
+                    returning to the app was previously shown a blank prompt
+                    with no trace of their own work, and had to guess that a
+                    papers list existed and where the nav hid it. Below the
+                    prompt box, not above it: starting something new stays the
+                    primary act on this screen. */}
+                {recentPapers.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Pick up where you left off
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {recentPapers.map((paper) => (
+                        <Link
+                          key={paper.id}
+                          href={`/editor?paperId=${paper.id}`}
+                          className="flex max-w-[15rem] items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+                        >
+                          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">{paper.title}</span>
+                        </Link>
+                      ))}
+                      <Link
+                        href="/papers"
+                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        All papers →
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="flex flex-wrap justify-center gap-2">
-                  {SUGGESTIONS.map((suggestion) => (
+                  {suggestions.map((suggestion) => (
                     <button
                       key={suggestion}
                       onClick={() => handleSend(suggestion, [])}

@@ -20,6 +20,17 @@
 // `styles/grainient.css` carries `.grainient-container` and the dashboard's
 // `.grainient-backdrop`; it is imported from `app/layout.tsx` alongside the
 // other global stylesheets, matching `styles/press-check.css`.
+//
+// That single import point matters, and the reason is worth keeping. These
+// rules were once duplicated in a component-local stylesheet, which is not
+// harmless: a component-scoped sheet is injected *after* the layout's, putting
+// `.grainient-container { position: relative }` later in the cascade than
+// `.grainient-backdrop { position: absolute }`. Equal specificity, so source
+// order decided it — and any client navigation from `/` to `/dashboard`
+// dropped the chat backdrop into normal flow, where its `height: 100%` ate a
+// column and pushed the prompt box off the bottom of the screen. A hard reload
+// of `/dashboard` never loaded the offending file, so the same page looked
+// correct the second time. Keep these rules global.
 import { useEffect, useRef } from "react";
 import { Renderer, Program, Mesh, Triangle } from "ogl";
 

@@ -335,7 +335,7 @@ export function ComparisonWorkspace() {
           <Button
             size="sm"
             onClick={approve}
-            className="h-8 bg-primary hover:bg-primary/90 text-white text-xs font-semibold"
+            className="h-8 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold"
             title="Put every set into its own editor tab"
           >
             <Check className="h-4 w-4 mr-1" />
@@ -418,7 +418,7 @@ export function ComparisonWorkspace() {
                       className={`bg-background p-3 ${
                         row.identical
                           ? ""
-                          : "ring-1 ring-inset ring-amber-300/60 dark:ring-amber-500/30 bg-amber-50/30 dark:bg-amber-950/10"
+                          : "bg-warning/5 ring-1 ring-inset ring-warning/30"
                       }`}
                     >
                       {q ? (
@@ -437,12 +437,12 @@ export function ComparisonWorkspace() {
                               {q.type || "—"}
                             </Badge>
                             {row.identical ? (
-                              <Badge className="border-none bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                              <Badge className="border-none bg-success/15 text-success">
                                 <CheckCircle2 className="h-3 w-3 mr-1" />
                                 same
                               </Badge>
                             ) : (
-                              <Badge className="border-none bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                              <Badge className="border-none bg-warning/15 text-warning">
                                 changed
                               </Badge>
                             )}

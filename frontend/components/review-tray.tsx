@@ -175,7 +175,7 @@ export function ReviewTray() {
           size="sm"
           onClick={insertSelected}
           disabled={selected.size === 0}
-          className="bg-primary hover:bg-primary/90 text-white h-8"
+          className="bg-primary hover:bg-primary/90 text-primary-foreground h-8"
         >
           Insert selected ({selected.size})
         </Button>
@@ -250,7 +250,7 @@ export function ReviewTray() {
                       <div className="flex items-start gap-3">
                         {isInserted ? (
                           <span
-                            className="mt-1 inline-flex items-center justify-center h-4 w-4 rounded-sm bg-emerald-600 text-white"
+                            className="mt-1 inline-flex items-center justify-center h-4 w-4 rounded-sm bg-success text-success-foreground"
                             title="Inserted into the paper"
                             aria-label="Inserted"
                           >
@@ -287,7 +287,7 @@ export function ReviewTray() {
                               </Badge>
                             )}
                             {isInserted && (
-                              <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-300 border-none">
+                              <Badge className="border-none bg-success/15 text-success hover:bg-success/15">
                                 <CheckCircle2 className="h-3 w-3 mr-1" />
                                 Inserted ✓
                               </Badge>
@@ -298,7 +298,7 @@ export function ReviewTray() {
                                 ungrounded "Curriculum fallback" pill stays
                                 so the teacher can spot it at a glance. */}
                             {isFallback && (
-                              <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/40 dark:text-amber-300 border-none">
+                              <Badge className="border-none bg-warning/15 text-warning hover:bg-warning/15">
                                 <BookOpen className="h-3 w-3 mr-1" />
                                 Curriculum fallback
                               </Badge>
@@ -335,7 +335,7 @@ export function ReviewTray() {
                               size="sm"
                               variant="ghost"
                               onClick={() => undoInsert(item)}
-                              className="h-7 px-2 text-xs text-muted-foreground hover:text-amber-600"
+                              className="h-7 px-2 text-xs text-muted-foreground hover:text-warning"
                             >
                               <Undo2 className="h-3.5 w-3.5 mr-1" />
                               Undo

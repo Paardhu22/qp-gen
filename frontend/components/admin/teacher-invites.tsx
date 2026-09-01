@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { errorWithRetry } from "@/lib/toasts";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +29,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Loader2, MailPlus, X } from "lucide-react";
+import { MailPlus, X } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import {
   inviteTeacher,
   listTeacherInvites,
@@ -57,12 +59,12 @@ export function TeacherInvites({ orgId }: { orgId: string }) {
   const [sending, setSending] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async function load() {
     setLoading(true);
     try {
       setInvites(await listTeacherInvites(orgId));
     } catch (err: any) {
-      toast.error(err?.message || "Could not load your invites");
+      errorWithRetry(err?.message || "Could not load your invites.", load);
     } finally {
       setLoading(false);
     }
@@ -138,7 +140,7 @@ export function TeacherInvites({ orgId }: { orgId: string }) {
 
         {loading ? (
           <div className="flex justify-center py-4">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <Spinner size="page" />
           </div>
         ) : visible.length === 0 ? (
           <p className="text-sm text-muted-foreground">

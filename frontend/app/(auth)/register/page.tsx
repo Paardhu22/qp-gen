@@ -1,4 +1,6 @@
 import { Suspense } from "react";
+
+import { Spinner } from "@/components/ui/spinner";
 import { RegisterForm } from "@/components/register-form";
 
 export default function RegisterPage() {
@@ -6,7 +8,11 @@ export default function RegisterPage() {
   // a Suspense boundary around in a statically-prerendered route — same reason
   // as /onboard.
   return (
-    <Suspense fallback={<div className="flex min-h-svh items-center justify-center" />}>
+    <Suspense fallback={
+        <div className="flex min-h-svh items-center justify-center">
+          <Spinner size="page" />
+        </div>
+      }>
       <RegisterForm />
     </Suspense>
   );

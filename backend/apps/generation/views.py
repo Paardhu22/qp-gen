@@ -272,60 +272,6 @@ class GenerationHistoryListView(APIView):
         deleted_count, _ = GenerationHistory.objects.filter(user=request.user).delete()
         return Response({"deleted": deleted_count})
 
-import dataclasses
-
-class TestScienceEngineView(APIView):
-    """
-    Isolated integration test view for the new AOS Academic Generation Facade.
-    Executes a real generation pipeline for a single vertical slice:
-    CBSE -> Class 10 -> Science -> Electricity chapter.
-
-    Auth required: this endpoint triggers REAL LLM calls (it spends OpenAI
-    budget), so it must never be reachable anonymously on a deployed host.
-    """
-    def post(self, request):
-        from django.conf import settings
-
-        if settings.QG_NEW_ENGINE_ENABLED:
-            from apps.question_generation.services.facade import AcademicGenerationFacade, GeneratePaperRequest
-        else:
-            from q_instructions.master.facade import AcademicGenerationFacade, GeneratePaperRequest
-
-        facade = AcademicGenerationFacade()
-        
-        # Hardcoded parameters for the isolated vertical slice test
-        paper_req = GeneratePaperRequest(
-            board="CBSE",
-            academic_class="CLASS_10",
-            exam_type="FINAL",
-            chapters=["Electricity"],
-            difficulty="medium",
-            institution_id="DPS_E_DELHI",
-            seed=42,
-        )
-        
-        try:
-            # Execute the real generation flow
-            if settings.QG_NEW_ENGINE_ENABLED:
-                response_dto = facade.generate_paper(paper_req)
-            else:
-                response_dto = facade.generate_paper(paper_req)
-            
-            # Convert the dataclass to dict for JSON serialization
-            response_data = dataclasses.asdict(response_dto)
-            
-            return Response({
-                "status": "success",
-                "message": "Science engine vertical slice executed successfully.",
-                "data": response_data
-            })
-        except Exception as e:
-            return Response({
-                "status": "error",
-                "message": str(e)
-            }, status=500)
-
-
 class AnswerScriptGenerateView(APIView):
     """
     POST /api/generation/papers/<paper_id>/generate-answer-script/

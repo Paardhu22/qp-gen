@@ -23,7 +23,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonCards } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { BuiltinTemplate, PaperTemplate } from "@/lib/api-client";
 
@@ -168,18 +168,7 @@ export function TemplatePickerGrid({
   const boardPapers = builtin.filter((t) => t.kind === "cbse_blueprint");
 
   if (loading) {
-    return (
-      <div
-        role="status"
-        aria-live="polite"
-        aria-label="Loading"
-        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
-      >
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-24 rounded-xl border border-border" />
-        ))}
-      </div>
-    );
+    return <SkeletonCards cards={6} />;
   }
 
   return (

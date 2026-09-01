@@ -186,8 +186,8 @@ export function GenerateDock({
           <span className="text-xs font-bold leading-none">PS</span>
           {generating ? (
             <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-background" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-success ring-2 ring-background" />
             </span>
           ) : null}
         </button>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   fetchPapers,
   fetchTrashedPapers,
@@ -37,6 +38,7 @@ import {
   Award,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { PageTitle } from "@/components/ui/page-title";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -52,6 +54,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { errorWithRetry } from "@/lib/toasts";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/lib/auth-client";
 import { deleteServerDraft, pullDrafts } from "@/lib/drafts-sync";
@@ -173,13 +176,20 @@ export default function QuestionBankPage() {
   const [showTrash, setShowTrash] = useState(false);
 
   // ---- fetch list ----
-  useEffect(() => {
+  // Named rather than inline so the failure toast has something to retry.
+  const loadPapers = useCallback(function loadPapers() {
     setIsLoading(true);
-    fetchPapers<Paper[]>()
+    return fetchPapers<Paper[]>()
       .then((data) => setPapers(data ?? []))
-      .catch(() => toast.error("Failed to load saved papers."))
+      .catch(() =>
+        errorWithRetry("Could not load your saved papers.", loadPapers),
+      )
       .finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    void loadPapers();
+  }, [loadPapers]);
 
   // ---- recycle bin ----
   // Loaded alongside the library rather than behind the toggle: the count is
@@ -279,7 +289,7 @@ export default function QuestionBankPage() {
           setSelectedSetId(null);
         }
       })
-      .catch(() => toast.error("Failed to load paper details."))
+      .catch(() => toast.error("Could not load those paper details."))
       .finally(() => setDetailLoading(false));
   }, [selectedPaperId]);
 
@@ -325,7 +335,7 @@ export default function QuestionBankPage() {
         action: { label: "Undo", onClick: () => void restorePaperById(id, asId) },
       });
     } catch {
-      toast.error("Failed to delete paper.");
+      toast.error("Could not delete that paper.");
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -394,7 +404,7 @@ export default function QuestionBankPage() {
       await loadTrash();
       toast.success("All papers moved to the recycle bin.");
     } catch {
-      toast.error("Failed to clear papers.");
+      toast.error("Could not clear your papers.");
     } finally {
       setIsClearing(false);
     }
@@ -426,7 +436,7 @@ export default function QuestionBankPage() {
       );
       toast.success("Answer script generated!");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to generate answer script.");
+      toast.error(err?.message || "Could not generate the answer script.");
     } finally {
       setGeneratingIds((prev) => {
         const next = new Set(prev);
@@ -694,13 +704,11 @@ export default function QuestionBankPage() {
           <div className="flex items-center gap-2.5">
             <BookOpen className="h-5 w-5 text-primary" />
             {/* This route is the PAPERS list — "Search papers…", "No saved
-                papers yet", "Clear all saved papers". The heading said
-                "Question Bank", which is the OTHER page (/paper-library), so
-                both pages claimed the same title and the nav item that
-                correctly reads "Papers" landed on a screen calling itself
-                something else. The route name is the misleading part, not the
-                nav label. */}
-            <h1 className="text-lg font-semibold tracking-tight">Papers</h1>
+                papers yet", "Clear all saved papers". It used to live at
+                /question-bank while the questions lived at /paper-library,
+                so both the URL and the heading described the other page. The
+                heading was fixed first; the routes followed. */}
+            <PageTitle>Papers</PageTitle>
             <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
               {isLoading ? "…" : questionPapers.length}
             </span>
@@ -790,7 +798,7 @@ export default function QuestionBankPage() {
                   className="group relative w-56 shrink-0 cursor-pointer rounded-lg border border-border bg-background p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/40"
                 >
                   <div className="flex items-start gap-2">
-                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-foreground">
                         {draft.title || "Untitled draft"}
@@ -967,9 +975,20 @@ export default function QuestionBankPage() {
                 : "No saved papers yet."}
             </p>
             {!search.trim() && (
-              <p className="max-w-xs text-xs text-muted-foreground">
-                Create a paper in the Editor and save it to see it here.
-              </p>
+              <>
+                <p className="max-w-xs text-xs text-muted-foreground">
+                  Create a paper in the Editor and save it to see it here.
+                </p>
+                {/* The copy names the Editor; this opens it. A link rather
+                    than a router push, so it behaves like any other link. */}
+                <Link
+                  href="/editor"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Open the Editor
+                </Link>
+              </>
             )}
             {search.trim() && (
               <button

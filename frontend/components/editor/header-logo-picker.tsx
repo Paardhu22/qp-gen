@@ -15,7 +15,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Check, Image as ImageIcon, ImageUp, Loader2, X } from "lucide-react";
+import { Check, Image as ImageIcon, ImageUp, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +24,7 @@ import {
   type BrandAsset,
 } from "@/lib/api-client";
 import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 /** Printed widths, in px on the 794px A4 page. */
@@ -107,7 +108,7 @@ export function HeaderLogoPicker({
       contentEditable={false}
     >
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 app-scrim"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -133,7 +134,7 @@ export function HeaderLogoPicker({
         <div className="mt-4">
           {isLoading ? (
             <div className="flex h-24 items-center justify-center">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <Spinner className="text-muted-foreground" />
             </div>
           ) : logos.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-xs leading-relaxed text-muted-foreground">
@@ -207,7 +208,7 @@ export function HeaderLogoPicker({
           onClick={() => fileRef.current?.click()}
         >
           {isUploading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <Spinner />
           ) : (
             <ImageUp className="h-3.5 w-3.5" />
           )}

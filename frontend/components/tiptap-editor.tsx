@@ -87,7 +87,8 @@ import {
 import { useSession } from "@/lib/auth-client";
 import { updatePaperAction } from "@/actions/savePaper";
 import { SyncCancelledError } from "@/lib/api-client";
-import { type AppliedHsatSource } from "@/components/hsat-source-picker";
+import { type AppliedHsatSource } from "@/lib/hsat-source";
+import { scrollIntoView } from "@/lib/scroll";
 
 // ==================================
 // Auto-numbering utility
@@ -360,13 +361,13 @@ const StatusBar = memo(({ editor }: { editor: any }) => {
     switch (saveState) {
       case "saving":
         return (
-          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium animate-pulse">
+          <span className="flex items-center gap-1 text-warning font-medium animate-pulse">
             <RefreshCw className="h-3 w-3 animate-spin" /> Saving...
           </span>
         );
       case "saved":
         return (
-          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+          <span className="flex items-center gap-1 text-success font-medium">
             <Cloud className="h-3 w-3" /> Saved
           </span>
         );
@@ -538,15 +539,9 @@ function scrollToDocumentPosition(editor: any, position: number) {
       const node = domAtPos.node;
       const element = node instanceof HTMLElement ? node : node.parentElement;
 
-      element?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
+      scrollIntoView(element, { block: "center" });
     } catch {
-      editor.view.dom.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
-      });
+      scrollIntoView(editor.view.dom, { block: "end" });
     }
   });
 }

@@ -427,7 +427,13 @@ def generate_question_pool(
         result.batch_failures.append("chapter source material is empty")
         return result
 
-    resolved_model = model or getattr(settings, "POOL_MODEL", settings.OPENAI_MODEL)
+    # POOL_MODEL is read directly and never inherits OPENAI_MODEL. This is the
+    # case settings.py names outright: a deployment setting OPENAI_MODEL=gpt-4o
+    # must not drag Model 1's whole-chapter request into that model's 30k-TPM
+    # ceiling. The old `getattr` default was inert -- settings always defines
+    # POOL_MODEL -- but it wrote the forbidden inheritance into the one call
+    # site the prohibition exists to protect.
+    resolved_model = model or settings.POOL_MODEL
     batches = batches_from_plan(plan, target_total=target_total) if plan else []
     if not batches:
         batches = batches_for_subject(subject_norm, target_total=target_total)

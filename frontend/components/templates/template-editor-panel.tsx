@@ -21,7 +21,8 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Loader2, Trash2, X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -184,7 +185,7 @@ export function TemplateEditorPanel({
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-end">
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 app-scrim"
         onClick={isDirty ? undefined : onClose}
         aria-hidden="true"
       />
@@ -376,7 +377,7 @@ export function TemplateEditorPanel({
               disabled={isSaving || !isDirty || !isReproducible}
               className="gap-1.5"
             >
-              {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              {isSaving ? <Spinner /> : null}
               {isCreating ? "Create" : "Save"}
             </Button>
           </div>

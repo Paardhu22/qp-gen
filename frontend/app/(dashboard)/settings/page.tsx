@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageTitle } from "@/components/ui/page-title";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton, SkeletonRows } from "@/components/ui/skeleton";
@@ -123,7 +124,7 @@ function ChangePasswordModal({
       toast.success("Password changed successfully.");
       resetAndClose();
     } catch (err: any) {
-      toast.error(err.message || "Failed to change password.");
+      toast.error(err.message || "Could not change your password.");
     } finally {
       setIsSaving(false);
     }
@@ -135,7 +136,7 @@ function ChangePasswordModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 app-scrim"
         onClick={resetAndClose}
       />
 
@@ -167,7 +168,7 @@ function ChangePasswordModal({
             className={cn(
               "flex items-center justify-center h-7 w-7 rounded-full text-xs font-bold transition-colors",
               step === "new-password"
-                ? "bg-primary text-white"
+                ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground",
             )}
           >
@@ -177,9 +178,9 @@ function ChangePasswordModal({
 
         {step === "verify" ? (
           <>
-            <h2 className="text-lg font-semibold text-foreground mb-1">
+            <PageTitle as="h2" className="mb-1">
               Verify your identity
-            </h2>
+            </PageTitle>
             <p className="text-sm text-muted-foreground mb-6">
               Enter your current password to continue.
             </p>
@@ -214,7 +215,7 @@ function ChangePasswordModal({
               <Button
                 type="submit"
                 disabled={isVerifying}
-                className="w-full bg-primary hover:bg-primary/90 text-white font-semibold gap-2"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold gap-2"
               >
                 {isVerifying ? (
                   "Verifying…"
@@ -228,9 +229,9 @@ function ChangePasswordModal({
           </>
         ) : (
           <>
-            <h2 className="text-lg font-semibold text-foreground mb-1">
+            <PageTitle as="h2" className="mb-1">
               Set a new password
-            </h2>
+            </PageTitle>
             <p className="text-sm text-muted-foreground mb-6">
               Choose a strong password with at least 8 characters.
             </p>
@@ -329,7 +330,7 @@ function ChangePasswordModal({
                     (!!newPassword && newPassword === currentPassword) ||
                     (!!confirmPassword && confirmPassword !== newPassword)
                   }
-                  className="flex-1 bg-primary hover:bg-primary/90 text-white font-semibold"
+                  className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
                 >
                   {isSaving ? "Saving…" : "Save Password"}
                 </Button>
@@ -357,7 +358,7 @@ export default function SettingsPage() {
       await refresh();
       toast.success("Token consumption metric updated.");
     } catch {
-      toast.error("Failed to refresh token usage.");
+      toast.error("Could not refresh your token usage.");
     } finally {
       setIsRefreshingTokens(false);
     }
@@ -366,9 +367,7 @@ export default function SettingsPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto space-y-6 bg-background min-h-full">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight text-foreground">
-          Settings
-        </h2>
+        <PageTitle>Settings</PageTitle>
         <p className="text-muted-foreground mt-1">
           Manage your account preferences, credentials, and API usage.
         </p>

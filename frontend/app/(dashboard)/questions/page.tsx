@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   fetchProjectsWithQuestions,
   deleteQuestion,
@@ -30,6 +31,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { PageTitle } from "@/components/ui/page-title";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import {
   Select,
@@ -41,6 +43,7 @@ import {
 import { useEditorStore } from "@/store/editor-store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { errorWithRetry } from "@/lib/toasts";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                       */
@@ -264,30 +267,26 @@ export default function SavedQuestionsPage() {
   /*  Data                                                                 */
   /* -------------------------------------------------------------------- */
 
-  useEffect(() => {
-    let cancelled = false;
+  // Named rather than inline so the failure toast can retry it. The old copy
+  // read "Please refresh", asking the teacher to perform an action the toast
+  // is perfectly able to perform itself.
+  const loadBank = useCallback(function loadBank() {
     setIsLoading(true);
-    Promise.all([
+    return Promise.all([
       fetchProjectsWithQuestions<Project[]>(),
-      fetchQuestionTypes<QuestionType[]>()
+      fetchQuestionTypes<QuestionType[]>(),
     ])
       .then(([projData, typesData]) => {
-        if (!cancelled) {
-          setProjects(projData ?? []);
-          setQuestionTypes(typesData ?? []);
-        }
+        setProjects(projData ?? []);
+        setQuestionTypes(typesData ?? []);
       })
-      .catch(() => {
-        if (!cancelled)
-          toast.error("Failed to load question bank. Please refresh.");
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => errorWithRetry("Could not load the question bank.", loadBank))
+      .finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    void loadBank();
+  }, [loadBank]);
 
   const allQuestions = useMemo(() => flattenProjects(projects), [projects]);
 
@@ -492,7 +491,7 @@ export default function SavedQuestionsPage() {
       });
       toast.success("Question deleted.");
     } catch {
-      toast.error("Failed to delete question. Please try again.");
+      toast.error("Could not delete that question.");
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -518,7 +517,7 @@ export default function SavedQuestionsPage() {
       setSelectedIds(new Set());
       toast.success("Question bank cleared.");
     } catch {
-      toast.error("Failed to clear questions. Please try again.");
+      toast.error("Could not clear your questions.");
     } finally {
       setIsClearing(false);
     }
@@ -574,7 +573,7 @@ export default function SavedQuestionsPage() {
         await navigator.clipboard.writeText(textContent);
         toast.success(`Copied ${selected.length} question(s) to clipboard.`);
       } catch (e) {
-        toast.error("Failed to copy to clipboard.");
+        toast.error("Could not copy to the clipboard.");
       }
     }
   };
@@ -592,9 +591,7 @@ export default function SavedQuestionsPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <ListChecks className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-semibold tracking-tight">
-              Question Bank
-            </h1>
+            <PageTitle>Question Bank</PageTitle>
             <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
               {isLoading ? "…" : allQuestions.length}
             </span>
@@ -757,9 +754,21 @@ export default function SavedQuestionsPage() {
                 Clear filters
               </button>
             ) : (
-              <p className="max-w-xs text-xs text-muted-foreground">
-                Generate and save questions from the Editor to see them here.
-              </p>
+              <>
+                <p className="max-w-xs text-xs text-muted-foreground">
+                  Generate and save questions from the Editor to see them here.
+                </p>
+                {/* The copy above already names the way out; without this it
+                    named it and did not open it. A real link, not a push, so
+                    it can be opened in a new tab like any other. */}
+                <Link
+                  href="/editor"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Open the Editor
+                </Link>
+              </>
             )}
           </div>
         ) : (

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { errorWithRetry } from "@/lib/toasts";
 
 import { useSession, isSuperAdmin, approvedAdminMemberships } from "@/lib/auth-client";
 import {
@@ -22,6 +23,7 @@ import { TeacherInvites } from "@/components/admin/teacher-invites";
 import { SchoolDomains } from "@/components/admin/school-domains";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageTitle } from "@/components/ui/page-title";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -36,7 +38,8 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MembersTable } from "@/components/admin/members-table";
 import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
-import { Loader2, Mail } from "lucide-react";
+import { Mail } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 function InviteOrganizationDialog({ onInvited }: { onInvited: () => void }) {
   const [open, setOpen] = useState(false);
@@ -53,7 +56,7 @@ function InviteOrganizationDialog({ onInvited }: { onInvited: () => void }) {
       setOpen(false);
       onInvited();
     } catch (err: any) {
-      toast.error(err?.message || "Failed to send invite");
+      toast.error(err?.message || "Could not send that invite.");
     } finally {
       setLoading(false);
     }
@@ -186,7 +189,7 @@ function SuperAdminDashboard() {
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async (windowDays: number) => {
+  const load = useCallback(async function load(windowDays: number) {
     setLoading(true);
     try {
       // Both in flight together: the table and the charts are one screen, and
@@ -198,7 +201,9 @@ function SuperAdminDashboard() {
       setOrgs(orgList);
       setAnalytics(stats);
     } catch (err: any) {
-      toast.error(err?.message || "Failed to load the dashboard");
+      errorWithRetry(err?.message || "Could not load the dashboard.", () =>
+        load(windowDays),
+      );
     } finally {
       setLoading(false);
     }
@@ -212,7 +217,7 @@ function SuperAdminDashboard() {
     <div className="max-w-6xl mx-auto w-full p-4 sm:p-6 space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Platform</h1>
+          <PageTitle>Platform</PageTitle>
           <p className="text-sm text-muted-foreground">
             Usage, schools, and everything waiting on you.
           </p>
@@ -237,7 +242,7 @@ function SuperAdminDashboard() {
         <CardContent>
           {loading ? (
             <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <Spinner size="page" />
             </div>
           ) : orgs.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">
@@ -328,7 +333,7 @@ function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
     try {
       setOrg(await getOrganization(organizationId));
     } catch (err: any) {
-      toast.error(err?.message || "Failed to load organization");
+      errorWithRetry(err?.message || "Could not load that organisation.", load);
     } finally {
       setLoading(false);
     }
@@ -341,7 +346,7 @@ function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
   if (loading) {
     return (
       <div className="flex justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Spinner size="page" />
       </div>
     );
   }
@@ -351,7 +356,7 @@ function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
   return (
     <div className="max-w-5xl mx-auto w-full p-4 sm:p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">{org.name}</h1>
+        <PageTitle>{org.name}</PageTitle>
         <p className="text-sm text-muted-foreground">
           {org.member_count} users · {org.total_tokens.toLocaleString()} tokens used
           {" · "}
@@ -389,7 +394,7 @@ export default function AdminPage() {
   if (isLoading) {
     return (
       <div className="flex justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Spinner size="page" />
       </div>
     );
   }
@@ -414,7 +419,7 @@ export default function AdminPage() {
 
   return (
     <div className="flex flex-col items-center justify-center py-16 gap-2">
-      <h1 className="text-xl font-semibold text-foreground">Admin access required</h1>
+      <PageTitle>Admin access required</PageTitle>
       <p className="text-sm text-muted-foreground">You don&apos;t have permission to view this page.</p>
     </div>
   );

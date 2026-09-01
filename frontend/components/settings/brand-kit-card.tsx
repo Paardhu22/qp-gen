@@ -17,7 +17,8 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { ImageUp, Loader2, Trash2 } from "lucide-react";
+import { ImageUp, Trash2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -126,7 +127,7 @@ export function BrandKitCard() {
       <CardContent className="space-y-5">
         {isLoading ? (
           <div className="flex h-24 items-center justify-center">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <Spinner className="text-muted-foreground" />
           </div>
         ) : (
           <>
@@ -207,7 +208,7 @@ export function BrandKitCard() {
                 onClick={() => fileRef.current?.click()}
               >
                 {isUploading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Spinner />
                 ) : (
                   <ImageUp className="h-3.5 w-3.5" />
                 )}

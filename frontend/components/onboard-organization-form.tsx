@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useDropzone } from "react-dropzone";
 
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { signUp, confirmSignUp, resendConfirmationCode, useSession } from "@/lib/auth-client";
 import {
@@ -16,7 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, ImageIcon, Check, Loader2 } from "lucide-react";
+import { Eye, EyeOff, ImageIcon, Check } from "lucide-react";
 
 /**
  * Onboarding runs as three steps plus an interstitial.
@@ -662,7 +663,7 @@ export function OnboardOrganizationForm({
                 >
                   {loading ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading…
+                      <Spinner className="mr-2" /> Uploading…
                     </>
                   ) : (
                     "Finish"

@@ -105,6 +105,41 @@ body {
     margin-top: env(safe-area-inset-top);
 }
 
+/* One scrim, for every overlay this app rolls by hand.
+   
+   There were four recipes across the hand-rolled modals -- black at 30%, 40%
+   and 50%, with and without a blur -- so which dimming a teacher got depended
+   on which modal they happened to open. This is the majority recipe, and the
+   one `ui/alert-dialog.tsx` already uses.
+   
+   Deliberately not theme-aware. A scrim's job is to darken what is behind it,
+   and that is the same job in both themes; a "dark-mode scrim" that lightens
+   would push the surface it is meant to recede *forward*. The shadcn `Dialog`
+   primitive keeps its own lighter, animated overlay -- it is vendor-owned and
+   already consistent with itself.
+
+   ## The z-index scale
+   
+   Layers, so the next overlay does not have to guess or escalate:
+   
+     30  in-page drawer scrims (editor outline, dashboard sidebar)
+     40  the sticky top navbar
+     50  modals and their scrims -- the default for anything app-modal
+     60  something that must sit above an open modal (a picker launched from
+         inside one, the question hover menu)
+     99999 the curtain theme transition, which by definition covers everything
+   
+   Anything reaching past 60 outside that list is a bug, not a requirement. */
+@utility app-scrim {
+    /* Appearance only. Positioning stays at the call site, because some of
+       these scrims are `absolute` inside a positioned parent and some are
+       `fixed` over the viewport -- baking `position` in here would put this
+       utility in a source-order fight with the `fixed`/`absolute` class next
+       to it, and which one won would depend on stylesheet order. */
+    background-color: rgb(0 0 0 / 0.5);
+    backdrop-filter: blur(4px);
+}
+
 /* Hide the scrollbar but keep scrolling — used by horizontally scrollable
    toolbars / chip rows / tab strips on mobile. */
 @utility no-scrollbar {
@@ -121,6 +156,9 @@ body {
     --font-sans: var(--font-inter);
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     --font-heading: var(--font-inter);
+    /* Page identity only -- see the note in app/layout.tsx. `--font-heading`
+       stays on Inter deliberately; this is not a rename of it. */
+    --font-display: var(--font-playfair), Georgia, "Times New Roman", serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -415,6 +453,7 @@ html[data-auth-page] *.dark {
 /* ===== Landing page ===== */
 
 .landing-title {
+    font-family: var(--font-display);
     font-size: clamp(2.5rem, 6vw, 5.25rem);
     font-weight: 600;
     line-height: 1.05;
@@ -623,6 +662,33 @@ html[data-auth-page] *.dark {
   }
 }
 
+/* Autosave failure. `animate-shake` was already on the "Sync failed" state in
+   tiptap-editor.tsx, but no such keyframe existed anywhere — so the one sync
+   state that most needs to be noticed was the only one of the four that never
+   moved, while "Offline" right above it pulsed. A short, finite shudder: this
+   reports a fault, so it fires once and stops rather than nagging the way an
+   infinite loop would. */
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-2px);
+  }
+  40%,
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .animate-shake {
+    animation: shake 0.4s ease-in-out 2;
+  }
+}
+
 /* ── The editor canvas ───────────────────────────────────────────────────
    The surface the A4 sheet sits on. A word processor needs the page to read
    as a physical object on a desk, and that only works if the surround is a
@@ -639,4 +705,61 @@ html[data-auth-page] *.dark {
 
 .dark .editor-canvas {
   background: color-mix(in oklab, var(--background) 90%, black);
+}
+
+/* ── Reduced motion: the utilities this app did not write ────────────────
+   Every animation authored on this branch is already scoped to
+   `no-preference` — the button press, the card lift, `empty-breathe`,
+   `shake`. What was left unguarded was the motion that arrives from
+   libraries: `tw-animate-css`'s enter/exit utilities on every dialog,
+   dropdown and popover, plus Tailwind's own `animate-bounce` and
+   `animate-ping`. A user who asks for less motion should not have to know
+   which parts of a screen we wrote ourselves.
+
+   ## Why this trims rather than disables
+
+   The blanket `*, *::before, *::after { animation-duration: 0.01ms }` reset
+   is the usual advice and it is too blunt here. It freezes spinners, and a
+   spinner that does not turn does not read as "reduced motion" — it reads as
+   "this app has hung", which is a worse outcome for the same user.
+
+   So: the *travel* goes and the *fade* stays. `tw-animate-css` composes its
+   enter and exit animations from custom properties, so neutralising the
+   translate, scale and rotate leaves a plain opacity crossfade — a dialog
+   still announces itself as arriving, it just no longer flies in from
+   somewhere. Nothing is left mid-transform, because the properties are the
+   animation's own inputs rather than an override fighting it.
+
+   Opacity is deliberately untouched. Fading is not vestibular; a modal that
+   appears with no transition at all is a harsher event than one that does
+   not move. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-enter-scale: 1 !important;
+    --tw-enter-rotate: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-exit-scale: 1 !important;
+    --tw-exit-rotate: 0 !important;
+  }
+
+  /* Position-changing loops with no progress meaning. `animate-spin` and
+     `animate-pulse` are deliberately NOT in this list: both are liveness
+     indicators sitting in one small place, and stopping them removes
+     information rather than distraction. */
+  .animate-bounce,
+  .animate-ping {
+    animation: none;
+  }
+
+  /* Anchor jumps and `scroll-behavior: smooth` set by anything else. The
+     three scripted scrolls go through `lib/scroll.ts`, which reads the same
+     preference; this covers the CSS path. */
+  html {
+    scroll-behavior: auto;
+  }
 }

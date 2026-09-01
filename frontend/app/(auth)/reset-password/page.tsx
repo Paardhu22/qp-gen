@@ -1,4 +1,6 @@
 import { Suspense } from "react";
+
+import { Spinner } from "@/components/ui/spinner";
 import { ResetPasswordForm } from "@/components/reset-password-form";
 
 export default function ResetPasswordPage() {
@@ -7,7 +9,11 @@ export default function ResetPasswordPage() {
   // server can render a fallback for the synchronous shell while the
   // search-params hook waits for client hydration.
   return (
-    <Suspense fallback={<div className="flex min-h-svh items-center justify-center" />}>
+    <Suspense fallback={
+        <div className="flex min-h-svh items-center justify-center">
+          <Spinner size="page" />
+        </div>
+      }>
       <ResetPasswordForm />
     </Suspense>
   );

@@ -50,4 +50,36 @@ function SkeletonRows({
   );
 }
 
-export { Skeleton, SkeletonRows };
+/**
+ * A grid of card placeholders, for a surface that loads into cards rather than
+ * rows. Same reasoning as `SkeletonRows`: matching the real shape is the point,
+ * and a stack of full-width bars standing in for a three-column grid moves the
+ * page twice — once when the skeleton appears and again when it is replaced.
+ *
+ * The grid tracks mirror the card surfaces that use this, so a change here has
+ * to be made alongside them.
+ */
+function SkeletonCards({
+  cards = 6,
+  height = "h-24",
+  className,
+}: {
+  cards?: number;
+  height?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label="Loading"
+      className={cn("grid gap-3 sm:grid-cols-2 lg:grid-cols-3", className)}
+    >
+      {Array.from({ length: cards }).map((_, i) => (
+        <Skeleton key={i} className={cn(height, "rounded-xl border border-border")} />
+      ))}
+    </div>
+  );
+}
+
+export { Skeleton, SkeletonRows, SkeletonCards };

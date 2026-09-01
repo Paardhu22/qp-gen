@@ -28,6 +28,22 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+
+  // The two library routes were named the opposite of what they hold:
+  // /paper-library listed questions and /question-bank listed papers, so
+  // every bookmark and shared link described the wrong destination. They are
+  // now /questions and /papers.
+  //
+  // Neither new name reuses an old one. Renaming /paper-library to
+  // /question-bank would have been the closer fit for the nav label, but the
+  // old /question-bank has to redirect somewhere, and a redirect off a live
+  // route shadows the page -- so the pair moved clear of both old names.
+  async redirects() {
+    return [
+      { source: "/paper-library", destination: "/questions", permanent: true },
+      { source: "/question-bank", destination: "/papers", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;

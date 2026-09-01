@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.urls import path
 
 from .design_views import (
@@ -23,7 +22,6 @@ from .views import (
     QuestionBankSummaryView,
     QuestionGenerationStreamView,
     ReplaceQuestionView,
-    TestScienceEngineView,
 )
 
 urlpatterns = [
@@ -84,18 +82,3 @@ urlpatterns = [
     path("history", GenerationHistoryListView.as_view(), name="generation-history"),
     path("papers/<str:paper_id>/generate-answer-script/", AnswerScriptGenerateView.as_view(), name="generate-answer-script"),
 ]
-
-# Diagnostic vertical-slice runner. Every POST triggers a REAL blueprint
-# generation and spends OpenAI budget on a hard-coded Class 10 Science paper
-# that no user asked for, so it is not routed on a deployed host: any
-# authenticated account could run up the bill, and nothing in the product
-# calls it. Enable deliberately with ENABLE_TEST_ENDPOINTS=true (or DEBUG) when
-# you actually want to exercise the engine.
-if settings.ENABLE_TEST_ENDPOINTS:
-    urlpatterns.append(
-        path(
-            "test-science-engine",
-            TestScienceEngineView.as_view(),
-            name="test-science-engine",
-        )
-    )

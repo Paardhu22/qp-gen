@@ -4,6 +4,7 @@ import { BlueprintModal, type BlueprintSubmission } from "@/components/blueprint
 import { ReviewTray } from "@/components/review-tray";
 import { DocumentOutline } from "@/components/editor/document-outline";
 import { GenerateDock } from "@/components/editor/generate-dock";
+import { EditorBlankState } from "@/components/editor/blank-state";
 import { BuildFromBankDialog } from "@/components/editor/build-from-bank-dialog";
 import { HsatSourcePicker } from "@/components/hsat-source-picker";
 import { usePaperGeneration } from "@/lib/use-paper-generation";
@@ -12,7 +13,7 @@ import { useHsatReadiness } from "@/lib/use-hsat-readiness";
 import { TiptapEditor, normalizeInitialContent } from "@/components/tiptap-editor";
 import { ComparisonWorkspace } from "@/components/comparison-workspace";
 import { useEditorStore } from "@/store/editor-store";
-import { type AppliedHsatSource } from "@/components/hsat-source-picker";
+import { type AppliedHsatSource } from "@/lib/hsat-source";
 import { fetchJson, fetchTemplateFolders, type TemplateFolder } from "@/lib/api-client";
 import { TemplateEditorPanel } from "@/components/templates/template-editor-panel";
 import {
@@ -57,6 +58,7 @@ import {
   persistablePaperId,
   DRAFT_PAPER_ID,
 } from "@/lib/paper-id";
+import { exportPaper } from "@/lib/export-paper";
 import { draftScopeOfDocument } from "@/lib/drafts";
 import { resolveTabContent } from "@/lib/set-content";
 
@@ -116,6 +118,12 @@ export default function EditorPage() {
   // this content supersedes whatever draft is in IndexedDB for that tab.
   const approvedSets = useEditorStore((state) => state.approvedSets);
   const approvedAt = useEditorStore((state) => state.approvedAt);
+
+  // Drives the blank state. `pages` is the paginated view of the live
+  // document, so this tracks what is actually rendered rather than whatever
+  // was last loaded from the server.
+  const pages = useEditorStore((state) => state.pages);
+  const documentIsEmpty = pages.every((page) => (page.blocks?.length ?? 0) === 0);
 
   const [activeSetTab, setActiveSetTab] = useState("A");
   const [loadedSets, setLoadedSets] = useState<any[]>([]);
@@ -229,7 +237,13 @@ export default function EditorPage() {
   // switch and would otherwise reset them. Both default open — the point of
   // the layout is that the document's structure and the way to generate one
   // are visible without hunting.
-  const [outlineOpen, setOutlineOpen] = useState(true);
+  // Closed by default. Outline (240px) + A4 page (794px) + dock (320px) asks
+  // for 1354px, and the panels first appear at `lg` = 1024px; a 1366px laptop
+  // has around 1350px of usable width. Opening both meant the first view of
+  // the workspace was cramped and the teacher's first act was closing one.
+  // The dock earns the space -- it is how papers get made -- so the outline
+  // starts collapsed to its rail, one click from open.
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const [dockOpen, setDockOpen] = useState(true);
 
   // A template picked on the Templates page. Held here so the Builder opens on
@@ -399,59 +413,17 @@ export default function EditorPage() {
     const IMPORT_TIMEOUT = 800; // ms — give the editor time to hydrate
     const t = setTimeout(async () => {
       if (actionParam === "export-pdf") {
-        try {
-          const { exportToPDF } = await import("@/lib/export-pdf");
-          const defaultName = `paper-${Date.now()}.pdf`;
-          const rawName = window.prompt("Enter a filename for the PDF", defaultName);
-          if (rawName) {
-            const filename = rawName.trim().endsWith(".pdf")
-              ? rawName.trim()
-              : `${rawName.trim()}.pdf`;
-            const blob = await exportToPDF("tiptap-paper-container", filename);
-            toast.success("PDF downloaded!");
-            const realPaperId = paperId && paperId !== "current" ? paperId : null;
-            if (realPaperId) {
-              const { uploadExportToS3 } = await import("@/lib/s3-upload");
-              uploadExportToS3(blob, {
-                exportType: exportTypeParam,
-                fileFormat: "pdf",
-                paperId: realPaperId,
-              })
-                .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
-                .catch((err) => console.error("[S3 upload]", err));
-            }
-          }
-        } catch {
-          toast.error("PDF export failed. Please try from the toolbar.");
-        }
+        await exportPaper({
+          format: "pdf",
+          exportType: exportTypeParam,
+          paperId,
+        });
       } else if (actionParam === "export-docx") {
-        try {
-          const { exportToDocx } = await import("@/lib/export-docx");
-          const defaultName = `paper-${Date.now()}.docx`;
-          const rawName = window.prompt("Enter a filename for the DOCX", defaultName);
-          if (rawName) {
-            const trimmed = rawName.trim();
-            const filename = /\.docx$/i.test(trimmed) ? trimmed : `${trimmed}.docx`;
-            const container = document.getElementById("tiptap-paper-container");
-            if (container) {
-              const blob = await exportToDocx(container, filename);
-              toast.success("DOCX downloaded!");
-              const realPaperId = paperId && paperId !== "current" ? paperId : null;
-              if (realPaperId) {
-                const { uploadExportToS3 } = await import("@/lib/s3-upload");
-                uploadExportToS3(blob, {
-                  exportType: exportTypeParam,
-                  fileFormat: "docx",
-                  paperId: realPaperId,
-                })
-                  .then(() => toast.success("Saved to cloud.", { duration: 2000 }))
-                  .catch((err) => console.error("[S3 upload]", err));
-              }
-            }
-          }
-        } catch {
-          toast.error("DOCX export failed. Please try from the toolbar.");
-        }
+        await exportPaper({
+          format: "docx",
+          exportType: exportTypeParam,
+          paperId,
+        });
       } else if (actionParam === "print") {
         // Per-set print: the active set tab is already selected via ?set=,
         // and the editor's @media print rules isolate #tiptap-paper-container,
@@ -729,7 +701,7 @@ export default function EditorPage() {
         } else {
           setPaperError("Failed to load paper. Please try again.");
           setPaperContent("");
-          toast.error(error?.message || "Failed to load paper.");
+          toast.error(error?.message || "Could not load that paper.");
         }
       })
       .finally(() => {
@@ -900,7 +872,7 @@ export default function EditorPage() {
       toast.success(`Paper details updated.`);
     } catch (error: any) {
       console.error(error);
-      toast.error(error?.message || "Failed to update paper details.");
+      toast.error(error?.message || "Could not update the paper details.");
     } finally {
       setIsSaving(false);
     }
@@ -940,7 +912,7 @@ export default function EditorPage() {
       setQuestionTopic("");
     } catch (error: any) {
       console.error(error);
-      toast.error(error?.message || "Failed to save questions.");
+      toast.error(error?.message || "Could not save those questions.");
     } finally {
       setIsSaving(false);
     }
@@ -955,7 +927,7 @@ export default function EditorPage() {
           if (active) setBrowserQuestions(data);
         })
         .catch((error) => {
-          if (active) toast.error("Failed to fetch questions from bank.");
+          if (active) toast.error("Could not load questions from the bank.");
         })
         .finally(() => {
           if (active) setBrowserLoading(false);
@@ -1104,6 +1076,22 @@ export default function EditorPage() {
           one: the document's name, then the toolbar (rendered inside
           TiptapEditor), then the page flanked by its panels. */}
       <div className="relative z-10 flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Nothing on the page yet. Sits above the sheet rather than replacing
+            it, so the A4 page a teacher may simply want to type on is never
+            taken away. Suppressed while a paper is loading or generating --
+            both are about to put content there, and offering "start a paper"
+            on top of one arriving reads as a failure. */}
+        {documentIsEmpty &&
+        !paperLoading &&
+        !paperError &&
+        !generation.isGenerating ? (
+          <EditorBlankState
+            onGenerate={() => openBuilder()}
+            onBuildFromBank={() => setBankDialogOpen(true)}
+            onUseTemplate={openTemplateCreator}
+          />
+        ) : null}
+
         {/* Document name. Its own row above the toolbar, the way every editor
             does it — not a status line squeezed into small caps. */}
         <div className="flex h-11 min-h-11 flex-shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:px-4">
@@ -1250,7 +1238,7 @@ export default function EditorPage() {
             <Button
               disabled={isSaving}
               onClick={handleSavePaper}
-              className="bg-primary hover:bg-primary/90 text-white w-full gap-2"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground w-full gap-2"
             >
               {isSaving ? "Updating..." : "Update Details"}
             </Button>
@@ -1317,7 +1305,7 @@ export default function EditorPage() {
             <Button
               disabled={isSaving}
               onClick={handleSaveQuestions}
-              className="bg-primary hover:bg-primary/90 text-white w-full gap-2"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground w-full gap-2"
             >
               {isSaving ? "Saving..." : "Save Questions"}
             </Button>
@@ -1416,7 +1404,7 @@ export default function EditorPage() {
             <Button
               onClick={handleInsertSelectedQuestions}
               disabled={selectedBankQuestions.size === 0}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="bg-success text-success-foreground hover:bg-success/90"
             >
               Insert{" "}
               {selectedBankQuestions.size > 0 &&

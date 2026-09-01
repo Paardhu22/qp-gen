@@ -133,14 +133,11 @@ class AllowedOriginsTests(SimpleTestCase):
 
 class TestEndpointRoutingTests(SimpleTestCase):
     """The science-engine runner spends real OpenAI budget on hard-coded
-    inputs, so it must not be routed unless explicitly enabled."""
+    inputs. It is a management command now (`run_engine_slice`) and must not
+    be reachable over HTTP under any setting."""
 
-    def test_route_is_absent_when_disabled(self):
+    def test_route_is_absent(self):
         from django.urls import NoReverseMatch, reverse
 
-        if project_settings.ENABLE_TEST_ENDPOINTS:
-            # Enabled locally (it follows DEBUG) — assert the opposite branch.
-            self.assertTrue(reverse("test-science-engine"))
-            return
         with self.assertRaises(NoReverseMatch):
             reverse("test-science-engine")

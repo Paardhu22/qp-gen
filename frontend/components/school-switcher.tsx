@@ -22,9 +22,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import { Check, Loader2 } from "lucide-react";
+import { Check } from "lucide-react";
 import { approvedMemberships, type SessionUser } from "@/lib/auth-client";
 import { switchOrganization } from "@/lib/organizations-client";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 export function SchoolSwitcher({
@@ -87,7 +88,7 @@ export function SchoolSwitcher({
               )}
             >
               {busyId === school.organization_id ? (
-                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+                <Spinner className="shrink-0" />
               ) : (
                 // Icon, not colour alone, carries "this is the one".
                 <Check

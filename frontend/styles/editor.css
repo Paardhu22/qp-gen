@@ -61,6 +61,32 @@
             0 28px 56px -28px rgb(15 23 42 / 0.28);
         }
 
+        /* The same sheet, on a dark desk.
+
+           Everything above is tuned for white paper on a light canvas: a
+           near-black hairline and a slate-tinted shadow stack, both of which
+           do nothing once the surround is dark. The page never disappeared —
+           white on a dark canvas has plenty of edge contrast — but it lost the
+           lift the comment above says the shadow exists to create, and read as
+           a flat rectangle pasted onto the background.
+
+           Two changes, matching how a lit surface actually behaves. The
+           hairline inverts to a soft white edge, as though catching light from
+           the same direction. The shadow deepens rather than lightening: a
+           shadow on a dark ground has to be darker than the ground to be seen
+           at all, so the opacities go up, not down.
+
+           This is the first `.dark` rule in this file — 1361 lines of editor
+           styling had none, so the canvas was themed in globals.css while
+           everything sitting on it stayed in light mode. */
+        .dark .document-editor .doc-page {
+          border-color: rgb(255 255 255 / 0.10);
+          box-shadow:
+            0 1px 2px -1px rgb(0 0 0 / 0.55),
+            0 8px 16px -8px rgb(0 0 0 / 0.50),
+            0 28px 56px -28px rgb(0 0 0 / 0.65);
+        }
+
         .document-editor .doc-page-inner {
           height: 100%;
           display: flex;
