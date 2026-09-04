@@ -41,6 +41,26 @@ interface Props {
   onChange: (slots: BlueprintSlot[]) => void;
 }
 
+/**
+ * The next unused section heading: one letter past the highest already in use,
+ * not one past whichever section happens to sit last. Sections carrying prose
+ * headings (language papers) are ignored for lettering.
+ */
+function nextSectionTitle(titles: string[]): string {
+  let highest = 0;
+  for (const title of titles) {
+    const match = /^Section\s+([A-Za-z])$/.exec(title.trim());
+    if (match) {
+      highest = Math.max(highest, match[1].toUpperCase().charCodeAt(0) - 64);
+    }
+  }
+  if (highest === 0) return "Section A";
+  // Past Z there is no next letter; number it rather than emit punctuation.
+  return highest >= 26
+    ? `Section ${highest + 1}`
+    : `Section ${String.fromCharCode(65 + highest)}`;
+}
+
 /** Recompute indices so they always match position. */
 function reindex(slots: BlueprintSlot[]): BlueprintSlot[] {
   return slots.map((slot, i) => ({ ...slot, index: i + 1 }));
@@ -224,13 +244,15 @@ export function SlotEditor({ slots, questionTypes, totals, onChange }: Props) {
       choiceRequired: false,
     };
     // Insert at the end of its own section rather than the end of the paper,
-    // or "add a question to Section A" drops it after Section E.
+    // or "add a question to Section A" drops it after Section E. A section that
+    // does not exist yet has no "end" to sit at: reduce() reports -1 for that,
+    // and splicing at 0 would file a brand-new Section C above Section A.
     const lastOfSection = slots.reduce(
       (found, slot, i) => (slot.sectionTitle === sectionTitle ? i : found),
       -1,
     );
     const copy = [...slots];
-    copy.splice(lastOfSection + 1, 0, next);
+    copy.splice(lastOfSection === -1 ? copy.length : lastOfSection + 1, 0, next);
     onChange(reindex(copy));
   };
 
@@ -378,17 +400,7 @@ export function SlotEditor({ slots, questionTypes, totals, onChange }: Props) {
             type="button"
             variant="outline"
             className="w-full h-9 border-dashed text-xs text-muted-foreground"
-            onClick={() => {
-              const lastSection = sections[sections.length - 1].title;
-              let nextLetter = "B";
-              if (lastSection.startsWith("Section ")) {
-                const lastChar = lastSection.replace("Section ", "").trim();
-                if (lastChar.length === 1 && /[A-Z]/i.test(lastChar)) {
-                  nextLetter = String.fromCharCode(lastChar.toUpperCase().charCodeAt(0) + 1);
-                }
-              }
-              addSlot(`Section ${nextLetter}`);
-            }}
+            onClick={() => addSlot(nextSectionTitle(sections.map((s) => s.title)))}
           >
             <Plus className="size-3.5 mr-1.5" />
             Add New Section
