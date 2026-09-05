@@ -20,7 +20,7 @@ export default function Home() {
     // that cannot give us a context). `bg-neutral-950` put near-black there
     // under `text-neutral-900` text — dark on dark, unreadable in exactly the
     // case the fallback exists for. Purple matches what the shader paints.
-    <main className="relative min-h-dvh overflow-hidden bg-[#f6edff] text-brand-ink">
+    <main className="font-sora relative min-h-dvh overflow-hidden bg-[#f6edff] text-brand-ink">
       <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
         <Grainient
           color1="#fcfcfc"

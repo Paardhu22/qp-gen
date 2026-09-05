@@ -6,11 +6,17 @@ import "../styles/grainient.css";
 import "katex/dist/katex.min.css";
 import { Providers } from "@/components/providers";
 import { Toaster } from "sonner";
-import { Inter, Playfair_Display } from "next/font/google";
+import { Inter, Playfair_Display, Sora } from "next/font/google";
 
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
+});
+
+const sora = Sora({
+  subsets: ["latin"],
+  variable: "--font-sora",
+  weight: ["400", "500", "600", "700"],
 });
 
 // The display face, for page identity only -- the landing title and the <h1>
@@ -54,7 +60,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${playfair.variable}`}
+      className={`${inter.variable} ${playfair.variable} ${sora.variable}`}
     >
       <body className="font-sans bg-background text-foreground">
         <Providers>{children}</Providers>
