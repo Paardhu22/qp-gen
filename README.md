@@ -13,6 +13,25 @@
 
 ## Table of Contents
 
+1. [System Thesis](#1-system-thesis)
+2. [The Two-Layer Generation Model](#2-the-two-layer-generation-model)
+3. [Comprehensive File & Folder Directory](#3-comprehensive-file--folder-directory)
+4. [Technology Stack](#4-technology-stack)
+5. [The Persistence Layer & Data Model](#5-the-persistence-layer--data-model)
+6. [Subsystem: Authentication](#6-subsystem-authentication)
+7. [Subsystem: Document Ingestion](#7-subsystem-document-ingestion)
+8. [Subsystem: Chapter Reconstruction & Detection](#8-subsystem-chapter-reconstruction--detection)
+9. [Subsystem: The Blueprint Engine](#9-subsystem-the-blueprint-engine)
+10. [Subsystem: The Pool Pipeline](#10-subsystem-the-pool-pipeline)
+11. [The SSE Event Contract](#11-the-sse-event-contract)
+12. [Subsystem: Storage & Media URLs](#12-subsystem-storage--media-urls)
+13. [The Frontend](#13-the-frontend)
+14. [Configuration & Feature Flags](#14-configuration--feature-flags)
+15. [Deployment Topology](#15-deployment-topology)
+16. [Design Trade-offs & Alternatives Considered](#16-design-trade-offs--alternatives-considered)
+17. [Testing Strategy](#17-testing-strategy)
+
+---
 
 ## 1. System Thesis
 
