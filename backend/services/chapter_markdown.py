@@ -241,7 +241,12 @@ def build_chapter_markdown(
     # their page numbers locate them well enough, and a trailing block keeps
     # the prose readable for the model while keeping a clean inventory of what
     # the chapter illustrates.
-    if figures:
+    # ...and only alongside prose. A figure inventory with no chapter in front
+    # of it is not a thin chapter, it is a table of contents for pictures: the
+    # generator has nothing to ask about except page numbers, and that is
+    # exactly the paper it writes. Ingestion now rejects text-less documents,
+    # so this guards chunks stored before that fix.
+    if figures and markdown.strip():
         figure_lines = ["\n\n## Figures in this chapter\n"]
         for index, figure in enumerate(figures, start=1):
             caption = figure.caption or "(uncaptioned figure)"

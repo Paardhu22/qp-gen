@@ -11,6 +11,7 @@ from apps.documents.models import DocumentChunk, HsatSource, PdfSource
 from services.source_readiness import (
     DOCUMENTS_NOT_READY,
     REASON_NO_CHUNKS,
+    REASON_NO_TEXT,
     REASON_NOT_FOUND,
     REASON_NOT_READY,
     build_not_ready_payload,
@@ -202,3 +203,119 @@ class PipelineGateTests(TestCase):
         first = next(gen)
         self.assertNotIn(DOCUMENTS_NOT_READY, first)
         gen.close()
+
+
+def _image_chunk(*, pdf=None, hsat=None, idx=0, page=1):
+    """A figure chunk exactly as ingestion stored them for a scanned PDF:
+    no caption, no nearby text (there was no text layer to be near)."""
+    return DocumentChunk.objects.create(
+        content=f"# Visual Source\nPage: {page}\nNearby textbook text:",
+        page=page, chunk_index=idx, embedding=[0.0] * 1536,
+        pdf_source=pdf, hsat_source=hsat,
+        metadata={
+            "sourcePdf": "scan.pdf",
+            "chunkType": "image",
+            "image_url": "https://example.test/p.jpg",
+            "image_caption": "",
+        },
+    )
+
+
+class ScannedSourceGateTests(TestCase):
+    """A scanned PDF ingested before OCR existed has chunks — one per page
+    image, all uncaptioned — and used to sail through the readiness gate. The
+    chapter it produced was nothing but a figure inventory, so the generator
+    wrote a paper asking which figure sat on page 7."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create(
+            id="u3", name="U3", email="u3@t.local", status="approved"
+        )
+
+    def test_pdf_with_only_image_chunks_is_flagged_no_text(self):
+        src = _pdf(self.user, status="ready", sha="s1", name="scan.pdf")
+        for i in range(11):
+            _image_chunk(pdf=src, idx=i, page=i + 1)
+        pending = check_sources_ready(user=self.user, pdf_source_ids=[src.id])
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].reason, REASON_NO_TEXT)
+        self.assertEqual(pending[0].name, "scan.pdf")
+
+    def test_text_chunks_alongside_images_still_pass(self):
+        src = _pdf(self.user, status="ready", sha="s2", name="mixed.pdf")
+        _chunk(pdf=src, idx=0)
+        _image_chunk(pdf=src, idx=1)
+        self.assertEqual(
+            check_sources_ready(user=self.user, pdf_source_ids=[src.id]), []
+        )
+
+    def test_hsat_with_only_image_chunks_is_flagged_no_text(self):
+        book = HsatSource.objects.create(book="Scanned Book", status="ready")
+        _image_chunk(hsat=book)
+        pending = check_sources_ready(user=self.user, hsat_source_ids=[book.id])
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].reason, REASON_NO_TEXT)
+
+    def test_payload_says_reupload_not_wait(self):
+        src = _pdf(self.user, status="ready", sha="s3", name="scan.pdf")
+        _image_chunk(pdf=src)
+        pending = check_sources_ready(user=self.user, pdf_source_ids=[src.id])
+        payload = build_not_ready_payload(pending)
+        self.assertEqual(payload["code"], DOCUMENTS_NOT_READY)
+        self.assertIn("scan.pdf", payload["error"])
+        self.assertIn("Re-upload", payload["error"])
+        # Telling a teacher to wait for a scan to finish processing is advice
+        # that can never come true.
+        self.assertNotIn("Wait for", payload["error"])
+
+
+class UnreadableDuplicateTests(TestCase):
+    """The repair path. The scanned-PDF gate tells a teacher to re-upload, and
+    dedupe on `(user, sha256, status="ready")` handed back the same unusable
+    source every time — so the advice the error message gives could never
+    work, and no fix to ingestion could reach the file."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create(
+            id="u4", name="U4", email="u4@t.local", status="approved"
+        )
+
+    def test_unreadable_duplicate_is_discarded(self):
+        from services.document_service import _reusable_duplicate
+
+        stale = _pdf(self.user, status="ready", sha="dup1", name="scan.pdf")
+        _image_chunk(pdf=stale)
+
+        self.assertIsNone(
+            _reusable_duplicate(self.user, "dup1", file_name="scan.pdf")
+        )
+        # Dropped, so the re-upload falls through to a real ingest.
+        self.assertFalse(PdfSource.objects.filter(id=stale.id).exists())
+        self.assertFalse(DocumentChunk.objects.filter(pdf_source_id=stale.id).exists())
+
+    def test_readable_duplicate_is_still_reused(self):
+        from services.document_service import _reusable_duplicate
+
+        good = _pdf(self.user, status="ready", sha="dup2", name="ch.pdf")
+        _chunk(pdf=good)
+
+        self.assertEqual(
+            _reusable_duplicate(self.user, "dup2", file_name="ch.pdf"), good
+        )
+        self.assertTrue(PdfSource.objects.filter(id=good.id).exists())
+
+    def test_another_users_copy_is_untouched(self):
+        from services.document_service import _reusable_duplicate
+
+        other = User.objects.create(
+            id="u5", name="U5", email="u5@t.local", status="approved"
+        )
+        theirs = _pdf(other, status="ready", sha="dup3", name="scan.pdf")
+        _image_chunk(pdf=theirs)
+
+        self.assertIsNone(
+            _reusable_duplicate(self.user, "dup3", file_name="scan.pdf")
+        )
+        self.assertTrue(PdfSource.objects.filter(id=theirs.id).exists())

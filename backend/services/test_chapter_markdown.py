@@ -189,6 +189,61 @@ class FigureCollectionTests(TestCase):
         self.assertEqual(result.figures, [])
 
 
+class FigureOnlyChapterTests(TestCase):
+    """A scanned chapter produced image chunks and nothing else. The figure
+    inventory was appended unconditionally, so the whole "chapter" handed to
+    Model 1 was:
+
+        ## Figures in this chapter
+        - **Figure 1** — page 1: (uncaptioned figure)
+        ...
+
+    which is a table of contents for pictures, not a chapter. The only
+    questions answerable from it are about page numbers, and those are exactly
+    the questions that came back.
+    """
+
+    def setUp(self):
+        self.user = _make_user("scan@test.local")
+        self.source = _make_source(self.user, name="6 maths factors.pdf")
+
+    def _scan_chunks(self, count=11):
+        for index in range(count):
+            _chunk(
+                self.source, index,
+                f"# Visual Source\nPage: {index + 1}\nNearby textbook text:",
+                {
+                    "chunkType": "image",
+                    "image_url": f"/media/pdf_images/page-{index + 1}.jpg",
+                    "image_caption": "",
+                    "sourcePdf": "6 maths factors.pdf",
+                },
+                page=index + 1,
+            )
+
+    def test_no_inventory_when_there_is_no_prose(self):
+        self._scan_chunks()
+        result = build_chapter_markdown(
+            pdf_source_ids=[self.source.id], use_cache=False
+        )
+        self.assertEqual(result.markdown.strip(), "")
+        self.assertNotIn("Figures in this chapter", result.markdown)
+        self.assertNotIn("uncaptioned figure", result.markdown)
+        # The figures are still collected — the diagram stage reads them; they
+        # just are not passed off as the chapter body.
+        self.assertEqual(len(result.figures), 11)
+
+    def test_inventory_returns_once_the_page_has_text(self):
+        _chunk(self.source, 0, "# C\n## H\n\nA prime triplet is a set of three primes.",
+               {"chapter": "C", "heading": "H"})
+        self._scan_chunks(2)
+        result = build_chapter_markdown(
+            pdf_source_ids=[self.source.id], use_cache=False
+        )
+        self.assertIn("prime triplet", result.markdown)
+        self.assertIn("Figures in this chapter", result.markdown)
+
+
 class TruncationTests(TestCase):
     def setUp(self):
         self.user = _make_user("trunc@test.local")

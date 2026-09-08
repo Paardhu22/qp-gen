@@ -175,6 +175,27 @@ PDF_IMAGE_MIN_DIMENSION = _int_env("PDF_IMAGE_MIN_DIMENSION", 96, minimum=0)
 # starts mattering again. Chunks ingested while it was on are untouched.
 INGEST_EXTRACT_FIGURES = _bool_env("INGEST_EXTRACT_FIGURES", False)
 
+# ─── Scanned-PDF OCR (services/ocr_service.py) ─────────────────────────────
+# Phone-scanned chapters have an empty text layer. Ingestion used to accept
+# them anyway and build a chapter out of nothing but a figure inventory, so
+# the generator wrote papers asking which figure sat on which page. OCR runs
+# ONLY on pages whose own text layer is thin, so a digital PDF still costs no
+# GPT calls; a document with no text after OCR is now rejected at upload.
+PDF_OCR_ENABLED = _bool_env("PDF_OCR_ENABLED", True)
+# Pages under this many extracted characters are treated as un-extracted.
+PDF_OCR_MIN_PAGE_CHARS = _int_env("PDF_OCR_MIN_PAGE_CHARS", 80, minimum=0)
+# Whole-document floor, applied per page — the upload gate.
+PDF_MIN_DOC_CHARS_PER_PAGE = _int_env("PDF_MIN_DOC_CHARS_PER_PAGE", 120, minimum=0)
+# Ceiling on OCR pages per document, so one 400-page scan cannot run up an
+# unbounded bill inside a single upload.
+PDF_OCR_MAX_PAGES = _int_env("PDF_OCR_MAX_PAGES", 60, minimum=1)
+# Long-edge cap in pixels for the rendered page. `detail: "high"` tiles at
+# 512px, so rendering past legibility only buys tokens.
+PDF_OCR_MAX_PIXELS = _int_env("PDF_OCR_MAX_PIXELS", 1800, minimum=512)
+# Worker threads. Actual in-flight concurrency is still bounded by the global
+# vision semaphore (PDF_IMAGE_CAPTION_CONCURRENCY) in services.openai_service.
+PDF_OCR_CONCURRENCY = _int_env("PDF_OCR_CONCURRENCY", 4, minimum=1)
+
 # Chunks per embeddings request. Each batch is one OpenAI round trip inside
 # the ingest, so a whole textbook at the old batch size of 50 spent minutes
 # in sequential calls. Chunks are ~900-1000 chars (~250 tokens), so 256 of
@@ -372,9 +393,12 @@ QG_NEW_ENGINE_ENABLED = os.environ.get("QG_NEW_ENGINE_ENABLED", "false").lower()
 # meaning anything. If a diagnostic endpoint is ever wanted again, a management
 # command is the shape to reach for first.
 OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-# Retained for the (now-optional) vision-caption helper; ingestion no longer
-# calls it (no GPT calls during ingestion — see services.document_service).
+# Used by the (now-optional) vision-caption helper and as the fallback for
+# OCR_MODEL. Ingestion is still GPT-free for text-bearing PDFs; the one
+# exception is a scanned page, which cannot be read any other way.
 OPENAI_VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4.1-mini")
+# Page OCR (services/ocr_service.py). Falls back to OPENAI_VISION_MODEL.
+OCR_MODEL = os.environ.get("OCR_MODEL", "").strip() or None
 
 # ─── Question Pool architecture ────────────────────────────────────────────
 # Model 1 (pool generation). Explicit default, independent of OPENAI_MODEL.

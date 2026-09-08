@@ -44,15 +44,24 @@ class PdfSourceContentTypeRegressionTests(TestCase):
             status="approved",
         )
 
+    #: Enough extracted text to read as a real page (see the gate in
+    #: services.document_service.extract_and_persist_chunks).
+    _PAGE_TEXT = "Trigonometric ratios of an acute angle in a right triangle. " * 6
+
     def _patch_pipeline(self):
         """Stub the heavy parts (PDF parse, embeddings, image-store) so
         the test exercises the wiring without external services."""
         patchers = [
             patch(
                 "services.document_service.extract_text_from_pdf",
+                # A page's worth of prose, not "hello world": ingestion now
+                # OCRs pages whose text layer looks empty and rejects a
+                # document that still has none, so an unrealistically thin
+                # stub trips the scanned-PDF gate instead of the wiring this
+                # test is about. See services/ocr_service.py.
                 return_value={
-                    "text": "hello world",
-                    "pages": [{"pageNumber": 1, "content": "hello world"}],
+                    "text": self._PAGE_TEXT,
+                    "pages": [{"pageNumber": 1, "content": self._PAGE_TEXT}],
                     "images": [],
                     "metadata": {},
                 },

@@ -291,6 +291,14 @@ def _group_to_chapter(group: _Group) -> Optional[Chapter]:
     markdown, chapter_titles = _render_text_chunks(group.text_chunks)
     figures = _collect_figures(group.image_chunks)
 
+    # A group with no prose is not a chapter. Test this BEFORE appending the
+    # inventory: appending first made every figure-only group pass the check
+    # below on the strength of its own "- **Figure 1** — page 1" lines, which
+    # is how a scanned upload became a chapter the generator could only ask
+    # page-number questions about.
+    if not markdown.strip():
+        return None
+
     # Append the figure inventory so the diagram stage has a clean list.
     if figures:
         lines = ["\n\n## Figures in this chapter\n"]
@@ -299,9 +307,6 @@ def _group_to_chapter(group: _Group) -> Optional[Chapter]:
             page = f" — page {figure.page}" if figure.page else ""
             lines.append(f"- **Figure {index}**{page}: {caption}")
         markdown = (markdown + "\n".join(lines)).strip()
-
-    if not markdown.strip():
-        return None
 
     raw_title = group.chapter_key or (chapter_titles[0] if chapter_titles else "")
     if _is_placeholder(raw_title):

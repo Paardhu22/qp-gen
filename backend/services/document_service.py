@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import close_old_connections, transaction
+from django.db.models import Q
 from docx import Document as DocxDocument
 
 from services.chunking_service import chunk_text
@@ -190,6 +191,20 @@ def extract_and_persist_chunks(
         pages = pdf_data.get("pages", [])
         images = pdf_data.get("images", [])
         pdf_metadata = pdf_data.get("metadata") or {}
+
+        # A phone-scanned chapter is a stack of JPEGs with an empty text
+        # layer, and everything downstream of here assumes `extracted_text`
+        # IS the document. Transcribe those pages before that assumption is
+        # made; pages that already carry text are left alone, so a normal
+        # digital PDF still costs zero GPT calls. See services/ocr_service.
+        from services.ocr_service import ocr_pdf_pages
+
+        pages, ocr_stats = ocr_pdf_pages(buffer, pages, user=user)
+        if int(ocr_stats.get("succeeded") or 0):
+            extracted_text = "\n".join(
+                str(page.get("content") or "") for page in pages
+            )
+        pdf_metadata = {**pdf_metadata, "ocr": ocr_stats}
     elif (
         file_type
         == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -211,7 +226,23 @@ def extract_and_persist_chunks(
             for page in pages
         ]
 
-    if not extracted_text.strip() and not images:
+    # The hard gate. Previously this passed any document that had *images*,
+    # on the theory that "the figures ARE the document" for a scan. They are
+    # not: an uncaptioned figure inventory is not a chapter, and letting it
+    # through produced papers asking which figure sits on page 7. With OCR
+    # above having had its turn, a document still without text cannot produce
+    # questions, and saying so beats generating nonsense from nothing.
+    if file_type == "application/pdf":
+        from services.ocr_service import has_usable_text
+
+        if not has_usable_text(extracted_text, len(pages)):
+            raise ValueError(
+                "No readable text could be extracted from this PDF. It looks "
+                "like a scanned or photographed document whose pages could not "
+                "be transcribed. Try a clearer scan, a text-based PDF, or "
+                "re-upload the chapter at a higher resolution."
+            )
+    elif not extracted_text.strip():
         raise ValueError("Failed to extract text from document")
 
     if pages:
@@ -229,12 +260,15 @@ def extract_and_persist_chunks(
     # Figure chunks cost one S3 PUT each, up to PDF_IMAGE_MAX_CAPTIONS per
     # chapter, and they are the reason "apply this source" felt like an
     # upload rather than a selection. Nothing in the paper pipeline reads
-    # them (see INGEST_EXTRACT_FIGURES), so by default we skip them —
-    # unless the document has no extractable text at all, in which case the
-    # figures ARE the document and dropping them would turn a scanned
-    # chapter into a failed ingest.
-    text_only = not extracted_text.strip()
-    if getattr(settings, "INGEST_EXTRACT_FIGURES", False) or text_only:
+    # them (see INGEST_EXTRACT_FIGURES), so by default we skip them.
+    #
+    # There used to be a second trigger here: a document with no extractable
+    # text fell back to figures-only, on the theory that the figures were the
+    # document. That fallback is what produced chapters made entirely of
+    # "(uncaptioned figure)" lines. Scanned pages now go through OCR above and
+    # a document with no text is rejected outright, so the only reason left to
+    # store figures is that an operator asked for them.
+    if getattr(settings, "INGEST_EXTRACT_FIGURES", False):
         image_chunks = _build_image_chunks(
             pdf_source=pdf_source,
             hsat_source=hsat_source,
@@ -492,6 +526,51 @@ def _spawn_pdf_worker(
     thread.start()
 
 
+def _has_readable_chunks(source_id: str) -> bool:
+    """Does this source have at least one chunk that is not a figure?
+
+    Mirrors the generation-time gate in ``services.source_readiness``. The
+    `has_key` test comes first on purpose: an ordinary text chunk has no
+    `chunkType` key, and a plain ``.exclude(metadata__chunkType="image")``
+    compares as SQL NULL and drops exactly the rows being counted.
+    """
+    return (
+        DocumentChunk.objects.filter(pdf_source_id=source_id)
+        .filter(~Q(metadata__has_key="chunkType") | ~Q(metadata__chunkType="image"))
+        .exists()
+    )
+
+
+def _reusable_duplicate(user, sha256_hash: str, *, file_name: str) -> Optional[PdfSource]:
+    """Return a previous ingest of this exact file, if it is still usable.
+
+    Deduplicating on `(user, sha256, status="ready")` alone assumes "ready"
+    means "usable", which stopped being true the moment a scanned PDF could
+    reach "ready" carrying nothing but uncaptioned figures. The consequence
+    was worse than the original bug: re-uploading the file — the one repair
+    available to a teacher, and the one the error message asks for — handed
+    back the same unusable source forever, so no fix to ingestion could ever
+    reach it.
+
+    A stale source like that is dropped (its chunks cascade) so the upload
+    falls through to a real ingest. It is provably unable to produce a
+    question, and the user is re-uploading the very file it was built from.
+    """
+    for source in PdfSource.objects.filter(
+        user=user, sha256=sha256_hash, status="ready"
+    ):
+        if _has_readable_chunks(source.id):
+            return source
+        logger.info(
+            "Discarding unreadable duplicate %s (%s): 'ready' but no text chunks — "
+            "re-ingesting so OCR can run.",
+            source.id,
+            file_name,
+        )
+        source.delete()
+    return None
+
+
 def process_pdf_upload(file, user, *, background: bool = False) -> PdfSource:
     """
     Upload and process a PDF/DOCX/TXT file into a PdfSource.
@@ -517,10 +596,8 @@ def process_pdf_upload(file, user, *, background: bool = False) -> PdfSource:
     # Compute SHA256 for deduplication
     sha256_hash = _compute_sha256(buffer)
 
-    # Check for duplicate (same hash, same user, ready status)
-    existing = PdfSource.objects.filter(
-        user=user, sha256=sha256_hash, status="ready"
-    ).first()
+    # Reuse a previous ingest of the same file — but only a usable one.
+    existing = _reusable_duplicate(user, sha256_hash, file_name=file_name)
     if existing:
         logger.debug("Duplicate PDF detected: reusing %s", existing.id)
         existing.warnings = []  # type: ignore[attr-defined]
@@ -618,10 +695,8 @@ def process_pdf_from_storage(key: str, user, name: str, content_type: str) -> Pd
     # Compute SHA256 for deduplication
     sha256_hash = _compute_sha256(buffer)
 
-    # Check for duplicate (same hash, same user, ready status)
-    existing = PdfSource.objects.filter(
-        user=user, sha256=sha256_hash, status="ready"
-    ).first()
+    # Reuse a previous ingest of the same file — but only a usable one.
+    existing = _reusable_duplicate(user, sha256_hash, file_name=name)
     if existing:
         logger.debug("Duplicate PDF detected (from storage): reusing %s", existing.id)
         existing.warnings = []  # type: ignore[attr-defined]

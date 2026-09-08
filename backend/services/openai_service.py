@@ -214,6 +214,30 @@ def caption_image_for_embedding(
         },
     ]
 
+    return _vision_completion(
+        client=client,
+        model=model,
+        messages=messages,
+        user=user,
+        operation="image_caption",
+    )
+
+
+def _vision_completion(
+    *,
+    client: OpenAI,
+    model: str,
+    messages: list,
+    user: Optional[User],
+    operation: str,
+) -> str:
+    """Run one gated, retrying vision call and return its text.
+
+    Shared by every ingestion-time vision call (figure captioning and page
+    OCR) so they contend for the SAME global semaphore. Two independent
+    limiters would each think they were inside the TPM budget while together
+    blowing straight through it — the exact failure the gate was added for.
+    """
     gate = _get_caption_gate()
     last_exc: Optional[Exception] = None
     for attempt in range(1, _CAPTION_MAX_ATTEMPTS + 1):
@@ -225,7 +249,7 @@ def caption_image_for_embedding(
                 completion = client.chat.completions.create(
                     model=model, messages=messages
                 )
-                _record_usage(user, "image_caption", model, completion.usage)
+                _record_usage(user, operation, model, completion.usage)
                 return (completion.choices[0].message.content or "").strip()
             except RateLimitError as exc:
                 last_exc = exc
@@ -241,7 +265,8 @@ def caption_image_for_embedding(
         if attempt >= _CAPTION_MAX_ATTEMPTS:
             break
         logger.info(
-            "Caption retry %s/%s in %.2fs after %s",
+            "%s retry %s/%s in %.2fs after %s",
+            operation,
             attempt,
             _CAPTION_MAX_ATTEMPTS,
             wait,
@@ -251,3 +276,59 @@ def caption_image_for_embedding(
 
     assert last_exc is not None
     raise last_exc
+
+
+#: Instruction for page OCR. The model is transcribing, not summarising —
+#: anything it "helpfully" adds becomes textbook prose the generator will
+#: happily write questions about.
+_OCR_SYSTEM_PROMPT = (
+    "You transcribe scanned textbook pages into plain Markdown. Reproduce ALL "
+    "visible text in reading order: headings, body prose, worked examples, "
+    "tables, and every numbered exercise with all of its options. "
+    "Use LaTeX between $...$ for mathematical notation. "
+    "For a diagram or photograph, emit one short italic line describing it, "
+    "e.g. *[Figure: bar graph of favourite fruits]*. "
+    "Transcribe only what is on the page — never explain, summarise, answer, "
+    "or invent content. Output the transcription alone, with no preamble and "
+    "no code fences. If the page carries no readable text, output nothing."
+)
+
+
+def ocr_page_image(
+    image_data_url: str,
+    *,
+    user: Optional[User] = None,
+) -> str:
+    """Transcribe one scanned page image to Markdown text.
+
+    Uses ``detail: "high"``, unlike figure captioning: the low-detail branch
+    bills a flat 85 tokens by downsampling to a thumbnail, which is enough to
+    see THAT a page holds text and nowhere near enough to read it. OCR needs
+    the tiled full-resolution pass or it returns nothing usable.
+    """
+    # max_retries=0: `_vision_completion` owns retry timing (see the note in
+    # caption_image_for_embedding).
+    client = get_openai_client().with_options(max_retries=0)
+    model = getattr(settings, "OCR_MODEL", None) or getattr(
+        settings, "OPENAI_VISION_MODEL", settings.OPENAI_MODEL
+    )
+    messages = [
+        {"role": "system", "content": _OCR_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Transcribe this textbook page."},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_data_url, "detail": "high"},
+                },
+            ],
+        },
+    ]
+    return _vision_completion(
+        client=client,
+        model=model,
+        messages=messages,
+        user=user,
+        operation="page_ocr",
+    )

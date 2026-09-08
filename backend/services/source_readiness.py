@@ -25,6 +25,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence
 
+from django.db.models import Q
+
 from apps.documents.models import DocumentChunk, HsatSource, PdfSource
 
 #: SSE `code` for the terminal readiness failure (matches the frontend handler).
@@ -34,6 +36,7 @@ DOCUMENTS_NOT_READY = "DOCUMENTS_NOT_READY"
 REASON_NOT_FOUND = "not_found"   # unknown id, deleted, or owned by another user
 REASON_NOT_READY = "not_ready"   # exists + owned, but status != "ready"
 REASON_NO_CHUNKS = "no_chunks"   # status "ready" but no persisted chunks
+REASON_NO_TEXT = "no_text"       # chunks exist, but every one is a figure
 
 
 @dataclass(frozen=True)
@@ -56,24 +59,45 @@ class PendingSource:
         }
 
 
-def _ids_with_chunks(*, pdf_ids: Sequence[str], hsat_ids: Sequence[str]) -> set:
+def _ids_with_chunks(
+    *,
+    pdf_ids: Sequence[str],
+    hsat_ids: Sequence[str],
+    text_only: bool = False,
+) -> set:
     """Return the subset of ids (pdf or hsat) that have ≥1 persisted chunk.
 
     One DISTINCT query per source kind — cheap, and the authoritative check for
     "the document contains persisted chunks".
+
+    With ``text_only``, figure chunks do not count. A scanned PDF ingested
+    before OCR existed has chunks — one per page image, every one uncaptioned —
+    so it passed the plain check while carrying no readable content at all, and
+    generation went ahead and wrote a paper about figure numbering.
     """
     have: set = set()
+
+    # NOT `.exclude(metadata__chunkType="image")`: for a chunk whose metadata
+    # has no `chunkType` key at all — which is every ordinary text chunk — the
+    # comparison is SQL NULL, so NOT NULL is NULL and the row is dropped. That
+    # silently excludes exactly the chunks this is trying to count. Test the
+    # key's presence first and the row survives.
+    _NON_IMAGE = ~Q(metadata__has_key="chunkType") | ~Q(metadata__chunkType="image")
+
+    def _scope(queryset):
+        return queryset.filter(_NON_IMAGE) if text_only else queryset
+
     if pdf_ids:
         have |= {
             str(x)
-            for x in DocumentChunk.objects.filter(pdf_source_id__in=pdf_ids)
+            for x in _scope(DocumentChunk.objects.filter(pdf_source_id__in=pdf_ids))
             .values_list("pdf_source_id", flat=True)
             .distinct()
         }
     if hsat_ids:
         have |= {
             str(x)
-            for x in DocumentChunk.objects.filter(hsat_source_id__in=hsat_ids)
+            for x in _scope(DocumentChunk.objects.filter(hsat_source_id__in=hsat_ids))
             .values_list("hsat_source_id", flat=True)
             .distinct()
         }
@@ -115,6 +139,11 @@ def check_sources_ready(
     ready_pdf_ids = [sid for sid, s in owned.items() if s.status == "ready"]
     ready_hsat_ids = [sid for sid, s in hsat_map.items() if s.status == "ready"]
     with_chunks = _ids_with_chunks(pdf_ids=ready_pdf_ids, hsat_ids=ready_hsat_ids)
+    # "Has chunks" and "has readable chunks" are different questions, and only
+    # the second one predicts whether a paper can be built.
+    with_text = _ids_with_chunks(
+        pdf_ids=ready_pdf_ids, hsat_ids=ready_hsat_ids, text_only=True
+    )
 
     for sid in pdf_ids:
         src = owned.get(sid)
@@ -134,6 +163,11 @@ def check_sources_ready(
                 PendingSource(id=sid, name=src.name, kind="pdf",
                               status=src.status, reason=REASON_NO_CHUNKS)
             )
+        elif sid not in with_text:
+            pending.append(
+                PendingSource(id=sid, name=src.name, kind="pdf",
+                              status=src.status, reason=REASON_NO_TEXT)
+            )
 
     for sid in hsat_ids:
         src = hsat_map.get(sid)
@@ -152,6 +186,11 @@ def check_sources_ready(
                 PendingSource(id=sid, name=src.book, kind="hsat",
                               status=src.status, reason=REASON_NO_CHUNKS)
             )
+        elif sid not in with_text:
+            pending.append(
+                PendingSource(id=sid, name=src.book, kind="hsat",
+                              status=src.status, reason=REASON_NO_TEXT)
+            )
 
     return pending
 
@@ -160,6 +199,23 @@ def build_not_ready_payload(pending: Sequence[PendingSource]) -> Dict[str, objec
     """Build the ``DOCUMENTS_NOT_READY`` SSE payload for a list of pending sources."""
     named = [p.name for p in pending if p.name]
     missing = [p for p in pending if p.reason == REASON_NOT_FOUND]
+    unreadable = [p for p in pending if p.reason == REASON_NO_TEXT]
+
+    # Unreadable sources come first: every other message here tells the teacher
+    # to wait, and waiting will never make a scanned upload readable.
+    if unreadable:
+        subjects = ", ".join(p.name for p in unreadable if p.name)
+        which = f": {subjects}" if subjects else ""
+        return {
+            "code": DOCUMENTS_NOT_READY,
+            "error": (
+                f"No readable text was extracted from these sources{which}. "
+                "They were most likely scanned or photographed, so there is "
+                "nothing to build questions from. Re-upload a text-based PDF "
+                "or a clearer scan."
+            ),
+            "pendingDocuments": [p.to_wire() for p in pending],
+        }
 
     if named:
         subjects = ", ".join(named)
