@@ -23,10 +23,19 @@ import { toast } from "sonner";
 import {
   generateQuestionImage,
   fetchQuestionImageStyles,
+  fetchQuestionTypeMenu,
   type QuestionImageStyle,
   type QuestionImageStyleOption,
+  type QuestionTypeOption,
 } from "@/lib/api-client";
-import { replaceQuestionNode } from "@/components/editor/extensions/nodes";
+import {
+  isOrBranchAt,
+  replaceQuestionNode,
+} from "@/components/editor/extensions/nodes";
+import {
+  paperTotalMarks,
+  parseSlotMeta,
+} from "@/components/editor/question-nodes";
 import { SIZE_HALF } from "@/components/editor/extensions/float-image";
 
 /** Long enough to cross the gap to the menu, short enough not to feel stuck. */
@@ -76,18 +85,32 @@ interface ActiveQuestion {
   canReplace: boolean;
 }
 
+/** Everything the swap dialog needs to describe the change it is offering. */
+export interface SwapContext {
+  questionText: string;
+  currentType: string;
+  currentMarks: number;
+  paperTotal: number;
+  isOrBranch: boolean;
+}
+
 export function useQuestionMenu(editor: any) {
   const [active, setActive] = React.useState<ActiveQuestion | null>(null);
   const [replacing, setReplacing] = React.useState(false);
   const [styleDialogOpen, setStyleDialogOpen] = React.useState(false);
   const [generatingImage, setGeneratingImage] = React.useState(false);
   const [styles, setStyles] = React.useState<QuestionImageStyleOption[]>([]);
+  const [swapDialogOpen, setSwapDialogOpen] = React.useState(false);
+  const [swapContext, setSwapContext] = React.useState<SwapContext | null>(null);
+  const [typeOptions, setTypeOptions] = React.useState<QuestionTypeOption[]>([]);
+  const [loadingTypes, setLoadingTypes] = React.useState(false);
 
   const closeTimer = React.useRef<number | null>(null);
-  // The question the dialog is for, captured when it opens. Without this the
-  // hover can move away mid-generation and the image lands on a different
-  // question than the teacher pointed at.
+  // The question a dialog is for, captured when it opens. Without this the
+  // hover can move away mid-generation and the image — or the replacement —
+  // lands on a different question than the teacher pointed at.
   const pendingRef = React.useRef<ActiveQuestion | null>(null);
+  const pendingSwapRef = React.useRef<ActiveQuestion | null>(null);
 
   const cancelClose = React.useCallback(() => {
     if (closeTimer.current !== null) {
@@ -268,6 +291,76 @@ export function useQuestionMenu(editor: any) {
     });
   }, [editor, active]);
 
+  // ── Swap and change the type ───────────────────────────────────────────
+
+  /**
+   * Open the type picker for the question under the pointer.
+   *
+   * The type menu is fetched per slot rather than once per session: it depends
+   * on the generator that owns THIS slot, so a Reading question and a
+   * Literature question in the same paper get different menus. Small response,
+   * and getting it wrong means offering a choice that cannot succeed.
+   */
+  const openSwapDialog = React.useCallback(() => {
+    const target = active;
+    if (!editor || !target) return;
+    const node = editor.state.doc.nodeAt(target.pos);
+    const slot = parseSlotMeta(node?.attrs?.slotMeta);
+    if (!node || !slot) return;
+
+    pendingSwapRef.current = target;
+    setSwapContext({
+      questionText: target.text,
+      currentType: String(slot.type || node.attrs?.questionType || ""),
+      currentMarks: Number(node.attrs?.marks ?? slot.marks ?? 1),
+      paperTotal: paperTotalMarks(editor),
+      isOrBranch: isOrBranchAt(editor, target.pos),
+    });
+    setSwapDialogOpen(true);
+
+    setLoadingTypes(true);
+    void fetchQuestionTypeMenu(
+      String(slot.subject || ""),
+      String(slot.generator || "question_pool"),
+    )
+      .then(setTypeOptions)
+      .catch((error) => {
+        console.error("Could not load question types:", error);
+        // No hard-coded fallback here, unlike the image styles: guessing the
+        // menu would mean offering types this slot's generator cannot write,
+        // and every one of those fails after a spinner and a model call.
+        setTypeOptions([]);
+        toast.error("Could not load the question types for this section.");
+      })
+      .finally(() => setLoadingTypes(false));
+  }, [editor, active]);
+
+  const handleSwapType = React.useCallback(
+    async (overrides: { type: string; marks: number }) => {
+      const target = pendingSwapRef.current;
+      if (!editor || !target) return;
+      const node = editor.state.doc.nodeAt(target.pos);
+      if (!node) {
+        toast.error("That question is no longer in the paper.");
+        setSwapDialogOpen(false);
+        return;
+      }
+
+      const swapped = await replaceQuestionNode({
+        editor,
+        getPos: () => target.pos,
+        node,
+        onBusy: setReplacing,
+        overrides,
+      });
+      // Only on success. A failed swap leaves the dialog open on the choice
+      // that did not work, so the teacher can pick another type without
+      // finding the question again.
+      if (swapped) setSwapDialogOpen(false);
+    },
+    [editor],
+  );
+
   const handleGenerateImage = React.useCallback(
     async (style: QuestionImageStyle) => {
       const target = pendingRef.current;
@@ -331,6 +424,13 @@ export function useQuestionMenu(editor: any) {
     handleDelete,
     handleReplace,
     handleGenerateImage,
+    swapDialogOpen,
+    setSwapDialogOpen,
+    swapContext,
+    typeOptions,
+    loadingTypes,
+    openSwapDialog,
+    handleSwapType,
     onMenuEnter: cancelClose,
     onMenuLeave: scheduleClose,
   };

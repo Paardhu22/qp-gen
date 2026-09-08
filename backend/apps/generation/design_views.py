@@ -556,13 +556,24 @@ class QuestionTypeCatalogView(APIView):
 
     Served rather than hard-coded on the client so the subject-appropriate
     mapping (coming later) ships without a frontend release.
+
+    `generator` narrows the menu to the types that generator can write. The
+    Builder omits it — it edits slots before routing has happened — while the
+    editor's "swap and change type" menu always sends the slot's own generator,
+    because that slot is already routed and `slot_accepts` will not let a
+    Reading slot hold anything but a Reading asset.
     """
 
     def get(self, request):
         from services.templates import question_types_for
 
         return Response(
-            {"questionTypes": question_types_for(request.query_params.get("subject", ""))}
+            {
+                "questionTypes": question_types_for(
+                    request.query_params.get("subject", ""),
+                    request.query_params.get("generator", ""),
+                )
+            }
         )
 
 

@@ -117,20 +117,70 @@ _CATALOG_BY_CODE: Dict[str, QuestionTypeOption] = {
     option.code: option for option in QUESTION_TYPE_CATALOG
 }
 
+#: The pool types each asset generator can actually write, mirroring what
+#: `services.assets.*` stamp on `build_pool_question`.
+#:
+#: `slot_accepts` gates on provenance BEFORE type, so a slot owned by the
+#: Reading generator can never be filled by anything but a Reading asset. A
+#: menu that offered "Short Answer" on such a slot would therefore be offering
+#: a choice that always fails — after a spinner and a model call. This is the
+#: data that keeps that choice off the menu.
+#:
+#: Held here as data rather than read off the generator classes so the catalog
+#: endpoint does not have to import (and so autoload) the whole asset package.
+GENERATOR_QUESTION_TYPES: Dict[str, tuple] = {
+    "reading_asset_pool": ("READING_COMP",),
+    "grammar_asset_pool": ("GRAMMAR",),
+    "writing_asset_pool": ("LETTER", "COMPOSITION", "ANALYTICAL_PARAGRAPH"),
+}
 
-def question_types_for(subject: str = "") -> List[Dict[str, Any]]:
-    """The type menu the Blueprint Builder shows for a subject.
+#: Types owned by an asset generator, and therefore NOT offered on a textbook
+#: slot: Model 1 writes from the uploaded chapter, so a "Reading Comprehension"
+#: it filled would be an unseen passage drawn from the seen textbook.
+_ASSET_OWNED_TYPES = frozenset(
+    code for codes in GENERATOR_QUESTION_TYPES.values() for code in codes
+)
+
+
+def types_for_generator(generator: str) -> Optional[frozenset]:
+    """The types `generator` can write, or None for "do not restrict".
+
+    An empty name means the caller did not say, which is how the Blueprint
+    Builder asks — it edits slots before any routing has happened, so it gets
+    the whole catalog exactly as before.
+    """
+    name = str(generator or "").strip()
+    if not name:
+        return None
+
+    owned = GENERATOR_QUESTION_TYPES.get(name)
+    if owned is not None:
+        return frozenset(owned)
+
+    # The textbook pool, and any unregistered name (which `generator_for_slot`
+    # falls back to it anyway).
+    return frozenset(o.code for o in QUESTION_TYPE_CATALOG) - _ASSET_OWNED_TYPES
+
+
+def question_types_for(subject: str = "", generator: str = "") -> List[Dict[str, Any]]:
+    """The type menu shown for a subject, optionally narrowed to one generator.
 
     Today every type is offered for every subject — the spec asks for standard
     placeholders until the subject-appropriate mapping is specified. The filter
     is already wired so that mapping is a data change here, not a code change
     at the call sites.
+
+    `generator` is what the editor's "swap and change type" menu passes: it is
+    changing the type of a slot that has ALREADY been routed, so the menu must
+    be what that slot's generator can write rather than the whole catalog.
     """
     normalised = (subject or "").strip().lower()
+    allowed = types_for_generator(generator)
     return [
         option.as_dict()
         for option in QUESTION_TYPE_CATALOG
-        if option.subjects is None or normalised in option.subjects
+        if (option.subjects is None or normalised in option.subjects)
+        and (allowed is None or option.code in allowed)
     ]
 
 

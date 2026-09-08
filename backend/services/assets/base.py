@@ -124,6 +124,24 @@ class AssetGenerator(ABC):
 
     # ── shared helpers ──────────────────────────────────────────────────
 
+    # ── asset type ⇄ question type ──────────────────────────────────────
+    #
+    # Most generators emit exactly one question type, so for them these two are
+    # a formality. They exist for the generator where the asset type is what
+    # DECIDES the question type (Writing: a `letter_to_editor` is a LETTER, an
+    # `article` is a COMPOSITION). When a teacher re-types such a slot from the
+    # editor, carrying the old asset type over would make the generator write
+    # the old type again — which `slot_accepts` then rejects, turning a
+    # legitimate request into "no replacement could be written".
+
+    def question_type_for(self, asset_type: str) -> str:
+        """The question type `asset_type` implies, or "" if it implies none."""
+        return ""
+
+    def asset_type_for(self, question_type: str) -> str:
+        """An asset type that would produce `question_type`, or "" for none."""
+        return ""
+
     def describe(self) -> Dict[str, Any]:
         return {
             "name": self.name,

@@ -29,7 +29,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { ImagePlus, RefreshCw, Trash } from "lucide-react";
+import { ImagePlus, RefreshCw, Replace, Trash } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
@@ -42,6 +42,8 @@ export interface QuestionMenuTarget {
   /** Only generated questions have a blueprint slot to regenerate against. */
   canReplace: boolean;
   onReplace: () => void;
+  /** Opens the type picker, rather than swapping straight away. */
+  onChangeType: () => void;
   onDelete: () => void;
   onGenerateImage: () => void;
   replacing?: boolean;
@@ -164,13 +166,25 @@ export function QuestionHoverMenu({ target, onMenuEnter, onMenuLeave }: Props) {
         onClick={target.onGenerateImage}
         busy={target.generatingImage}
       />
+      {/* Two swaps, because they answer two different complaints. "Another
+          one of these" is one click and needs no dialog — it is the common
+          case, and putting it behind a picker would tax it for no gain.
+          "Not this KIND of question" changes the slot itself, which changes
+          what the paper is worth, so it asks first. */}
       {target.canReplace ? (
-        <MenuButton
-          icon={RefreshCw}
-          label="Swap"
-          onClick={target.onReplace}
-          busy={target.replacing}
-        />
+        <>
+          <MenuButton
+            icon={RefreshCw}
+            label="Swap for another question"
+            onClick={target.onReplace}
+            busy={target.replacing}
+          />
+          <MenuButton
+            icon={Replace}
+            label="Change question type"
+            onClick={target.onChangeType}
+          />
+        </>
       ) : null}
       <div className="my-0.5 h-px w-full bg-border" />
       <MenuButton

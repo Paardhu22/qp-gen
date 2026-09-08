@@ -1337,8 +1337,21 @@ export async function resolveTemplate(body: {
  */
 export async function fetchQuestionTypeMenu(
   subject?: string,
+  /**
+   * The generator that owns the slot being re-typed.
+   *
+   * Sent by the editor's "change type" menu and omitted by the Blueprint
+   * Builder, and the difference matters: the Builder edits slots that have not
+   * been routed yet, while the editor is changing a slot whose generator is
+   * already fixed. `slot_accepts` gates on provenance before type, so a type
+   * that generator cannot write is a choice that always fails.
+   */
+  generator?: string,
 ): Promise<QuestionTypeOption[]> {
-  const suffix = subject ? `?subject=${encodeURIComponent(subject)}` : "";
+  const query = new URLSearchParams();
+  if (subject) query.set("subject", subject);
+  if (generator) query.set("generator", generator);
+  const suffix = query.toString() ? `?${query}` : "";
   const data = await fetchJson<{ questionTypes: QuestionTypeOption[] }>(
     `/api/generation/question-types${suffix}`,
     { method: "GET" },

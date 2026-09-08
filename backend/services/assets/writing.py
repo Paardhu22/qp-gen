@@ -112,6 +112,26 @@ class WritingAssetGenerator(AssetGenerator):
             return "ANALYTICAL_PARAGRAPH"
         return "COMPOSITION"
 
+    #: Public face of the mapping above, for the re-typing path in
+    #: `services.pool.replace`.
+    def question_type_for(self, asset_type: str) -> str:
+        asset_type = str(asset_type or "").strip()
+        return self._question_type(asset_type) if asset_type else ""
+
+    def asset_type_for(self, question_type: str) -> str:
+        """A format that produces `question_type`.
+
+        The inverse is one-to-many (six formats are LETTER), so this names the
+        most ordinary member of each group. A teacher who wanted a specific
+        format picks it in the Blueprint Builder, where `constraints["formats"]`
+        is the field for saying so.
+        """
+        return {
+            "LETTER": "formal_letter_to_authority",
+            "ANALYTICAL_PARAGRAPH": "analytical_paragraph",
+            "COMPOSITION": "article",
+        }.get(str(question_type or "").strip().upper(), "")
+
     def generate(self, request: AssetRequest) -> AssetBatchResult:
         result = AssetBatchResult()
         reused = self.reusable(request)

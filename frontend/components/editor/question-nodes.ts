@@ -460,6 +460,48 @@ export function buildSlotMeta(question: InsertableQuestion): string {
   }
 }
 
+/**
+ * What the paper is currently worth.
+ *
+ * An OR group is ONE question the student answers, so its branches must be
+ * counted once — summing every `questionBlock` would report a 80-mark paper as
+ * 100. Counted from the document rather than from the blueprint because the
+ * teacher has been editing it, and the number that matters is the one on the
+ * page in front of them.
+ */
+export function paperTotalMarks(editor: any): number {
+  let total = 0;
+
+  const marksOf = (node: any) => Number(node.attrs?.marks ?? 0) || 0;
+
+  editor.state.doc.descendants((node: any) => {
+    const name = node.type?.name;
+
+    if (name === "questionGroupBlock") {
+      // The branches are alternatives; the first one that carries marks
+      // speaks for the whole group.
+      for (let i = 0; i < node.childCount; i += 1) {
+        const marks = marksOf(node.child(i));
+        if (marks > 0) {
+          total += marks;
+          break;
+        }
+      }
+      // Do not descend: the branches have just been accounted for.
+      return false;
+    }
+
+    if (name === "questionBlock" || name === "groupedQuestionBlock") {
+      total += marksOf(node);
+      return false;
+    }
+
+    return true;
+  });
+
+  return total;
+}
+
 export function parseSlotMeta(raw: unknown): Record<string, any> | null {
   const text = String(raw || "").trim();
   if (!text) return null;

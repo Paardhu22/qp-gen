@@ -21,7 +21,9 @@ from services.template_catalog import (
     resolve_builtin,
     resolve_detailed,
 )
+from services.pool.schema import QUESTION_TYPES
 from services.templates import (
+    QUESTION_TYPE_CATALOG,
     SOURCE_GENERATE,
     SOURCE_SAVED,
     SlotSpec,
@@ -563,3 +565,47 @@ class BuilderPipelineEndToEndTests(TestCase):
         self.assertIn("350", instruction)
         self.assertIn("450", instruction)
         self.assertNotIn("250–400 words", instruction)
+
+
+class QuestionTypeMenuTests(TestCase):
+    """The menu is narrowed by the generator that owns the slot, not by taste.
+
+    `slot_accepts` gates on provenance before type, so offering "Short Answer"
+    on a Reading slot offers a choice that always fails — after a spinner and a
+    model call.
+    """
+
+    def _codes(self, *args, **kwargs):
+        return {option["code"] for option in question_types_for(*args, **kwargs)}
+
+    def test_no_generator_named_offers_the_whole_catalog(self):
+        """The Blueprint Builder edits slots before routing has happened."""
+        self.assertEqual(self._codes(), {o.code for o in QUESTION_TYPE_CATALOG})
+
+    def test_an_asset_generator_offers_only_what_it_writes(self):
+        self.assertEqual(self._codes("English", "reading_asset_pool"), {"READING_COMP"})
+        self.assertEqual(self._codes("English", "grammar_asset_pool"), {"GRAMMAR"})
+        self.assertEqual(
+            self._codes("English", "writing_asset_pool"),
+            {"LETTER", "COMPOSITION", "ANALYTICAL_PARAGRAPH"},
+        )
+
+    def test_the_textbook_pool_is_never_offered_an_asset_owned_type(self):
+        """Model 1 writes from the uploaded chapter, so a Reading Comprehension
+        it filled would be an unseen passage drawn from the seen textbook."""
+        codes = self._codes("Science", "question_pool")
+        self.assertNotIn("READING_COMP", codes)
+        self.assertNotIn("LETTER", codes)
+        self.assertIn("MCQ", codes)
+        self.assertIn("CASE_STUDY", codes)
+
+    def test_an_unregistered_generator_gets_the_textbook_menu(self):
+        """`generator_for_slot` falls such a slot back to the textbook pool."""
+        self.assertEqual(
+            self._codes("Science", "no_such_generator"),
+            self._codes("Science", "question_pool"),
+        )
+
+    def test_every_offered_type_is_one_the_pool_understands(self):
+        for option in QUESTION_TYPE_CATALOG:
+            self.assertIn(option.code, QUESTION_TYPES, option.code)

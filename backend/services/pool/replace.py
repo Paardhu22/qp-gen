@@ -20,6 +20,21 @@ replacement is matched (or generated) against a reconstructed slot carrying
 the original marks, question type, section, generator, asset type, chapter and
 difficulty. `slot_accepts` is the same predicate the assembler uses, so a
 replacement is eligible for the slot in exactly the sense the paper requires.
+
+## Changing the type on the way through
+
+The slot is reconstructed from the request, not looked up, so a teacher who
+wants question 7 to stop being an MCQ sends the same request with a different
+`type` (and usually a different `marks`). Nothing here needs to know that the
+type changed: `slot_accepts` judges the reconstructed slot, so the bank is
+searched — and the generator is briefed — for what the teacher now wants.
+
+The one thing that CANNOT change is the generator. Provenance is the first
+gate `slot_accepts` applies, and it is load-bearing: a Reading slot that
+accepted a textbook question is how an English paper came to ask students to
+"explain Hari Singh" under Reading Skills. So an asset slot may only be
+re-typed within what its own generator writes, and asking for anything else
+fails fast here rather than after a model call that could not have succeeded.
 """
 
 from __future__ import annotations
@@ -264,6 +279,71 @@ def _generate_textbook(slot: ReplacementSlot, *, user, pdf_source_ids, hsat_sour
 # ── Entry point ─────────────────────────────────────────────────────────
 
 
+def _reject_impossible_type(slot: ReplacementSlot) -> None:
+    """Refuse a type this slot's generator could never write.
+
+    Deliberately narrow: it fires only for slots owned by an asset generator,
+    whose output types are a short closed set we can state exactly. Textbook
+    slots are left alone — Model 1's range is wide and open-ended, and a guard
+    that merely *guessed* at it would reject swaps that work today.
+    """
+    from services.templates import GENERATOR_QUESTION_TYPES
+
+    writable = GENERATOR_QUESTION_TYPES.get(slot.generator)
+    if writable is None or slot.question_type in writable:
+        return
+
+    raise ReplacementError(
+        f"This question comes from {slot.section_title or 'a generated section'}, "
+        "which cannot be written as that type. Change the blueprint if the "
+        "section itself should be a different kind of question."
+    )
+
+
+def _realign_asset_type(slot: ReplacementSlot) -> None:
+    """Drop an asset type that contradicts the requested question type.
+
+    Only the Writing generator has an asset type that DECIDES the question type,
+    and its `_formats_for` falls back to `slot.asset_type` whenever the slot
+    carries no explicit formats — which a reconstructed slot never does. So a
+    LETTER slot re-typed to COMPOSITION would brief the generator with
+    `formal_letter_to_authority`, get a LETTER back, and have it rejected by
+    `slot_accepts` as "no replacement could be written".
+
+    Generators whose asset type does not imply a question type answer "" and
+    are left untouched, so an ordinary same-type swap is unaffected.
+
+    Read through `getattr`, not called directly: the registry accepts anything
+    that duck-types the contract, so a generator predating this pair of methods
+    must degrade to "no realignment" rather than to an AttributeError.
+    """
+    if slot.generator == DEFAULT_GENERATOR or not slot.asset_type:
+        return
+
+    from services.assets.registry import get_generator
+
+    generator = get_generator(slot.generator)
+    if generator is None:
+        return
+
+    question_type_for = getattr(generator, "question_type_for", None)
+    asset_type_for = getattr(generator, "asset_type_for", None)
+    if not callable(question_type_for) or not callable(asset_type_for):
+        return
+
+    implied = question_type_for(slot.asset_type)
+    if not implied or implied == slot.question_type:
+        return
+
+    slot.asset_type = asset_type_for(slot.question_type)
+    logger.info(
+        "Slot %s re-typed to %s; asset type realigned to %r.",
+        slot.index, slot.question_type, slot.asset_type,
+    )
+
+
+
+
 def replace_question(
     *,
     user,
@@ -276,6 +356,8 @@ def replace_question(
 ) -> ReplacementResult:
     """One replacement for one slot. Never touches any other question."""
     slot = build_slot(spec)
+    _reject_impossible_type(slot)
+    _realign_asset_type(slot)
     exclude_ids = list(exclude_ids or [])
     exclude_hashes = list(exclude_hashes or [])
 

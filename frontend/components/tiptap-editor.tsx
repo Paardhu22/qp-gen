@@ -34,6 +34,7 @@ import {
 import { PaperHeaderBlock as PaperHeaderBlockExt } from "./editor/extensions/header-node";
 import { QuestionHoverMenu } from "./editor/question-hover-menu";
 import { ImageStyleDialog } from "./editor/image-style-dialog";
+import { SwapQuestionDialog } from "./editor/swap-question-dialog";
 import { useQuestionMenu } from "@/lib/use-question-menu";
 import { OrGroupInvariant } from "./editor/extensions/or-group-invariant";
 import { MathBlock, InlineMath } from "./editor/extensions/math-nodes";
@@ -1657,6 +1658,7 @@ export const TiptapEditor = ({
                 text: questionMenu.active.text,
                 canReplace: questionMenu.active.canReplace,
                 onReplace: questionMenu.handleReplace,
+                onChangeType: questionMenu.openSwapDialog,
                 onDelete: questionMenu.handleDelete,
                 onGenerateImage: questionMenu.openImageDialog,
                 replacing: questionMenu.replacing,
@@ -1675,6 +1677,21 @@ export const TiptapEditor = ({
         generating={questionMenu.generatingImage}
         onGenerate={questionMenu.handleGenerateImage}
       />
+      {questionMenu.swapContext ? (
+        <SwapQuestionDialog
+          open={questionMenu.swapDialogOpen}
+          onOpenChange={questionMenu.setSwapDialogOpen}
+          options={questionMenu.typeOptions}
+          loadingOptions={questionMenu.loadingTypes}
+          questionText={questionMenu.swapContext.questionText}
+          currentType={questionMenu.swapContext.currentType}
+          currentMarks={questionMenu.swapContext.currentMarks}
+          paperTotal={questionMenu.swapContext.paperTotal}
+          isOrBranch={questionMenu.swapContext.isOrBranch}
+          swapping={questionMenu.replacing}
+          onSwap={questionMenu.handleSwapType}
+        />
+      ) : null}
     </div>
   );
 };

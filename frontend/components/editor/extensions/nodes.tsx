@@ -20,6 +20,153 @@ import {
 // ==========================================
 
 /**
+ * A change to the slot itself, not just to the question filling it.
+ *
+ * Absent fields mean "keep what the slot already says", which is the ordinary
+ * swap: same marks, same type, a different question. Present fields are the
+ * teacher deciding question 7 should stop being a 1-mark MCQ — the backend
+ * reconstructs the slot from what we send, so re-typing needs no separate
+ * endpoint.
+ */
+export interface SwapOverrides {
+  type?: string;
+  marks?: number;
+}
+
+/**
+ * Every question id in the document, so a replacement is never one the teacher
+ * is already looking at. Matching on the id the generator stamped keeps this
+ * exact even when two questions share a stem prefix.
+ */
+function questionIdsIn(editor: any): string[] {
+  const ids: string[] = [];
+  editor.state.doc.descendants((child: any) => {
+    if (child.type?.name !== "questionBlock") return;
+    const meta = parseSlotMeta(child.attrs?.slotMeta);
+    if (meta?.questionId) ids.push(String(meta.questionId));
+  });
+  return ids;
+}
+
+/** Ask the backend for one replacement. Reads the document; writes nothing. */
+async function fetchReplacement(
+  node: any,
+  overrides: SwapOverrides,
+  excludeIds: string[],
+) {
+  const slot = parseSlotMeta(node.attrs?.slotMeta);
+  if (!slot) return null;
+
+  return replaceQuestion(
+    {
+      slotIndex: Number(slot.slotIndex) || 0,
+      section: String(slot.section || ""),
+      marks: Number(overrides.marks ?? node.attrs?.marks ?? slot.marks ?? 1),
+      type: String(
+        overrides.type || slot.type || node.attrs?.questionType || "SHORT_ANSWER",
+      ),
+      generator: String(slot.generator || "question_pool"),
+      assetType: String(slot.assetType || ""),
+      chapter: String(slot.chapter || ""),
+      topic: String(slot.topic || ""),
+      difficulty: String(slot.difficulty || ""),
+      subject: String(slot.subject || ""),
+      poolId: String(slot.poolId || ""),
+      questionId: String(slot.questionId || ""),
+    },
+    { excludeIds },
+  );
+}
+
+/** Write a fetched replacement over the node at `pos`. */
+function applyReplacement(editor: any, pos: number, node: any, question: any) {
+  const replacement = buildQuestionBlocks({
+    content: question.content,
+    type: question.type,
+    options: question.options,
+    answer: question.answer,
+    marks: question.marks,
+    image_url: question.image_url,
+    metadata: question.metadata,
+  });
+
+  // Preserve the printed number and any OR-branch label; those belong to the
+  // slot's position on the paper, not to the question that happens to be in
+  // it. Auto-numbering would fix the number on its next pass anyway, but not
+  // before the teacher sees it flicker. On a composite only the head block
+  // is numbered, so it is the one that inherits them.
+  replacement[0].attrs = {
+    ...replacement[0].attrs,
+    number: node.attrs?.number ?? null,
+    subLabel: node.attrs?.subLabel ?? null,
+  };
+
+  // A composite question occupies a run of sibling blocks rather than a
+  // single node, so the range being overwritten has to cover the run — drop
+  // only the head and the new passage lands underneath the old one. The
+  // extent is bounded by the next structural block, so anything a teacher
+  // typed after the following question is untouched; prose they typed
+  // between this composite's last sub-question and that block is not, which
+  // is the price of a run with no wrapper node to delimit it.
+  const $pos = editor.state.doc.resolve(pos);
+  const replacedSize = isCompositeQuestionType(node.attrs?.questionType)
+    ? compositeRunSize($pos.parent, $pos.index())
+    : node.nodeSize;
+
+  editor
+    .chain()
+    .focus()
+    .insertContentAt({ from: pos, to: pos + replacedSize }, replacement)
+    .run();
+}
+
+/**
+ * The OR branches this position belongs to, or just the position itself.
+ *
+ * An OR choice is two questions the student picks between, so they have to be
+ * the same KIND of question: "31(A) Answer in 100 words / OR / 31(B) Which of
+ * the following…" is not a choice, it is a mistake. Re-typing one branch
+ * therefore re-types both. An ordinary swap does not — leaving each branch a
+ * genuinely different question is the entire point of an OR.
+ *
+ * Returned in document order; callers apply back-to-front so that editing a
+ * later branch cannot shift the position of an earlier one.
+ */
+function swapTargets(editor: any, pos: number): Array<{ pos: number; node: any }> {
+  const $pos = editor.state.doc.resolve(pos);
+
+  for (let depth = $pos.depth; depth > 0; depth -= 1) {
+    if ($pos.node(depth).type?.name !== "questionGroupBlock") continue;
+
+    const group = $pos.node(depth);
+    const branches: Array<{ pos: number; node: any }> = [];
+    // +1 steps past the group's own opening token into its content.
+    let offset = $pos.before(depth) + 1;
+    for (let i = 0; i < group.childCount; i += 1) {
+      const child = group.child(i);
+      if (child.type?.name === "questionBlock" && parseSlotMeta(child.attrs?.slotMeta)) {
+        branches.push({ pos: offset, node: child });
+      }
+      offset += child.nodeSize;
+    }
+    if (branches.length > 0) return branches;
+  }
+
+  const node = editor.state.doc.nodeAt(pos);
+  return node ? [{ pos, node }] : [];
+}
+
+/**
+ * Is the question at `pos` one branch of an OR choice?
+ *
+ * The dialog says so before the teacher commits, because re-typing one branch
+ * rewrites both and that is not something to discover afterwards.
+ */
+export function isOrBranchAt(editor: any, pos: number): boolean {
+  return swapTargets(editor, pos).length > 1;
+}
+
+/**
  * Swap ONE question block for a freshly resolved replacement.
  *
  * The node carries the blueprint slot it filled (`slotMeta`), so the backend
@@ -27,106 +174,92 @@ import {
  * generator. The replacement is written straight over this node's range —
  * nothing else in the document is read or touched, which is the whole point:
  * a teacher who dislikes question 7 should not have to regenerate the paper.
+ *
+ * `overrides` is how that same machinery changes a question's TYPE: the slot
+ * travels in the request rather than being looked up server-side, so asking
+ * for a different type is the ordinary request with one field changed. When
+ * the type or the marks change and the question is one branch of an OR choice,
+ * both branches are swapped — see `swapTargets`.
  */
 export async function replaceQuestionNode({
   editor,
   getPos,
   node,
   onBusy,
+  overrides = {},
 }: {
   editor: any;
   getPos: () => number | undefined;
   node: any;
   onBusy: (busy: boolean) => void;
-}) {
+  overrides?: SwapOverrides;
+}): Promise<boolean> {
   const slot = parseSlotMeta(node.attrs?.slotMeta);
-  if (!slot) return;
+  if (!slot) return false;
 
-  // Every question already in the document, so the replacement is not one of
-  // them. Matching on the id the generator stamped keeps this exact even when
-  // two questions share a stem prefix.
-  const excludeIds: string[] = [];
-  editor.state.doc.descendants((child: any) => {
-    if (child.type?.name !== "questionBlock") return;
-    const meta = parseSlotMeta(child.attrs?.slotMeta);
-    if (meta?.questionId) excludeIds.push(String(meta.questionId));
-  });
+  const reshapesTheSlot =
+    (overrides.type !== undefined && overrides.type !== slot.type) ||
+    (overrides.marks !== undefined &&
+      overrides.marks !== Number(node.attrs?.marks ?? slot.marks ?? 1));
 
   onBusy(true);
   try {
-    const { question, source } = await replaceQuestion(
-      {
-        slotIndex: Number(slot.slotIndex) || 0,
-        section: String(slot.section || ""),
-        marks: Number(node.attrs?.marks ?? slot.marks ?? 1),
-        type: String(slot.type || node.attrs?.questionType || "SHORT_ANSWER"),
-        generator: String(slot.generator || "question_pool"),
-        assetType: String(slot.assetType || ""),
-        chapter: String(slot.chapter || ""),
-        topic: String(slot.topic || ""),
-        difficulty: String(slot.difficulty || ""),
-        subject: String(slot.subject || ""),
-        poolId: String(slot.poolId || ""),
-        questionId: String(slot.questionId || ""),
-      },
-      { excludeIds },
-    );
+    const startPos = getPos();
+    if (typeof startPos !== "number") return false;
 
-    const pos = getPos();
-    if (typeof pos !== "number") return;
+    const targets = reshapesTheSlot
+      ? swapTargets(editor, startPos)
+      : [{ pos: startPos, node }];
 
-    const replacement = buildQuestionBlocks({
-      content: question.content,
-      type: question.type,
-      options: question.options,
-      answer: question.answer,
-      marks: question.marks,
-      image_url: question.image_url,
-      metadata: question.metadata,
-    });
+    // Fetch every replacement BEFORE touching the document, so a failure on
+    // the second branch cannot leave an OR pair half re-typed. Sequential,
+    // not parallel: each request must exclude what the previous one claimed,
+    // or both branches can come back the same question.
+    const excludeIds = questionIdsIn(editor);
+    const fetched: Array<{ target: { pos: number; node: any }; question: any; source: string }> = [];
+    for (const target of targets) {
+      const result = await fetchReplacement(target.node, overrides, excludeIds);
+      if (!result) continue;
+      const claimed = String(result.question?.metadata?.questionId || "");
+      if (claimed) excludeIds.push(claimed);
+      fetched.push({ target, question: result.question, source: result.source });
+    }
+    if (fetched.length === 0) return false;
 
-    // Preserve the printed number and any OR-branch label; those belong to the
-    // slot's position on the paper, not to the question that happens to be in
-    // it. Auto-numbering would fix the number on its next pass anyway, but not
-    // before the teacher sees it flicker. On a composite only the head block
-    // is numbered, so it is the one that inherits them.
-    replacement[0].attrs = {
-      ...replacement[0].attrs,
-      number: node.attrs?.number ?? null,
-      subLabel: node.attrs?.subLabel ?? null,
-    };
+    // Back-to-front: replacing a later branch leaves earlier positions valid.
+    for (let i = fetched.length - 1; i >= 0; i -= 1) {
+      const { target, question } = fetched[i];
+      applyReplacement(editor, target.pos, target.node, question);
+    }
 
-    // A composite question occupies a run of sibling blocks rather than a
-    // single node, so the range being overwritten has to cover the run — drop
-    // only the head and the new passage lands underneath the old one. The
-    // extent is bounded by the next structural block, so anything a teacher
-    // typed after the following question is untouched; prose they typed
-    // between this composite's last sub-question and that block is not, which
-    // is the price of a run with no wrapper node to delimit it.
-    const $pos = editor.state.doc.resolve(pos);
-    const replacedSize = isCompositeQuestionType(node.attrs?.questionType)
-      ? compositeRunSize($pos.parent, $pos.index())
-      : node.nodeSize;
-
-    editor
-      .chain()
-      .focus()
-      .insertContentAt({ from: pos, to: pos + replacedSize }, replacement)
-      .run();
-
-    toast.success(
-      source === "bank"
-        ? "Swapped in another question from your bank."
-        : "Wrote a new question for this slot.",
-    );
+    const wrote = fetched.some((entry) => entry.source !== "bank");
+    if (fetched.length > 1) {
+      toast.success("Swapped both branches of this OR choice.");
+    } else {
+      toast.success(
+        wrote
+          ? "Wrote a new question for this slot."
+          : "Swapped in another question from your bank.",
+      );
+    }
+    return true;
   } catch (error) {
+    // A 409 is the backend declining for a reason it can state precisely —
+    // this slot's generator cannot write that type, or the bank is out of
+    // eligible questions. `fetchJson` has already lifted that sentence into
+    // `message`, so pass it through rather than overwriting it with a guess.
     const message =
       error instanceof ApiError && error.status === 409
-        ? "No other question fits this slot yet. Generate more for this chapter first."
+        ? error.message ||
+          "No other question fits this slot yet. Generate more for this chapter first."
         : error instanceof Error
           ? error.message
           : "Could not replace this question.";
     toast.error(message);
+    // Reported, not rethrown — but the caller still needs to know, so a dialog
+    // can stay open on the type that did not work instead of closing over a
+    // toast the teacher may not have read.
+    return false;
   } finally {
     onBusy(false);
   }
