@@ -1402,6 +1402,96 @@ export async function generateQuestionImage(body: {
   });
 }
 
+/**
+ * A chart the backend can draw exactly, read out of a question.
+ *
+ * This is the wire shape `services/figures/spec.py` validates, and it is what
+ * the teacher edits in the dialog before anything is drawn — which is the
+ * whole point of the two-step flow. A renderer fed the wrong numbers is still
+ * wrong, and only the person who wrote the question can see that.
+ */
+export interface ChartDatum {
+  label: string;
+  value: number;
+}
+
+export interface ChartBin {
+  lower: number;
+  upper: number;
+  value: number;
+}
+
+export interface ChartPoint {
+  x: number;
+  y: number;
+  label: string;
+}
+
+export type ChartKind =
+  | "pie"
+  | "bar"
+  | "histogram"
+  | "line"
+  | "number_line"
+  | "coordinate_grid";
+
+export interface ChartSpec {
+  kind: "chart";
+  chart: ChartKind;
+  series?: ChartDatum[];
+  bins?: ChartBin[];
+  points?: ChartPoint[];
+  xLabel: string;
+  yLabel: string;
+  /**
+   * Whether the figure prints its own numbers. False whenever the question
+   * asks the student to read or compute them — the figure must not answer the
+   * question it illustrates.
+   */
+  showValues: boolean;
+  yMax?: number;
+  axisMin?: number;
+  axisMax?: number;
+  axisStep?: number;
+}
+
+export interface FigureSpecResult {
+  kind: "chart" | "illustration";
+  spec: ChartSpec | null;
+}
+
+/**
+ * What figure does this question want, and with what numbers?
+ *
+ * Fast and cheap — a small structured model call — so the dialog can open on
+ * it. Always resolves: anything it cannot read comes back as `illustration`,
+ * which is the image-model path that already existed.
+ */
+export async function extractQuestionFigureSpec(body: {
+  questionText: string;
+}): Promise<FigureSpecResult> {
+  return fetchJson<FigureSpecResult>("/api/generation/question-figure-spec", {
+    method: "POST",
+    body: JSON.stringify(body),
+    timeoutMs: 60_000,
+  });
+}
+
+/**
+ * Draw a chart from a spec.
+ *
+ * No model, no spend, no waiting — this is arithmetic on the server, so the
+ * default timeout is right and the dialog can call it on every edit.
+ */
+export async function renderQuestionFigure(body: {
+  spec: ChartSpec;
+}): Promise<{ imageUrl: string; kind: string; cached: boolean }> {
+  return fetchJson<{ imageUrl: string; kind: string; cached: boolean }>(
+    "/api/generation/question-figure",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
 export async function fetchPaperTemplates(): Promise<PaperTemplate[]> {
   const data = await fetchJson<{ templates: PaperTemplate[] }>(
     "/api/generation/templates",

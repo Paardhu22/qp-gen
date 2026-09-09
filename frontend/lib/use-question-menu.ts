@@ -21,9 +21,11 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import {
+  extractQuestionFigureSpec,
   generateQuestionImage,
   fetchQuestionImageStyles,
   fetchQuestionTypeMenu,
+  type ChartSpec,
   type QuestionImageStyle,
   type QuestionImageStyleOption,
   type QuestionTypeOption,
@@ -100,6 +102,8 @@ export function useQuestionMenu(editor: any) {
   const [styleDialogOpen, setStyleDialogOpen] = React.useState(false);
   const [generatingImage, setGeneratingImage] = React.useState(false);
   const [styles, setStyles] = React.useState<QuestionImageStyleOption[]>([]);
+  const [loadingSpec, setLoadingSpec] = React.useState(false);
+  const [chartSpec, setChartSpec] = React.useState<ChartSpec | null>(null);
   const [swapDialogOpen, setSwapDialogOpen] = React.useState(false);
   const [swapContext, setSwapContext] = React.useState<SwapContext | null>(null);
   const [typeOptions, setTypeOptions] = React.useState<QuestionTypeOption[]>([]);
@@ -258,11 +262,42 @@ export function useQuestionMenu(editor: any) {
     }
   }, [styles]);
 
+  /**
+   * Open the figure dialog and, at the same time, ask what kind of figure this
+   * question actually wants.
+   *
+   * The extraction starts before the teacher has read the dialog, so by the
+   * time they have, a chart question is already showing its numbers. Styles
+   * are fetched alongside it because the answer may still be "illustration",
+   * and waiting for the classification before fetching them would add a second
+   * round trip to the common case.
+   */
   const openImageDialog = React.useCallback(() => {
     if (!active) return;
-    pendingRef.current = active;
-    void ensureStyles();
+    const target = active;
+    pendingRef.current = target;
+    setChartSpec(null);
+    setLoadingSpec(true);
     setStyleDialogOpen(true);
+    void ensureStyles();
+
+    void extractQuestionFigureSpec({ questionText: target.text })
+      .then((result) => {
+        // The teacher may have cancelled, or moved to another question, while
+        // this was in flight. Applying a stale spec would show one question's
+        // data over another's.
+        if (pendingRef.current !== target) return;
+        setChartSpec(result.kind === "chart" ? result.spec : null);
+      })
+      .catch((error) => {
+        // Not worth a toast: falling back to the style picker is the path that
+        // already existed, and the teacher gets a working dialog either way.
+        console.error("Could not read a figure from this question:", error);
+        if (pendingRef.current === target) setChartSpec(null);
+      })
+      .finally(() => {
+        if (pendingRef.current === target) setLoadingSpec(false);
+      });
   }, [active, ensureStyles]);
 
   const handleDelete = React.useCallback(() => {
@@ -413,10 +448,47 @@ export function useQuestionMenu(editor: any) {
     [editor],
   );
 
+  /**
+   * Drop an already-drawn chart into the question.
+   *
+   * Same placement as a generated picture — after the stem, above the options
+   * (`figureInsertPos`) — because a figure's position in a question does not
+   * depend on how it was drawn.
+   */
+  const handleInsertChart = React.useCallback(
+    (imageUrl: string) => {
+      const target = pendingRef.current;
+      if (!editor || !target) return;
+
+      const node = editor.state.doc.nodeAt(target.pos);
+      if (!node) {
+        toast.error("That question is no longer in the paper.");
+        return;
+      }
+
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(figureInsertPos(node, target.pos), {
+          type: "floatImage",
+          attrs: { src: imageUrl, alt: "", width: SIZE_HALF, align: "center" },
+        })
+        .run();
+
+      setStyleDialogOpen(false);
+      toast.success("Figure added — drawn from the values you confirmed.");
+    },
+    [editor],
+  );
+
   return {
     active,
     replacing,
     generatingImage,
+    loadingSpec,
+    chartSpec,
+    setChartSpec,
+    handleInsertChart,
     styles,
     styleDialogOpen,
     setStyleDialogOpen,

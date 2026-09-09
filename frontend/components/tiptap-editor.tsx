@@ -33,7 +33,7 @@ import {
 } from "./editor/extensions/nodes";
 import { PaperHeaderBlock as PaperHeaderBlockExt } from "./editor/extensions/header-node";
 import { QuestionHoverMenu } from "./editor/question-hover-menu";
-import { ImageStyleDialog } from "./editor/image-style-dialog";
+import { FigureDialog } from "./editor/figure-dialog";
 import { SwapQuestionDialog } from "./editor/swap-question-dialog";
 import { useQuestionMenu } from "@/lib/use-question-menu";
 import { OrGroupInvariant } from "./editor/extensions/or-group-invariant";
@@ -1669,13 +1669,17 @@ export const TiptapEditor = ({
         onMenuEnter={questionMenu.onMenuEnter}
         onMenuLeave={questionMenu.onMenuLeave}
       />
-      <ImageStyleDialog
+      <FigureDialog
         open={questionMenu.styleDialogOpen}
         onOpenChange={questionMenu.setStyleDialogOpen}
         styles={questionMenu.styles}
         questionText={questionMenu.active?.text ?? ""}
         generating={questionMenu.generatingImage}
         onGenerate={questionMenu.handleGenerateImage}
+        loadingSpec={questionMenu.loadingSpec}
+        chartSpec={questionMenu.chartSpec}
+        onChartSpecChange={questionMenu.setChartSpec}
+        onInsertChart={questionMenu.handleInsertChart}
       />
       {questionMenu.swapContext ? (
         <SwapQuestionDialog

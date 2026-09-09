@@ -1,17 +1,25 @@
 "use client";
 
 /**
- * "Generate image" → which style?
+ * "Add a picture" → what kind of figure is this, actually?
  *
- * One question, three answers, and the answer is shown rather than described:
- * a teacher choosing between "line art" and "realistic" is choosing between
- * two pictures, so each card carries a small drawing of what it produces.
- * Three words of prose cannot do that job.
+ * The dialog opens on that question rather than on the style picker, because
+ * the two answers want completely different controls. A question about data —
+ * a pie chart, a bar graph, a histogram — is drawn exactly by the server from
+ * numbers read out of the question, and the only thing worth a teacher's
+ * attention is whether those numbers are right. A question about a beaker or
+ * a ray diagram is drawn by an image model, and the only choice is how it
+ * should look.
  *
- * The previews are inline SVG, not sample renders. A sample render would be a
- * network request per card on open, would need storing somewhere, and would go
- * stale the moment the prompt changed. These are cheap, offline, and honest
- * about being schematic.
+ * Offering "line art / realistic / cartoon" for a bar graph was the old bug in
+ * miniature: three adjectives that mean nothing for a chart, attached to a
+ * model that could not count. Those styles now appear only when the figure is
+ * genuinely an illustration.
+ *
+ * The style previews are inline SVG, not sample renders. A sample render would
+ * be a network request per card on open, would need storing somewhere, and
+ * would go stale the moment the prompt changed. These are cheap, offline, and
+ * honest about being schematic.
  */
 
 import * as React from "react";
@@ -28,9 +36,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 import type {
+  ChartSpec,
   QuestionImageStyle,
   QuestionImageStyleOption,
 } from "@/lib/api-client";
+import { ChartFigureEditor } from "./chart-figure-editor";
 
 interface Props {
   open: boolean;
@@ -40,6 +50,13 @@ interface Props {
   questionText: string;
   generating: boolean;
   onGenerate: (style: QuestionImageStyle) => void;
+  /** True while the backend is working out what kind of figure this is. */
+  loadingSpec: boolean;
+  /** Non-null when this question wants a chart rather than an illustration. */
+  chartSpec: ChartSpec | null;
+  onChartSpecChange: (spec: ChartSpec) => void;
+  /** Insert the chart already drawn at this URL. */
+  onInsertChart: (imageUrl: string) => void;
 }
 
 /** Schematic previews. Deliberately crude — they show a look, not a result. */
@@ -101,32 +118,43 @@ function StylePreview({ style }: { style: QuestionImageStyle }) {
   );
 }
 
-export function ImageStyleDialog({
+export function FigureDialog({
   open,
   onOpenChange,
   styles,
   questionText,
   generating,
   onGenerate,
+  loadingSpec,
+  chartSpec,
+  onChartSpecChange,
+  onInsertChart,
 }: Props) {
   const [selected, setSelected] = React.useState<QuestionImageStyle>("line_art");
+  const [chartUrl, setChartUrl] = React.useState<string | null>(null);
 
   // Line art every time the dialog opens, not whatever was picked last. The
   // right style depends on the question, and a remembered choice quietly
   // applies the previous question's answer to this one.
   React.useEffect(() => {
-    if (open) setSelected("line_art");
+    if (open) {
+      setSelected("line_art");
+      setChartUrl(null);
+    }
   }, [open]);
 
   const preview = questionText.trim().replace(/\s+/g, " ");
+  const isChart = Boolean(chartSpec);
 
   return (
     <Dialog open={open} onOpenChange={generating ? () => {} : onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className={isChart ? "sm:max-w-2xl" : "sm:max-w-lg"}>
         <DialogHeader>
-          <DialogTitle>Add a picture to this question</DialogTitle>
+          <DialogTitle>Add a figure to this question</DialogTitle>
           <DialogDescription>
-            We will draw something that fits what the question is about.
+            {isChart
+              ? "Check the numbers we read from your question, then insert the chart."
+              : "We will draw something that fits what the question is about."}
           </DialogDescription>
         </DialogHeader>
 
@@ -136,37 +164,52 @@ export function ImageStyleDialog({
           </p>
         ) : null}
 
-        <div className="grid gap-2 sm:grid-cols-3">
-          {styles.map((style) => {
-            const active = selected === style.value;
-            return (
-              <button
-                key={style.value}
-                type="button"
-                disabled={generating}
-                onClick={() => setSelected(style.value)}
-                className={cn(
-                  "flex flex-col items-center gap-2 rounded-xl border p-3 text-center transition-all",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  "disabled:cursor-not-allowed disabled:opacity-60",
-                  active
-                    ? "border-primary bg-primary/5 ring-1 ring-primary"
-                    : "border-border hover:border-primary/40 hover:bg-muted/40",
-                )}
-              >
-                <StylePreview style={style.value} />
-                <span className="text-sm font-semibold">{style.label}</span>
-                <span className="text-[11px] leading-snug text-muted-foreground">
-                  {style.description}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {loadingSpec ? (
+          <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+            <Spinner className="size-4" />
+            Reading the question…
+          </div>
+        ) : chartSpec ? (
+          <ChartFigureEditor
+            spec={chartSpec}
+            onSpecChange={onChartSpecChange}
+            onPreviewChange={setChartUrl}
+          />
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-3">
+            {styles.map((style) => {
+              const active = selected === style.value;
+              return (
+                <button
+                  key={style.value}
+                  type="button"
+                  disabled={generating}
+                  onClick={() => setSelected(style.value)}
+                  className={cn(
+                    "flex flex-col items-center gap-2 rounded-xl border p-3 text-center transition-all",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                    "disabled:cursor-not-allowed disabled:opacity-60",
+                    active
+                      ? "border-primary bg-primary/5 ring-1 ring-primary"
+                      : "border-border hover:border-primary/40 hover:bg-muted/40",
+                  )}
+                >
+                  <StylePreview style={style.value} />
+                  <span className="text-sm font-semibold">{style.label}</span>
+                  <span className="text-[11px] leading-snug text-muted-foreground">
+                    {style.description}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <DialogFooter className="sm:justify-between">
           <p className="hidden text-[11px] text-muted-foreground sm:block">
-            Takes up to a minute. Check the picture before using the paper.
+            {isChart
+              ? "Drawn from these numbers exactly. Nothing is billed for redrawing."
+              : "Takes up to a minute. Check the picture before using the paper."}
           </p>
           <div className="flex gap-2">
             <Button
@@ -178,23 +221,35 @@ export function ImageStyleDialog({
             >
               Cancel
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={generating || styles.length === 0}
-              onClick={() => onGenerate(selected)}
-            >
-              {generating ? (
-                <>
-                  <Spinner className="size-3.5" />
-                  Drawing…
-                </>
-              ) : (
-                <>
-                  Generate
-                </>
-              )}
-            </Button>
+            {isChart ? (
+              <Button
+                type="button"
+                size="sm"
+                // Disabled until a drawing exists: the button inserts the
+                // chart that is on screen, so there is nothing to insert
+                // while the current values are mid-redraw or unrenderable.
+                disabled={!chartUrl}
+                onClick={() => chartUrl && onInsertChart(chartUrl)}
+              >
+                Insert figure
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                disabled={generating || loadingSpec || styles.length === 0}
+                onClick={() => onGenerate(selected)}
+              >
+                {generating ? (
+                  <>
+                    <Spinner className="size-3.5" />
+                    Drawing…
+                  </>
+                ) : (
+                  <>Generate</>
+                )}
+              </Button>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>
