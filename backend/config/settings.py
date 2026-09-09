@@ -407,6 +407,13 @@ POOL_MODEL = os.environ.get("POOL_MODEL", "gpt-4.1-mini")
 REVIEW_MODEL = os.environ.get("REVIEW_MODEL", "gpt-4.1-mini")
 ANSWER_MODEL = os.environ.get("ANSWER_MODEL", "gpt-4.1-mini")
 
+# Reads a question and decides what figure it wants — and, for a chart, with
+# what numbers (services/figures/extract.py). Its own setting for the same
+# reason as every other stage: this one runs on EVERY "add a picture" click,
+# so a deployment that pointed it at a low-TPM model would rate-limit an
+# interactive action rather than a background batch.
+FIGURE_SPEC_MODEL = os.environ.get("FIGURE_SPEC_MODEL", "gpt-4.1-mini")
+
 # ─── Per-chapter Model 1 execution (TPM safety) ─────────────────────────────
 # Model 1 processes ONE chapter per request, never the whole upload. These
 # knobs bound how large a single prompt can get and how many run at once so the

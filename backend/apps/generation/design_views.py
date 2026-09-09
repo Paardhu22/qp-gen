@@ -631,6 +631,76 @@ class QuestionImageView(APIView):
         return Response(result)
 
 
+class QuestionFigureSpecView(APIView):
+    """What figure does this question want, and with what numbers?
+
+    Separate from the drawing step on purpose. This answers in a second or two
+    and costs almost nothing, so the dialog can open, show the teacher the data
+    it read out of their question, and let them correct it BEFORE anything is
+    drawn or billed. The old flow had no such moment: the first thing a teacher
+    saw was a finished picture with invented values in it.
+
+    Always answers. A model failure, junk JSON or a spec that will not validate
+    all resolve to `illustration`, which is the path that already existed.
+    """
+
+    def post(self, request):
+        from services.figures import MAX_QUESTION_CHARS, extract_figure_spec
+
+        question_text = str((request.data or {}).get("questionText") or "").strip()
+        if not question_text:
+            return Response(
+                {"error": "There is no question text to draw from."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            check_monthly_token_limit(request.user)
+        except UsageLimitExceeded as exc:
+            return Response(exc.payload, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+        return Response(
+            extract_figure_spec(
+                question_text=question_text[:MAX_QUESTION_CHARS],
+                user=request.user,
+            )
+        )
+
+
+class QuestionFigureRenderView(APIView):
+    """Draw a chart from a spec the teacher has seen.
+
+    No model call and no spend — this is arithmetic and string building, so it
+    returns in milliseconds and the dialog can re-render on every keystroke as
+    a teacher corrects a value. There is deliberately no usage check here for
+    that reason; the billable step was the extraction.
+
+    The spec is re-validated rather than trusted: it has been through the
+    browser and a teacher's edits since the extractor produced it.
+    """
+
+    def post(self, request):
+        from services.figures import SpecError, render_chart
+
+        spec = (request.data or {}).get("spec")
+        if not isinstance(spec, dict):
+            return Response(
+                {"error": "No figure to draw."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            return Response(render_chart(spec=spec))
+        except SpecError as exc:
+            # This one IS worth telling the teacher about, unlike a rejected
+            # extraction: they are looking at the values that caused it.
+            logger.info("Refused to render a figure spec: %s", exc)
+            return Response(
+                {"error": "Those values cannot be drawn. Check them and try again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
 class PaperTemplateDetailView(APIView):
     """Apply (marking it used), edit, or delete one template.
 

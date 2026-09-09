@@ -6,6 +6,8 @@ from .design_views import (
     PaperTemplateDuplicateView,
     PaperTemplateForkView,
     PaperTemplateListView,
+    QuestionFigureRenderView,
+    QuestionFigureSpecView,
     QuestionImageView,
     QuestionTypeCatalogView,
     TemplateFolderDetailView,
@@ -64,7 +66,21 @@ urlpatterns = [
     ),
     # The per-slot question-type menu for the Blueprint Builder.
     path("question-types", QuestionTypeCatalogView.as_view(), name="question-types"),
-    # Draw a figure for one question, on request from the editor's hover menu.
+    # Adding a figure to a question is two steps, in this order. First: what
+    # figure does this question want, and with what numbers? Then either the
+    # chart renderer (free, instant, exact) or the image model below.
+    path(
+        "question-figure-spec",
+        QuestionFigureSpecView.as_view(),
+        name="question-figure-spec",
+    ),
+    path(
+        "question-figure",
+        QuestionFigureRenderView.as_view(),
+        name="question-figure",
+    ),
+    # The illustration path: apparatus, diagrams, word-problem scenes. Slow and
+    # billable, and no longer where charts end up.
     path("question-image", QuestionImageView.as_view(), name="question-image"),
     # Must stay below `templates/resolve` and `templates/fork`: this pattern
     # would otherwise swallow them as template ids.
