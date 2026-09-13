@@ -236,3 +236,29 @@ export const SHAPE_DEFAULT_TYPE: Readonly<Record<string, string>> = {
   "LETTER": "LETTER_WRITING",
   "COMPOSITION": "ESSAY_WRITING",
 };
+
+/** Runtime shape → its plain name, which its default type reads under. */
+export const SHAPE_LABELS: Readonly<Record<string, string>> = {
+  "MCQ": "Multiple Choice",
+  "ASSERTION_REASON": "Assertion & Reason",
+  "TRUE_FALSE": "True / False",
+  "FILL_IN_THE_BLANK": "Fill in the Blank",
+  "ONE_WORD": "One Word Answer",
+  "MATCH_THE_FOLLOWING": "Match the Following",
+  "VERY_SHORT_ANSWER": "Very Short Answer",
+  "SHORT_ANSWER": "Short Answer",
+  "LONG_ANSWER": "Long Answer",
+  "HOTS": "Higher Order Thinking",
+  "COMPETENCY": "Competency Based",
+  "NUMERICAL": "Numerical / Calculation",
+  "EXPERIMENTAL": "Experimental",
+  "DIAGRAM": "Diagram (student draws)",
+  "CASE_STUDY": "Case Study",
+  "READING_COMP": "Reading Comprehension",
+  "EXTRACT_PROSE": "Prose Extract",
+  "EXTRACT_POETRY": "Poetry Extract",
+  "ANALYTICAL_PARAGRAPH": "Analytical Paragraph",
+  "GRAMMAR": "Grammar",
+  "LETTER": "Letter Writing",
+  "COMPOSITION": "Composition / Essay",
+};

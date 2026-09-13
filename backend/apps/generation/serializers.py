@@ -71,6 +71,11 @@ class ReplacementSlotSerializer(serializers.Serializer):
     section = serializers.CharField(required=False, allow_blank=True, default="")
     marks = serializers.IntegerField(min_value=1, max_value=40)
     type = serializers.CharField()
+    #: The catalogue type, when the editor knows it. `type` stays the runtime
+    #: shape; `services.question_types.resolve_slot_type` reconciles the two.
+    typeCode = serializers.CharField(required=False, allow_blank=True, default="")
+    hots = serializers.BooleanField(required=False, default=False)
+    competency = serializers.BooleanField(required=False, default=False)
     generator = serializers.CharField(
         required=False, allow_blank=True, default="question_pool"
     )

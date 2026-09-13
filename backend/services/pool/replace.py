@@ -50,7 +50,7 @@ from services.pool.schema import (
     normalize_type,
     slot_accepts,
 )
-from services.question_types import legacy_bucket
+from services.question_types import legacy_bucket, resolve_slot_type
 
 logger = logging.getLogger("[POOL_REPLACE]")
 
@@ -85,6 +85,10 @@ class ReplacementSlot:
     constraints: Dict[str, Any] = field(default_factory=dict)
     validation: tuple = ()
     class_num: int = 10
+    #: The catalogue type this slot asks for, and the attributes it carries.
+    type_code: str = ""
+    hots: bool = False
+    competency: bool = False
 
 
 @dataclass
@@ -103,13 +107,22 @@ def _legacy_type_for(question_type: str) -> str:
 
 def build_slot(spec: Dict[str, Any]) -> ReplacementSlot:
     """Reconstruct the slot from the editor's `slotMeta` payload."""
-    question_type = normalize_type(spec.get("type")) or "SHORT_ANSWER"
+    slot_type = resolve_slot_type(
+        spec.get("typeCode") or "",
+        spec.get("type") or "",
+        hots=bool(spec.get("hots")),
+        competency=bool(spec.get("competency")),
+    )
+    question_type = slot_type.shape
     try:
         marks = int(spec.get("marks") or 1)
     except (TypeError, ValueError):
         marks = 1
 
     return ReplacementSlot(
+        type_code=slot_type.code,
+        hots=slot_type.hots,
+        competency=slot_type.competency,
         index=int(spec.get("slotIndex") or 0),
         marks=max(1, marks),
         question_type=question_type,

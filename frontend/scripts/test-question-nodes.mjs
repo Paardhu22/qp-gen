@@ -218,6 +218,27 @@ check("slot metadata round-trips", () => {
   eq(parsed.chapter, "Bholi");
 });
 
+check("a generated question keeps its catalogue type on the block and in slot metadata", () => {
+  const block = buildQuestionBlock({
+    content: "Choose the odd one out.",
+    type: "MCQ",
+    typeCode: "MCQ_ODD_ONE_OUT",
+    options: ["Mango", "Banana", "Potato", "Apple"],
+    marks: 1,
+    metadata: { slotIndex: 2, hots: true },
+  });
+  // The shape still decides the layout; the code is what the question is.
+  eq(block.attrs.questionType, "MCQ");
+  eq(block.attrs.typeCode, "MCQ_ODD_ONE_OUT");
+  const parsed = parseSlotMeta(block.attrs.slotMeta);
+  eq(parsed.typeCode, "MCQ_ODD_ONE_OUT");
+  eq(parsed.hots, true);
+});
+
+check("a question from before the catalogue carries no type code", () => {
+  eq(buildQuestionBlock({ content: "q", type: "SHORT_ANSWER", marks: 2 }).attrs.typeCode, "");
+});
+
 check("a hand-written question carries no slot metadata", () => {
   eq(buildSlotMeta({ content: "q", marks: 1 }), "");
   eq(parseSlotMeta(""), null);

@@ -214,6 +214,7 @@ class ReplaceQuestionView(APIView):
                 "question": {
                     "content": question.question,
                     "type": question.type,
+                    "typeCode": question.type_code,
                     "options": list(question.options or []),
                     "answer": question.answer,
                     "marks": question.marks,
@@ -221,6 +222,9 @@ class ReplaceQuestionView(APIView):
                     "image_url": question.image or "",
                     "metadata": {
                         **(question.metadata or {}),
+                        "typeCode": question.type_code,
+                        "hots": question.hots,
+                        "competency": question.competency,
                         "slotIndex": int(data["slot"].get("slotIndex") or 0),
                         "section": data["slot"].get("section") or "",
                         "questionId": question.id,

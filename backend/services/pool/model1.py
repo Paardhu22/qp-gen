@@ -276,6 +276,22 @@ def _normalise_batch(
             question.marks = next(iter(allowed_marks))
             question.metadata["marks"] = question.marks
 
+        # The recipe says what this question is. The one quota it matches on
+        # shape and marks stamps its catalogue type and attributes, so a model
+        # that wrote a bare "MCQ" for an odd-one-out quota still yields an
+        # odd-one-out, and a higher-order quota's questions stay marked as such.
+        matching = [
+            quota
+            for quota in batch.quotas
+            if quota.type == question.type and quota.marks == question.marks
+        ]
+        if len(matching) == 1:
+            quota = matching[0]
+            if quota.type_code:
+                question.type_code = quota.type_code
+            question.hots = question.hots or quota.hots
+            question.competency = question.competency or quota.competency
+
         # Route the stem through the same scrubber the legacy path used, so
         # figure-label residue and blueprint leakage never reach the bank.
         cleaned = clean_question_text(question.question)

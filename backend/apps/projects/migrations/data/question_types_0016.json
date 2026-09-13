@@ -2583,7 +2583,8 @@
     "options": null,
     "route": {
      "generator": "reading_asset_pool",
-     "assetType": "discursive_passage"
+     "assetType": "discursive_passage",
+     "also": []
     }
    },
    "answer_schema": {
@@ -3801,7 +3802,8 @@
     "options": null,
     "route": {
      "generator": "grammar_asset_pool",
-     "assetType": "grammar_task_set"
+     "assetType": "grammar_task_set",
+     "also": []
     }
    },
    "answer_schema": {
@@ -3853,7 +3855,8 @@
     "options": null,
     "route": {
      "generator": "grammar_asset_pool",
-     "assetType": "grammar_task_set"
+     "assetType": "grammar_task_set",
+     "also": []
     }
    },
    "answer_schema": {
@@ -3905,7 +3908,8 @@
     "options": null,
     "route": {
      "generator": "grammar_asset_pool",
-     "assetType": "grammar_task_set"
+     "assetType": "grammar_task_set",
+     "also": []
     }
    },
    "answer_schema": {
@@ -3957,7 +3961,8 @@
     "options": null,
     "route": {
      "generator": "grammar_asset_pool",
-     "assetType": "grammar_task_set"
+     "assetType": "grammar_task_set",
+     "also": []
     }
    },
    "answer_schema": {
@@ -4009,7 +4014,8 @@
     "options": null,
     "route": {
      "generator": "grammar_asset_pool",
-     "assetType": "grammar_task_set"
+     "assetType": "grammar_task_set",
+     "also": []
     }
    },
    "answer_schema": {
@@ -4110,7 +4116,8 @@
     "options": null,
     "route": {
      "generator": "grammar_asset_pool",
-     "assetType": "grammar_task_set"
+     "assetType": "grammar_task_set",
+     "also": []
     }
    },
    "answer_schema": {
@@ -4162,7 +4169,8 @@
     "options": null,
     "route": {
      "generator": "grammar_asset_pool",
-     "assetType": "grammar_task_set"
+     "assetType": "grammar_task_set",
+     "also": []
     }
    },
    "answer_schema": {
@@ -4709,7 +4717,13 @@
     "options": null,
     "route": {
      "generator": "writing_asset_pool",
-     "assetType": "formal_letter_to_authority"
+     "assetType": "formal_letter_to_authority",
+     "also": [
+      "letter_to_editor",
+      "letter_of_complaint",
+      "letter_of_enquiry",
+      "letter_placing_order"
+     ]
     }
    },
    "answer_schema": {
@@ -4761,7 +4775,8 @@
     "options": null,
     "route": {
      "generator": "writing_asset_pool",
-     "assetType": "email"
+     "assetType": "email",
+     "also": []
     }
    },
    "answer_schema": {
@@ -4813,7 +4828,8 @@
     "options": null,
     "route": {
      "generator": "writing_asset_pool",
-     "assetType": "notice"
+     "assetType": "notice",
+     "also": []
     }
    },
    "answer_schema": {
@@ -4963,7 +4979,8 @@
     "options": null,
     "route": {
      "generator": "writing_asset_pool",
-     "assetType": "story"
+     "assetType": "story",
+     "also": []
     }
    },
    "answer_schema": {
@@ -5064,7 +5081,8 @@
     "options": null,
     "route": {
      "generator": "writing_asset_pool",
-     "assetType": "analytical_paragraph"
+     "assetType": "analytical_paragraph",
+     "also": []
     }
    },
    "answer_schema": {
@@ -5214,7 +5232,10 @@
     "options": null,
     "route": {
      "generator": "writing_asset_pool",
-     "assetType": "speech"
+     "assetType": "speech",
+     "also": [
+      "debate"
+     ]
     }
    },
    "answer_schema": {
@@ -5364,7 +5385,8 @@
     "options": null,
     "route": {
      "generator": "writing_asset_pool",
-     "assetType": "article"
+     "assetType": "article",
+     "also": []
     }
    },
    "answer_schema": {
@@ -5416,7 +5438,8 @@
     "options": null,
     "route": {
      "generator": "writing_asset_pool",
-     "assetType": "report"
+     "assetType": "report",
+     "also": []
     }
    },
    "answer_schema": {

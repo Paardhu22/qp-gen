@@ -84,6 +84,10 @@ def _matches(
         return False
     if candidate.type != original.type:
         return False
+    # The same shape is not enough once a type is chosen: an odd-one-out MCQ is
+    # replaced by another odd-one-out, not by any MCQ.
+    if candidate.type_code and original.type_code and candidate.type_code != original.type_code:
+        return False
     if candidate.blooms != original.blooms:
         return False
     if candidate.difficulty != original.difficulty:

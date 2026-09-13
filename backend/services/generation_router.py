@@ -109,6 +109,25 @@ class QuestionGenerationSlot:
     #: Names of rules in `services.assets.validation` to run on what comes back.
     validation: Tuple[str, ...] = ()
 
+    # ── Type identity ───────────────────────────────────────────────────
+    #: The catalogue type this slot asks for. `question_type` stays the runtime
+    #: shape every consumer keys on; a slot built from a shape name alone gets
+    #: that shape's default type.
+    type_code: str = ""
+    #: Slot attributes: higher-order thinking, real-world framing.
+    hots: bool = False
+    competency: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.type_code:
+            from services.question_types import default_type_for_shape
+
+            # The dataclass is frozen; set the derived default the way its own
+            # generated __init__ would.
+            object.__setattr__(
+                self, "type_code", default_type_for_shape(self.question_type)
+            )
+
 
 def normalize_subject(subject: str) -> str:
     subject_norm = str(subject or "").strip().lower()

@@ -80,7 +80,7 @@ from services.pool.model1 import PoolGenerationResult, generate_question_pool
 from services.pool.model2 import PaperAssemblyError, assemble_paper
 from services.pool.rendering import or_label_for, printable_content
 from services.pool.schema import PoolQuestion, pool_summary
-from services.question_types import legacy_bucket
+from services.question_types import CATALOG, legacy_bucket, normalize_type_code
 from utils.ids import generate_id
 
 logger = logging.getLogger("[POOL_PIPELINE]")
@@ -107,6 +107,13 @@ class _GimSlot:
     question_type: str
     legacy_type: str
     section_title: str
+    type_code: str = ""
+
+    def __post_init__(self) -> None:
+        # The designer names types in its own vocabulary ("FILL_BLANK"); the
+        # catalogue says which type that is.
+        if not self.type_code:
+            self.type_code = normalize_type_code(self.question_type)
 
 
 @dataclass
@@ -152,9 +159,14 @@ def _question_to_wire(
         or_label=label,
     )
 
+    spec = CATALOG.get(question.type_code)
     wire: Dict[str, Any] = {
         "content": content,
+        # `type` stays the shape the editor lays out; `typeCode` is what the
+        # question actually is, and `typeLabel` is how a teacher reads that.
         "type": question.type,
+        "typeCode": question.type_code,
+        "typeLabel": spec.label if spec else "",
         "options": list(question.options or []),
         "answer": question.answer,
         "marks": int(question.marks),
@@ -173,6 +185,9 @@ def _question_to_wire(
             # never has to infer it from the section heading.
             "generator": question.generator,
             "assetType": question.asset_type,
+            "typeCode": question.type_code,
+            "hots": question.hots,
+            "competency": question.competency,
             "usesUploadedContent": question.uses_uploaded_content,
             "questionId": question.id,
             "poolId": question.pool_id,

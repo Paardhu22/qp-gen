@@ -208,3 +208,79 @@ def available_types() -> List[TypeSpec]:
 def aliases_for(code: str) -> List[str]:
     """Every lookup key that resolves to `code` — for search in the picker."""
     return sorted(key for key, (target, _) in _INDEX.items() if target == code)
+
+
+@dataclass(frozen=True)
+class SlotType:
+    """What a blueprint slot is, once its type fields are reconciled."""
+
+    code: str
+    shape: str
+    hots: bool = False
+    competency: bool = False
+
+
+def effective_shape(raw) -> str:
+    """`shape_of`, with a retired shape read as the shape it became.
+
+    "HOTS" is no longer a shape anything is written as: it is a short answer
+    carrying the `hots` attribute.
+    """
+    shape_code = shape_of(raw)
+    shape = SHAPES_BY_CODE.get(shape_code)
+    if shape is not None and shape.retired:
+        return CATALOG[shape.default_type].shape
+    return shape_code
+
+
+def resolve_slot_type(
+    type_code="",
+    question_type="",
+    *,
+    hots: bool = False,
+    competency: bool = False,
+    default: str = "SA",
+) -> SlotType:
+    """Reconcile a slot's catalogue code with its runtime shape.
+
+    A slot can carry both: `typeCode` from the catalogue picker and
+    `questionType` from anything that only knows shapes — an older client, a
+    saved template, the swap menu. The code is the more precise, so it wins,
+    unless it disagrees with the shape: that means the type was changed later
+    by something that could not update the code, and the newer choice must not
+    be quietly reverted by a stale one.
+    """
+    hint = effective_shape(question_type) if question_type else ""
+
+    chosen = resolve(type_code) if type_code else None
+    if chosen is not None and hint and chosen.spec.shape != hint:
+        chosen = None
+    if chosen is None and question_type:
+        chosen = resolve(question_type)
+        if chosen is not None and hint and chosen.spec.shape != hint:
+            # "ESSAY" is a long answer as a shape and the writing type as a
+            # phrase. For a slot, the shape reading is the one it always had.
+            chosen = resolve(default_type_for_shape(hint))
+    if chosen is None:
+        chosen = resolve(default)
+
+    attributes = set(chosen.attributes)
+    if hots:
+        attributes.add("hots")
+    if competency:
+        attributes.add("competency")
+    return SlotType(
+        code=chosen.code,
+        shape=chosen.spec.shape,
+        hots="hots" in attributes,
+        competency="competency" in attributes,
+    )
+
+
+def type_for_route(generator: str, asset_type: str) -> str:
+    """The catalogue type a generator's format produces, or "" when none does."""
+    for spec in CATALOG.values():
+        route = spec.route
+        if route and route.generator == generator and asset_type in (route.asset_type, *route.also):
+            return spec.code
+    return ""

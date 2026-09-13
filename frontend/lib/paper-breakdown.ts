@@ -9,6 +9,8 @@
 //
 // Pure + side-effect free so it can be unit-checked with mock JSON.
 
+import { questionTypeLabel as catalogueTypeLabel } from "@/lib/question-types";
+
 export type PaperSection = {
   title: string;
   questionCount: number;
@@ -144,5 +146,9 @@ export function questionTypeLabel(code: string): string {
     TF: "True / False",
     OTHER: "Other",
   };
-  return map[code] ?? code.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+  return (
+    map[code] ??
+    catalogueTypeLabel(code) ??
+    code.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+  );
 }

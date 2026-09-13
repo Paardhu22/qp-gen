@@ -65,6 +65,16 @@ async function fetchReplacement(
       type: String(
         overrides.type || slot.type || node.attrs?.questionType || "SHORT_ANSWER",
       ),
+      // An ordinary swap keeps the slot's own catalogue type — another
+      // odd-one-out, not any MCQ. A re-type to a different shape drops it: the
+      // old code describes the question being replaced, not the one asked for.
+      typeCode: String(
+        overrides.type && overrides.type !== slot.type
+          ? ""
+          : slot.typeCode || node.attrs?.typeCode || "",
+      ),
+      hots: Boolean(slot.hots),
+      competency: Boolean(slot.competency),
       generator: String(slot.generator || "question_pool"),
       assetType: String(slot.assetType || ""),
       chapter: String(slot.chapter || ""),
@@ -363,6 +373,11 @@ export const QuestionBlock = Node.create({
       subLabel: { default: null },
       difficulty: { default: "medium" },
       questionType: { default: "SHORT" },
+      // The catalogue type ("MCQ_ODD_ONE_OUT") when the generator knew it.
+      // `questionType` stays the shape the block is laid out as; blocks from
+      // before the catalogue simply have none. Emitted once, as
+      // `data-type-code`, by the node's own renderHTML (see slotMeta).
+      typeCode: { default: "", renderHTML: () => ({}) },
       tags: { default: "" },
       aiGenerated: { default: false },
       // Blueprint provenance for a generated question, as a JSON string:
@@ -394,6 +409,7 @@ export const QuestionBlock = Node.create({
             number: Number.isNaN(number) ? null : number,
             subLabel: subLabelAttr || null,
             questionType: el.getAttribute("data-question-type") || "SHORT",
+            typeCode: el.getAttribute("data-type-code") || "",
             slotMeta: el.getAttribute("data-slot-meta") || "",
           };
         },
@@ -402,7 +418,7 @@ export const QuestionBlock = Node.create({
     ];
   },
 
-  renderHTML({ HTMLAttributes }) {
+  renderHTML({ node, HTMLAttributes }) {
     return [
       "div",
       mergeAttributes(HTMLAttributes, {
@@ -411,7 +427,11 @@ export const QuestionBlock = Node.create({
         "data-number": HTMLAttributes.number ?? "",
         "data-sub-label": HTMLAttributes.subLabel ?? "",
         "data-question-type": HTMLAttributes.questionType ?? "",
-        "data-slot-meta": HTMLAttributes.slotMeta ?? "",
+        // Read from the node, not HTMLAttributes: these attributes suppress
+        // their automatic rendering, so TipTap never puts them in
+        // HTMLAttributes — which is how data-slot-meta was always written empty.
+        "data-type-code": node.attrs.typeCode ?? "",
+        "data-slot-meta": node.attrs.slotMeta ?? "",
       }),
       ["div", { class: "question-content" }, 0],
     ];

@@ -43,8 +43,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
-from services.pool.schema import QUESTION_TYPES, normalize_type
-from services.question_types import legacy_bucket
+from services.pool.schema import normalize_type, normalize_type_code
+from services.question_types import legacy_bucket, resolve_slot_type
 
 logger = logging.getLogger("[TEMPLATES]")
 
@@ -97,8 +97,8 @@ QUESTION_TYPE_CATALOG: tuple = (
     QuestionTypeOption("VERY_SHORT_ANSWER", "Very Short Answer", "Descriptive", 1),
     QuestionTypeOption("SHORT_ANSWER", "Short Answer", "Descriptive", 2),
     QuestionTypeOption("LONG_ANSWER", "Long Answer", "Descriptive", 5),
-    QuestionTypeOption("HOTS", "Higher Order Thinking", "Descriptive", 3),
-    QuestionTypeOption("COMPETENCY", "Competency Based", "Descriptive", 3),
+    # Higher-order thinking and competency framing are no longer types: they
+    # are slot attributes (`SlotSpec.hots`, `SlotSpec.competency`).
     # Applied
     QuestionTypeOption("NUMERICAL", "Numerical / Calculation", "Applied", 3),
     QuestionTypeOption("EXPERIMENTAL", "Experimental", "Applied", 3),
@@ -213,23 +213,50 @@ class SlotSpec:
 
     index: int
     section_title: str
+    #: The runtime shape ("MCQ", "SHORT_ANSWER"). It stays the slot's
+    #: `questionType` on the wire, so a client that only knows shapes keeps
+    #: reading and writing blueprints exactly as it always has.
     question_type: str
     marks: int
     source: str = SOURCE_GENERATE
     choice_required: bool = False
+    #: The catalogue type the teacher picked ("MCQ_ODD_ONE_OUT").
+    type_code: str = ""
+    #: Slot attributes: higher-order thinking and real-world framing.
+    hots: bool = False
+    competency: bool = False
     #: Carried through untouched so a round-trip through the Builder does not
     #: strip what the blueprint engine put there.
     passthrough: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # However the spec was built — the Builder, the designer, the engine's
+        # projection — its shape, catalogue type and attributes must agree.
+        slot_type = resolve_slot_type(
+            self.type_code,
+            self.question_type,
+            hots=self.hots,
+            competency=self.competency,
+        )
+        self.question_type = slot_type.shape
+        self.type_code = slot_type.code
+        self.hots = slot_type.hots
+        self.competency = slot_type.competency
 
     def as_dict(self) -> Dict[str, Any]:
         payload = {
             "index": self.index,
             "sectionTitle": self.section_title,
             "questionType": self.question_type,
+            "typeCode": self.type_code,
             "marks": self.marks,
             "source": self.source,
             "choiceRequired": self.choice_required,
         }
+        if self.hots:
+            payload["hots"] = True
+        if self.competency:
+            payload["competency"] = True
         if self.passthrough:
             payload["passthrough"] = dict(self.passthrough)
         return payload
@@ -239,24 +266,29 @@ class SlotSpec:
         if not isinstance(raw, dict):
             raise ValueError(f"Slot {index} is not an object.")
 
-        requested_type = (
-            raw.get("questionType") or raw.get("question_type") or "SHORT_ANSWER"
-        )
-        question_type = normalize_type(requested_type)
-        if question_type not in QUESTION_TYPES:
-            # normalize_type already folds aliases; anything still unknown is a
-            # client sending a type this build does not have. Fall back rather
-            # than reject — a paper with one mistyped slot is recoverable, a
-            # 400 on the whole blueprint is not.
+        requested_type = raw.get("questionType") or raw.get("question_type") or ""
+        requested_code = raw.get("typeCode") or raw.get("type_code") or ""
+        if (requested_type or requested_code) and not (
+            normalize_type(requested_type) or normalize_type_code(requested_code)
+        ):
+            # A client sending a type this build does not have. Fall back
+            # rather than reject — a paper with one mistyped slot is
+            # recoverable, a 400 on the whole blueprint is not.
             #
-            # Log what was SENT, not the normalised value: normalize_type
-            # returns "" for everything it does not recognise, so logging its
-            # output makes every one of these warnings identical and useless.
+            # Log what was SENT: the normalisers return "" for everything they
+            # do not recognise, so logging their output would make every one
+            # of these warnings identical and useless.
             logger.warning(
-                "Unknown question type %r on slot %s; using SHORT_ANSWER.",
-                requested_type, index,
+                "Unknown question type %r (type code %r) on slot %s; using SHORT_ANSWER.",
+                requested_type, requested_code, index,
             )
-            question_type = "SHORT_ANSWER"
+        slot_type = resolve_slot_type(
+            requested_code,
+            requested_type,
+            hots=bool(raw.get("hots")),
+            competency=bool(raw.get("competency")),
+        )
+        question_type = slot_type.shape
 
         try:
             marks = int(raw.get("marks") or default_marks_for(question_type))
@@ -275,6 +307,9 @@ class SlotSpec:
             ).strip()
             or "Questions",
             question_type=question_type,
+            type_code=slot_type.code,
+            hots=slot_type.hots,
+            competency=slot_type.competency,
             marks=marks,
             source=source,
             choice_required=bool(
@@ -374,6 +409,9 @@ class TemplateBlueprint:
                         getattr(slot, "section_title", "") or "Questions"
                     ),
                     question_type=question_type,
+                    type_code=str(getattr(slot, "type_code", "") or ""),
+                    hots=bool(getattr(slot, "hots", False)),
+                    competency=bool(getattr(slot, "competency", False)),
                     marks=int(getattr(slot, "marks", 0) or 1),
                     source=SOURCE_GENERATE,
                     choice_required=bool(getattr(slot, "choice_required", False)),
@@ -435,6 +473,11 @@ class ResolvedSlot:
     #: composite-question notes `batches_from_plan` folds into Model 1's
     #: instructions. Read by `services.language_validation` too.
     instruction_hint: str = ""
+    #: The catalogue type and slot attributes the teacher chose. Model 1's
+    #: recipe, assembly and set variants all read these off the slot.
+    type_code: str = ""
+    hots: bool = False
+    competency: bool = False
 
 
 def legacy_type_for(question_type: str) -> str:
@@ -470,6 +513,9 @@ def blueprint_to_plan(blueprint: TemplateBlueprint) -> List[ResolvedSlot]:
                 index=spec.index,
                 marks=spec.marks,
                 question_type=spec.question_type,
+                type_code=spec.type_code,
+                hots=spec.hots,
+                competency=spec.competency,
                 legacy_type=engine_type if keep_engine_type else derived_type,
                 section_title=spec.section_title,
                 source=spec.source,

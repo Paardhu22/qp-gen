@@ -16,8 +16,8 @@ _ = family_builder("LANGUAGE")
 _LANGUAGES = ("english", "hindi", "telugu", "sanskrit")
 
 
-def _writing(asset_type: str) -> Route:
-    return Route("writing_asset_pool", asset_type)
+def _writing(asset_type: str, *also: str) -> Route:
+    return Route("writing_asset_pool", asset_type, also=also)
 
 
 _RUBRIC = "The answer is a rubric: format, content, expression."
@@ -26,7 +26,11 @@ ENTRIES = [
     _("LETTER_WRITING", "Letter Writing", "F19", "LIVE", "LETTER",
       "Format, tone and content.", 5, (4, 10), "LONG_TEXT", "CREATE",
       marks_range=(5, 6), marking="RUBRIC", lane="original",
-      route=_writing("formal_letter_to_authority"), subjects=_LANGUAGES,
+      route=_writing(
+          "formal_letter_to_authority", "letter_to_editor", "letter_of_complaint",
+          "letter_of_enquiry", "letter_placing_order",
+      ),
+      subjects=_LANGUAGES,
       aliases=("LETTER", "FORMAL LETTER", "INFORMAL LETTER", "पत्र लेखन"),
       brief=f"A situation naming the writer, class and school and the recipient, and a word limit (100–120 words). {_RUBRIC}",
       example="You are Rahul of Class X, Sunrise Public School. Write a letter to the Principal requesting permission to organise a book donation drive in your school. (100–120 words)",
@@ -83,7 +87,7 @@ ENTRIES = [
       example="You visited an old-age home with your class today. Write a diary entry about the experience in about 100 words."),
     _("SPEECH_DEBATE", "Speech / Debate", "F29", "NEW", "COMPOSITION",
       "Persuasive spoken-style writing.", 5, (7, 10), "LONG_TEXT", "CREATE",
-      marks_range=(5, 8), marking="RUBRIC", lane="original", route=_writing("speech"),
+      marks_range=(5, 8), marking="RUBRIC", lane="original", route=_writing("speech", "debate"),
       subjects=_LANGUAGES, aliases=("SPEECH", "DEBATE", "SPEECH_DEBATE_WRITING"),
       brief=f"A motion or topic, the occasion and a word limit; for a debate, state for or against. {_RUBRIC}",
       example="Write a speech to be delivered in the school assembly on 'Say No to Single-Use Plastic'. (120 words)"),

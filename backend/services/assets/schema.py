@@ -454,6 +454,7 @@ def build_pool_question(
     difficulty: str = "medium",
     asset: Optional[Any] = None,
     extra_metadata: Optional[Dict[str, Any]] = None,
+    type_code: str = "",
 ) -> PoolQuestion:
     """One place where an asset becomes a pool question.
 
@@ -489,6 +490,7 @@ def build_pool_question(
         explanation=explanation or "",
         generator=generator,
         asset_type=asset_type,
+        type_code=type_code,
         source_type=source_type,
         content_hash=compute_content_hash(subject, chapter, text),
         pool_id=pool_id,

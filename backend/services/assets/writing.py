@@ -22,6 +22,7 @@ from services.assets.registry import register
 from services.assets.schema import WritingAsset, build_pool_question
 from services.assets.validation import validate_asset
 from services.pool.schema import PoolValidationError
+from services.question_types import type_for_route
 
 logger = logging.getLogger("[ASSETS]")
 
@@ -270,6 +271,10 @@ class WritingAssetGenerator(AssetGenerator):
             chapter=self.chapter_label,
             topic=asset_type.replace("_", " ").title(),
             question_type=self._question_type(asset_type),
+            # "notice" is a Notice, "debate" a Speech / Debate — not just a
+            # Composition. Formats no catalogue type claims keep the shape's
+            # default type.
+            type_code=type_for_route(self.name, asset_type),
             generator=self.name,
             asset_type=asset_type,
             source_type=self.source_type,

@@ -45,6 +45,11 @@ class TypeQuota:
     #: is how a poetry extract ended up in the prose slot. Empty for the fixed
     #: per-subject recipes.
     asset_type: str = ""
+    #: The catalogue type and slot attributes for this shape, stamped onto the
+    #: questions the same way. Empty for a shape's default type.
+    type_code: str = ""
+    hots: bool = False
+    competency: bool = False
 
 
 @dataclass(frozen=True)
@@ -105,14 +110,21 @@ def _content_subject_batches() -> List[Batch]:
             "long",
             [
                 TypeQuota("LONG_ANSWER", 5, 8),
-                TypeQuota("HOTS", 3, 4),
+                TypeQuota("SHORT_ANSWER", 3, 4, (HOTS_HINT,), hots=True),
             ],
         ),
         Batch(
             "case_study",
             [
                 TypeQuota("CASE_STUDY", 4, 6),
-                TypeQuota("COMPETENCY", 4, 2),
+                TypeQuota(
+                    "SHORT_ANSWER",
+                    4,
+                    2,
+                    (COMPETENCY_HINT,),
+                    type_code="APPLICATION_SCENARIO",
+                    competency=True,
+                ),
             ],
         ),
     ]
@@ -140,7 +152,7 @@ def _mathematics_batches() -> List[Batch]:
             "long",
             [
                 TypeQuota("LONG_ANSWER", 5, 8),
-                TypeQuota("HOTS", 3, 4),
+                TypeQuota("SHORT_ANSWER", 3, 4, (HOTS_HINT,), hots=True),
             ],
         ),
         Batch(
@@ -213,7 +225,14 @@ def _scale_batches(batches: Sequence[Batch], target_total: int) -> List[Batch]:
     for batch in batches:
         quotas = [
             TypeQuota(
-                q.type, q.marks, max(1, round(q.count * scale)), q.hints, q.asset_type
+                q.type,
+                q.marks,
+                max(1, round(q.count * scale)),
+                q.hints,
+                q.asset_type,
+                q.type_code,
+                q.hots,
+                q.competency,
             )
             for q in batch.quotas
         ]
@@ -250,16 +269,24 @@ def batches_from_plan(plan: Sequence[Any], *, target_total: int = 0) -> List[Bat
     key on `(type, marks)` exactly as before.
     """
     from services.pool.schema import normalize_type
+    from services.question_types import default_type_for_shape, resolve_slot_type
 
-    Key = Tuple[str, int, str]
+    Key = Tuple[str, int, str, str, bool, bool]
     counts: Dict[Key, int] = {}
     hints: Dict[Key, List[str]] = {}
     order: List[Key] = []
     for slot in plan or []:
         raw_type = getattr(slot, "question_type", "") or ""
-        qtype = normalize_type(raw_type)
-        if not qtype:
+        raw_code = getattr(slot, "type_code", "") or ""
+        if not (normalize_type(raw_type) or raw_code):
             continue
+        slot_type = resolve_slot_type(
+            raw_code,
+            raw_type,
+            hots=bool(getattr(slot, "hots", False)),
+            competency=bool(getattr(slot, "competency", False)),
+        )
+        qtype = slot_type.shape
         try:
             marks = int(getattr(slot, "marks", 0) or 0)
         except (TypeError, ValueError):
@@ -267,10 +294,15 @@ def batches_from_plan(plan: Sequence[Any], *, target_total: int = 0) -> List[Bat
         if marks <= 0:
             continue
         asset_type = str(getattr(slot, "asset_type", "") or "")
-        key = (qtype, marks, asset_type)
+        # A shape's default type is what these prompts always asked for, so
+        # it stays out of the key: those batches read exactly as before.
+        type_code = (
+            "" if slot_type.code == default_type_for_shape(qtype) else slot_type.code
+        )
+        key = (qtype, marks, asset_type, type_code, slot_type.hots, slot_type.competency)
         if key not in counts:
             order.append(key)
-            hints[key] = []
+            hints[key] = attribute_hints(slot_type.hots, slot_type.competency)
         counts[key] = counts.get(key, 0) + 1
         hint = str(getattr(slot, "instruction_hint", "") or "").strip()
         if hint and hint not in hints[key]:
@@ -281,7 +313,17 @@ def batches_from_plan(plan: Sequence[Any], *, target_total: int = 0) -> List[Bat
 
     batches = [
         Batch(
-            f"{qtype.lower()}_{marks}m" + (f"_{asset_type}" if asset_type else ""),
+            "_".join(
+                part
+                for part in (
+                    f"{qtype.lower()}_{marks}m",
+                    asset_type,
+                    type_code.lower(),
+                    "hots" if hots else "",
+                    "competency" if competency else "",
+                )
+                if part
+            ),
             [
                 TypeQuota(
                     qtype,
@@ -289,13 +331,36 @@ def batches_from_plan(plan: Sequence[Any], *, target_total: int = 0) -> List[Bat
                     counts[key],
                     tuple(hints[key]),
                     asset_type,
+                    type_code,
+                    hots,
+                    competency,
                 )
             ],
         )
         for key in order
-        for (qtype, marks, asset_type) in [key]
+        for (qtype, marks, asset_type, type_code, hots, competency) in [key]
     ]
     return _scale_batches(batches, target_total)
+
+
+#: What each slot attribute adds to Model 1's instruction for its quota.
+HOTS_HINT = (
+    "Higher-order thinking: every question must require analysis, evaluation "
+    "or creation (Bloom ANALYZE, EVALUATE or CREATE), never recall."
+)
+COMPETENCY_HINT = (
+    "Competency based: frame every question in a realistic, unfamiliar "
+    "real-world situation the student must apply the concept to."
+)
+
+
+def attribute_hints(hots: bool, competency: bool) -> List[str]:
+    hints: List[str] = []
+    if hots:
+        hints.append(HOTS_HINT)
+    if competency:
+        hints.append(COMPETENCY_HINT)
+    return hints
 
 
 def batches_for_subject(subject_norm: str, *, target_total: int = 0) -> List[Batch]:

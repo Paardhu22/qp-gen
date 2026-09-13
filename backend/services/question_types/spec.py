@@ -143,6 +143,9 @@ class Route:
 
     generator: str
     asset_type: str = ""
+    #: Other formats of the same generator that produce this same type — six
+    #: letter formats are all a Letter.
+    also: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

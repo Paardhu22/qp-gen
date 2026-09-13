@@ -74,7 +74,11 @@ def _axes(spec: TypeSpec) -> Dict[str, Any]:
             else None
         ),
         "route": (
-            {"generator": spec.route.generator, "assetType": spec.route.asset_type}
+            {
+                "generator": spec.route.generator,
+                "assetType": spec.route.asset_type,
+                "also": list(spec.route.also),
+            }
             if spec.route
             else None
         ),
@@ -205,6 +209,11 @@ def frontend_module() -> str:
         "/** Runtime shape → the catalogue type a bare shape name means. */",
         "export const SHAPE_DEFAULT_TYPE: Readonly<Record<string, string>> = {",
         *[f"  {dump(shape.code)}: {dump(shape.default_type)}," for shape in SHAPES],
+        "};",
+        "",
+        "/** Runtime shape → its plain name, which its default type reads under. */",
+        "export const SHAPE_LABELS: Readonly<Record<string, string>> = {",
+        *[f"  {dump(shape.code)}: {dump(shape.label)}," for shape in SHAPES],
         "};",
         "",
     ]

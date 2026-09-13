@@ -36,13 +36,16 @@ import { ArrowUp, BookMarked, LayoutTemplate, PanelRightClose } from "lucide-rea
 
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { questionTypeLabel } from "@/lib/question-types";
 import { cn } from "@/lib/utils";
 
-/** "SHORT_ANSWER" → "Short Answer", "mcq" → "MCQ". A heuristic, not a lookup
- *  against the type menu — this line is a passing detail, not a place a
- *  wrong capitalization is worth a network round trip to get exactly right. */
+/** "SHORT_ANSWER" → "Short Answer", "MCQ_ODD_ONE_OUT" → "MCQ — Odd One Out".
+ *  The generated catalogue answers without a request; the word-casing
+ *  fallback only covers a code it does not know. */
 function humanizeType(code: string): string {
   if (!code) return "";
+  const known = questionTypeLabel(code);
+  if (known) return known;
   return code
     .toLowerCase()
     .split(/[_\s-]+/)

@@ -23,24 +23,13 @@
  */
 
 import type { DesignGap, PaperDesign } from "@/lib/api-client";
+import { questionTypeLabel } from "@/lib/question-types";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, Check } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 
-const TYPE_LABELS: Record<string, string> = {
-  MCQ: "MCQ",
-  ASSERTION_REASON: "Assertion–Reason",
-  SHORT_ANSWER: "Short answer",
-  LONG_ANSWER: "Long answer",
-  CASE_STUDY: "Case study",
-  FILL_BLANK: "Fill in the blank",
-  TRUE_FALSE: "True / false",
-  MATCH_FOLLOWING: "Match the following",
-  DIAGRAM: "Figure-based",
-};
-
 function typeLabel(raw: string): string {
-  return TYPE_LABELS[raw] ?? raw.replace(/_/g, " ").toLowerCase();
+  return questionTypeLabel(raw) ?? raw.replace(/_/g, " ").toLowerCase();
 }
 
 export interface PaperDesignPanelProps {

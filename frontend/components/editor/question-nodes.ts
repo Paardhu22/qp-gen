@@ -278,7 +278,10 @@ export function buildFigureNode(imageUrl: string | undefined | null) {
 
 export interface InsertableQuestion {
   content: string;
+  /** The runtime shape the block is laid out as. */
   type?: string;
+  /** The catalogue type, when the generator knows it. */
+  typeCode?: string;
   options?: string[] | null;
   answer?: string;
   marks?: number;
@@ -323,6 +326,7 @@ export function buildQuestionBlock(question: InsertableQuestion): any {
     attrs: {
       marks: question.marks || 1,
       questionType,
+      typeCode: String(question.typeCode ?? question.metadata?.typeCode ?? ""),
       slotMeta: buildSlotMeta(question),
     },
     content,
@@ -443,6 +447,11 @@ export function buildSlotMeta(question: InsertableQuestion): string {
     section: meta.section ?? "",
     marks: Number(question.marks ?? meta.marks ?? 1),
     type: question.type ?? "",
+    // The catalogue type and attributes, so an ordinary swap keeps the
+    // variant: another odd-one-out, not any MCQ.
+    typeCode: question.typeCode ?? meta.typeCode ?? "",
+    hots: Boolean(meta.hots),
+    competency: Boolean(meta.competency),
     generator: meta.generator ?? "question_pool",
     assetType: meta.assetType ?? "",
     chapter: meta.inferredChapter ?? meta.chapterTitle ?? "",

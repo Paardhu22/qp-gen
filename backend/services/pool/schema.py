@@ -29,7 +29,10 @@ from services.question_types import (
     OPTION_BEARING_SHAPES,
     SHAPE_CODES,
     SHAPE_SYNONYMS,
+    SHAPES_BY_CODE,
+    default_type_for_shape,
     normalize_type_code as _catalogue_type_code,
+    resolve,
     shape_of,
 )
 from utils.ids import generate_id
@@ -140,12 +143,24 @@ class PoolQuestion:
     #: for eligibility.
     asset_type: str = ""
 
+    #: The catalogue type: this question's identity, finer than `type` (its
+    #: runtime shape). Filled from the shape when a writer does not say, so
+    #: every question carries one — "MCQ" → "MCQ_SINGLE".
+    type_code: str = ""
+    #: Slot attributes that used to be question types of their own.
+    hots: bool = False
+    competency: bool = False
+
     #: Non-spec fields the pipeline needs. Excluded from the wire payload sent
     #: to Model 2 so its prompt stays small.
     source_type: str = "pool"
     content_hash: str = ""
     pool_id: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.type_code:
+            self.type_code = default_type_for_shape(self.type)
 
     @property
     def uses_uploaded_content(self) -> bool:
@@ -199,7 +214,11 @@ class PoolQuestion:
         """
         from apps.projects.question_types import resolve_type_code
 
-        type_code = resolve_type_code(self.type, valid=valid_type_codes)
+        # The exact catalogue type, so the bank keeps what was written: a
+        # higher-order short answer and a plain one used to store identically.
+        type_code = resolve_type_code(
+            self.type_code or self.type, valid=valid_type_codes
+        )
         source_pdf = (self.metadata or {}).get("sourcePdf") or (
             self.metadata or {}
         ).get("sourceDocument")
@@ -229,11 +248,13 @@ class PoolQuestion:
             # `generator`/`assetType` are read back by `from_model` only, which
             # does not justify a migration on the live table, and keeping it
             # here means an older row simply reads back as `question_pool` —
-            # the pre-refactor meaning.
+            # the pre-refactor meaning. The slot attributes ride the same way.
             "metadata": {
                 **(self.metadata or {}),
                 "generator": self.generator or DEFAULT_GENERATOR,
                 **({"assetType": self.asset_type} if self.asset_type else {}),
+                **({"hots": True} if self.hots else {}),
+                **({"competency": True} if self.competency else {}),
             },
             "user": user,
             "project": project,
@@ -251,16 +272,20 @@ class PoolQuestion:
         from apps.projects.question_types import to_pool_type
 
         row_metadata = getattr(row, "metadata", {}) or {}
+        stored_type = getattr(row, "type_id", None)
 
-        # `row.type` is now a FK; read the id (the canonical code, e.g.
-        # "MCQ_SINGLE") and translate it back to the pool vocabulary ("MCQ").
+        # `row.type` is a FK keyed by the catalogue code ("MCQ_ODD_ONE_OUT").
+        # The code is the question's identity; its shape ("MCQ") is what the
+        # pipeline keys on.
         return cls(
             id=row.id,
             subject=row.subject or "",
             chapter=row.inferred_chapter or "",
             topic=row.inferred_topic or "",
-            type=normalize_type(to_pool_type(getattr(row, "type_id", None)))
-            or "SHORT_ANSWER",
+            type=normalize_type(to_pool_type(stored_type)) or "SHORT_ANSWER",
+            type_code=normalize_type_code(stored_type),
+            hots=bool(row_metadata.get("hots")),
+            competency=bool(row_metadata.get("competency")),
             blooms=normalize_blooms(row.bloom_taxonomy) or "UNDERSTAND",
             difficulty=normalize_difficulty(row.difficulty) or "medium",
             marks=int(row.marks or 1),
@@ -361,6 +386,21 @@ def normalize_pool_question(
     if not qtype:
         raise PoolValidationError(f"Unrecognised question type: {raw.get('type')!r}")
 
+    # The catalogue type the model named, and whatever a retired name implied.
+    # HOTS and COMPETENCY are attributes now: a question arriving under either
+    # keeps its content and becomes the shape its default type has.
+    resolution = resolve(raw.get("type"))
+    attributes = set(resolution.attributes) if resolution else set()
+    retired = SHAPES_BY_CODE.get(qtype)
+    if retired is not None and retired.retired:
+        attributes.update(retired.implies)
+        qtype = CATALOG[retired.default_type].shape
+    type_code = (
+        resolution.code
+        if resolution is not None and resolution.spec.shape == qtype
+        else default_type_for_shape(qtype)
+    )
+
     options_raw = raw.get("options")
     options: List[str] = []
     if isinstance(options_raw, list):
@@ -422,6 +462,9 @@ def normalize_pool_question(
         image=image,
         generator=generator or DEFAULT_GENERATOR,
         asset_type=asset_type,
+        type_code=type_code,
+        hots="hots" in attributes,
+        competency="competency" in attributes,
         source_type=source_type,
         content_hash=compute_content_hash(subject, chapter, text),
         pool_id=pool_id,

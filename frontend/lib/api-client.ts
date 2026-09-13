@@ -565,7 +565,12 @@ export type ReplacementSlot = {
   slotIndex?: number;
   section?: string;
   marks: number;
+  /** The runtime shape. Still decides eligibility. */
   type: string;
+  /** The catalogue type, when known; reconciled with `type` by the backend. */
+  typeCode?: string;
+  hots?: boolean;
+  competency?: boolean;
   generator?: string;
   assetType?: string;
   chapter?: string;
@@ -583,6 +588,7 @@ export type ReplacementResponse = {
   question: {
     content: string;
     type: string;
+    typeCode?: string;
     options: string[];
     answer: string;
     marks: number;
