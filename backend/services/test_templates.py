@@ -22,8 +22,8 @@ from services.template_catalog import (
     resolve_detailed,
 )
 from services.pool.schema import QUESTION_TYPES
+from services.question_types import all_types
 from services.templates import (
-    QUESTION_TYPE_CATALOG,
     SOURCE_GENERATE,
     SOURCE_SAVED,
     SlotSpec,
@@ -293,10 +293,20 @@ class CatalogTests(TestCase):
         self.assertEqual(by_id["cbse-science-10"]["kind"], KIND_CBSE)
 
 
-class QuestionTypeMenuTests(TestCase):
-    def test_the_menu_is_grouped_for_scanning(self):
+class QuestionTypeMenuContentTests(TestCase):
+    """What the Builder's type picker is offered.
+
+    (This class used to share its name with `QuestionTypeMenuTests` below,
+    which silently replaced it, so none of these ran.)
+    """
+
+    @staticmethod
+    def _by_code(*args, **kwargs):
+        return {option["code"]: option for option in question_types_for(*args, **kwargs)}
+
+    def test_the_menu_is_grouped_by_family(self):
         groups = {option["group"] for option in question_types_for("Science")}
-        self.assertIn("Objective", groups)
+        self.assertIn("Objective — Choice Based", groups)
         self.assertIn("Descriptive", groups)
 
     def test_every_option_carries_a_default_mark_value(self):
@@ -305,12 +315,32 @@ class QuestionTypeMenuTests(TestCase):
         for option in question_types_for():
             self.assertGreaterEqual(option["defaultMarks"], 1)
 
-    def test_placeholder_mapping_offers_every_type_to_every_subject(self):
-        # The subject-appropriate mapping is specified as coming later; until
-        # it does this must not silently filter anything out.
-        self.assertEqual(
-            len(question_types_for("Science")), len(question_types_for("English"))
-        )
+    def test_subject_types_are_offered_only_to_their_subject(self):
+        english = self._by_code("English Language & Literature")
+        science = self._by_code("Science")
+        self.assertIn("GAP_FILL_GRAMMAR", english)
+        self.assertNotIn("GAP_FILL_GRAMMAR", science)
+        self.assertIn("MCQ_CHRONOLOGY", self._by_code("Social Science"))
+        self.assertNotIn("MCQ_CHRONOLOGY", science)
+        for shared in ("MCQ_SINGLE", "SA", "CASE_STUDY"):
+            self.assertIn(shared, english)
+            self.assertIn(shared, science)
+
+    def test_the_class_ranks_types_but_never_hides_them(self):
+        class_two = self._by_code("Science", academic_class="Class 2")
+        class_ten = self._by_code("Science", academic_class="10")
+        self.assertEqual(set(class_two), set(class_ten))
+        self.assertTrue(class_two["CIRCLE_CORRECT"]["common"])
+        self.assertFalse(class_two["ASSERTION_REASON"]["inClass"])
+        self.assertFalse(class_two["ASSERTION_REASON"]["common"])
+        self.assertTrue(class_ten["ASSERTION_REASON"]["common"])
+        self.assertFalse(class_ten["CIRCLE_CORRECT"]["common"])
+
+    def test_picture_types_are_listed_but_not_selectable(self):
+        picture = self._by_code()["MCQ_PICTURE"]
+        self.assertEqual(picture["availability"], "needs_picture")
+        self.assertTrue(picture["reason"])
+        self.assertFalse(picture["common"])
 
 
 class BlueprintToPlanTests(TestCase):
@@ -578,26 +608,36 @@ class QuestionTypeMenuTests(TestCase):
     def _codes(self, *args, **kwargs):
         return {option["code"] for option in question_types_for(*args, **kwargs)}
 
-    def test_no_generator_named_offers_the_whole_catalog(self):
+    def test_no_generator_named_offers_every_listed_type(self):
         """The Blueprint Builder edits slots before routing has happened."""
-        self.assertEqual(self._codes(), {o.code for o in QUESTION_TYPE_CATALOG})
+        listed = {
+            spec.code
+            for spec in all_types()
+            if spec.resolved_availability in {"available", "needs_picture"}
+        }
+        self.assertEqual(self._codes(), listed)
 
     def test_an_asset_generator_offers_only_what_it_writes(self):
-        self.assertEqual(self._codes("English", "reading_asset_pool"), {"READING_COMP"})
-        self.assertEqual(self._codes("English", "grammar_asset_pool"), {"GRAMMAR"})
-        self.assertEqual(
-            self._codes("English", "writing_asset_pool"),
-            {"LETTER", "COMPOSITION", "ANALYTICAL_PARAGRAPH"},
-        )
+        self.assertEqual(self._codes("English", "reading_asset_pool"), {"PASSAGE_UNSEEN"})
+
+        grammar = self._codes("English", "grammar_asset_pool")
+        self.assertTrue({"GRAMMAR_ITEM", "GAP_FILL_GRAMMAR", "ERROR_CORRECTION"} <= grammar)
+        # Model 1 writes rearranging words; the grammar generator cannot.
+        self.assertNotIn("REARRANGE_WORDS", grammar)
+
+        writing = self._codes("English", "writing_asset_pool")
+        self.assertTrue({"LETTER_WRITING", "NOTICE_WRITING", "ANALYTICAL_PARAGRAPH"} <= writing)
+        # No writing format produces an essay.
+        self.assertNotIn("ESSAY_WRITING", writing)
 
     def test_the_textbook_pool_is_never_offered_an_asset_owned_type(self):
-        """Model 1 writes from the uploaded chapter, so a Reading Comprehension
-        it filled would be an unseen passage drawn from the seen textbook."""
+        """Model 1 writes from the uploaded chapter, so an unseen passage it
+        filled would be drawn from the seen textbook."""
         codes = self._codes("Science", "question_pool")
-        self.assertNotIn("READING_COMP", codes)
-        self.assertNotIn("LETTER", codes)
-        self.assertIn("MCQ", codes)
-        self.assertIn("CASE_STUDY", codes)
+        for code in ("PASSAGE_UNSEEN", "LETTER_WRITING", "NOTICE_WRITING", "GRAMMAR_ITEM"):
+            self.assertNotIn(code, codes)
+        for code in ("MCQ_SINGLE", "CASE_STUDY", "MCQ_ODD_ONE_OUT"):
+            self.assertIn(code, codes)
 
     def test_an_unregistered_generator_gets_the_textbook_menu(self):
         """`generator_for_slot` falls such a slot back to the textbook pool."""
@@ -606,6 +646,6 @@ class QuestionTypeMenuTests(TestCase):
             self._codes("Science", "question_pool"),
         )
 
-    def test_every_offered_type_is_one_the_pool_understands(self):
-        for option in QUESTION_TYPE_CATALOG:
-            self.assertIn(option.code, QUESTION_TYPES, option.code)
+    def test_every_offered_type_is_a_shape_the_pool_understands(self):
+        for option in question_types_for():
+            self.assertIn(option["shape"], QUESTION_TYPES, option["code"])

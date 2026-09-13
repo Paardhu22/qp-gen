@@ -554,10 +554,12 @@ class TemplateResolveView(APIView):
 class QuestionTypeCatalogView(APIView):
     """The per-slot question-type menu the Blueprint Builder renders.
 
-    Served rather than hard-coded on the client so the subject-appropriate
-    mapping (coming later) ships without a frontend release.
+    Served from the question type catalogue, so a catalogue change reaches the
+    picker without a frontend release.
 
-    `generator` narrows the menu to the types that generator can write. The
+    `subject` narrows the menu to the types that belong to it, and `class`
+    marks which types the class is usually set (the picker suggests those
+    first). `generator` narrows it to the types that generator can write. The
     Builder omits it — it edits slots before routing has happened — while the
     editor's "swap and change type" menu always sends the slot's own generator,
     because that slot is already routed and `slot_accepts` will not let a
@@ -572,6 +574,7 @@ class QuestionTypeCatalogView(APIView):
                 "questionTypes": question_types_for(
                     request.query_params.get("subject", ""),
                     request.query_params.get("generator", ""),
+                    request.query_params.get("class", ""),
                 )
             }
         )

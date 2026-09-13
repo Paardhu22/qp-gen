@@ -52,23 +52,63 @@ logger = logging.getLogger("[MODEL2]")
 #: rubber-stamp; much above 3 the prompt grows without improving the outcome.
 DEFAULT_ALTERNATES = 2
 
-#: Bloom's spread targeted across a whole paper. Not a hard constraint — the
-#: pool may simply not contain enough CREATE-level questions — but it steers
-#: stage 2 away from a paper that is entirely recall.
-_BLOOM_TARGET_WEIGHTS: Dict[str, float] = {
-    "REMEMBER": 0.20,
-    "UNDERSTAND": 0.30,
-    "APPLY": 0.25,
-    "ANALYZE": 0.15,
-    "EVALUATE": 0.06,
-    "CREATE": 0.04,
+#: Bloom's spread targeted across a whole paper, by class band. Not a hard
+#: constraint — the pool may simply not contain enough CREATE-level questions —
+#: but it steers stage 2 away from a paper that is entirely recall, and away
+#: from a Class 2 worksheet optimised toward analysis its blueprint never
+#: asked for. The Class 9–10 table is the one every paper used before classes
+#: were told apart, so a board paper selects exactly as it did.
+_BLOOM_TARGETS_BY_BAND: Dict[str, Dict[str, float]] = {
+    "1-2": {"REMEMBER": 0.60, "UNDERSTAND": 0.35, "APPLY": 0.05, "ANALYZE": 0.0, "EVALUATE": 0.0, "CREATE": 0.0},
+    "3-5": {"REMEMBER": 0.40, "UNDERSTAND": 0.35, "APPLY": 0.20, "ANALYZE": 0.05, "EVALUATE": 0.0, "CREATE": 0.0},
+    "6-8": {"REMEMBER": 0.30, "UNDERSTAND": 0.30, "APPLY": 0.25, "ANALYZE": 0.10, "EVALUATE": 0.03, "CREATE": 0.02},
+    "9-10": {"REMEMBER": 0.20, "UNDERSTAND": 0.30, "APPLY": 0.25, "ANALYZE": 0.15, "EVALUATE": 0.06, "CREATE": 0.04},
 }
 
-_DIFFICULTY_TARGET_WEIGHTS: Dict[str, Dict[str, float]] = {
-    "easy": {"easy": 0.55, "medium": 0.35, "hard": 0.10},
-    "medium": {"easy": 0.30, "medium": 0.50, "hard": 0.20},
-    "hard": {"easy": 0.15, "medium": 0.45, "hard": 0.40},
+#: Difficulty spread against the requested overall level, by class band. A
+#: younger class's "medium" paper leans easier than a board year's.
+_DIFFICULTY_TARGETS_BY_BAND: Dict[str, Dict[str, Dict[str, float]]] = {
+    "1-2": {
+        "easy": {"easy": 0.75, "medium": 0.25, "hard": 0.0},
+        "medium": {"easy": 0.55, "medium": 0.40, "hard": 0.05},
+        "hard": {"easy": 0.35, "medium": 0.50, "hard": 0.15},
+    },
+    "3-5": {
+        "easy": {"easy": 0.65, "medium": 0.30, "hard": 0.05},
+        "medium": {"easy": 0.40, "medium": 0.45, "hard": 0.15},
+        "hard": {"easy": 0.25, "medium": 0.45, "hard": 0.30},
+    },
+    "6-8": {
+        "easy": {"easy": 0.60, "medium": 0.32, "hard": 0.08},
+        "medium": {"easy": 0.35, "medium": 0.48, "hard": 0.17},
+        "hard": {"easy": 0.20, "medium": 0.45, "hard": 0.35},
+    },
+    "9-10": {
+        "easy": {"easy": 0.55, "medium": 0.35, "hard": 0.10},
+        "medium": {"easy": 0.30, "medium": 0.50, "hard": 0.20},
+        "hard": {"easy": 0.15, "medium": 0.45, "hard": 0.40},
+    },
 }
+
+#: The Class 9–10 tables under the names callers have always read.
+_BLOOM_TARGET_WEIGHTS = _BLOOM_TARGETS_BY_BAND["9-10"]
+_DIFFICULTY_TARGET_WEIGHTS = _DIFFICULTY_TARGETS_BY_BAND["9-10"]
+
+#: Bloom levels a higher-order-thinking slot prefers.
+_HIGHER_ORDER = frozenset({"ANALYZE", "EVALUATE", "CREATE"})
+
+
+def _class_band(class_num: Optional[int]) -> str:
+    """The target band for a class. No class means the board-year band."""
+    if class_num is None:
+        return "9-10"
+    if class_num <= 2:
+        return "1-2"
+    if class_num <= 5:
+        return "3-5"
+    if class_num <= 8:
+        return "6-8"
+    return "9-10"
 
 
 class PaperAssemblyError(RuntimeError):
@@ -181,6 +221,8 @@ def _score_question(
     prefer_source: str = "",
     is_from_bank: bool = False,
     type_code: str = "",
+    class_num: Optional[int] = None,
+    hots: bool = False,
 ) -> float:
     """Higher is better. Every term pushes toward a well-spread paper."""
     score = 0.0

@@ -44,7 +44,14 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from services.pool.schema import normalize_type, normalize_type_code
-from services.question_types import get as get_type, legacy_bucket, resolve_slot_type
+from services.question_types import (
+    FAMILIES,
+    SHAPES,
+    all_types,
+    get as get_type,
+    legacy_bucket,
+    resolve_slot_type,
+)
 
 logger = logging.getLogger("[TEMPLATES]")
 
@@ -58,65 +65,80 @@ SOURCE_CHOICES = (SOURCE_GENERATE, SOURCE_SAVED)
 
 # ── The question types a teacher may choose per slot ────────────────────────
 #
-# Placeholders, per the spec: a subject-appropriate mapping is coming later.
-# Until it does, every type in the pool vocabulary is offered to every subject,
-# grouped so the picker is scannable rather than a flat list of twenty. The
-# grouping is presentation only — `normalize_type` remains the authority on
-# what a type string means.
-#
-# `subjects=None` means "offer everywhere". When the real mapping arrives it
-# populates that field and `question_types_for()` starts filtering; no caller
-# changes.
-@dataclass(frozen=True)
-class QuestionTypeOption:
-    code: str
-    label: str
-    group: str
-    default_marks: int
-    #: None = every subject. A tuple restricts it.
-    subjects: Optional[tuple] = None
+# The menu is the question type catalogue (`services.question_types`): every
+# type a paper can carry, grouped by family, narrowed to what the slot's
+# subject and generator allow, and ranked for the class. Types that need a
+# printed picture stay listed but disabled, so a teacher can see they exist
+# without choosing one that could only come back empty.
 
-    def as_dict(self) -> Dict[str, Any]:
-        return {
-            "code": self.code,
-            "label": self.label,
-            "group": self.group,
-            "defaultMarks": self.default_marks,
-        }
+#: Availabilities the menu lists. Internal and structural types are never a
+#: slot's type, so they never appear.
+_LISTED = frozenset({"available", "needs_picture"})
 
 
-QUESTION_TYPE_CATALOG: tuple = (
-    # Objective
-    QuestionTypeOption("MCQ", "Multiple Choice", "Objective", 1),
-    QuestionTypeOption("ASSERTION_REASON", "Assertion & Reason", "Objective", 1),
-    QuestionTypeOption("TRUE_FALSE", "True / False", "Objective", 1),
-    QuestionTypeOption("FILL_IN_THE_BLANK", "Fill in the Blank", "Objective", 1),
-    QuestionTypeOption("ONE_WORD", "One Word Answer", "Objective", 1),
-    QuestionTypeOption("MATCH_THE_FOLLOWING", "Match the Following", "Objective", 4),
-    # Descriptive
-    QuestionTypeOption("VERY_SHORT_ANSWER", "Very Short Answer", "Descriptive", 1),
-    QuestionTypeOption("SHORT_ANSWER", "Short Answer", "Descriptive", 2),
-    QuestionTypeOption("LONG_ANSWER", "Long Answer", "Descriptive", 5),
-    # Higher-order thinking and competency framing are no longer types: they
-    # are slot attributes (`SlotSpec.hots`, `SlotSpec.competency`).
-    # Applied
-    QuestionTypeOption("NUMERICAL", "Numerical / Calculation", "Applied", 3),
-    QuestionTypeOption("EXPERIMENTAL", "Experimental", "Applied", 3),
-    QuestionTypeOption("DIAGRAM", "Diagram (student draws)", "Applied", 3),
-    QuestionTypeOption("CASE_STUDY", "Case Study", "Applied", 4),
-    # Language
-    QuestionTypeOption("READING_COMP", "Reading Comprehension", "Language", 10),
-    QuestionTypeOption("EXTRACT_PROSE", "Prose Extract", "Language", 3),
-    QuestionTypeOption("EXTRACT_POETRY", "Poetry Extract", "Language", 3),
-    QuestionTypeOption("ANALYTICAL_PARAGRAPH", "Analytical Paragraph", "Language", 5),
-    QuestionTypeOption("GRAMMAR", "Grammar", "Language", 1),
-    QuestionTypeOption("LETTER", "Letter Writing", "Language", 5),
-    QuestionTypeOption("COMPOSITION", "Composition / Essay", "Language", 5),
-)
+def _class_number(academic_class: Any) -> Optional[int]:
+    """The first number in "10", "Class 10" or 10; None when there is none."""
+    digits = ""
+    for char in str(academic_class or ""):
+        if char.isdigit():
+            digits += char
+        elif digits:
+            break
+    return int(digits) if digits else None
 
-_CATALOG_BY_CODE: Dict[str, QuestionTypeOption] = {
-    option.code: option for option in QUESTION_TYPE_CATALOG
-}
+
+def _subject_key(subject: str) -> str:
+    """The catalogue's subject name for whatever the Builder sent.
+
+    "English Language & Literature" and "Hindi Course B" are display names:
+    when the router does not recognise the whole name, the first word is the
+    subject.
+    """
+    from services.generation_router import SUPPORTED_SUBJECTS, normalize_subject
+
+    text = str(subject or "").strip()
+    if not text:
+        return ""
+    normalised = normalize_subject(text)
+    if normalised in SUPPORTED_SUBJECTS:
+        return normalised
+    first = text.lower().split()[0]
+    return first if first in SUPPORTED_SUBJECTS else normalised
+
+
+def _is_common(spec, class_num: Optional[int]) -> bool:
+    """Whether a type belongs in the picker's short "Suggested" list.
+
+    The types papers have always used, and for Classes 1–5 the worksheet
+    activities those classes are actually set. Everything else is one search
+    away, which is what keeps a hundred-odd types from feeling like a hundred.
+    """
+    if spec.status == "LIVE":
+        return True
+    return class_num is not None and class_num <= 5 and spec.family == "PRIMARY_ACTIVITY"
+
+
+def _menu_entry(spec, class_num: Optional[int], family_name: str) -> Dict[str, Any]:
+    low, high = spec.classes
+    in_class = class_num is None or low <= class_num <= high
+    return {
+        # The Builder writes `code` as the slot's typeCode and `shape` as its
+        # questionType, so a client that only knows shapes still reads it.
+        "code": spec.code,
+        "shape": spec.shape,
+        "label": spec.label,
+        "group": family_name,
+        "family": spec.family,
+        "defaultMarks": spec.marks,
+        "marksRange": list(spec.marks_range),
+        "classes": [low, high],
+        "availability": spec.resolved_availability,
+        "reason": spec.unavailable_reason,
+        "tests": spec.tests,
+        "example": spec.example,
+        "inClass": in_class,
+        "common": spec.is_available and in_class and _is_common(spec, class_num),
+    }
 
 #: The pool types each asset generator can actually write, mirroring what
 #: `services.assets.*` stamp on `build_pool_question`.
@@ -144,11 +166,11 @@ _ASSET_OWNED_TYPES = frozenset(
 
 
 def types_for_generator(generator: str) -> Optional[frozenset]:
-    """The types `generator` can write, or None for "do not restrict".
+    """The shapes `generator` can write, or None for "do not restrict".
 
     An empty name means the caller did not say, which is how the Blueprint
     Builder asks — it edits slots before any routing has happened, so it gets
-    the whole catalog exactly as before.
+    the whole catalogue.
     """
     name = str(generator or "").strip()
     if not name:
@@ -160,34 +182,55 @@ def types_for_generator(generator: str) -> Optional[frozenset]:
 
     # The textbook pool, and any unregistered name (which `generator_for_slot`
     # falls back to it anyway).
-    return frozenset(o.code for o in QUESTION_TYPE_CATALOG) - _ASSET_OWNED_TYPES
+    return frozenset(s.code for s in SHAPES if not s.retired) - _ASSET_OWNED_TYPES
 
 
-def question_types_for(subject: str = "", generator: str = "") -> List[Dict[str, Any]]:
-    """The type menu shown for a subject, optionally narrowed to one generator.
+def question_types_for(
+    subject: str = "", generator: str = "", academic_class: Any = ""
+) -> List[Dict[str, Any]]:
+    """The type menu for one slot.
 
-    Today every type is offered for every subject — the spec asks for standard
-    placeholders until the subject-appropriate mapping is specified. The filter
-    is already wired so that mapping is a data change here, not a code change
-    at the call sites.
+    `subject` keeps the types that belong to it — a chronology MCQ is a Social
+    Science type, a grammar gap-fill a language one. `academic_class` marks the
+    types that class is usually set, so the picker can suggest those first;
+    nothing is hidden for being outside the class, only ranked below.
 
     `generator` is what the editor's "swap and change type" menu passes: it is
-    changing the type of a slot that has ALREADY been routed, so the menu must
-    be what that slot's generator can write rather than the whole catalog.
+    changing the type of a slot that has ALREADY been routed, so the menu is
+    what that slot's generator can write. An independent generator writes only
+    the types routed to it; the textbook pool writes every other type except
+    those that must come from an independent generator.
     """
-    normalised = (subject or "").strip().lower()
-    allowed = types_for_generator(generator)
-    return [
-        option.as_dict()
-        for option in QUESTION_TYPE_CATALOG
-        if (option.subjects is None or normalised in option.subjects)
-        and (allowed is None or option.code in allowed)
-    ]
+    subject_key = _subject_key(subject)
+    class_num = _class_number(academic_class)
+    name = str(generator or "").strip()
+    shapes = types_for_generator(name)
+    asset_generator = name in GENERATOR_QUESTION_TYPES
+    family_names = {family.code: family.name for family in FAMILIES}
+
+    menu: List[Dict[str, Any]] = []
+    for spec in all_types():
+        if spec.resolved_availability not in _LISTED:
+            continue
+        if subject_key and spec.subjects and subject_key not in spec.subjects:
+            continue
+        if shapes is not None:
+            if spec.shape not in shapes:
+                continue
+            routed_here = spec.route is not None and spec.route.generator == name
+            if asset_generator and not routed_here:
+                continue
+            if not asset_generator and spec.lane == "original" and spec.route is not None:
+                continue
+        menu.append(_menu_entry(spec, class_num, family_names[spec.family]))
+    return menu
 
 
 def default_marks_for(question_type: str) -> int:
-    option = _CATALOG_BY_CODE.get(normalize_type(question_type))
-    return option.default_marks if option else 1
+    """The usual marks for a type, by catalogue code or shape; 1 if unknown."""
+    code = normalize_type_code(question_type)
+    spec = get_type(code) if code else None
+    return spec.marks if spec else 1
 
 
 # ── A slot, as the Blueprint Builder sees it ────────────────────────────────
@@ -291,9 +334,9 @@ class SlotSpec:
         question_type = slot_type.shape
 
         try:
-            marks = int(raw.get("marks") or default_marks_for(question_type))
+            marks = int(raw.get("marks") or default_marks_for(slot_type.code))
         except (TypeError, ValueError):
-            marks = default_marks_for(question_type)
+            marks = default_marks_for(slot_type.code)
         marks = max(1, min(20, marks))
 
         source = str(raw.get("source") or SOURCE_GENERATE).strip().lower()

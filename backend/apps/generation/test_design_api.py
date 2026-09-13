@@ -473,11 +473,15 @@ class TemplateCatalogApiTests(DesignApiTestCase):
         self.assertEqual(response.status_code, 201)
 
     def test_the_question_type_menu_is_served(self):
-        response = self.client.get(self.TYPES_URL, {"subject": "Science"})
+        response = self.client.get(self.TYPES_URL, {"subject": "Science", "class": "7"})
         self.assertEqual(response.status_code, 200)
-        codes = {option["code"] for option in response.data["questionTypes"]}
-        self.assertIn("MCQ", codes)
-        self.assertIn("LONG_ANSWER", codes)
+        options = {option["code"]: option for option in response.data["questionTypes"]}
+        # Catalogue codes, each with the runtime shape a slot stores beside it.
+        self.assertEqual(options["MCQ_SINGLE"]["shape"], "MCQ")
+        self.assertEqual(options["LA"]["shape"], "LONG_ANSWER")
+        # The class ranks the menu: Assertion–Reason is set from Class 8.
+        self.assertFalse(options["ASSERTION_REASON"]["inClass"])
+        self.assertTrue(options["MCQ_SINGLE"]["common"])
 
 
 class TemplateFolderTests(DesignApiTestCase):
