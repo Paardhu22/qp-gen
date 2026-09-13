@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence, Tuple
 
+from services.question_types import SHAPES
+
 
 @dataclass(frozen=True)
 class TypeQuota:
@@ -73,30 +75,9 @@ class Batch:
         return max(2000, int(self.total * per_question * 1.15))
 
 
-_TOKENS_PER_QUESTION: Dict[str, int] = {
-    "MCQ": 130,
-    "ASSERTION_REASON": 170,
-    "TRUE_FALSE": 90,
-    "FILL_IN_THE_BLANK": 90,
-    "ONE_WORD": 80,
-    "MATCH_THE_FOLLOWING": 200,
-    "VERY_SHORT_ANSWER": 130,
-    "SHORT_ANSWER": 220,
-    "NUMERICAL": 260,
-    "EXPERIMENTAL": 260,
-    "LONG_ANSWER": 400,
-    "HOTS": 300,
-    "COMPETENCY": 320,
-    "CASE_STUDY": 650,
-    "READING_COMP": 650,
-    "DIAGRAM": 220,
-    "GRAMMAR": 120,
-    "EXTRACT_PROSE": 300,
-    "EXTRACT_POETRY": 300,
-    "ANALYTICAL_PARAGRAPH": 320,
-    "LETTER": 400,
-    "COMPOSITION": 400,
-}
+#: Completion tokens one question of each shape needs, explanation included.
+#: Defined on the shape itself in `services.question_types.shapes`.
+_TOKENS_PER_QUESTION: Dict[str, int] = {shape.code: shape.tokens for shape in SHAPES}
 
 
 def _content_subject_batches() -> List[Batch]:

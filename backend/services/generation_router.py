@@ -954,18 +954,15 @@ def default_cbse_question_count(subject: str, class_num: int) -> int:
 
 
 def _legacy_question_type(qtype_name: str) -> str:
-    if qtype_name == "MCQ":
-        return "MCQ"
-    if qtype_name == "ASSERTION_REASON":
-        return "ASSERTION_REASON"
-    if qtype_name in ("CASE_STUDY", "READING_COMP"):
-        return "CASE_STUDY"
-    if qtype_name in ("LONG_ANSWER", "LETTER"):
-        return "LONG"
-    if qtype_name == "DIAGRAM":
-        return "DIAGRAM"
-    # GRAMMAR, SHORT_ANSWER, EXTRACT_PROSE, EXTRACT_POETRY, ANALYTICAL_PARAGRAPH → SHORT
-    return "SHORT"
+    """The coarse bucket a slot of this type carries, from the catalogue.
+
+    COMPOSITION buckets as LONG. This function used to be the one place that
+    said SHORT while the pipeline, the Builder and the replace path all said
+    LONG — so a Builder round trip already changed it.
+    """
+    from services.question_types import legacy_bucket
+
+    return legacy_bucket(qtype_name)
 
 
 def _section_title_for_stream(subject_norm: str, stream_name: str, class_num: int) -> str:

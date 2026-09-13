@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from services.pool.schema import QUESTION_TYPES, normalize_type
+from services.question_types import legacy_bucket
 
 logger = logging.getLogger("[TEMPLATES]")
 
@@ -436,23 +437,14 @@ class ResolvedSlot:
     instruction_hint: str = ""
 
 
-#: Coarse bucket a question type falls into. Mirrors the mapping the pipeline
-#: has always used; kept here so a blueprint built entirely in the Builder
-#: derives the same value the engine would have set.
-_LEGACY_TYPE_MAP = {
-    "MCQ": "MCQ",
-    "ASSERTION_REASON": "ASSERTION_REASON",
-    "CASE_STUDY": "CASE_STUDY",
-    "READING_COMP": "CASE_STUDY",
-    "DIAGRAM": "DIAGRAM",
-    "LONG_ANSWER": "LONG",
-    "LETTER": "LONG",
-    "COMPOSITION": "LONG",
-}
-
-
 def legacy_type_for(question_type: str) -> str:
-    return _LEGACY_TYPE_MAP.get(normalize_type(question_type), "SHORT")
+    """The coarse bucket a question type falls into.
+
+    Answered by the catalogue, the same place the engine and the pipeline ask,
+    so a blueprint built entirely in the Builder derives exactly the value the
+    engine would have set.
+    """
+    return legacy_bucket(question_type)
 
 
 def blueprint_to_plan(blueprint: TemplateBlueprint) -> List[ResolvedSlot]:

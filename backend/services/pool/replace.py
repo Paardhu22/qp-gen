@@ -50,6 +50,7 @@ from services.pool.schema import (
     normalize_type,
     slot_accepts,
 )
+from services.question_types import legacy_bucket
 
 logger = logging.getLogger("[POOL_REPLACE]")
 
@@ -96,15 +97,8 @@ class ReplacementResult:
 
 
 def _legacy_type_for(question_type: str) -> str:
-    """Coarse bucket for a pool type, mirroring the router's own mapping."""
-    qtype = normalize_type(question_type) or "SHORT_ANSWER"
-    if qtype in {"MCQ", "ASSERTION_REASON", "DIAGRAM"}:
-        return qtype
-    if qtype in {"CASE_STUDY", "READING_COMP"}:
-        return "CASE_STUDY"
-    if qtype in {"LONG_ANSWER", "LETTER", "COMPOSITION"}:
-        return "LONG"
-    return "SHORT"
+    """Coarse bucket for a type — the catalogue's answer, as the router's is."""
+    return legacy_bucket(question_type)
 
 
 def build_slot(spec: Dict[str, Any]) -> ReplacementSlot:

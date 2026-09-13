@@ -6,13 +6,14 @@ Every stage of the pool architecture speaks this shape:
              ├─→ PoolQuestion[] ─→ store ─→ Model 2 ─→ Paper
     Image ───┘
 
-The canonical type vocabulary is deliberately `QuestionTypeCode` from
-`q_instructions.core.enums`, NOT a fresh set. Model 2 has to map pool
-questions onto blueprint slots produced by `build_question_plan`, and those
-slots carry `question_type` (a QuestionTypeCode name) plus a coarser
-`legacy_type`. Inventing a parallel vocabulary here would mean a lossy
-translation table sitting between the pool and the blueprint — and every
-mismatch in it shows up as an unfillable slot at assembly time.
+Question types come from one place, `services.question_types`. A pool
+question's `type` is its runtime SHAPE (`MCQ`, `SHORT_ANSWER`, `CASE_STUDY`) —
+the same vocabulary blueprint slots from `build_question_plan` carry in
+`question_type`, beside a coarser `legacy_type` bucket. Keeping the pool and
+the blueprint on one vocabulary is what stops a lossy translation table from
+growing between them, where every mismatch shows up as an unfillable slot at
+assembly time. The teacher-facing catalogue type (`MCQ_ODD_ONE_OUT`) resolves
+onto a shape.
 """
 
 from __future__ import annotations
@@ -22,6 +23,15 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
+from services.question_types import (
+    BUCKET_ACCEPTS,
+    CATALOG,
+    OPTION_BEARING_SHAPES,
+    SHAPE_CODES,
+    SHAPE_SYNONYMS,
+    normalize_type_code as _catalogue_type_code,
+    shape_of,
+)
 from utils.ids import generate_id
 
 # ── Canonical vocabularies ──────────────────────────────────────────────
@@ -33,36 +43,11 @@ from utils.ids import generate_id
 #: re-exports it as the public name.
 DEFAULT_GENERATOR = "question_pool"
 
-#: Question types the pool can hold. Superset of QuestionTypeCode: the extra
-#: members are the language-subject types the router emits (READING_COMP,
-#: LETTER, GRAMMAR, …) plus VERY_SHORT_ANSWER, which CBSE uses as a distinct
-#: 1-mark descriptive type but QuestionTypeCode folds into SHORT_ANSWER.
-QUESTION_TYPES = {
-    "MCQ",
-    "ASSERTION_REASON",
-    "CASE_STUDY",
-    "NUMERICAL",
-    "DIAGRAM",
-    "EXPERIMENTAL",
-    "HOTS",
-    "COMPETENCY",
-    "VERY_SHORT_ANSWER",
-    "SHORT_ANSWER",
-    "LONG_ANSWER",
-    # Language subjects
-    "READING_COMP",
-    "EXTRACT_PROSE",
-    "EXTRACT_POETRY",
-    "ANALYTICAL_PARAGRAPH",
-    "GRAMMAR",
-    "LETTER",
-    "COMPOSITION",
-    # Objective short forms
-    "FILL_IN_THE_BLANK",
-    "TRUE_FALSE",
-    "MATCH_THE_FOLLOWING",
-    "ONE_WORD",
-}
+#: Question shapes the pool can hold: the 22 runtime codes, with the retired
+#: HOTS and COMPETENCY kept so data written before they became attributes still
+#: normalises. Defined in `services.question_types.shapes` — a teacher-facing
+#: catalogue type (`MCQ_ODD_ONE_OUT`) resolves onto one of these via `shape_of`.
+QUESTION_TYPES = set(SHAPE_CODES)
 
 BLOOMS_LEVELS = {
     "REMEMBER", "UNDERSTAND", "APPLY", "ANALYZE", "EVALUATE", "CREATE",
@@ -74,69 +59,22 @@ DIFFICULTIES = {"easy", "medium", "hard"}
 #: of these that arrive without options, and the normaliser refuses to coerce
 #: one into existence — a 4-option MCQ with 2 options is a broken question,
 #: not a fixable one.
-OPTION_BEARING_TYPES = {"MCQ", "ASSERTION_REASON", "TRUE_FALSE", "MATCH_THE_FOLLOWING"}
+OPTION_BEARING_TYPES = set(OPTION_BEARING_SHAPES)
 
 #: Assertion-Reason always uses the same four CBSE directions, so the pool
 #: stores them verbatim rather than trusting the model to restate them.
-ASSERTION_REASON_OPTIONS = [
-    "Both Assertion (A) and Reason (R) are true and Reason (R) is the correct explanation of Assertion (A).",
-    "Both Assertion (A) and Reason (R) are true but Reason (R) is not the correct explanation of Assertion (A).",
-    "Assertion (A) is true but Reason (R) is false.",
-    "Assertion (A) is false but Reason (R) is true.",
-]
+ASSERTION_REASON_OPTIONS = list(CATALOG["ASSERTION_REASON"].options.fixed)
 
 #: Maps the coarse `legacy_type` on a blueprint slot to every pool type that
 #: can legitimately fill it. Model 2 uses this when a slot only specifies the
 #: legacy type. SHORT deliberately accepts several descriptive types — a
 #: 2-mark "SHORT" slot is happy with a NUMERICAL or EXPERIMENTAL question.
 LEGACY_TYPE_ACCEPTS: Dict[str, set[str]] = {
-    "MCQ": {"MCQ"},
-    "ASSERTION_REASON": {"ASSERTION_REASON"},
-    "CASE_STUDY": {"CASE_STUDY", "READING_COMP"},
-    "DIAGRAM": {"DIAGRAM"},
-    "SHORT": {
-        "SHORT_ANSWER", "VERY_SHORT_ANSWER", "NUMERICAL", "EXPERIMENTAL",
-        "COMPETENCY", "HOTS", "GRAMMAR", "EXTRACT_PROSE", "EXTRACT_POETRY",
-        "ANALYTICAL_PARAGRAPH", "FILL_IN_THE_BLANK", "TRUE_FALSE",
-        "MATCH_THE_FOLLOWING", "ONE_WORD",
-    },
-    "LONG": {"LONG_ANSWER", "CASE_STUDY", "LETTER", "COMPOSITION", "HOTS"},
+    bucket: set(shapes) for bucket, shapes in BUCKET_ACCEPTS.items()
 }
 
 #: Type synonyms the LLM reliably emits despite an explicit enum instruction.
-_TYPE_ALIASES = {
-    "MULTIPLE_CHOICE": "MCQ",
-    "MULTIPLE CHOICE": "MCQ",
-    "MCQS": "MCQ",
-    "OBJECTIVE": "MCQ",
-    "ASSERTION": "ASSERTION_REASON",
-    "ASSERTION_AND_REASON": "ASSERTION_REASON",
-    "ASSERTION-REASON": "ASSERTION_REASON",
-    "AR": "ASSERTION_REASON",
-    "CASE": "CASE_STUDY",
-    "CASE_BASED": "CASE_STUDY",
-    "CBQ": "CASE_STUDY",
-    "SOURCE_BASED": "CASE_STUDY",
-    "VSA": "VERY_SHORT_ANSWER",
-    "VERY_SHORT": "VERY_SHORT_ANSWER",
-    "SA": "SHORT_ANSWER",
-    "SHORT": "SHORT_ANSWER",
-    "LA": "LONG_ANSWER",
-    "LONG": "LONG_ANSWER",
-    "ESSAY": "LONG_ANSWER",
-    "NUMERIC": "NUMERICAL",
-    "CALCULATION": "NUMERICAL",
-    "FILL_IN_THE_BLANKS": "FILL_IN_THE_BLANK",
-    "FILL_IN_BLANK": "FILL_IN_THE_BLANK",
-    "TRUE_OR_FALSE": "TRUE_FALSE",
-    "MATCH": "MATCH_THE_FOLLOWING",
-    "MATCHING": "MATCH_THE_FOLLOWING",
-    "DIAGRAM_BASED": "DIAGRAM",
-    "IMAGE": "DIAGRAM",
-    "IMAGE_BASED": "DIAGRAM",
-    "PICTURE_BASED": "DIAGRAM",
-    "GRAPH": "DIAGRAM",
-}
+_TYPE_ALIASES = dict(SHAPE_SYNONYMS)
 
 _BLOOMS_ALIASES = {
     "REMEMBERING": "REMEMBER",
@@ -346,12 +284,21 @@ class PoolQuestion:
 
 
 def normalize_type(raw: Any) -> str:
-    value = str(raw or "").strip().upper().replace(" ", "_").replace("-", "_")
-    if not value:
-        return ""
-    if value in QUESTION_TYPES:
-        return value
-    return _TYPE_ALIASES.get(value, "")
+    """The runtime shape for any type string, or "" when it is not recognised.
+
+    Shape codes and model synonyms resolve exactly as they always have; a
+    catalogue code ("MCQ_ODD_ONE_OUT") or teacher phrase resolves to its shape.
+    """
+    return shape_of(raw)
+
+
+def normalize_type_code(raw: Any) -> str:
+    """The catalogue type code for any type string, or "" when not recognised.
+
+    The identity counterpart of `normalize_type`: "MCQ" → "MCQ_SINGLE",
+    "ODD_ONE_OUT" → "MCQ_ODD_ONE_OUT".
+    """
+    return _catalogue_type_code(raw)
 
 
 def normalize_blooms(raw: Any) -> str:

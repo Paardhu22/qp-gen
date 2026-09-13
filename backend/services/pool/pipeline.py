@@ -80,6 +80,7 @@ from services.pool.model1 import PoolGenerationResult, generate_question_pool
 from services.pool.model2 import PaperAssemblyError, assemble_paper
 from services.pool.rendering import or_label_for, printable_content
 from services.pool.schema import PoolQuestion, pool_summary
+from services.question_types import legacy_bucket
 from utils.ids import generate_id
 
 logger = logging.getLogger("[POOL_PIPELINE]")
@@ -123,17 +124,8 @@ class _PoolGenerationUnit:
 
 
 def _legacy_type_for(question_type: str) -> str:
-    mapping = {
-        "MCQ": "MCQ",
-        "ASSERTION_REASON": "ASSERTION_REASON",
-        "CASE_STUDY": "CASE_STUDY",
-        "READING_COMP": "CASE_STUDY",
-        "DIAGRAM": "DIAGRAM",
-        "LONG_ANSWER": "LONG",
-        "LETTER": "LONG",
-        "COMPOSITION": "LONG",
-    }
-    return mapping.get(question_type, "SHORT")
+    """The coarse blueprint bucket for a type, from the catalogue."""
+    return legacy_bucket(question_type)
 
 
 def _question_to_wire(
