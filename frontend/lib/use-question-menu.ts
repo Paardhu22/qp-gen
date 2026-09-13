@@ -346,7 +346,11 @@ export function useQuestionMenu(editor: any) {
     pendingSwapRef.current = target;
     setSwapContext({
       questionText: target.text,
-      currentType: String(slot.type || node.attrs?.questionType || ""),
+      // The catalogue code when the question has one, so the picker opens on
+      // the exact type ("MCQ — Odd One Out"), not just its shape.
+      currentType: String(
+        slot.typeCode || node.attrs?.typeCode || slot.type || node.attrs?.questionType || "",
+      ),
       currentMarks: Number(node.attrs?.marks ?? slot.marks ?? 1),
       paperTotal: paperTotalMarks(editor),
       isOrBranch: isOrBranchAt(editor, target.pos),
@@ -371,7 +375,7 @@ export function useQuestionMenu(editor: any) {
   }, [editor, active]);
 
   const handleSwapType = React.useCallback(
-    async (overrides: { type: string; marks: number }) => {
+    async (overrides: { type: string; typeCode: string; marks: number }) => {
       const target = pendingSwapRef.current;
       if (!editor || !target) return;
       const node = editor.state.doc.nodeAt(target.pos);

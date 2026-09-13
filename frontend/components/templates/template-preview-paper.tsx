@@ -14,6 +14,7 @@
 
 import * as React from "react";
 import type { Blueprint, BlueprintSlot, QuestionTypeOption } from "@/lib/api-client";
+import { questionTypeLabel } from "@/lib/question-types";
 
 interface Props {
   name: string;
@@ -29,6 +30,9 @@ interface Props {
 function typeLabel(code: string, options: QuestionTypeOption[]): string {
   const match = options.find((o) => o.code === code);
   if (match) return match.label;
+  // A shape from an older slot, or a type outside the fetched menu.
+  const known = questionTypeLabel(code);
+  if (known) return known;
   return code
     .toLowerCase()
     .split("_")
@@ -116,7 +120,7 @@ export function TemplatePreviewPaper({
                           className="flex items-baseline justify-between gap-2 text-[10px] text-neutral-700"
                         >
                           <span className="flex-1 truncate">
-                            {slot.index}. {typeLabel(slot.questionType, questionTypes)}
+                            {slot.index}. {typeLabel(slot.typeCode || slot.questionType, questionTypes)}
                             {slot.choiceRequired ? "  (OR)" : ""}
                           </span>
                           <span className="shrink-0 text-neutral-400">

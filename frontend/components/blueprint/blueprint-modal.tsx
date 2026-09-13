@@ -261,13 +261,15 @@ export function BlueprintModal({
   React.useEffect(() => {
     if (!open) return;
     let active = true;
-    fetchQuestionTypeMenu(subject)
+    // The class ranks the menu — its usual types are suggested first — so the
+    // menu is refetched when the class changes, as it is for the subject.
+    fetchQuestionTypeMenu(subject, undefined, academicClass)
       .then((types) => active && setQuestionTypes(types))
       .catch((error) => console.error("Question type menu failed:", error));
     return () => {
       active = false;
     };
-  }, [open, subject]);
+  }, [open, subject, academicClass]);
 
   const applyTemplate = React.useCallback(
     // `briefOverride` exists because the Studio dock seeds the brief and
@@ -745,6 +747,8 @@ export function BlueprintModal({
                 onSelect={applyTemplate}
                 onDelete={handleDeleteTemplate}
                 loading={catalogLoading}
+                academicClass={academicClass}
+                subject={subject}
               />
             ) : step === "sources" ? (
               <div className="space-y-5">
@@ -796,6 +800,7 @@ export function BlueprintModal({
                 slots={blueprint.slots}
                 questionTypes={questionTypes}
                 totals={blueprint}
+                academicClass={academicClass}
                 onChange={handleSlotsChange}
               />
             )}

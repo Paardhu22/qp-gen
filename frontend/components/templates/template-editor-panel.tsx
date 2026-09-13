@@ -101,19 +101,19 @@ export function TemplateEditorPanel({
 
   React.useEffect(() => {
     let cancelled = false;
-    fetchQuestionTypeMenu(subject)
+    fetchQuestionTypeMenu(subject, undefined, academicClass)
       .then((types) => {
         if (!cancelled) setQuestionTypes(types);
       })
       .catch(() => {
-        // A missing menu degrades the type <select> to whatever each slot
-        // already holds (SlotEditor renders an unknown value rather than
-        // silently rewriting it), so this is not worth interrupting an edit.
+        // A missing menu degrades the type picker to whatever each slot
+        // already holds (it renders an unknown value rather than silently
+        // rewriting it), so this is not worth interrupting an edit.
       });
     return () => {
       cancelled = true;
     };
-  }, [subject]);
+  }, [subject, academicClass]);
 
   const totals = React.useMemo(() => recomputeTotals(slots), [slots]);
 
@@ -346,6 +346,7 @@ export function TemplateEditorPanel({
                 slots={slots}
                 questionTypes={questionTypes}
                 totals={totals}
+                academicClass={academicClass}
                 onChange={setSlots}
               />
             ) : (

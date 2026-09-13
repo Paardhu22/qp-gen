@@ -15,14 +15,28 @@
  * — which is what they asked for, with nothing to reconcile.
  *
  * Slots are grouped by section for scanning. A CBSE paper is 38 rows, and an
- * ungrouped list of 38 identical selects is not something a teacher can read.
+ * ungrouped list of 38 identical controls is not something a teacher can read.
+ *
+ * Each row stays one line. The type comes from the question type catalogue
+ * through a picker that suggests this class's usual types first, and the two
+ * slot attributes most slots never use — higher-order thinking and real-world
+ * framing — sit behind one small menu rather than adding two controls to every
+ * row.
  */
 
 import * as React from "react";
-import { Plus, Trash2, Database } from "lucide-react";
+import { Database, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 
+import { QuestionTypePicker } from "@/components/question-type-picker";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { questionTypeInfo } from "@/lib/question-types";
 import { cn } from "@/lib/utils";
 import type {
   Blueprint,
@@ -38,6 +52,8 @@ interface Props {
     Blueprint,
     "totalQuestions" | "totalMarks" | "savedCount" | "generatedCount"
   >;
+  /** The class the paper is for. Drives suggestions and the class-fit note. */
+  academicClass?: string;
   onChange: (slots: BlueprintSlot[]) => void;
 }
 
@@ -66,50 +82,22 @@ function reindex(slots: BlueprintSlot[]): BlueprintSlot[] {
   return slots.map((slot, i) => ({ ...slot, index: i + 1 }));
 }
 
-function TypeSelect({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: QuestionTypeOption[];
-  onChange: (code: string) => void;
-}) {
-  // Grouped <optgroup> rather than a custom popover: 22 options in a native
-  // select is scannable, keyboard-navigable and type-ahead searchable for free,
-  // and on a phone it becomes the platform picker.
-  const groups = React.useMemo(() => {
-    const byGroup = new Map<string, QuestionTypeOption[]>();
-    for (const option of options) {
-      const list = byGroup.get(option.group) ?? [];
-      list.push(option);
-      byGroup.set(option.group, list);
-    }
-    return Array.from(byGroup.entries());
-  }, [options]);
-
+/** The catalogue type a slot holds, whether it stores a code or only a shape. */
+function slotTypeCode(slot: BlueprintSlot): string {
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-    >
-      {/* A type the server no longer offers must still render, or editing any
-          other field on this slot would silently rewrite its type. */}
-      {!options.some((o) => o.code === value) && value ? (
-        <option value={value}>{value}</option>
-      ) : null}
-      {groups.map(([group, groupOptions]) => (
-        <optgroup key={group} label={group}>
-          {groupOptions.map((option) => (
-            <option key={option.code} value={option.code}>
-              {option.label}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+    slot.typeCode || questionTypeInfo(slot.questionType)?.code || slot.questionType
   );
+}
+
+/** A note when the type is usually set to other classes; null when it fits. */
+function classFitNote(code: string, academicClass?: string): string | null {
+  const classNum = Number.parseInt(String(academicClass ?? ""), 10);
+  const info = questionTypeInfo(code);
+  if (!info || !Number.isFinite(classNum)) return null;
+  const [first, last] = info.classes;
+  if (classNum < first) return `${info.label} is usually set from Class ${first}.`;
+  if (classNum > last) return `${info.label} is usually set up to Class ${last}.`;
+  return null;
 }
 
 function SourceToggle({
@@ -148,6 +136,51 @@ function SourceToggle({
         </button>
       ))}
     </div>
+  );
+}
+
+/** Higher-order thinking and real-world framing, for the few slots that ask. */
+function AttributesMenu({
+  slot,
+  onChange,
+}: {
+  slot: BlueprintSlot;
+  onChange: (patch: Partial<BlueprintSlot>) => void;
+}) {
+  const active = Boolean(slot.hots || slot.competency);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={`More options for question ${slot.index}`}
+        title="Higher-order thinking, real-world framing"
+        className={cn(
+          "relative rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+          active && "text-primary",
+        )}
+      >
+        <SlidersHorizontal className="size-3.5" />
+        {active ? (
+          <span
+            aria-hidden
+            className="absolute right-1 top-1 size-1.5 rounded-full bg-primary"
+          />
+        ) : null}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuCheckboxItem
+          checked={Boolean(slot.hots)}
+          onCheckedChange={(checked) => onChange({ hots: Boolean(checked) })}
+        >
+          Higher-order thinking
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={Boolean(slot.competency)}
+          onCheckedChange={(checked) => onChange({ competency: Boolean(checked) })}
+        >
+          Real-world framing
+        </DropdownMenuCheckboxItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -200,7 +233,13 @@ function SourceSplit({
   );
 }
 
-export function SlotEditor({ slots, questionTypes, totals, onChange }: Props) {
+export function SlotEditor({
+  slots,
+  questionTypes,
+  totals,
+  academicClass,
+  onChange,
+}: Props) {
   const typeByCode = React.useMemo(
     () => new Map(questionTypes.map((o) => [o.code, o])),
     [questionTypes],
@@ -212,20 +251,24 @@ export function SlotEditor({ slots, questionTypes, totals, onChange }: Props) {
     );
   };
 
-  const changeType = (index: number, code: string) => {
+  const defaultMarksOf = (slot: BlueprintSlot): number | undefined => {
+    const code = slotTypeCode(slot);
+    return typeByCode.get(code)?.defaultMarks ?? questionTypeInfo(code)?.marks;
+  };
+
+  const changeType = (index: number, option: QuestionTypeOption) => {
     // Marks follow the type unless the teacher has already overridden them —
     // switching MCQ → Long Answer and leaving it at 1 mark is a wrong paper,
     // but silently resetting a deliberate 4 is worse. "Already overridden"
     // means the current marks differ from the outgoing type's default.
     const slot = slots[index];
-    const outgoingDefault = typeByCode.get(slot.questionType)?.defaultMarks;
-    const incomingDefault = typeByCode.get(code)?.defaultMarks;
-    const untouched = outgoingDefault !== undefined && slot.marks === outgoingDefault;
+    const outgoingDefault = defaultMarksOf(slot);
+    const untouched =
+      outgoingDefault !== undefined && slot.marks === outgoingDefault;
     update(index, {
-      questionType: code,
-      ...(untouched && incomingDefault !== undefined
-        ? { marks: incomingDefault }
-        : {}),
+      questionType: option.shape,
+      typeCode: option.code,
+      ...(untouched ? { marks: option.defaultMarks } : {}),
     });
   };
 
@@ -234,11 +277,16 @@ export function SlotEditor({ slots, questionTypes, totals, onChange }: Props) {
   };
 
   const addSlot = (sectionTitle: string) => {
-    const fallback = questionTypes[0];
+    // A new slot starts as a type this class is usually set, so the row is
+    // already sensible before the teacher touches it.
+    const fallback =
+      questionTypes.find((o) => o.common && o.availability === "available") ??
+      questionTypes.find((o) => o.availability === "available");
     const next: BlueprintSlot = {
       index: slots.length + 1,
       sectionTitle,
-      questionType: fallback?.code ?? "SHORT_ANSWER",
+      questionType: fallback?.shape ?? "SHORT_ANSWER",
+      typeCode: fallback?.code,
       marks: fallback?.defaultMarks ?? 2,
       source: "generate",
       choiceRequired: false,
@@ -325,59 +373,79 @@ export function SlotEditor({ slots, questionTypes, totals, onChange }: Props) {
             </div>
 
             <div className="overflow-hidden rounded-lg border border-border">
-              {entries.map(({ slot, index }, position) => (
-                <div
-                  key={`${title}-${index}`}
-                  className={cn(
-                    "grid grid-cols-[2rem_1fr_4.5rem_auto_2rem] items-center gap-2 px-3 py-2",
-                    position % 2 === 1 && "bg-muted/30",
-                  )}
-                >
-                  <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                    {slot.index}
-                  </span>
-
-                  <TypeSelect
-                    value={slot.questionType}
-                    options={questionTypes}
-                    onChange={(code) => changeType(index, code)}
-                  />
-
-                  <div className="flex items-center gap-1">
-                    <Input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={slot.marks}
-                      onChange={(e) =>
-                        update(index, {
-                          marks: Math.max(
-                            1,
-                            Math.min(20, Number(e.target.value) || 1),
-                          ),
-                        })
-                      }
-                      aria-label={`Marks for question ${slot.index}`}
-                      className="h-8 w-12 px-1.5 text-center text-xs"
-                    />
-                    <span className="text-[10px] text-muted-foreground">mk</span>
-                  </div>
-
-                  <SourceToggle
-                    value={slot.source}
-                    onChange={(source) => update(index, { source })}
-                  />
-
-                  <button
-                    type="button"
-                    aria-label={`Remove question ${slot.index}`}
-                    onClick={() => removeSlot(index)}
-                    className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              {entries.map(({ slot, index }, position) => {
+                const code = slotTypeCode(slot);
+                const note = classFitNote(code, academicClass);
+                return (
+                  <div
+                    key={`${title}-${index}`}
+                    className={cn(
+                      "flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2 sm:flex-nowrap",
+                      position % 2 === 1 && "bg-muted/30",
+                    )}
                   >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              ))}
+                    <span className="w-6 shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+                      {slot.index}
+                    </span>
+
+                    <div className="flex min-w-0 flex-1 basis-40 items-center gap-1.5">
+                      <QuestionTypePicker
+                        value={code}
+                        options={questionTypes}
+                        onChange={(option) => changeType(index, option)}
+                        aria-label={`Type of question ${slot.index}`}
+                      />
+                      {note ? (
+                        <span
+                          role="img"
+                          aria-label={note}
+                          title={note}
+                          className="size-1.5 shrink-0 rounded-full bg-warning"
+                        />
+                      ) : null}
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={slot.marks}
+                        onChange={(e) =>
+                          update(index, {
+                            marks: Math.max(
+                              1,
+                              Math.min(20, Number(e.target.value) || 1),
+                            ),
+                          })
+                        }
+                        aria-label={`Marks for question ${slot.index}`}
+                        className="h-8 w-12 px-1.5 text-center text-xs"
+                      />
+                      <span className="text-[10px] text-muted-foreground">mk</span>
+                    </div>
+
+                    <SourceToggle
+                      value={slot.source}
+                      onChange={(source) => update(index, { source })}
+                    />
+
+                    <AttributesMenu
+                      slot={slot}
+                      onChange={(patch) => update(index, patch)}
+                    />
+
+                    <button
+                      type="button"
+                      aria-label={`Remove question ${slot.index}`}
+                      onClick={() => removeSlot(index)}
+                      className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
 
             <Button

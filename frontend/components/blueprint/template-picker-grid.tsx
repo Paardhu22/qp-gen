@@ -13,11 +13,17 @@
  * last week is far likelier to want it again than to browse thirty board
  * papers, and burying it under the catalog is how a saved template stops being
  * worth saving.
+ *
+ * Next come the class starters — a ready structure for the class and subject
+ * the teacher has chosen, built from the question types that class is actually
+ * set. Only the starters that fit are shown, so the section is one or two
+ * cards, and it is absent altogether where none fits.
  */
 
 import * as React from "react";
 import {
   BookOpen,
+  ClipboardList,
   FilePlus2,
   MessageSquareText,
   Trash2,
@@ -34,12 +40,29 @@ interface Props {
   onSelect: (id: string, kind: string) => void;
   onDelete?: (template: PaperTemplate) => void;
   loading?: boolean;
+  /** The class and subject on the rail, which decide the starters shown. */
+  academicClass?: string;
+  subject?: string;
 }
 
 function iconFor(kind: string) {
   if (kind === "instructions") return MessageSquareText;
   if (kind === "blank") return FilePlus2;
+  if (kind === "starter") return ClipboardList;
   return BookOpen;
+}
+
+/** "English Language & Literature" and "english" name the same subject. */
+function subjectKey(subject: string | undefined): string {
+  const text = String(subject ?? "").trim().toLowerCase();
+  return text.startsWith("social") ? "social science" : text.split(/\s+/)[0] ?? "";
+}
+
+function starterFits(template: BuiltinTemplate, classNum: number, subject: string) {
+  const range = template.classRange;
+  if (!range || !Number.isFinite(classNum)) return false;
+  if (classNum < range[0] || classNum > range[1]) return false;
+  return !subject || subjectKey(template.subject) === subject;
 }
 
 function Card({
@@ -161,10 +184,20 @@ export function TemplatePickerGrid({
   onSelect,
   onDelete,
   loading,
+  academicClass,
+  subject,
 }: Props) {
+  const classNum = Number.parseInt(String(academicClass ?? ""), 10);
+  const wantedSubject = subjectKey(subject);
+
+  const starters = builtin.filter(
+    (t) => t.kind === "starter" && starterFits(t, classNum, wantedSubject),
+  );
   // "Describe It Yourself" and "Blank" are not board papers and should not be
   // buried among thirty of them — they are the two ways to start from nothing.
-  const quickStarts = builtin.filter((t) => t.kind !== "cbse_blueprint");
+  const quickStarts = builtin.filter(
+    (t) => t.kind === "instructions" || t.kind === "blank",
+  );
   const boardPapers = builtin.filter((t) => t.kind === "cbse_blueprint");
 
   if (loading) {
@@ -188,6 +221,24 @@ export function TemplatePickerGrid({
               selected={selectedId === template.id}
               onClick={() => onSelect(template.id, "saved")}
               onDelete={onDelete ? () => onDelete(template) : undefined}
+            />
+          ))}
+        </Section>
+      ) : null}
+
+      {starters.length > 0 ? (
+        <Section
+          label={`Recommended for Class ${classNum}`}
+          hint="a ready structure you can edit"
+        >
+          {starters.map((template) => (
+            <Card
+              key={template.id}
+              title={template.name}
+              description={template.description}
+              icon={iconFor(template.kind)}
+              selected={selectedId === template.id}
+              onClick={() => onSelect(template.id, template.kind)}
             />
           ))}
         </Section>

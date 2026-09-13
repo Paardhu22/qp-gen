@@ -12,11 +12,10 @@
  * ## Why the marks are the headline, not a detail
  *
  * A question paper that does not add up to its stated total is not a paper. So
- * the types are split by whether they keep the total intact, and the running
- * total is stated in the footer at all times rather than being discovered
- * after the swap. Changing the total is allowed — a teacher restructuring a
- * section is doing something legitimate — but it is never allowed to happen
- * quietly.
+ * the running total is stated in the footer at all times rather than being
+ * discovered after the swap. Changing the total is allowed — a teacher
+ * restructuring a section is doing something legitimate — but it is never
+ * allowed to happen quietly.
  *
  * ## Why some types are missing
  *
@@ -29,6 +28,10 @@
 import * as React from "react";
 
 import {
+  QuestionTypePicker,
+  findTypeOption,
+} from "@/components/question-type-picker";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -40,8 +43,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
 import type { QuestionTypeOption } from "@/lib/api-client";
+
+/** What a swap asks for: the new type as shape and catalogue code, and marks. */
+export interface SwapChoice {
+  type: string;
+  typeCode: string;
+  marks: number;
+}
 
 export interface SwapDialogProps {
   open: boolean;
@@ -51,6 +60,7 @@ export interface SwapDialogProps {
   loadingOptions: boolean;
   /** The question being changed, so the teacher can confirm the target. */
   questionText: string;
+  /** Its catalogue code, or its shape for a question from before the catalogue. */
   currentType: string;
   currentMarks: number;
   /** What the paper adds up to right now, OR branches counted once. */
@@ -58,18 +68,7 @@ export interface SwapDialogProps {
   /** True when this question is one branch of an OR choice. */
   isOrBranch: boolean;
   swapping: boolean;
-  onSwap: (overrides: { type: string; marks: number }) => void;
-}
-
-/** Catalog order, but grouped — a flat list of twenty types does not scan. */
-function byGroup(options: QuestionTypeOption[]) {
-  const groups: Array<{ name: string; options: QuestionTypeOption[] }> = [];
-  for (const option of options) {
-    const existing = groups.find((g) => g.name === option.group);
-    if (existing) existing.options.push(option);
-    else groups.push({ name: option.group, options: [option] });
-  }
-  return groups;
+  onSwap: (choice: SwapChoice) => void;
 }
 
 export function SwapQuestionDialog({
@@ -85,7 +84,11 @@ export function SwapQuestionDialog({
   swapping,
   onSwap,
 }: SwapDialogProps) {
-  const [type, setType] = React.useState(currentType);
+  const current = React.useMemo(
+    () => findTypeOption(options, currentType),
+    [options, currentType],
+  );
+  const [choice, setChoice] = React.useState<QuestionTypeOption | undefined>(current);
   const [marks, setMarks] = React.useState(currentMarks);
 
   // Reset to the question's own type and marks each time the dialog opens.
@@ -93,22 +96,30 @@ export function SwapQuestionDialog({
   // this one — the same reasoning as the image style picker.
   React.useEffect(() => {
     if (open) {
-      setType(currentType);
+      setChoice(current);
       setMarks(currentMarks);
     }
-  }, [open, currentType, currentMarks]);
+  }, [open, current, currentMarks]);
 
   const pickType = (option: QuestionTypeOption) => {
-    setType(option.code);
+    setChoice(option);
     // Move the marks to the type's usual weight, because that is what the
     // teacher almost always means. They can still overrule it below — which is
     // why this is a default and not a lock.
-    setMarks(option.code === currentType ? currentMarks : option.defaultMarks);
+    setMarks(option.code === current?.code ? currentMarks : option.defaultMarks);
   };
 
   const delta = marks - currentMarks;
   const newTotal = paperTotal + delta;
-  const changed = type !== currentType || marks !== currentMarks;
+  const changed =
+    (choice?.code ?? "") !== (current?.code ?? "") || marks !== currentMarks;
+
+  const swap = () =>
+    onSwap(
+      choice
+        ? { type: choice.shape, typeCode: choice.code, marks }
+        : { type: currentType, typeCode: "", marks },
+    );
 
   return (
     <Dialog open={open} onOpenChange={swapping ? () => {} : onOpenChange}>
@@ -138,56 +149,14 @@ export function SwapQuestionDialog({
             there is nothing to change. Use Swap to get a different question.
           </p>
         ) : (
-          <div className="max-h-[46vh] space-y-3 overflow-y-auto pr-1">
-            {byGroup(options).map((group) => (
-              <div key={group.name}>
-                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {group.name}
-                </p>
-                <div className="grid gap-1.5 sm:grid-cols-2">
-                  {group.options.map((option) => {
-                    const active = type === option.code;
-                    const keepsTotal = option.defaultMarks === currentMarks;
-                    return (
-                      <button
-                        key={option.code}
-                        type="button"
-                        disabled={swapping}
-                        onClick={() => pickType(option)}
-                        className={cn(
-                          "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                          "disabled:cursor-not-allowed disabled:opacity-60",
-                          active
-                            ? "border-primary bg-primary/5 ring-1 ring-primary"
-                            : "border-border hover:border-primary/40 hover:bg-muted/40",
-                        )}
-                      >
-                        <span className="text-sm">
-                          {option.label}
-                          {option.code === currentType ? (
-                            <span className="ml-1.5 text-[10px] text-muted-foreground">
-                              current
-                            </span>
-                          ) : null}
-                        </span>
-                        <span
-                          className={cn(
-                            "shrink-0 text-[11px] tabular-nums",
-                            keepsTotal
-                              ? "text-muted-foreground"
-                              : "font-medium text-amber-600 dark:text-amber-500",
-                          )}
-                        >
-                          {option.defaultMarks}m
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
+          <QuestionTypePicker
+            variant="inline"
+            value={choice?.code ?? currentType}
+            options={options}
+            onChange={pickType}
+            disabled={swapping}
+            aria-label="Question type"
+          />
         )}
 
         {options.length > 0 ? (
@@ -249,7 +218,7 @@ export function SwapQuestionDialog({
             type="button"
             size="sm"
             disabled={swapping || !changed || options.length === 0}
-            onClick={() => onSwap({ type, marks })}
+            onClick={swap}
           >
             {swapping ? (
               <>

@@ -29,7 +29,10 @@ import {
  * endpoint.
  */
 export interface SwapOverrides {
+  /** The new runtime shape. */
   type?: string;
+  /** The new catalogue type, when the teacher picked one. */
+  typeCode?: string;
   marks?: number;
 }
 
@@ -69,9 +72,10 @@ async function fetchReplacement(
       // odd-one-out, not any MCQ. A re-type to a different shape drops it: the
       // old code describes the question being replaced, not the one asked for.
       typeCode: String(
-        overrides.type && overrides.type !== slot.type
-          ? ""
-          : slot.typeCode || node.attrs?.typeCode || "",
+        overrides.typeCode ||
+          (overrides.type && overrides.type !== slot.type
+            ? ""
+            : slot.typeCode || node.attrs?.typeCode || ""),
       ),
       hots: Boolean(slot.hots),
       competency: Boolean(slot.competency),

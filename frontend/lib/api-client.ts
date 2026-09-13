@@ -1202,7 +1202,14 @@ export type SlotSource = "generate" | "saved";
 export interface BlueprintSlot {
   index: number;
   sectionTitle: string;
+  /** The runtime shape ("MCQ"). */
   questionType: string;
+  /** The catalogue type the teacher picked ("MCQ_ODD_ONE_OUT"). */
+  typeCode?: string;
+  /** Ask for higher-order thinking (Bloom Analyze and above). */
+  hots?: boolean;
+  /** Frame the question in a real-world situation. */
+  competency?: boolean;
   marks: number;
   source: SlotSource;
   choiceRequired: boolean;
@@ -1240,12 +1247,15 @@ export interface BuiltinTemplate {
   id: string;
   name: string;
   description: string;
-  kind: "cbse_blueprint" | "blank" | "instructions";
+  /** "starter": a ready blueprint for a class band, built from the catalogue. */
+  kind: "cbse_blueprint" | "blank" | "instructions" | "starter";
   builtin: true;
   board: string;
   academicClass: string;
   subject: string;
   settings: Record<string, string>;
+  /** The classes a starter suits, inclusive. Absent on every other kind. */
+  classRange?: [number, number];
 }
 
 export interface PaperTemplate {
@@ -1270,10 +1280,28 @@ export interface PaperTemplate {
 export type PickableTemplate = BuiltinTemplate | PaperTemplate;
 
 export interface QuestionTypeOption {
+  /** The catalogue type ("MCQ_ODD_ONE_OUT") — written to a slot as typeCode. */
   code: string;
+  /** Its runtime shape ("MCQ") — written to a slot as questionType. */
+  shape: string;
   label: string;
+  /** The family it is filed under, e.g. "Objective — Choice Based". */
   group: string;
+  family: string;
   defaultMarks: number;
+  marksRange: [number, number];
+  classes: [number, number];
+  /** "needs_picture" types are listed but cannot be chosen. */
+  availability: "available" | "needs_picture";
+  /** Why an unavailable type cannot be chosen; empty when it can. */
+  reason: string;
+  /** What the type measures, in a line. */
+  tests: string;
+  example: string;
+  /** Whether the class this menu was fetched for is usually set this type. */
+  inClass: boolean;
+  /** Belongs in the short "Suggested" list for this class and subject. */
+  common: boolean;
 }
 
 /** Built-ins and the teacher's own, in one call — the picker shows one grid. */
@@ -1353,10 +1381,13 @@ export async function fetchQuestionTypeMenu(
    * that generator cannot write is a choice that always fails.
    */
   generator?: string,
+  /** The class the paper is for, so the menu can suggest that class's types. */
+  academicClass?: string | number,
 ): Promise<QuestionTypeOption[]> {
   const query = new URLSearchParams();
   if (subject) query.set("subject", subject);
   if (generator) query.set("generator", generator);
+  if (academicClass) query.set("class", String(academicClass));
   const suffix = query.toString() ? `?${query}` : "";
   const data = await fetchJson<{ questionTypes: QuestionTypeOption[] }>(
     `/api/generation/question-types${suffix}`,
