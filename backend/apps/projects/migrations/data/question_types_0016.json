@@ -2584,7 +2584,8 @@
     "route": {
      "generator": "reading_asset_pool",
      "assetType": "discursive_passage",
-     "also": []
+     "also": [],
+     "constraints": {}
     }
    },
    "answer_schema": {
@@ -3803,7 +3804,8 @@
     "route": {
      "generator": "grammar_asset_pool",
      "assetType": "grammar_task_set",
-     "also": []
+     "also": [],
+     "constraints": {}
     }
    },
    "answer_schema": {
@@ -3856,7 +3858,16 @@
     "route": {
      "generator": "grammar_asset_pool",
      "assetType": "grammar_task_set",
-     "also": []
+     "also": [],
+     "constraints": {
+      "grammar_topics": [
+       "verb_form_gap_fill",
+       "tense_gap_fill",
+       "modal_gap_fill",
+       "determiner_gap_fill",
+       "preposition_gap_fill"
+      ]
+     }
     }
    },
    "answer_schema": {
@@ -3909,7 +3920,12 @@
     "route": {
      "generator": "grammar_asset_pool",
      "assetType": "grammar_task_set",
-     "also": []
+     "also": [],
+     "constraints": {
+      "grammar_topics": [
+       "error_correction_table"
+      ]
+     }
     }
    },
    "answer_schema": {
@@ -3962,7 +3978,12 @@
     "route": {
      "generator": "grammar_asset_pool",
      "assetType": "grammar_task_set",
-     "also": []
+     "also": [],
+     "constraints": {
+      "grammar_topics": [
+       "editing_gap_fill"
+      ]
+     }
     }
    },
    "answer_schema": {
@@ -4015,7 +4036,12 @@
     "route": {
      "generator": "grammar_asset_pool",
      "assetType": "grammar_task_set",
-     "also": []
+     "also": [],
+     "constraints": {
+      "grammar_topics": [
+       "sentence_transformation"
+      ]
+     }
     }
    },
    "answer_schema": {
@@ -4117,7 +4143,14 @@
     "route": {
      "generator": "grammar_asset_pool",
      "assetType": "grammar_task_set",
-     "also": []
+     "also": [],
+     "constraints": {
+      "grammar_topics": [
+       "reported_speech_statement",
+       "reported_speech_command",
+       "reported_speech_question"
+      ]
+     }
     }
    },
    "answer_schema": {
@@ -4170,7 +4203,12 @@
     "route": {
      "generator": "grammar_asset_pool",
      "assetType": "grammar_task_set",
-     "also": []
+     "also": [],
+     "constraints": {
+      "grammar_topics": [
+       "sentence_transformation"
+      ]
+     }
     }
    },
    "answer_schema": {
@@ -4723,7 +4761,8 @@
       "letter_of_complaint",
       "letter_of_enquiry",
       "letter_placing_order"
-     ]
+     ],
+     "constraints": {}
     }
    },
    "answer_schema": {
@@ -4776,7 +4815,8 @@
     "route": {
      "generator": "writing_asset_pool",
      "assetType": "email",
-     "also": []
+     "also": [],
+     "constraints": {}
     }
    },
    "answer_schema": {
@@ -4829,7 +4869,8 @@
     "route": {
      "generator": "writing_asset_pool",
      "assetType": "notice",
-     "also": []
+     "also": [],
+     "constraints": {}
     }
    },
    "answer_schema": {
@@ -4980,7 +5021,8 @@
     "route": {
      "generator": "writing_asset_pool",
      "assetType": "story",
-     "also": []
+     "also": [],
+     "constraints": {}
     }
    },
    "answer_schema": {
@@ -5082,7 +5124,8 @@
     "route": {
      "generator": "writing_asset_pool",
      "assetType": "analytical_paragraph",
-     "also": []
+     "also": [],
+     "constraints": {}
     }
    },
    "answer_schema": {
@@ -5235,7 +5278,8 @@
      "assetType": "speech",
      "also": [
       "debate"
-     ]
+     ],
+     "constraints": {}
     }
    },
    "answer_schema": {
@@ -5386,7 +5430,8 @@
     "route": {
      "generator": "writing_asset_pool",
      "assetType": "article",
-     "also": []
+     "also": [],
+     "constraints": {}
     }
    },
    "answer_schema": {
@@ -5439,7 +5484,8 @@
     "route": {
      "generator": "writing_asset_pool",
      "assetType": "report",
-     "also": []
+     "also": [],
+     "constraints": {}
     }
    },
    "answer_schema": {

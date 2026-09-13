@@ -354,6 +354,27 @@ def compute_content_hash(subject: str, chapter: str, question: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+_PARENTHESISED_LETTER = re.compile(r"\(\s*([a-eA-E])\s*\)")
+_BARE_LETTER = re.compile(r"(?<![A-Za-z])([a-eA-E])(?![A-Za-z])")
+_OPENING_LETTER_RUN = re.compile(
+    r"^\s*[a-eA-E](?:\s*(?:,|and|&)\s*[a-eA-E])*(?![A-Za-z])"
+)
+
+
+def _correct_letters(answer: Any) -> set:
+    """The option letters an answer key names: "(a), (c), (e)" or "a, c and e"."""
+    text = str(answer or "")
+    letters = {letter.lower() for letter in _PARENTHESISED_LETTER.findall(text)}
+    if letters:
+        return letters
+    # Only the run of bare letters the answer opens with, so an answer that is
+    # a sentence merely containing the word "a" does not read as a key.
+    opening = _OPENING_LETTER_RUN.match(text)
+    if not opening:
+        return set()
+    return {letter.lower() for letter in _BARE_LETTER.findall(opening.group(0))}
+
+
 def normalize_pool_question(
     raw: Dict[str, Any],
     *,
@@ -364,12 +385,17 @@ def normalize_pool_question(
     source_type: str = "pool",
     generator: str = DEFAULT_GENERATOR,
     asset_type: str = "",
+    type_hint: str = "",
 ) -> PoolQuestion:
     """Coerce one raw LLM object into the pool contract.
 
     Raises PoolValidationError for anything unsalvageable. The caller drops
     that question and keeps the rest of the batch — one malformed object in an
     80-question response must not fail the whole generation.
+
+    `type_hint` is the catalogue type the caller asked for, when it asked for
+    one. A question of that type's shape IS that type, whatever the model
+    wrote in `type`, and is held to that type's option rule.
     """
     if not isinstance(raw, dict):
         raise PoolValidationError(f"Expected an object, got {type(raw).__name__}")
@@ -395,11 +421,16 @@ def normalize_pool_question(
     if retired is not None and retired.retired:
         attributes.update(retired.implies)
         qtype = CATALOG[retired.default_type].shape
-    type_code = (
-        resolution.code
-        if resolution is not None and resolution.spec.shape == qtype
-        else default_type_for_shape(qtype)
-    )
+    # The type the caller asked for (a batch's quota) wins over whatever the
+    # model wrote, as long as the model wrote that shape: a bare "MCQ" in a
+    # multiple-correct batch is a multiple-correct MCQ, judged by its rule.
+    hinted = resolve(type_hint) if type_hint else None
+    if hinted is not None and hinted.spec.shape == qtype:
+        type_code = hinted.code
+    elif resolution is not None and resolution.spec.shape == qtype:
+        type_code = resolution.code
+    else:
+        type_code = default_type_for_shape(qtype)
 
     options_raw = raw.get("options")
     options: List[str] = []
@@ -409,6 +440,7 @@ def normalize_pool_question(
         # Some responses come back as {"A": "...", "B": "..."} despite the schema.
         options = [str(v).strip() for _, v in sorted(options_raw.items()) if str(v or "").strip()]
 
+    rule = CATALOG[type_code].options if type_code in CATALOG else None
     if qtype == "ASSERTION_REASON":
         # Always the canonical four directions — never the model's paraphrase.
         options = list(ASSERTION_REASON_OPTIONS)
@@ -417,11 +449,21 @@ def normalize_pool_question(
             raise PoolValidationError(
                 f"{qtype} needs at least 2 options, got {len(options)}"
             )
-        if qtype == "MCQ" and len(options) != 4:
-            # CBSE MCQs are 4-option. 3 or 5 means the model lost the plot on
-            # this item; cheaper to drop it than to pad or trim a distractor.
+        if qtype == "MCQ" and rule is not None and not rule.accepts(len(options)):
+            # Every MCQ type states its own option count: a standard MCQ is
+            # exactly four, a multiple-correct one four or five. Anything else
+            # means the model lost the plot on this item; cheaper to drop it
+            # than to pad or trim a distractor.
             raise PoolValidationError(
-                f"MCQ must have exactly 4 options, got {len(options)}"
+                f"{type_code} needs {rule.describe()}, got {len(options)}"
+            )
+        if rule is not None and rule.multi_correct and len(
+            _correct_letters(raw.get("answer"))
+        ) < 2:
+            # A multiple-correct answer key naming one letter is an ordinary
+            # MCQ in disguise, and all-or-nothing marking cannot be applied.
+            raise PoolValidationError(
+                f"{type_code} needs an answer naming two or more options"
             )
     else:
         # A descriptive question with options is a mislabelled MCQ. Drop the

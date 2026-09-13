@@ -146,6 +146,16 @@ class Route:
     #: Other formats of the same generator that produce this same type — six
     #: letter formats are all a Letter.
     also: Tuple[str, ...] = ()
+    #: Slot constraints the generator needs to write this type — which grammar
+    #: points a gap-fill set covers. Pairs rather than a dict so the entry
+    #: stays hashable.
+    constraints: Tuple[Tuple[str, object], ...] = ()
+
+    def constraint_dict(self) -> dict:
+        return {
+            key: list(value) if isinstance(value, tuple) else value
+            for key, value in self.constraints
+        }
 
 
 @dataclass(frozen=True)

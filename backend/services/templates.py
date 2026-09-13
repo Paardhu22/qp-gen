@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from services.pool.schema import normalize_type, normalize_type_code
-from services.question_types import legacy_bucket, resolve_slot_type
+from services.question_types import get as get_type, legacy_bucket, resolve_slot_type
 
 logger = logging.getLogger("[TEMPLATES]")
 
@@ -508,6 +508,24 @@ def blueprint_to_plan(blueprint: TemplateBlueprint) -> List[ResolvedSlot]:
         # the type on the slot.
         keep_engine_type = bool(engine_type) and engine_type == derived_type
 
+        # A slot the engine routed keeps its generator. A slot the teacher
+        # added has none, and a type whose content must never come from the
+        # textbook — an unseen passage, a grammar set, a notice — goes to the
+        # independent generator that writes it instead of to Model 1.
+        generator = str(carried.get("generator") or "")
+        asset_type = str(carried.get("asset_type") or "")
+        constraints = dict(carried.get("constraints") or {})
+        type_entry = get_type(spec.type_code)
+        if (
+            not generator
+            and type_entry is not None
+            and type_entry.lane == "original"
+            and type_entry.route is not None
+        ):
+            generator = type_entry.route.generator
+            asset_type = asset_type or type_entry.route.asset_type
+            constraints = {**type_entry.route.constraint_dict(), **constraints}
+
         slots.append(
             ResolvedSlot(
                 index=spec.index,
@@ -520,11 +538,11 @@ def blueprint_to_plan(blueprint: TemplateBlueprint) -> List[ResolvedSlot]:
                 section_title=spec.section_title,
                 source=spec.source,
                 choice_required=spec.choice_required,
-                generator=str(carried.get("generator") or "question_pool"),
+                generator=generator or "question_pool",
                 requires_figure=bool(carried.get("requires_figure")),
-                asset_type=str(carried.get("asset_type") or ""),
+                asset_type=asset_type,
                 stream=str(carried.get("stream") or ""),
-                constraints=dict(carried.get("constraints") or {}),
+                constraints=constraints,
                 validation=tuple(carried.get("validation") or ()),
                 instruction_hint=str(carried.get("instruction_hint") or ""),
             )

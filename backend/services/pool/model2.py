@@ -180,9 +180,18 @@ def _score_question(
     asset_type: str = "",
     prefer_source: str = "",
     is_from_bank: bool = False,
+    type_code: str = "",
 ) -> float:
     """Higher is better. Every term pushes toward a well-spread paper."""
     score = 0.0
+
+    # The catalogue type the slot asks for, weighted just above the asset type:
+    # an odd-one-out slot takes the odd-one-out question whenever the pool holds
+    # one, and a plain MCQ slot leaves it for the slot that asked. A preference,
+    # not a gate — a slot short of its exact type is better filled with the
+    # same shape than left blank — and the pipeline counts where that happened.
+    if type_code and question.type_code:
+        score += 12.0 if question.type_code == type_code else -12.0
 
     # The teacher's saved-vs-generated split, expressed per slot.
     #
@@ -309,10 +318,14 @@ def build_candidates(
 
     def _rank(
         candidates: List[PoolQuestion],
+        slot: Any,
         *,
-        asset_type: str = "",
         prefer_source: str = "",
     ) -> List[PoolQuestion]:
+        # What the slot declares about itself: the shape within its generator
+        # and the catalogue type the teacher picked.
+        asset_type = str(getattr(slot, "asset_type", "") or "")
+        type_code = str(getattr(slot, "type_code", "") or "")
         return sorted(
             candidates,
             key=lambda q: _score_question(
@@ -327,6 +340,7 @@ def build_candidates(
                 asset_type=asset_type,
                 prefer_source=prefer_source,
                 is_from_bank=_is_from_bank(q),
+                type_code=type_code,
             ),
             reverse=True,
         )
@@ -347,7 +361,7 @@ def build_candidates(
 
         chosen = _rank(
             available,
-            asset_type=str(getattr(slot, "asset_type", "") or ""),
+            slot,
             prefer_source=str(getattr(slot, "source", "") or ""),
         )[0]
         used_ids.add(chosen.id)
@@ -382,10 +396,7 @@ def build_candidates(
 
         # Alternates and OR branches are offered as replacements for the chosen
         # question, so they have to satisfy the same slot.
-        picked = _rank(
-            spare,
-            asset_type=str(getattr(assignment.slot, "asset_type", "") or ""),
-        )[:wanted]
+        picked = _rank(spare, assignment.slot)[:wanted]
         if needs_choice and picked:
             # The OR alternative is held out of `alternates` so the review
             # stage cannot swap the main question onto it and collapse the

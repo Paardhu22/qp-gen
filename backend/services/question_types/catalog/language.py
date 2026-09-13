@@ -2,7 +2,8 @@
 
 Grammar and vocabulary items test the rule, not the story, so they are
 `lane="original"`: never built on a character, plot or poem from a syllabus.
-Types an existing independent generator already writes carry a `route` to it.
+Types an existing independent generator already writes carry a `route` to it;
+a grammar route names the grammar points the set should cover.
 
 Hindi and Telugu use the same structural types under local names (संधि,
 समास, मुहावरे, पर्यायवाची, विलोम; సంధి, సమాసం, అలంకారం). Those are aliases on
@@ -17,12 +18,21 @@ from services.question_types.spec import Route
 _ = family_builder("LANGUAGE")
 
 _LANGUAGES = ("english", "hindi", "telugu", "sanskrit")
-_GRAMMAR = Route("grammar_asset_pool", "grammar_task_set")
+
+
+def _grammar(*topics: str) -> Route:
+    """The grammar generator, focused on `topics` (keys of GRAMMAR_TASK_GLOSS).
+
+    No topics means an even spread over every grammar point it knows.
+    """
+    constraints = (("grammar_topics", topics),) if topics else ()
+    return Route("grammar_asset_pool", "grammar_task_set", constraints=constraints)
+
 
 ENTRIES = [
     _("GRAMMAR_ITEM", "Grammar Item", "F1", "LIVE", "GRAMMAR",
       "A single grammar rule.", 1, (2, 10), "SHORT_TEXT", "APPLY",
-      lane="original", route=_GRAMMAR, subjects=_LANGUAGES,
+      lane="original", route=_grammar(), subjects=_LANGUAGES,
       aliases=("GRAMMAR", "GRAMMAR QUESTION", "व्याकरण", "వ్యాకరణం"),
       brief="One self-contained grammar task on one named rule, in an invented sentence.",
       example="Fill in the blank with the correct preposition.\nThe book is ________ the table.",
@@ -30,13 +40,18 @@ ENTRIES = [
     _("GAP_FILL_GRAMMAR", "Gap Fill — Grammar Passage", "F2", "NEW", "GRAMMAR",
       "Grammar in continuous text.", 6, (5, 10), "SHORT_TEXT", "APPLY",
       marks_range=(3, 12), stimulus="PASSAGE", container="SUB_PARTS", lane="original",
-      route=_GRAMMAR, subjects=_LANGUAGES, aliases=("GAP FILLING", "GAP FILL", "CLOZE"),
+      route=_grammar(
+          "verb_form_gap_fill", "tense_gap_fill", "modal_gap_fill",
+          "determiner_gap_fill", "preposition_gap_fill",
+      ),
+      subjects=_LANGUAGES, aliases=("GAP FILLING", "GAP FILL", "CLOZE"),
       brief="An invented short passage with numbered gaps (i), (ii)…, each filled with the correct form of a word given in brackets. 1 mark per gap.",
       example="Last Sunday, we (i) ________ (go) to the zoo. It (ii) ________ (be) very crowded. While we (iii) ________ (watch) the lions, it began to rain.",
       answer="(i) went (ii) was (iii) were watching"),
     _("ERROR_CORRECTION", "Error Correction", "F3", "DB", "GRAMMAR",
       "Spotting and fixing an error.", 2, (5, 10), "SHORT_TEXT", "CORRECT",
-      marks_range=(1, 4), container="SUB_PARTS", lane="original", route=_GRAMMAR,
+      marks_range=(1, 4), container="SUB_PARTS", lane="original",
+      route=_grammar("error_correction_table"),
       subjects=_LANGUAGES, aliases=("CORRECT THE ERROR", "ERROR SPOTTING"),
       brief="Sentences numbered (i), (ii)… each containing exactly ONE error; the answer gives the incorrect word and its correction for each. 1 mark each.",
       example="Correct the error in each sentence.\n(i) She don't like mangoes.\n(ii) He is going to school yesterday.",
@@ -44,13 +59,14 @@ ENTRIES = [
     _("EDITING_OMISSION", "Editing — Omission", "F4", "NEW", "GRAMMAR",
       "Identifying a missing word.", 2, (6, 10), "SHORT_TEXT", "CORRECT",
       marks_range=(1, 4), stimulus="PASSAGE", container="SUB_PARTS", lane="original",
-      route=_GRAMMAR, subjects=_LANGUAGES, aliases=("OMISSION", "EDITING"),
+      route=_grammar("editing_gap_fill"), subjects=_LANGUAGES, aliases=("OMISSION", "EDITING"),
       brief="Lines of an invented passage each missing one word; the answer gives the word before, the missing word and the word after, for each line.",
       example="One word is missing in each line. Write it with the words before and after it.\nThe boy was walking the road.\nHe saw old man sitting there.",
       answer="walking / along / the · saw / an / old"),
     _("SENTENCE_TRANSFORM", "Sentence Transformation", "F5", "DB", "GRAMMAR",
       "Structural manipulation without changing meaning.", 1, (5, 10), "SHORT_TEXT", "APPLY",
-      marks_range=(1, 2), lane="original", route=_GRAMMAR, subjects=_LANGUAGES,
+      marks_range=(1, 2), lane="original", route=_grammar("sentence_transformation"),
+      subjects=_LANGUAGES,
       aliases=("REWRITE AS DIRECTED", "DO AS DIRECTED", "TRANSFORMATION OF SENTENCES"),
       brief="A sentence plus the direction in brackets, e.g. '(Rewrite using so…that)'. The direction is part of the item.",
       example="Rewrite as directed.\nHe is too weak to walk. (Rewrite using 'so…that')",
@@ -63,14 +79,19 @@ ENTRIES = [
       answer="Roses are blooming in the garden."),
     _("REPORTED_SPEECH", "Reported Speech", "F7", "NEW", "GRAMMAR",
       "Direct to indirect speech.", 1, (6, 10), "SHORT_TEXT", "APPLY",
-      lane="original", route=_GRAMMAR, subjects=_LANGUAGES,
+      lane="original",
+      route=_grammar(
+          "reported_speech_statement", "reported_speech_command", "reported_speech_question",
+      ),
+      subjects=_LANGUAGES,
       aliases=("INDIRECT SPEECH", "NARRATION", "DIRECT AND INDIRECT SPEECH"),
       brief="One sentence in direct speech; the student reports it.",
       example="Report the following.\nRavi said to Sita, \"I am going to the market.\"",
       answer="Ravi told Sita that he was going to the market."),
     _("ACTIVE_PASSIVE", "Active / Passive Voice", "F8", "NEW", "GRAMMAR",
       "Voice change.", 1, (6, 10), "SHORT_TEXT", "APPLY",
-      lane="original", route=_GRAMMAR, subjects=_LANGUAGES, aliases=("VOICE", "CHANGE THE VOICE", "PASSIVE VOICE"),
+      lane="original", route=_grammar("sentence_transformation"), subjects=_LANGUAGES,
+      aliases=("VOICE", "CHANGE THE VOICE", "PASSIVE VOICE"),
       brief="One sentence and the direction 'Change into passive voice' (or active).",
       example="Change into passive voice.\nThe gardener waters the plants every morning.",
       answer="The plants are watered by the gardener every morning."),

@@ -266,6 +266,7 @@ class ReadingAssetGenerator(AssetGenerator):
             chapter=self.chapter_label,
             topic=asset.topic,
             question_type="READING_COMP",
+            type_code=str(getattr(slot, "type_code", "") or ""),
             generator=self.name,
             asset_type=str(getattr(slot, "asset_type", "") or "unseen_passage"),
             source_type=self.source_type,

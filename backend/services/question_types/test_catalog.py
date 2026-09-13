@@ -186,7 +186,7 @@ class CatalogueIntegrityTests(SimpleTestCase):
         self.assertEqual(qt.CATALOG["GEOM_CONSTRUCTION"].also_in, ("G15",))
 
     def test_routes_name_generators_and_formats_that_exist(self):
-        from services.assets.grammar import GRAMMAR_TASK_GLOSS  # noqa: F401 — registers
+        from services.assets.grammar import GRAMMAR_TASK_GLOSS
         from services.assets.registry import is_asset_generator
         from services.assets.writing import WRITING_FORMAT_GLOSS
 
@@ -196,7 +196,10 @@ class CatalogueIntegrityTests(SimpleTestCase):
             with self.subTest(code=spec.code):
                 self.assertTrue(is_asset_generator(spec.route.generator))
                 if spec.route.generator == "writing_asset_pool":
-                    self.assertIn(spec.route.asset_type, WRITING_FORMAT_GLOSS)
+                    for fmt in (spec.route.asset_type, *spec.route.also):
+                        self.assertIn(fmt, WRITING_FORMAT_GLOSS)
+                for topic in spec.route.constraint_dict().get("grammar_topics", []):
+                    self.assertIn(topic, GRAMMAR_TASK_GLOSS)
 
     def test_multi_correct_is_all_or_nothing(self):
         spec = qt.CATALOG["MCQ_MULTI"]

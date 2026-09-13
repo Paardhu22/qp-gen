@@ -78,6 +78,7 @@ def _axes(spec: TypeSpec) -> Dict[str, Any]:
                 "generator": spec.route.generator,
                 "assetType": spec.route.asset_type,
                 "also": list(spec.route.also),
+                "constraints": spec.route.constraint_dict(),
             }
             if spec.route
             else None

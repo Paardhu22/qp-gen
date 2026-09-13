@@ -1431,6 +1431,14 @@ def stream_pool_questions(
         "unfilledSlots": len(paper.unfilled),
         "reviewApplied": paper.review_applied,
         "reviewSwaps": paper.review_swaps,
+        # Slots filled with the right shape but not the exact type the teacher
+        # picked, because the pool held none of that type.
+        "presetFallbacks": sum(
+            1
+            for a in paper.assignments
+            if getattr(a.slot, "type_code", "")
+            and a.question.type_code != getattr(a.slot, "type_code", "")
+        ),
         "savedToBank": persist.saved,
         "routing": routing,
         "assetGenerators": asset_reports,

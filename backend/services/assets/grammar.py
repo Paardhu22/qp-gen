@@ -308,6 +308,7 @@ class GrammarAssetGenerator(AssetGenerator):
             chapter=self.chapter_label,
             topic="Grammar task set",
             question_type="GRAMMAR",
+            type_code=str(getattr(slot, "type_code", "") or ""),
             generator=self.name,
             asset_type=str(getattr(slot, "asset_type", "") or "grammar_task_set"),
             source_type=self.source_type,

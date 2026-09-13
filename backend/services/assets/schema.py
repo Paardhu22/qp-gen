@@ -466,6 +466,14 @@ def build_pool_question(
     if not text:
         raise PoolValidationError("Rendered asset has empty question text")
 
+    # A slot's catalogue type applies only to a question of that type's shape:
+    # a grammar set written for a slot later re-typed keeps the grammar default
+    # rather than claiming a type it is not.
+    from services.question_types import shape_of
+
+    if type_code and shape_of(type_code) != shape_of(question_type):
+        type_code = ""
+
     metadata: Dict[str, Any] = {
         "generator": generator,
         "assetType": asset_type,

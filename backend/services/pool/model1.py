@@ -53,6 +53,7 @@ from services.pool.schema import (
     normalize_pool_question,
 )
 from services.pool.streaming import JsonObjectStreamExtractor, parse_question_payload
+from services.question_types import CATALOG
 from utils.ids import generate_id
 
 logger = logging.getLogger("[MODEL1]")
@@ -157,6 +158,51 @@ def _system_prompt(subject: str, class_num: int, difficulty: str) -> str:
     )
 
 
+#: Stimuli printed inside the question text itself, which the question may
+#: therefore refer to ("Read the passage…").
+_INLINE_STIMULI = frozenset(
+    {"PASSAGE", "SCENARIO", "DIALOGUE", "NOTICE", "TABLE", "CODE", "WORD_BANK"}
+)
+
+
+def _type_brief_lines(quota) -> List[str]:
+    """What a chosen question type adds under its line of the batch instruction.
+
+    Nothing for a shape's default type — those quotas carry no `type_code` —
+    so every prompt that existed before the catalogue reads exactly as it did.
+    Where a type needs an exception to a system-prompt rule, the exception is
+    stated here, beside the one quota it applies to, rather than by loosening
+    the shared system prompt for every batch.
+    """
+    spec = CATALOG.get(quota.type_code) if quota.type_code else None
+    if spec is None:
+        return []
+
+    lines = [f"      – Type: {spec.label}. {spec.brief}"]
+    if spec.example:
+        example = " / ".join(
+            part.strip() for part in spec.example.splitlines() if part.strip()
+        )
+        lines.append(f"      – Format example (never reuse its content): {example}")
+    rule = spec.options
+    if rule is not None and not rule.fixed and (rule.min, rule.max, rule.multi_correct) != (4, 4, False):
+        lines.append(
+            f"      – Options: {rule.describe()}. This overrides rule 4 for these questions."
+        )
+    if spec.lane == "original":
+        lines.append(
+            "      – Write original material for these questions; do not take it "
+            "from the chapter. This overrides rule 1 for these questions."
+        )
+    if spec.stimulus in _INLINE_STIMULI:
+        lines.append(
+            "      – Print the stimulus inside the question text (a table as rows of "
+            "cells separated by |), so the question may refer to it. This overrides "
+            "rule 2 for these questions."
+        )
+    return lines
+
+
 def _batch_instruction(batch: Batch) -> str:
     lines = [
         f"Write exactly {batch.total} questions with this breakdown:",
@@ -171,6 +217,7 @@ def _batch_instruction(batch: Batch) -> str:
         # fixed per-subject recipes, so those prompts are unchanged.
         for hint in quota.hints:
             lines.append(f"      – {hint}")
+        lines.extend(_type_brief_lines(quota))
     lines.extend(
         [
             "",
@@ -241,6 +288,10 @@ def _normalise_batch(
     batch_asset_type = (
         next(iter(batch_asset_types)) if len(batch_asset_types) == 1 else ""
     )
+    # Likewise the catalogue type: a single-quota batch asked for exactly one,
+    # so the normaliser judges every question in it by that type's rules — a
+    # five-option answer is right for a multiple-correct batch, wrong elsewhere.
+    batch_type_hint = batch.quotas[0].type_code if len(batch.quotas) == 1 else ""
 
     for raw in raw_questions:
         try:
@@ -250,6 +301,7 @@ def _normalise_batch(
                 chapter=chapter_name,
                 pool_id=pool_id,
                 default_difficulty=difficulty,
+                type_hint=batch_type_hint,
             )
         except PoolValidationError as exc:
             invalid += 1
