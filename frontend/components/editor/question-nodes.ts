@@ -106,14 +106,72 @@ export function buildInlineRun(text: string): any[] {
   return out.length > 0 ? out : [{ type: "text", text }];
 }
 
+/** A table row as the generator writes it: `| cell | cell |`. */
+const TABLE_ROW_RE = /^\|(.+)\|$/;
+/** A Markdown header separator, `|---|:---:|`, which prints as nothing. */
+const TABLE_SEPARATOR_RE = /^\|[\s:|-]+\|$/;
+
+/**
+ * A run of `| … |` lines as a table node.
+ *
+ * The first row is a header only when a separator row follows it, as in
+ * Markdown; a table written without one is all body cells. Ragged rows are
+ * padded to the widest, because a table whose rows disagree on width is not a
+ * valid table node.
+ */
+function buildTableNode(rows: string[]): any {
+  const hasHeader = rows.length > 1 && TABLE_SEPARATOR_RE.test(rows[1]);
+  const cells = rows
+    .filter((row) => !TABLE_SEPARATOR_RE.test(row))
+    .map((row) => row.slice(1, -1).split("|").map((cell) => cell.trim()));
+  const width = Math.max(...cells.map((row) => row.length));
+  return {
+    type: "table",
+    content: cells.map((row, rowIndex) => ({
+      type: "tableRow",
+      content: Array.from({ length: width }, (_, column) => {
+        const text = row[column] ?? "";
+        return {
+          type: hasHeader && rowIndex === 0 ? "tableHeader" : "tableCell",
+          content: [
+            text
+              ? { type: "paragraph", content: buildInlineRun(text) }
+              : { type: "paragraph" },
+          ],
+        };
+      }),
+    })),
+  };
+}
+
 function pushTextBlocks(chunk: string, blocks: any[]) {
   const lines = chunk
     .split(/\n{2,}|\n/)
     .map((l) => l.trim())
     .filter(Boolean);
+
+  let tableRun: string[] = [];
+  const flushTable = () => {
+    // A single barred line is prose that happens to contain a bar.
+    if (tableRun.length >= 2) {
+      blocks.push(buildTableNode(tableRun));
+    } else {
+      for (const line of tableRun) {
+        blocks.push({ type: "paragraph", content: buildInlineRun(line) });
+      }
+    }
+    tableRun = [];
+  };
+
   for (const line of lines) {
+    if (TABLE_ROW_RE.test(line)) {
+      tableRun.push(line);
+      continue;
+    }
+    flushTable();
     blocks.push({ type: "paragraph", content: buildInlineRun(line) });
   }
+  flushTable();
 }
 
 export function buildQuestionContentNodes(content: string) {

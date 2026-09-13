@@ -357,7 +357,7 @@ export const QuestionBlock = Node.create({
   name: "questionBlock",
   group: "block paperBlock",
   content:
-    "(paragraph | bulletList | orderedList | mathBlock | floatImage)+",
+    "(paragraph | bulletList | orderedList | mathBlock | floatImage | table)+",
   draggable: true,
   isolating: true,
 
@@ -608,7 +608,7 @@ export const GroupedQuestionBlock = Node.create({
   name: "groupedQuestionBlock",
   group: "block paperBlock",
   content:
-    "(paragraph | bulletList | orderedList | mathBlock | floatImage)+",
+    "(paragraph | bulletList | orderedList | mathBlock | floatImage | table)+",
   draggable: true,
   isolating: true,
 
@@ -821,7 +821,7 @@ export const InstructionBlock = Node.create({
   name: "instructionBlock",
   group: "block paperBlock",
   content:
-    "(paragraph | bulletList | orderedList | mathBlock | floatImage)+",
+    "(paragraph | bulletList | orderedList | mathBlock | floatImage | table)+",
   draggable: true,
 
   addAttributes() {

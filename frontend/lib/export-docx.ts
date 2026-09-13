@@ -280,7 +280,7 @@ class CustomHtmlToDocxParser {
     const buildQuestionTable = (
       numberText: string,
       marksText: string,
-      body: Paragraph[],
+      body: (Paragraph | Table)[],
     ) => {
       // TableCell must always contain at least one Paragraph in OpenXML format
       const bodyChildren = body.length > 0 ? body : [new Paragraph({ children: [] })];
@@ -373,6 +373,38 @@ class CustomHtmlToDocxParser {
       });
     };
 
+    /** An HTML table as a DOCX table, or null when it has no cells. */
+    const buildDocxTable = (tableEl: HTMLElement): Table | null => {
+      const rows: TableRow[] = [];
+      tableEl.querySelectorAll("tr").forEach((tr) => {
+        const tds = tr.querySelectorAll("td, th");
+        // An empty row would be invalid table XML.
+        if (tds.length === 0) return;
+        const cells: TableCell[] = [];
+        tds.forEach((td) => {
+          cells.push(
+            new TableCell({
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: docxText(td as HTMLElement),
+                      bold: td.tagName === "TH",
+                    }),
+                  ],
+                }),
+              ],
+              width: { size: 100 / tds.length, type: WidthType.PERCENTAGE },
+            }),
+          );
+        });
+        rows.push(new TableRow({ children: cells }));
+      });
+      return rows.length > 0
+        ? new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } })
+        : null;
+    };
+
     const buildQuestionBlock = (el: HTMLElement) => {
       const num = el.getAttribute("data-number") || "";
       const marks = el.getAttribute("data-marks");
@@ -380,17 +412,29 @@ class CustomHtmlToDocxParser {
 
       const contentRoot =
         el.querySelector(".question-content") || el;
-      const stem = contentRoot.querySelector("p");
-      const stemText = stem ? docxText(stem as HTMLElement) : "";
-      const list = contentRoot.querySelector("ol, ul");
-      const options = extractOptions(list as HTMLElement | null);
 
-      const body: Paragraph[] = [];
-      if (stemText) {
-        body.push(paragraph(stemText, { spacingAfter: 120 }));
-      }
-      if (options.length > 0) {
-        body.push(...options);
+      // Everything in the question, in order. Reading only the first
+      // paragraph and the first list dropped the Reason of every
+      // Assertion–Reason question, and would drop any statement list, word
+      // box or table printed with a question.
+      const body: (Paragraph | Table)[] = [];
+      for (const child of Array.from(contentRoot.children) as HTMLElement[]) {
+        if (shouldSkip(child)) continue;
+        if (child.tagName === "OL" || child.tagName === "UL") {
+          body.push(...extractOptions(child));
+          continue;
+        }
+        const tableEl =
+          child.tagName === "TABLE" ? child : child.querySelector<HTMLElement>("table");
+        if (tableEl) {
+          const table = buildDocxTable(tableEl);
+          if (table) body.push(table);
+          continue;
+        }
+        // Figures inside a question are exported by the page walker.
+        if (child.getAttribute("data-type") === "float-image") continue;
+        const text = docxText(child);
+        if (text) body.push(paragraph(text, { spacingAfter: 120 }));
       }
 
       const numberText = num ? `${num}.` : "";
@@ -528,22 +572,8 @@ class CustomHtmlToDocxParser {
         return;
       }
       if (el.tagName === "TABLE") {
-        const rows: TableRow[] = [];
-        el.querySelectorAll("tr").forEach(tr => {
-          const cells: TableCell[] = [];
-          const tds = tr.querySelectorAll("td, th");
-          if (tds.length === 0) return; // Skip empty rows to avoid division by zero or invalid row XML
-          tds.forEach(td => {
-            cells.push(new TableCell({
-              children: [new Paragraph({ children: [new TextRun({ text: docxText(td as HTMLElement), bold: td.tagName === "TH" })] })],
-              width: { size: 100 / tds.length, type: WidthType.PERCENTAGE }
-            }));
-          });
-          rows.push(new TableRow({ children: cells }));
-        });
-        if (rows.length > 0) {
-          docxElements.push(new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } }));
-        }
+        const table = buildDocxTable(el);
+        if (table) docxElements.push(table);
         return;
       }
 

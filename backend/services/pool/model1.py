@@ -45,7 +45,12 @@ from apps.question_generation.infrastructure.providers.openai_provider import (
 )
 from services.chapter_markdown import ChapterMarkdown
 from services.content_filters import clean_question_text
-from services.pool.recipes import Batch, batches_for_subject, batches_from_plan
+from services.pool.recipes import (
+    _LANGUAGE_SUBJECTS,
+    Batch,
+    batches_for_subject,
+    batches_from_plan,
+)
 from services.pool.schema import (
     PoolQuestion,
     PoolValidationError,
@@ -53,7 +58,7 @@ from services.pool.schema import (
     normalize_pool_question,
 )
 from services.pool.streaming import JsonObjectStreamExtractor, parse_question_payload
-from services.question_types import CATALOG
+from services.question_types import CATALOG, default_type_for_shape
 from utils.ids import generate_id
 
 logger = logging.getLogger("[MODEL1]")
@@ -203,7 +208,40 @@ def _type_brief_lines(quota) -> List[str]:
     return lines
 
 
-def _batch_instruction(batch: Batch) -> str:
+def _structure_lines(quota, *, language_subject: bool) -> List[str]:
+    """How a container type's pieces come back, under its quota's line.
+
+    A case study, a word-bank set or a source-based question returns its
+    stimulus and parts as data, so their marks can be checked and the editor
+    can lay them out (see `services.pool.structure`). A language paper's own
+    passage and extract shapes keep the inline form they have always printed
+    in, unless the teacher chose a specific type for the slot.
+    """
+    spec = CATALOG.get(quota.type_code or default_type_for_shape(quota.type))
+    if spec is None or not spec.is_container:
+        return []
+    if language_subject and not quota.type_code:
+        return []
+
+    if spec.stimulus == "TABLE":
+        stimulus = '`stimulus` as {"rows": [[cell, …], …]} with the header row first, '
+    elif spec.stimulus == "WORD_BANK":
+        stimulus = '`stimulus` as {"words": [word, …]} with one more word than there are blanks, '
+    elif spec.stimulus != "NONE":
+        stimulus = f"`stimulus` as the {spec.stimulus.lower()} text the parts rely on, "
+    else:
+        stimulus = ""
+    return [
+        "      – Structure: set `question` to a one-line instruction only, "
+        + stimulus
+        + 'and `parts` as a list of {"question", "marks", "answer"} (with '
+        '"options" for a choice part). The parts\' marks must add up to '
+        f"{quota.marks}. This replaces rule 6's inline (i), (ii), (iii) for "
+        "these questions."
+    ]
+
+
+def _batch_instruction(batch: Batch, *, language_subject: bool = False) -> str:
     lines = [
         f"Write exactly {batch.total} questions with this breakdown:",
         "",
@@ -218,6 +256,7 @@ def _batch_instruction(batch: Batch) -> str:
         for hint in quota.hints:
             lines.append(f"      – {hint}")
         lines.extend(_type_brief_lines(quota))
+        lines.extend(_structure_lines(quota, language_subject=language_subject))
     lines.extend(
         [
             "",
@@ -251,7 +290,16 @@ def _build_request(
             role="user",
             content=f"# CHAPTER SOURCE MATERIAL\n\n{chapter.markdown}",
         ),
-        LLMMessage(role="user", content=_batch_instruction(batch)),
+        LLMMessage(
+            role="user",
+            content=_batch_instruction(
+                batch,
+                # "Hindi Course B", "English Language & Literature" — the
+                # subject's first word says whether it is a language paper.
+                language_subject=(subject.strip().lower().split() or [""])[0]
+                in _LANGUAGE_SUBJECTS,
+            ),
+        ),
     ]
     return LLMRequest(
         model=model,

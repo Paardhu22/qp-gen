@@ -239,6 +239,36 @@ check("a question from before the catalogue carries no type code", () => {
   eq(buildQuestionBlock({ content: "q", type: "SHORT_ANSWER", marks: 2 }).attrs.typeCode, "");
 });
 
+check("pipe rows in a question become a table between its paragraphs", () => {
+  const block = buildQuestionBlock({
+    content: "Study the table.\n| City | Rainfall (cm) |\n| Delhi | 79 |\nWhich city received the least rainfall?",
+    type: "MCQ",
+    options: ["Chennai", "Mumbai", "Delhi", "Kolkata"],
+    marks: 1,
+  });
+  eq(block.content.map((n) => n.type), ["paragraph", "table", "paragraph", "orderedList"]);
+  const table = block.content[1];
+  eq(table.content.length, 2, "rows");
+  eq(table.content[0].content.map((c) => c.type), ["tableCell", "tableCell"]);
+});
+
+check("a markdown separator makes the first row a header and prints nothing", () => {
+  const [, table] = buildQuestionBlock({
+    content: "Complete the table.\n| Animal | Home |\n|---|---|\n| Cow |  |",
+    type: "SHORT_ANSWER",
+    marks: 2,
+  }).content;
+  eq(table.content.length, 2, "rows");
+  eq(table.content[0].content[0].type, "tableHeader");
+  // An empty cell is an empty paragraph, never an empty text node.
+  eq(table.content[1].content[1].content, [{ type: "paragraph" }]);
+});
+
+check("a single barred line is prose, not a table", () => {
+  const block = buildQuestionBlock({ content: "Use | to separate the two answers.\n| like this |", type: "SHORT_ANSWER", marks: 1 });
+  eq(block.content.every((n) => n.type === "paragraph"), true);
+});
+
 check("a hand-written question carries no slot metadata", () => {
   eq(buildSlotMeta({ content: "q", marks: 1 }), "");
   eq(parseSlotMeta(""), null);

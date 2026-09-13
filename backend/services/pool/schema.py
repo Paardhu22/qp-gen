@@ -35,6 +35,7 @@ from services.question_types import (
     resolve,
     shape_of,
 )
+from services.pool.structure import StructureError, parse_structure
 from utils.ids import generate_id
 
 # ── Canonical vocabularies ──────────────────────────────────────────────
@@ -405,7 +406,9 @@ def normalize_pool_question(
     text = str(
         raw.get("question") or raw.get("content") or raw.get("stem") or ""
     ).strip()
-    if not text:
+    # A structured question may carry everything in its stimulus and parts,
+    # with no stem of its own.
+    if not text and not raw.get("parts"):
         raise PoolValidationError("Question text is empty")
 
     qtype = normalize_type(raw.get("type"))
@@ -488,6 +491,26 @@ def normalize_pool_question(
     # `PoolQuestion.from_model`, which does not come through here.
     image = None
 
+    # A container type returns its stimulus and parts as data. They are
+    # checked here — the parts' marks must be the question's marks — and
+    # printed back into the one text the paper has always carried, with the
+    # pieces kept for the editor. A container that came back flat, the way
+    # every case study used to, is kept as it is.
+    metadata: Dict[str, Any] = {}
+    answer = str(raw.get("answer") or "").strip()
+    spec = CATALOG.get(type_code)
+    if spec is not None and spec.is_container and raw.get("parts"):
+        try:
+            structure = parse_structure(raw, marks=marks, stimulus_kind=spec.stimulus)
+        except StructureError as exc:
+            raise PoolValidationError(str(exc)) from exc
+        if structure is not None:
+            text, answer, composite = structure.render(text)
+            options = []
+            metadata = {"structure": structure.to_dict(), "composite": composite}
+    if not text:
+        raise PoolValidationError("Question text is empty")
+
     return PoolQuestion(
         id=str(raw.get("id") or "").strip() or generate_id(),
         subject=subject,
@@ -499,7 +522,7 @@ def normalize_pool_question(
         marks=marks,
         question=text,
         options=options,
-        answer=str(raw.get("answer") or "").strip(),
+        answer=answer,
         explanation=str(raw.get("explanation") or "").strip(),
         image=image,
         generator=generator or DEFAULT_GENERATOR,
@@ -510,7 +533,7 @@ def normalize_pool_question(
         source_type=source_type,
         content_hash=compute_content_hash(subject, chapter, text),
         pool_id=pool_id,
-        metadata={},
+        metadata=metadata,
     )
 
 
