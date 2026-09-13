@@ -330,7 +330,9 @@ class PaperRestoreView(APIView):
 
 class QuestionTypeListView(APIView):
     def get(self, request):
-        cache_key = "all_question_types"
+        # Versioned with the catalogue seed: a cached list from before
+        # migration 0016 would offer codes that no longer exist.
+        cache_key = "all_question_types:v2"
         cached_data = cache.get(cache_key)
         if cached_data is not None:
             return Response(cached_data)
