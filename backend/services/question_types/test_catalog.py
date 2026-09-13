@@ -174,10 +174,18 @@ class CatalogueIntegrityTests(SimpleTestCase):
                     self.assertTrue(spec.unavailable_reason)
 
     def test_charts_are_available(self):
-        for code in ("DATA_INTERPRETATION", "GRAPH_READ", "GRAPH_PLOT", "GRAPHICAL_SOLUTION"):
+        for code in ("DATA_INTERPRETATION", "GRAPH_READ"):
             with self.subTest(code=code):
                 self.assertTrue(qt.CATALOG[code].is_available)
                 self.assertTrue(qt.CATALOG[code].produces_figure)
+
+    def test_plotting_types_need_no_printed_figure(self):
+        # The renderer cannot draw an empty grid, and CBSE supplies graph
+        # paper with the answer sheet: these print only their data.
+        for code in ("GRAPH_PLOT", "GRAPHICAL_SOLUTION"):
+            with self.subTest(code=code):
+                self.assertTrue(qt.CATALOG[code].is_available)
+                self.assertFalse(qt.CATALOG[code].produces_figure)
 
     def test_cross_referenced_types_live_in_one_family(self):
         self.assertEqual(qt.CATALOG["CIRCLE_PICTURE"].also_in, ("I2",))

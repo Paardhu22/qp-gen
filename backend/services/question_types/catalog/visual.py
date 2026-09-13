@@ -59,9 +59,10 @@ ENTRIES = [
       notes="Mandatory in CBSE Class 10 Social Science. Needs a visually impaired alternative."),
     _("GRAPH_PLOT", "Plot a Graph", "E8", "DB", "DIAGRAM",
       "Representing data visually.", 3, (5, 10), "DRAW", "CREATE",
-      marks_range=(3, 5), stimulus="GRAPH", marking="SCHEME", aliases=("PLOT A GRAPH", "DRAW A GRAPH"),
-      brief=("A small data table in the question, and a blank coordinate grid supplied in `figure` "
-             "for the student to plot on. The grid carries no plotted points."),
+      marks_range=(3, 5), stimulus="TABLE", marking="SCHEME", aliases=("PLOT A GRAPH", "DRAW A GRAPH"),
+      brief=("A small data table printed in the question; the student draws the graph on the graph "
+             "paper supplied with the answer sheet. Never print or describe a plotted graph."),
+      notes="Graph paper comes with the answer sheet, so only the data is printed.",
       example="The table shows the temperature recorded at different hours of a day. Draw a line graph.\n| Time | 6 a.m. | 9 a.m. | 12 noon | 3 p.m. | 6 p.m. |\n| Temp (°C) | 18 | 24 | 31 | 33 | 27 |",
       answer="Axes and scale 1 · points plotted 1 · line drawn 1"),
     _("GRAPH_READ", "Read the Graph", "E9", "NEW", "SHORT_ANSWER",

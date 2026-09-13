@@ -501,7 +501,13 @@ def normalize_pool_question(
     spec = CATALOG.get(type_code)
     if spec is not None and spec.is_container and raw.get("parts"):
         try:
-            structure = parse_structure(raw, marks=marks, stimulus_kind=spec.stimulus)
+            structure = parse_structure(
+                raw,
+                marks=marks,
+                # A chart is its own stimulus: it arrives in `figure` and is
+                # drawn, so no printed text is required alongside it.
+                stimulus_kind="" if spec.stimulus == "GRAPH" else spec.stimulus,
+            )
         except StructureError as exc:
             raise PoolValidationError(str(exc)) from exc
         if structure is not None:

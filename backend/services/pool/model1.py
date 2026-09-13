@@ -45,6 +45,7 @@ from apps.question_generation.infrastructure.providers.openai_provider import (
 )
 from services.chapter_markdown import ChapterMarkdown
 from services.content_filters import clean_question_text
+from services.figures import SpecError, parse_chart_spec, render_chart
 from services.pool.recipes import (
     _LANGUAGE_SUBJECTS,
     Batch,
@@ -205,6 +206,17 @@ def _type_brief_lines(quota) -> List[str]:
             "cells separated by |), so the question may refer to it. This overrides "
             "rule 2 for these questions."
         )
+    if spec.stimulus == "GRAPH":
+        lines.append(
+            '      – Chart: give the chart\'s data in `figure` as {"chart": "bar" | "pie" | '
+            '"line" | "histogram" | "number_line" | "coordinate_grid", "series": '
+            '[{"label", "value"}] (or "bins": [{"lower", "upper", "value"}] for a '
+            'histogram, "points": [{"x", "y", "label"}] for a grid), "xLabel", "yLabel", '
+            '"showValues"}. The paper prints this chart, drawn from your data, so the '
+            "question may refer to it. This overrides rule 7 for these questions. Set "
+            '"showValues" to false whenever a question asks the student to read, compare '
+            "or compute the values."
+        )
     return lines
 
 
@@ -223,7 +235,9 @@ def _structure_lines(quota, *, language_subject: bool) -> List[str]:
     if language_subject and not quota.type_code:
         return []
 
-    if spec.stimulus == "TABLE":
+    if spec.stimulus == "GRAPH":
+        stimulus = "the chart's data in `figure` as described above, "
+    elif spec.stimulus == "TABLE":
         stimulus = '`stimulus` as {"rows": [[cell, …], …]} with the header row first, '
     elif spec.stimulus == "WORD_BANK":
         stimulus = '`stimulus` as {"words": [word, …]} with one more word than there are blanks, '
@@ -403,6 +417,24 @@ def _normalise_batch(
             question.content_hash = compute_content_hash(
                 subject, chapter_name, cleaned
             )
+
+        # A chart type's figure is drawn here, from the model's own numbers, by
+        # the deterministic renderer: the URL is ours, never one a model wrote.
+        # Data that will not draw drops the question, because a chart question
+        # printed without its chart cannot be answered.
+        type_spec = CATALOG.get(question.type_code)
+        if type_spec is not None and type_spec.produces_figure:
+            try:
+                drawn = render_chart(spec=parse_chart_spec(raw.get("figure")))
+            except SpecError as exc:
+                invalid += 1
+                logger.debug("Dropped a chart question from batch %s: %s", batch.name, exc)
+                continue
+            except Exception as exc:  # one undrawable chart must not cost the batch
+                invalid += 1
+                logger.warning("Chart render failed in batch %s: %s", batch.name, exc)
+                continue
+            question.image = drawn["imageUrl"]
 
         accepted.append(question)
 
