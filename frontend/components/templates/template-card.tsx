@@ -234,16 +234,26 @@ export function BuiltinTemplateCard({
   // "Describe It Yourself" and "Blank Paper" resolve to nothing until the
   // teacher says something, so there is no structure to copy. The API refuses
   // to fork them; not offering it is clearer than a button that errors.
-  const forkable = template.kind === "cbse_blueprint";
+  const forkable =
+    template.kind === "cbse_blueprint" || template.kind === "starter";
+  // A starter suits a band of classes rather than naming one.
+  const range = template.classRange;
+  const classLabel = template.academicClass
+    ? `Class ${template.academicClass}`
+    : !range
+      ? ""
+      : range[0] === range[1]
+        ? `Class ${range[0]}`
+        : `Classes ${range[0]}–${range[1]}`;
 
   return (
     <div className="flex flex-col rounded-xl border border-dashed border-border bg-card/50 p-4">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold leading-snug">{template.name}</h3>
-          {template.subject || template.academicClass ? (
+          {template.subject || classLabel ? (
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {[template.board, template.subject, template.academicClass && `Class ${template.academicClass}`]
+              {[template.board, template.subject, classLabel]
                 .filter(Boolean)
                 .join(" · ")}
             </p>

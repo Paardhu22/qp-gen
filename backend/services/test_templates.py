@@ -10,19 +10,23 @@ The things that must not drift:
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from services.template_catalog import (
     KIND_BLANK,
     KIND_CBSE,
     KIND_INSTRUCTIONS,
+    KIND_STARTER,
     get_entry,
     list_templates,
     resolve_builtin,
     resolve_detailed,
 )
 from services.pool.schema import QUESTION_TYPES
-from services.question_types import all_types
+from services.question_types import all_types, get as get_type
+from services.starter_templates import STARTERS
 from services.templates import (
     SOURCE_GENERATE,
     SOURCE_SAVED,
@@ -291,6 +295,88 @@ class CatalogTests(TestCase):
         self.assertEqual(by_id["blank"]["kind"], KIND_BLANK)
         self.assertEqual(by_id["describe-it-yourself"]["kind"], KIND_INSTRUCTIONS)
         self.assertEqual(by_id["cbse-science-10"]["kind"], KIND_CBSE)
+
+
+class StarterTemplateTests(TestCase):
+    """Class starters: ready papers for a band of classes, written as data."""
+
+    @staticmethod
+    def _expanded_codes(starter):
+        return [
+            code
+            for section in starter.sections
+            for code, _marks, count in section.slots
+            for _ in range(count)
+        ]
+
+    def test_every_starter_is_listed_with_the_classes_it_suits(self):
+        by_id = {entry["id"]: entry for entry in list_templates()}
+        for starter in STARTERS:
+            with self.subTest(starter=starter.id):
+                entry = by_id[starter.id]
+                self.assertEqual(entry["kind"], KIND_STARTER)
+                self.assertEqual(entry["classRange"], list(starter.classes))
+                # No single class: the rail's own class must be left alone.
+                self.assertEqual(entry["academicClass"], "")
+
+    def test_every_slot_is_a_type_its_classes_are_actually_set(self):
+        # A starter that offers a type the catalogue says is not set in those
+        # classes, not generated yet, or not marked that way would teach the
+        # teacher the wrong paper.
+        for starter in STARTERS:
+            low, high = starter.classes
+            for section in starter.sections:
+                for code, marks, _count in section.slots:
+                    with self.subTest(starter=starter.id, code=code):
+                        spec = get_type(code)
+                        self.assertIsNotNone(spec)
+                        self.assertTrue(spec.is_available)
+                        self.assertLessEqual(spec.classes[0], low)
+                        self.assertGreaterEqual(spec.classes[1], high)
+                        if spec.subjects:
+                            self.assertIn(starter.subject_key, spec.subjects)
+                        self.assertLessEqual(spec.marks_range[0], marks)
+                        self.assertGreaterEqual(spec.marks_range[1], marks)
+
+    def test_a_starter_resolves_to_exactly_its_own_slots(self):
+        for starter in STARTERS:
+            with self.subTest(starter=starter.id):
+                blueprint = resolve_builtin(starter.id)
+                self.assertEqual(blueprint.total_questions, starter.total_questions)
+                self.assertEqual(blueprint.total_marks, starter.total_marks)
+                self.assertEqual(
+                    [slot.type_code for slot in blueprint.slots],
+                    self._expanded_codes(starter),
+                )
+
+    def test_a_starter_survives_a_builder_round_trip(self):
+        blueprint = resolve_builtin("starter-science-6-8")
+        again = TemplateBlueprint.from_dict(blueprint.as_dict())
+        self.assertEqual(
+            [(s.type_code, s.marks, s.section_title) for s in again.slots],
+            [(s.type_code, s.marks, s.section_title) for s in blueprint.slots],
+        )
+
+    def test_a_starter_never_runs_the_blueprint_engine(self):
+        with patch(
+            "services.generation_router.build_question_plan",
+            side_effect=AssertionError("the engine ran for a starter"),
+        ):
+            self.assertGreater(resolve_builtin("starter-mathematics-3-5").total_questions, 0)
+
+    def test_filtering_offers_only_the_starters_that_fit(self):
+        ids = {e["id"] for e in list_templates(subject="Science", academic_class="7")}
+        self.assertIn("starter-science-6-8", ids)
+        self.assertNotIn("starter-science-3-5", ids)
+        self.assertNotIn("starter-mathematics-6-8", ids)
+
+    def test_a_class_inside_the_band_is_left_alone(self):
+        resolved = resolve_detailed("starter-science-6-8", academic_class="7")
+        self.assertEqual(resolved.detected, {"subject": "Science"})
+
+    def test_a_class_outside_the_band_is_brought_into_it(self):
+        resolved = resolve_detailed("starter-science-6-8", academic_class="10")
+        self.assertEqual(resolved.detected["academicClass"], "8")
 
 
 class QuestionTypeMenuContentTests(TestCase):

@@ -223,6 +223,7 @@ def _score_question(
     type_code: str = "",
     class_num: Optional[int] = None,
     hots: bool = False,
+    competency: bool = False,
 ) -> float:
     """Higher is better. Every term pushes toward a well-spread paper."""
     score = 0.0
@@ -234,6 +235,22 @@ def _score_question(
     # same shape than left blank — and the pipeline counts where that happened.
     if type_code and question.type_code:
         score += 12.0 if question.type_code == type_code else -12.0
+
+    # HOTS and competency are attributes of a slot, not types, so the type code
+    # cannot tell a HOTS short answer from a plain one. A slot that asks for one
+    # prefers the question written for it — for HOTS, any question pitched at
+    # analysis or above — and a slot that did not ask leaves those questions to
+    # the slots that did.
+    if hots:
+        if question.hots or question.blooms in _HIGHER_ORDER:
+            score += 6.0
+    elif question.hots:
+        score -= 3.0
+    if competency:
+        if question.competency:
+            score += 6.0
+    elif question.competency:
+        score -= 3.0
 
     # The teacher's saved-vs-generated split, expressed per slot.
     #
@@ -263,8 +280,10 @@ def _score_question(
     topic = (question.topic or "").strip().lower()
     score -= 4.0 * used_topics.get(topic, 0)
 
-    # Bloom spread — reward levels that are under their target share.
-    bloom_target = _BLOOM_TARGET_WEIGHTS.get(question.blooms, 0.05) * total_slots
+    # Bloom spread — reward levels that are under their target share. The
+    # shares depend on the class: a Class 2 worksheet is not short of analysis.
+    band = _class_band(class_num)
+    bloom_target = _BLOOM_TARGETS_BY_BAND[band].get(question.blooms, 0.05) * total_slots
     bloom_used = used_blooms.get(question.blooms, 0)
     if bloom_used < bloom_target:
         score += 2.0
@@ -272,9 +291,8 @@ def _score_question(
         score -= 1.0 * (bloom_used - bloom_target)
 
     # Difficulty spread against the requested overall level.
-    weights = _DIFFICULTY_TARGET_WEIGHTS.get(
-        difficulty_target, _DIFFICULTY_TARGET_WEIGHTS["medium"]
-    )
+    difficulty_targets = _DIFFICULTY_TARGETS_BY_BAND[band]
+    weights = difficulty_targets.get(difficulty_target, difficulty_targets["medium"])
     difficulty_target_count = weights.get(question.difficulty, 0.1) * total_slots
     difficulty_used = used_difficulty.get(question.difficulty, 0)
     if difficulty_used < difficulty_target_count:
@@ -306,6 +324,7 @@ def build_candidates(
     difficulty: str = "medium",
     seed: Optional[int] = None,
     fresh_pool_id: str = "",
+    class_num: Optional[int] = None,
 ) -> Tuple[List[SlotAssignment], List[UnfilledSlot]]:
     """Assign a question to every slot, plus `alternates` runners-up.
 
@@ -332,6 +351,10 @@ def build_candidates(
     in the pool came from the user's bank. That is what lets a slot honour the
     Blueprint Builder's per-slot source without the pool carrying a second
     provenance field.
+
+    `class_num` picks the Bloom's and difficulty shares the scoring aims for.
+    Without one, the board year's shares apply — the ones every paper used
+    before classes were told apart.
     """
     rng = random.Random(seed if seed is not None else 0xA05)
 
@@ -364,10 +387,12 @@ def build_candidates(
         *,
         prefer_source: str = "",
     ) -> List[PoolQuestion]:
-        # What the slot declares about itself: the shape within its generator
-        # and the catalogue type the teacher picked.
+        # What the slot declares about itself: the shape within its generator,
+        # the catalogue type the teacher picked and the attributes they set.
         asset_type = str(getattr(slot, "asset_type", "") or "")
         type_code = str(getattr(slot, "type_code", "") or "")
+        hots = bool(getattr(slot, "hots", False))
+        competency = bool(getattr(slot, "competency", False))
         return sorted(
             candidates,
             key=lambda q: _score_question(
@@ -383,6 +408,9 @@ def build_candidates(
                 prefer_source=prefer_source,
                 is_from_bank=_is_from_bank(q),
                 type_code=type_code,
+                class_num=class_num,
+                hots=hots,
+                competency=competency,
             ),
             reverse=True,
         )
@@ -655,6 +683,7 @@ def assemble_paper(
         difficulty=difficulty,
         seed=seed,
         fresh_pool_id=fresh_pool_id,
+        class_num=class_num,
     )
 
     paper = AssembledPaper(assignments=assignments, unfilled=unfilled)

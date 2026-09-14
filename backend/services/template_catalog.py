@@ -19,6 +19,14 @@ silent — a subject the engine supports but the picker never offers. So the
 board templates are derived from that matrix, and adding a class to the engine
 adds its template for free.
 
+## Class starters
+
+The one hand-written list is the class starters in `services.starter_templates`:
+a ready paper for a band of classes, written from the question types those
+classes are actually set. Nothing can derive them, so they are data. They
+resolve without running the engine, and they come back to the Builder like
+every other card — as a blueprint the teacher reviews and edits.
+
 ## Resolution is lazy
 
 A catalog entry is a *promise* of a blueprint, not a blueprint. Listing the
@@ -31,8 +39,9 @@ actually picks one.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field as dataclass_field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from services.templates import TemplateBlueprint
 
@@ -42,6 +51,7 @@ logger = logging.getLogger("[TEMPLATES]")
 KIND_CBSE = "cbse_blueprint"
 KIND_BLANK = "blank"
 KIND_INSTRUCTIONS = "instructions"
+KIND_STARTER = "starter"
 
 #: The CBSE sample-paper session these blueprints target. Surfaced in the name
 #: so a teacher can see at a glance which pattern they are getting, and so the
@@ -82,9 +92,11 @@ class CatalogEntry:
     subject: str = ""
     #: Ordering weight in the picker. Lower sorts first.
     rank: int = 100
+    #: The classes a starter suits, inclusive. None on every other kind.
+    class_range: Optional[Tuple[int, int]] = None
 
     def as_dict(self) -> Dict[str, Any]:
-        return {
+        payload: Dict[str, Any] = {
             "id": self.id,
             "name": self.name,
             "description": self.description,
@@ -99,6 +111,9 @@ class CatalogEntry:
                 "subject": self.subject,
             },
         }
+        if self.class_range:
+            payload["classRange"] = list(self.class_range)
+        return payload
 
 
 def _cbse_entries() -> List[CatalogEntry]:
@@ -129,6 +144,25 @@ def _cbse_entries() -> List[CatalogEntry]:
     return entries
 
 
+def _starter_entries() -> List[CatalogEntry]:
+    from services.starter_templates import STARTERS
+
+    return [
+        CatalogEntry(
+            id=starter.id,
+            name=starter.name,
+            description=starter.description,
+            kind=KIND_STARTER,
+            subject=starter.subject,
+            # After the board year's cards and before the other classes'.
+            # Within the rank they sort by name, which is by class band.
+            rank=30,
+            class_range=starter.classes,
+        )
+        for starter in STARTERS
+    ]
+
+
 #: Templates that are not tied to a subject at all.
 _UNIVERSAL_ENTRIES: List[CatalogEntry] = [
     CatalogEntry(
@@ -151,6 +185,16 @@ _UNIVERSAL_ENTRIES: List[CatalogEntry] = [
 ]
 
 
+def _all_entries() -> List[CatalogEntry]:
+    return _UNIVERSAL_ENTRIES + _cbse_entries() + _starter_entries()
+
+
+def _class_number(value: Any) -> Optional[int]:
+    """7 from "7" or "Class 7"; None when no class is stated."""
+    match = re.search(r"\d+", str(value or ""))
+    return int(match.group()) if match else None
+
+
 def list_templates(
     *, subject: str = "", academic_class: str = ""
 ) -> List[Dict[str, Any]]:
@@ -158,20 +202,25 @@ def list_templates(
 
     Filtering is a convenience for the picker, never a restriction: the
     universal entries always survive it, because "Describe It Yourself" is a
-    valid choice for a subject that has no board blueprint at all.
+    valid choice for a subject that has no board blueprint at all. Board cards
+    narrow to their one class, and starters to the band they suit.
     """
     from services.generation_router import normalize_subject
 
-    entries = _UNIVERSAL_ENTRIES + _cbse_entries()
+    entries = _all_entries()
 
     wanted_subject = normalize_subject(subject) if subject else ""
     wanted_class = str(academic_class).strip()
+    wanted_class_num = _class_number(wanted_class)
 
     def keep(entry: CatalogEntry) -> bool:
-        if entry.kind != KIND_CBSE:
+        if entry.kind not in (KIND_CBSE, KIND_STARTER):
             return True
         if wanted_subject and normalize_subject(entry.subject) != wanted_subject:
             return False
+        if entry.class_range:
+            low, high = entry.class_range
+            return wanted_class_num is None or low <= wanted_class_num <= high
         if wanted_class and entry.academic_class != wanted_class:
             return False
         return True
@@ -185,7 +234,7 @@ def list_templates(
 
 
 def get_entry(template_id: str) -> Optional[CatalogEntry]:
-    for entry in _UNIVERSAL_ENTRIES + _cbse_entries():
+    for entry in _all_entries():
         if entry.id == template_id:
             return entry
     return None
@@ -259,6 +308,9 @@ def resolve_detailed(
     if entry.kind == KIND_BLANK:
         return ResolvedTemplate(blueprint=TemplateBlueprint())
 
+    if entry.kind == KIND_STARTER:
+        return _resolve_starter(entry, academic_class)
+
     resolved_subject = subject or entry.subject
     resolved_class = academic_class or entry.academic_class or "10"
 
@@ -314,6 +366,31 @@ def resolve_detailed(
             if value
         },
     )
+
+
+def _resolve_starter(entry: CatalogEntry, academic_class: str) -> ResolvedTemplate:
+    """A starter's own slots, plus the subject and class it stands for.
+
+    The class is reported only when the one asked for falls outside the
+    starter's band. A Class 7 teacher opening the Class 6–8 test keeps Class 7;
+    the same card opened with the rail on Class 10 moves the rail to Class 8,
+    where the teacher can see it, instead of generating a Class 6–8 paper as
+    a Class 10 one.
+    """
+    from services.starter_templates import get_starter, starter_blueprint
+
+    starter = get_starter(entry.id)
+    if starter is None:
+        raise ValueError(f"Unknown template {entry.id!r}.")
+
+    detected: Dict[str, Any] = {"subject": entry.subject}
+    low, high = starter.classes
+    wanted = _class_number(academic_class)
+    if wanted is None:
+        detected["academicClass"] = str(low)
+    elif not low <= wanted <= high:
+        detected["academicClass"] = str(min(max(wanted, low), high))
+    return ResolvedTemplate(blueprint=starter_blueprint(starter), detected=detected)
 
 
 def _blueprint_from_design_specs(specs: List[Dict[str, Any]]) -> TemplateBlueprint:

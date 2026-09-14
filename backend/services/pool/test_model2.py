@@ -7,14 +7,20 @@ wrong marks — and assert the deterministic selection survives each time.
 """
 
 import json
+import random
+from collections import Counter
 from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
 from services.pool.model2 import (
+    _BLOOM_TARGET_WEIGHTS,
+    _DIFFICULTY_TARGET_WEIGHTS,
     AssembledPaper,
     PaperAssemblyError,
+    _class_band,
+    _score_question,
     assemble_paper,
     build_candidates,
     filter_pool,
@@ -200,6 +206,143 @@ class BuildCandidatesTests(TestCase):
 
         self.assertEqual(
             [a.question.id for a in first], [a.question.id for a in second]
+        )
+
+
+@dataclass
+class AttributeSlot(FakeSlot):
+    hots: bool = False
+    competency: bool = False
+
+
+def _short_answer_slot(index, **attributes):
+    return AttributeSlot(
+        index=index, marks=3, question_type="SHORT_ANSWER", legacy_type="SA",
+        **attributes,
+    )
+
+
+def _short_answer(qid, **kwargs):
+    return _question(qid, qtype="SHORT_ANSWER", marks=3, **kwargs)
+
+
+class ClassAwareSelectionTests(TestCase):
+    """The class and a slot's attributes steer selection; they never gate it.
+
+    Several pools below give the wrong question a small edge (a worked
+    explanation) so that each test fails if the preference under test is gone.
+    """
+
+    @staticmethod
+    def _score(question, **kwargs):
+        # A fresh rng per call gives every question the same jitter, so two
+        # scores differ by exactly the terms under test.
+        return _score_question(
+            question,
+            used_topics=Counter(),
+            used_blooms=Counter(),
+            used_difficulty=Counter(),
+            used_chapters=Counter(),
+            total_slots=10,
+            difficulty_target="medium",
+            rng=random.Random(0),
+            **kwargs,
+        )
+
+    def test_classes_fall_into_bands(self):
+        self.assertEqual(
+            {c: _class_band(c) for c in (None, 1, 2, 3, 5, 6, 8, 9, 10)},
+            {
+                None: "9-10", 1: "1-2", 2: "1-2", 3: "3-5", 5: "3-5",
+                6: "6-8", 8: "6-8", 9: "9-10", 10: "9-10",
+            },
+        )
+
+    def test_the_board_year_selects_as_every_paper_did_before(self):
+        # Pinned literally: the shares every paper used before classes were
+        # told apart. Editing them would silently change every Class 10 paper.
+        self.assertEqual(
+            _BLOOM_TARGET_WEIGHTS,
+            {
+                "REMEMBER": 0.20, "UNDERSTAND": 0.30, "APPLY": 0.25,
+                "ANALYZE": 0.15, "EVALUATE": 0.06, "CREATE": 0.04,
+            },
+        )
+        self.assertEqual(
+            _DIFFICULTY_TARGET_WEIGHTS,
+            {
+                "easy": {"easy": 0.55, "medium": 0.35, "hard": 0.10},
+                "medium": {"easy": 0.30, "medium": 0.50, "hard": 0.20},
+                "hard": {"easy": 0.15, "medium": 0.45, "hard": 0.40},
+            },
+        )
+        question = _question("a", blooms="ANALYZE")
+        self.assertEqual(self._score(question), self._score(question, class_num=10))
+
+    def test_a_young_class_is_not_steered_toward_analysis(self):
+        recall = _question("r", blooms="REMEMBER")
+        analysis = _question("a", blooms="ANALYZE")
+        self.assertAlmostEqual(
+            self._score(recall, class_num=10) - self._score(analysis, class_num=10), 0.0
+        )
+        self.assertAlmostEqual(
+            self._score(recall, class_num=2) - self._score(analysis, class_num=2), 2.0
+        )
+
+    def test_the_class_reaches_selection(self):
+        pool = [
+            _question("recall", blooms="REMEMBER", topic="a", explanation=""),
+            _question("analysis", blooms="ANALYZE", topic="b"),
+        ]
+        board, _ = build_candidates(pool, _mcq_slots(1), alternates=0)
+        young, _ = build_candidates(pool, _mcq_slots(1), alternates=0, class_num=2)
+        self.assertEqual(board[0].question.id, "analysis")
+        self.assertEqual(young[0].question.id, "recall")
+
+    def test_assembly_passes_the_papers_class_on(self):
+        pool = [
+            _question("recall", blooms="REMEMBER", topic="a", explanation=""),
+            _question("analysis", blooms="ANALYZE", topic="b"),
+        ]
+        paper = assemble_paper(
+            pool, _mcq_slots(1), subject="Science", class_num=2,
+            alternates=0, use_review=False,
+        )
+        self.assertEqual(paper.assignments[0].question.id, "recall")
+
+    def test_a_hots_slot_takes_the_question_written_for_it(self):
+        plain = _short_answer("plain", topic="a", explanation="")
+        written = _short_answer("hots", topic="b")
+        written.hots = True
+        assignments, unfilled = build_candidates(
+            [plain, written],
+            [_short_answer_slot(1), _short_answer_slot(2, hots=True)],
+            alternates=0,
+        )
+        self.assertEqual(unfilled, [])
+        self.assertEqual(
+            {a.slot.index: a.question.id for a in assignments}, {1: "plain", 2: "hots"}
+        )
+
+    def test_a_hots_slot_prefers_analysis_when_nothing_is_marked(self):
+        recall = _short_answer("recall", blooms="UNDERSTAND", topic="a")
+        analysis = _short_answer("analysis", blooms="ANALYZE", topic="b", explanation="")
+        assignments, _ = build_candidates(
+            [recall, analysis], [_short_answer_slot(1, hots=True)], alternates=0
+        )
+        self.assertEqual(assignments[0].question.id, "analysis")
+
+    def test_a_competency_slot_takes_the_question_written_for_it(self):
+        plain = _short_answer("plain", topic="a", explanation="")
+        framed = _short_answer("framed", topic="b")
+        framed.competency = True
+        assignments, _ = build_candidates(
+            [plain, framed],
+            [_short_answer_slot(1), _short_answer_slot(2, competency=True)],
+            alternates=0,
+        )
+        self.assertEqual(
+            {a.slot.index: a.question.id for a in assignments}, {1: "plain", 2: "framed"}
         )
 
 

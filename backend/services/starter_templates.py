@@ -18,7 +18,7 @@ a `TemplateBlueprint`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -244,16 +244,6 @@ STARTERS: Tuple[Starter, ...] = (
 
 def get_starter(template_id: str) -> Optional[Starter]:
     return next((starter for starter in STARTERS if starter.id == template_id), None)
-
-
-def starters_for(*, subject_key: str = "", class_num: Optional[int] = None) -> List[Starter]:
-    """The starters that fit a subject and class; either may be unknown."""
-    return [
-        starter
-        for starter in STARTERS
-        if (not subject_key or starter.subject_key == subject_key)
-        and (class_num is None or starter.classes[0] <= class_num <= starter.classes[1])
-    ]
 
 
 def starter_blueprint(starter: Starter):
