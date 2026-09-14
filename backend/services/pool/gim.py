@@ -18,6 +18,8 @@ from __future__ import annotations
 import re
 from typing import List, Optional
 
+from services.question_types import find_type_in_text
+
 
 def _parse_gim_instructions(instructions: str, pdf_count: int, exact_count: Optional[int] = None) -> List[dict]:
     """
@@ -44,6 +46,7 @@ def _parse_gim_instructions(instructions: str, pdf_count: int, exact_count: Opti
     }
     for word, val in number_words.items():
         text = re.sub(r'\b' + word + r'\b', str(val), text)
+    spelled_numbers = {str(val): word for word, val in number_words.items()}
 
     type_map = {
         'mcq': 'MCQ', 'multiple choice': 'MCQ', 'multiple-choice': 'MCQ',
@@ -118,10 +121,27 @@ def _parse_gim_instructions(instructions: str, pdf_count: int, exact_count: Opti
 
         # Find question type
         found_type = None
+        catalogue_marks = None
         for pattern_text, qtype in type_map.items():
             if re.search(r'\b' + re.escape(pattern_text) + r'[s]?\b', clause):
                 found_type = qtype
                 break
+
+        if found_type is None:
+            # Any other type the catalogue knows by name — "fill in the blanks",
+            # "odd one out", "letter writing". Clauses like these used to be
+            # dropped, so the teacher's paper silently lost them. The number
+            # words were turned into digits above, so the clause is also read
+            # with them spelled out again: "odd one out" is a name, not a count.
+            spelled = re.sub(
+                r'\b\d+\b',
+                lambda match: spelled_numbers.get(match.group(), match.group()),
+                clause,
+            )
+            named = find_type_in_text(spelled) or find_type_in_text(clause)
+            if named is not None:
+                found_type = named.code
+                catalogue_marks = named.spec.marks
 
         if found_type is None:
             # Check if this looks like a marks spec ("2 marks") rather than a count
@@ -134,7 +154,11 @@ def _parse_gim_instructions(instructions: str, pdf_count: int, exact_count: Opti
 
         # Find marks override
         marks_match = re.search(r'(\d+)\s*marks?', clause)
-        marks_val = int(marks_match.group(1)) if marks_match else default_marks.get(found_type, 2)
+        marks_val = (
+            int(marks_match.group(1))
+            if marks_match
+            else catalogue_marks or default_marks.get(found_type, 2)
+        )
 
         slots.append({
             "section_title": current_section,

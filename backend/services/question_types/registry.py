@@ -210,6 +210,54 @@ def aliases_for(code: str) -> List[str]:
     return sorted(key for key, (target, _) in _INDEX.items() if target == code)
 
 
+# ── Types named in prose ────────────────────────────────────────────────
+
+
+def _phrase_pattern(key: str) -> "re.Pattern[str]":
+    words = key.lower().split("_")
+    return re.compile(
+        r"\b" + r"[\s\-/]+".join(re.escape(word) for word in words) + r"(?:e?s)?\b"
+    )
+
+
+def _build_phrases() -> List[Tuple["re.Pattern[str]", str, FrozenSet[str]]]:
+    """Every lookup key as a phrase, longest first, for types that can be written.
+
+    Keys under three letters ("SA", "AR") are left out: as bare words inside a
+    sentence they are far likelier to mean something else.
+    """
+    keys = sorted(
+        (
+            (key, code, attributes)
+            for key, (code, attributes) in _INDEX.items()
+            if len(key) >= 3
+            and re.fullmatch(r"[A-Z0-9_]+", key)
+            and CATALOG[code].is_available
+        ),
+        key=lambda item: -len(item[0]),
+    )
+    return [(_phrase_pattern(key), code, attributes) for key, code, attributes in keys]
+
+
+_PHRASES = _build_phrases()
+
+
+def find_type_in_text(text) -> Optional[Resolution]:
+    """The catalogue type a piece of prose names, or None.
+
+    For the parsers that read a teacher's own words: "2 odd one out questions"
+    names MCQ_ODD_ONE_OUT, and "3 very short answers" is a very short answer
+    rather than a short one, because the longest phrase is tried first. Only
+    types that can be generated are found — a parser turns what it finds
+    straight into a slot.
+    """
+    lowered = str(text or "").lower()
+    for pattern, code, attributes in _PHRASES:
+        if pattern.search(lowered):
+            return Resolution(CATALOG[code], attributes)
+    return None
+
+
 @dataclass(frozen=True)
 class SlotType:
     """What a blueprint slot is, once its type fields are reconciled."""

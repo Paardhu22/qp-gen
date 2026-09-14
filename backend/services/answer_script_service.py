@@ -24,6 +24,7 @@ from apps.projects.models import Paper, PaperSet
 from services.embedding_service import generate_embeddings
 from services.openai_service import get_openai_client, _record_usage
 from services.paper_content_service import dual_write_set_content, read_set_content
+from services.question_types import get as get_type, resolve_slot_type
 from services.retrieval_service import retrieve_relevant_chunks
 
 logger = logging.getLogger("[ANSWER_SCRIPT]")
@@ -33,7 +34,48 @@ logger = logging.getLogger("[ANSWER_SCRIPT]")
 # Prompts
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """\
+#: Rules for the answer formats the catalogue added, keyed by the label a
+#: question's prompt carries. The rules above them still cover MCQs,
+#: assertion-reason, short and long answers, case-based and map questions,
+#: worded exactly as they always were.
+_FORMAT_RULES: Dict[str, str] = {
+    "MCQ_MULTI": (
+        "More than one correct option (MCQ_MULTI): every correct letter with its "
+        'text, one per line, then "(All correct options must be chosen; no '
+        'partial marks.)"'
+    ),
+    "TRUE_FALSE": (
+        'True/False (TRUE_FALSE): "True" or "False"; for a false statement, add '
+        "the corrected statement"
+    ),
+    "FILL_BLANK": (
+        "Fill in the blank (FILL_BLANK): only the word or words that fill each "
+        "blank, numbered when there are several"
+    ),
+    "ONE_WORD": "One word (ONE_WORD): only the word, name or chosen item",
+    "MATCH": (
+        'Match the following (MATCH): the matched pairs, one per line, e.g. "1 - c"'
+    ),
+    "NUMERICAL": (
+        "Numerical (NUMERICAL): the formula, the substitution with units, and "
+        "the final answer with its unit"
+    ),
+    "DIAGRAM": (
+        "Diagram (DIAGRAM): the parts and labels the drawing must show, as "
+        "numbered points"
+    ),
+    "GRAMMAR": (
+        "Grammar (GRAMMAR): the corrected, filled or transformed answer for each "
+        "item, numbered"
+    ),
+    "WRITING": (
+        "Writing task (WRITING): numbered value points for content, then one line "
+        "on the marks for format and expression"
+    ),
+}
+
+SYSTEM_PROMPT = (
+    """\
 You are a CBSE answer script / marking scheme generator.
 
 Format rules:
@@ -48,8 +90,12 @@ Format rules:
 - OR questions: write both answers separated by "OR"
 - CBQ sub-answers: label each as Q[number].[sub] Answer [marks]
 - Map questions: write "Location identified on map." + marks note
+"""
+    + "".join(f"- {rule}\n" for rule in _FORMAT_RULES.values())
+    + """\
 - All answers should be grounded in the source material, but you may use your general knowledge to complete the answer if the source is insufficient.
 """
+)
 
 
 def _build_user_prompt(
@@ -98,7 +144,12 @@ def _build_user_prompt(
 
 
 def _classify_question_type(q_type: str) -> str:
-    """Normalise question type string to the type labels used in prompts."""
+    """The label a marking-scheme block stores as its `questionType`.
+
+    Kept exactly as it was: the saved document carries this label and the
+    editor reads it back. What the prompt asks for comes from `_answer_format`,
+    which knows the catalogue.
+    """
     t = (q_type or "").upper().replace(" ", "_")
     type_map = {
         "MCQ": "MCQ",
@@ -116,6 +167,50 @@ def _classify_question_type(q_type: str) -> str:
         "MAP": "MAP",
     }
     return type_map.get(t, "SHORT_ANSWER")
+
+
+#: The answer format each runtime shape needs, named as the format rules name it.
+_ANSWER_FORMAT_BY_SHAPE: Dict[str, str] = {
+    "MCQ": "MCQ",
+    "ASSERTION_REASON": "ASSERTION_REASON",
+    "TRUE_FALSE": "TRUE_FALSE",
+    "FILL_IN_THE_BLANK": "FILL_BLANK",
+    "ONE_WORD": "ONE_WORD",
+    "MATCH_THE_FOLLOWING": "MATCH",
+    "VERY_SHORT_ANSWER": "SHORT_ANSWER",
+    "SHORT_ANSWER": "SHORT_ANSWER",
+    "LONG_ANSWER": "LONG_ANSWER",
+    "NUMERICAL": "NUMERICAL",
+    "EXPERIMENTAL": "SHORT_ANSWER",
+    "DIAGRAM": "DIAGRAM",
+    "CASE_STUDY": "CBQ",
+    "READING_COMP": "CBQ",
+    "EXTRACT_PROSE": "CBQ",
+    "EXTRACT_POETRY": "CBQ",
+    "ANALYTICAL_PARAGRAPH": "WRITING",
+    "GRAMMAR": "GRAMMAR",
+    "LETTER": "WRITING",
+    "COMPOSITION": "WRITING",
+}
+
+
+def _answer_format(q_type: str, type_code: str = "") -> str:
+    """The answer format a question needs, named as the format rules name it.
+
+    The block's catalogue type decides when it has one, so a true/false, a
+    grammar item or a letter is keyed as what it is rather than as "2-3 key
+    points". A document from before the catalogue carries only a shape, or one
+    of the labels the rules were first written for, and reads as it always did.
+    """
+    if not type_code and str(q_type or "").strip().upper() == "MAP":
+        return "MAP"
+    slot_type = resolve_slot_type(type_code, q_type)
+    if slot_type.code == "MAP_SKILL":
+        return "MAP"
+    spec = get_type(slot_type.code)
+    if spec is not None and spec.options is not None and spec.options.multi_correct:
+        return "MCQ_MULTI"
+    return _ANSWER_FORMAT_BY_SHAPE.get(slot_type.shape, "SHORT_ANSWER")
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +436,7 @@ def _extract_questions_from_content(content_json: str) -> List[Dict[str, Any]]:
                 "content": text,
                 "marks": marks,
                 "type": q_type,
+                "typeCode": str(attrs.get("typeCode") or ""),
                 "options": options,
                 "or_choice": or_choice,
             })
@@ -386,7 +482,10 @@ def _generate_single_answer_llm_only(
 
     primary_content = question["content"]
     or_choice_text = question.get("or_choice")
+    # The document keeps the label it has always stored; the prompt asks for the
+    # format the question's catalogue type actually needs.
     q_type = _classify_question_type(question["type"])
+    answer_format = _answer_format(question["type"], question.get("typeCode", ""))
     marks = question.get("marks", 1)
 
     # Build source material text
@@ -402,7 +501,7 @@ def _generate_single_answer_llm_only(
         question_number=question_number,
         question_text=primary_content,
         marks=marks,
-        question_type=q_type,
+        question_type=answer_format,
         or_choice_text=or_choice_text,
         sub_questions=None,
         source_material=source_material,

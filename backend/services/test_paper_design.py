@@ -29,6 +29,7 @@ from services.paper_design import (
     _detected_from_raw,
     detected_from_prose,
 )
+from services.question_types import get as get_type
 
 
 def group(question_type="SHORT_ANSWER", marks=2, count=3, **kwargs):
@@ -76,6 +77,74 @@ class QuestionTypeVocabularyTests(TestCase):
         self.assertEqual(normalize_question_type("interpretive dance"), "SHORT_ANSWER")
         self.assertEqual(normalize_question_type(""), "SHORT_ANSWER")
         self.assertEqual(normalize_question_type(None), "SHORT_ANSWER")
+
+    def test_a_named_kind_of_question_keeps_its_catalogue_type(self):
+        cases = {
+            "odd one out": "MCQ_ODD_ONE_OUT",
+            "MCQ_ODD_ONE_OUT": "MCQ_ODD_ONE_OUT",
+            "word bank": "FILL_BLANK_BANK",
+            "letter writing": "LETTER_WRITING",
+            "paragraph writing": "PARAGRAPH_WRITING",
+            "5 notice writing tasks": "NOTICE_WRITING",
+        }
+        for raw, expected in cases.items():
+            self.assertEqual(normalize_question_type(raw), expected, raw)
+
+    def test_a_general_type_under_its_catalogue_code_reads_as_general(self):
+        self.assertEqual(normalize_question_type("MCQ_SINGLE"), "MCQ")
+        self.assertEqual(normalize_question_type("DIAGRAM_DRAW"), "DIAGRAM")
+
+    def test_an_alias_is_matched_as_a_word_not_inside_one(self):
+        # "paragraph" contains "ar". Read as a substring, a writing task became
+        # an assertion-reason question.
+        self.assertNotEqual(
+            normalize_question_type("paragraph based questions"), "ASSERTION_REASON"
+        )
+
+    def test_a_type_that_cannot_be_generated_is_not_taken_by_name(self):
+        # Nothing draws a picture or a map yet, so those names keep the general
+        # vocabulary's reading.
+        self.assertEqual(normalize_question_type("PICTURE_BASED"), "DIAGRAM")
+        self.assertEqual(normalize_question_type("MAP_SKILL"), "DIAGRAM")
+
+    def test_a_catalogue_type_gets_its_own_default_mark(self):
+        d = validate_design(
+            design(DesignSection("A", [group(question_type="LETTER_WRITING", marks=0, count=1)]))
+        )
+        self.assertEqual(d.sections[0].groups[0].question_type, "LETTER_WRITING")
+        self.assertEqual(d.sections[0].groups[0].marks, get_type("LETTER_WRITING").marks)
+
+    def test_the_designer_is_offered_the_catalogue_by_name(self):
+        from services.paper_design import _DESIGN_SCHEMA
+
+        description = _DESIGN_SCHEMA["properties"]["sections"]["items"][
+            "properties"
+        ]["groups"]["items"]["properties"]["type"]["description"]
+        self.assertIn("MCQ_ODD_ONE_OUT", description)
+        self.assertIn("LETTER_WRITING", description)
+        # Not generated yet; offered as MCQ; read here as a short answer.
+        self.assertNotIn("MAP_SKILL", description)
+        self.assertNotIn("MCQ_SINGLE", description)
+        self.assertNotIn("VSA (", description)
+
+    def test_a_catalogue_type_reaches_the_builder_intact(self):
+        from services.template_catalog import _blueprint_from_design_specs
+
+        specs = design_to_slot_specs(
+            validate_design(
+                design(
+                    DesignSection(
+                        "A",
+                        [group(question_type=normalize_question_type("odd one out"), marks=1, count=2)],
+                    )
+                )
+            )
+        )
+        slots = _blueprint_from_design_specs(specs).slots
+        self.assertEqual(
+            [(slot.type_code, slot.question_type) for slot in slots],
+            [("MCQ_ODD_ONE_OUT", "MCQ")] * 2,
+        )
 
 
 class ValidateDesignTests(TestCase):

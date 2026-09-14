@@ -44,6 +44,12 @@ from typing import Any, Dict, List, Optional
 from django.conf import settings
 
 from services.openai_service import _record_usage, get_openai_client
+from services.question_types import (
+    available_types,
+    find_type_in_text,
+    get as get_type,
+    resolve as resolve_type,
+)
 
 logger = logging.getLogger("[DESIGN]")
 
@@ -154,9 +160,30 @@ _TYPE_ALIASES = {
     "graph": "DIAGRAM",
 }
 
+#: The catalogue's code for each general type ("MCQ" is MCQ_SINGLE there), so
+#: a design that names a general type by its catalogue code still says "MCQ".
+_GENERAL_TYPE_BY_CODE = {resolve_type(name).code: name for name in QUESTION_TYPES}
+
+
+def _catalogue_type(resolution) -> str:
+    """A catalogue hit as a design type: the general name where one fits.
+
+    A type that cannot be generated yet (a picture, a map) is no hit at all, so
+    the general vocabulary still gets its reading of the words.
+    """
+    if resolution is None or not resolution.spec.is_available:
+        return ""
+    return _GENERAL_TYPE_BY_CODE.get(resolution.code, resolution.code)
+
 
 def normalize_question_type(raw: Any) -> str:
-    """Map anything a model wrote onto the vocabulary Model 2 can fill."""
+    """Map anything a model wrote onto a type Model 2 can fill.
+
+    The general vocabulary is read first, exactly as before. The catalogue
+    comes next, so a kind of question the teacher named — "odd one out", a word
+    bank, letter writing — keeps its own type instead of being flattened onto
+    the nearest general one, or onto a short answer when none was near.
+    """
     text = str(raw or "").strip().lower().replace("_", " ")
     if not text:
         return "SHORT_ANSWER"
@@ -168,12 +195,44 @@ def normalize_question_type(raw: Any) -> str:
     if text in _TYPE_ALIASES:
         return _TYPE_ALIASES[text]
 
-    # Longest alias first so "very short answer" is not eaten by "short".
+    named = _catalogue_type(resolve_type(raw))
+    if named:
+        return named
+
+    # Longest alias first so "very short answer" is not eaten by "short", and
+    # whole words only, so "paragraph" is not read as "ar".
     for alias in sorted(_TYPE_ALIASES, key=len, reverse=True):
-        if alias in text:
+        if re.search(r"\b" + re.escape(alias) + r"(?:e?s)?\b", text):
             return _TYPE_ALIASES[alias]
 
+    named = _catalogue_type(find_type_in_text(text))
+    if named:
+        return named
+
     return "SHORT_ANSWER"
+
+
+def _default_marks(question_type: str) -> int:
+    """The usual marks for a design type: the general table, then the catalogue."""
+    if question_type in DEFAULT_MARKS:
+        return DEFAULT_MARKS[question_type]
+    spec = get_type(question_type)
+    return spec.marks if spec else 2
+
+
+def _specific_type_menu() -> str:
+    """The catalogue types beyond the general ones, as the designer is shown them.
+
+    A code the general vocabulary already reads another way ("VSA" is a short
+    answer here) is left off, so the designer is never offered a type this
+    module would then flatten.
+    """
+    return ", ".join(
+        f"{spec.code} ({spec.label})"
+        for spec in available_types()
+        if spec.code not in _GENERAL_TYPE_BY_CODE
+        and spec.code.lower().replace("_", " ") not in _TYPE_ALIASES
+    )
 
 
 # ── The design ──────────────────────────────────────────────────────────
@@ -323,6 +382,18 @@ class PaperDesign:
         }
 
 
+#: What the designer may call a group's type: the general vocabulary, and the
+#: catalogue by name for when a teacher asks for a specific kind of question.
+_GROUP_TYPE_DESCRIPTION = (
+    "One of: MCQ, ASSERTION_REASON, SHORT_ANSWER, LONG_ANSWER, CASE_STUDY, "
+    "FILL_BLANK, TRUE_FALSE, MATCH_FOLLOWING, DIAGRAM. Use DIAGRAM whenever the "
+    "teacher asks for image / picture / figure / map / diagram based questions "
+    "— it is what makes the paper carry figures at all. When the teacher names "
+    "a more specific kind of question, use its code from this list instead: "
+    + _specific_type_menu()
+    + "."
+)
+
 _DESIGN_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -424,16 +495,7 @@ _DESIGN_SCHEMA = {
                             "properties": {
                                 "type": {
                                     "type": "string",
-                                    "description": (
-                                        "One of: MCQ, ASSERTION_REASON, "
-                                        "SHORT_ANSWER, LONG_ANSWER, CASE_STUDY, "
-                                        "FILL_BLANK, TRUE_FALSE, MATCH_FOLLOWING, "
-                                        "DIAGRAM. Use DIAGRAM whenever the "
-                                        "teacher asks for image / picture / "
-                                        "figure / map / diagram based questions "
-                                        "— it is what makes the paper carry "
-                                        "figures at all."
-                                    ),
+                                    "description": _GROUP_TYPE_DESCRIPTION,
                                 },
                                 "marks": {"type": "integer"},
                                 "count": {"type": "integer"},
@@ -477,6 +539,9 @@ what IS given, in a single section named "Questions".
 - Name sections the way the teacher did ("Section A", "Part 1"). If they did \
 not name any, use one section called "Questions".
 - `marks` is per question, not per group.
+- Use the general question types unless the teacher names a more specific kind \
+of question — "odd one out", "fill in the blanks from a word bank", "letter \
+writing" — and then use that kind's code.
 - Use `topic` only when the teacher tied a specific group to a specific topic.
 - `choice: true` only if they asked for internal choice / "or" options.
 - `generalInstructions` are rubric lines to print on the paper. Keep them to \
@@ -810,7 +875,7 @@ def validate_design(
 
             marks = group.marks
             if marks < 1:
-                marks = DEFAULT_MARKS.get(question_type, 2)
+                marks = _default_marks(question_type)
                 corrections.append(
                     f"{section.title}: {question_type.replace('_', ' ').lower()} "
                     f"had no mark value; used {marks}."
