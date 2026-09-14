@@ -362,6 +362,29 @@ _OPENING_LETTER_RUN = re.compile(
 )
 
 
+#: One option marker inside a stem: "(a) ", at the start or after whitespace.
+_INLINE_OPTION_MARKER = re.compile(r"(?:(?<=\s)|^)\(([a-eA-E])\)\s+")
+
+
+def _strip_inline_options(text: str, count: int) -> str:
+    """The stem without a trailing "(a) … (b) …" run that repeats the options.
+
+    The options already arrived in `options`; printed inside the question as
+    well, every choice appears twice on the paper. Only a complete run — each
+    letter in order, one per option, ending the stem — is removed, so a stem
+    that merely mentions "(a)" keeps it.
+    """
+    markers = list(_INLINE_OPTION_MARKER.finditer(text))
+    letters = "abcde"[:count]
+    if count < 2 or len(markers) < count:
+        return text
+    run = markers[-count:]
+    if "".join(marker.group(1).lower() for marker in run) != letters:
+        return text
+    stem = text[: run[0].start()].strip()
+    return stem or text
+
+
 def _correct_letters(answer: Any) -> set:
     """The option letters an answer key names: "(a), (c), (e)" or "a, c and e"."""
     text = str(answer or "")
@@ -468,6 +491,10 @@ def normalize_pool_question(
             raise PoolValidationError(
                 f"{type_code} needs an answer naming two or more options"
             )
+        if qtype == "MCQ":
+            # The writer sometimes prints the choices inside the question too.
+            # They already arrived in `options`, so the copy goes.
+            text = _strip_inline_options(text, len(options))
     else:
         # A descriptive question with options is a mislabelled MCQ. Drop the
         # options rather than the question — the stem is usually fine.

@@ -416,7 +416,39 @@ def build_candidates(
         )
 
     # ── Pass 1: one question per slot ───────────────────────────────────
+    def _take(position: int, candidates: List[PoolQuestion]) -> None:
+        slot = plan[position]
+        chosen = _rank(
+            candidates,
+            slot,
+            prefer_source=str(getattr(slot, "source", "") or ""),
+        )[0]
+        used_ids.add(chosen.id)
+        used_topics[(chosen.topic or "").strip().lower()] += 1
+        used_blooms[chosen.blooms] += 1
+        used_difficulty[chosen.difficulty] += 1
+        used_chapters[(chosen.chapter or "").strip().lower()] += 1
+        assignments[position] = SlotAssignment(slot=slot, question=chosen)
+
+    def _exact(position: int) -> List[PoolQuestion]:
+        type_code = str(getattr(plan[position], "type_code", "") or "")
+        if not type_code:
+            return []
+        return [q for q in eligible[position] if q.type_code == type_code]
+
+    # 1a — every slot that can have exactly the type it asked for gets it
+    # before any slot takes a stand-in. Filling strictly in `order` let an
+    # earlier slot take another slot's only exact match as its stand-in, and
+    # the slot that asked for that type by name was left empty.
+    for position in sorted(order, key=lambda p: len(_exact(p))):
+        exact = [q for q in _exact(position) if q.id not in used_ids]
+        if exact:
+            _take(position, exact)
+
+    # 1b — every slot still open, from whatever is left.
     for position in order:
+        if position in assignments:
+            continue
         slot = plan[position]
         available = [q for q in eligible[position] if q.id not in used_ids]
 
@@ -429,18 +461,7 @@ def build_candidates(
             unfilled.append(UnfilledSlot(slot=slot, reason=reason))
             continue
 
-        chosen = _rank(
-            available,
-            slot,
-            prefer_source=str(getattr(slot, "source", "") or ""),
-        )[0]
-        used_ids.add(chosen.id)
-        used_topics[(chosen.topic or "").strip().lower()] += 1
-        used_blooms[chosen.blooms] += 1
-        used_difficulty[chosen.difficulty] += 1
-        used_chapters[(chosen.chapter or "").strip().lower()] += 1
-
-        assignments[position] = SlotAssignment(slot=slot, question=chosen)
+        _take(position, available)
 
     # ── Pass 2: alternates from the leftovers, reserved per slot ────────
     # Slots the blueprint marks `choice_required` consume one extra leftover

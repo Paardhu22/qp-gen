@@ -1474,6 +1474,16 @@ def stream_pool_questions(
             else "Try generating again; the affected sections are produced "
             "independently of the uploaded chapters."
         )
+        writer_failures = list(getattr(pool_result, "batch_failures", None) or [])
+        if writer_failures:
+            # The pool came up short because the writer returned nothing usable
+            # for some requests, not because the chapter ran out, so "upload
+            # more chapters" would send the teacher the wrong way.
+            remedy = (
+                f"The question writer could not complete {len(writer_failures)} "
+                f"request{'' if len(writer_failures) == 1 else 's'}; generating "
+                "again usually fills those slots."
+            )
         yield _sse(
             {
                 "requested": len(plan),

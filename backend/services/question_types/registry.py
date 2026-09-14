@@ -135,6 +135,31 @@ def _build_index() -> Dict[str, Tuple[str, FrozenSet[str]]]:
 _INDEX: Dict[str, Tuple[str, FrozenSet[str]]] = _build_index()
 
 
+def _label_key(raw) -> str:
+    """A label as people and models write it: case, dashes and spacing folded."""
+    return re.sub(r"[^a-z0-9]+", " ", str(raw or "").lower()).strip()
+
+
+def _build_label_index() -> Dict[str, str]:
+    """Each type's display label, for inputs that echo the label itself.
+
+    A model shown "MCQ — Fill Up" writes exactly that into a `type` field. A
+    label two types share would be a guess, so it is left out rather than
+    resolved to whichever type came first.
+    """
+    codes_by_label: Dict[str, set] = {}
+    for spec in CATALOG.values():
+        codes_by_label.setdefault(_label_key(spec.label), set()).add(spec.code)
+    return {
+        label: next(iter(codes))
+        for label, codes in codes_by_label.items()
+        if label and len(codes) == 1
+    }
+
+
+_LABEL_INDEX: Dict[str, str] = _build_label_index()
+
+
 # ── Lookups ─────────────────────────────────────────────────────────────
 
 
@@ -144,12 +169,17 @@ def get(code) -> Optional[TypeSpec]:
 
 
 def resolve(raw) -> Optional[Resolution]:
-    """The catalogue type any input means, or None when nothing matches."""
+    """The catalogue type any input means, or None when nothing matches.
+
+    Codes, shapes, aliases and synonyms first; a type's display label last, for
+    the writer that echoes "MCQ — Fill Up" back instead of a code.
+    """
     hit = _INDEX.get(_alias_key(raw))
-    if hit is None:
-        return None
-    code, attributes = hit
-    return Resolution(CATALOG[code], attributes)
+    if hit is not None:
+        code, attributes = hit
+        return Resolution(CATALOG[code], attributes)
+    code = _LABEL_INDEX.get(_label_key(raw))
+    return Resolution(CATALOG[code]) if code else None
 
 
 def normalize_type_code(raw) -> str:

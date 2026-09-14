@@ -15,7 +15,7 @@ which is what stops a batch from over-indexing on one section.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Sequence, Tuple
 
 from services.question_types import SHAPES
@@ -340,7 +340,17 @@ def batches_from_plan(plan: Sequence[Any], *, target_total: int = 0) -> List[Bat
         for key in order
         for (qtype, marks, asset_type, type_code, hots, competency) in [key]
     ]
-    return _scale_batches(batches, target_total)
+    # A type the teacher picked by name has no stand-in of its own shape, so
+    # one answer the writer gets wrong leaves its slot empty. Its batch always
+    # carries a spare: a few more output tokens on a call made either way. A
+    # shape's default type keeps exactly the counts it always had.
+    spared: List[Batch] = []
+    for batch, key in zip(_scale_batches(batches, target_total), order):
+        quota = batch.quotas[0]
+        if quota.type_code and quota.count <= counts[key]:
+            batch = Batch(batch.name, [replace(quota, count=counts[key] + 1)])
+        spared.append(batch)
+    return spared
 
 
 #: What each slot attribute adds to Model 1's instruction for its quota.

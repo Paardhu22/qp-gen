@@ -184,12 +184,25 @@ def _type_brief_lines(quota) -> List[str]:
     if spec is None:
         return []
 
-    lines = [f"      – Type: {spec.label}. {spec.brief}"]
+    # The label describes the questions; it is not a value. Shown as "Type: …"
+    # it was copied into the `type` field, where it named no type at all and
+    # every question in the batch was thrown away.
+    lines = [
+        f"      – Write these as {spec.label} questions: {spec.brief} "
+        f"Keep `type` set to {quota.type}."
+    ]
     if spec.example:
-        example = " / ".join(
-            part.strip() for part in spec.example.splitlines() if part.strip()
+        # Line by line, as the question prints. Joined with " / " the writer
+        # copied the slashes into its questions.
+        lines.append("      – Format example of the printed question (never reuse its content):")
+        lines.extend(
+            f"          {part.strip()}" for part in spec.example.splitlines() if part.strip()
         )
-        lines.append(f"      – Format example (never reuse its content): {example}")
+    if quota.type == "MCQ":
+        lines.append(
+            "      – In the JSON, the choices go only in `options`, never repeated "
+            "inside `question`."
+        )
     rule = spec.options
     if rule is not None and not rule.fixed and (rule.min, rule.max, rule.multi_correct) != (4, 4, False):
         lines.append(
@@ -367,7 +380,9 @@ def _normalise_batch(
             )
         except PoolValidationError as exc:
             invalid += 1
-            logger.debug("Dropped a question from batch %s: %s", batch.name, exc)
+            # INFO, not DEBUG: a batch that returns nothing usable is otherwise
+            # invisible in the console, and the reason is the whole diagnosis.
+            logger.info("Dropped a question from batch %s: %s", batch.name, exc)
             continue
 
         question.asset_type = batch_asset_type
@@ -428,7 +443,7 @@ def _normalise_batch(
                 drawn = render_chart(spec=parse_chart_spec(raw.get("figure")))
             except SpecError as exc:
                 invalid += 1
-                logger.debug("Dropped a chart question from batch %s: %s", batch.name, exc)
+                logger.info("Dropped a chart question from batch %s: %s", batch.name, exc)
                 continue
             except Exception as exc:  # one undrawable chart must not cost the batch
                 invalid += 1

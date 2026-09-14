@@ -45,10 +45,22 @@ class BatchInstructionTests(SimpleTestCase):
 
         text = _batch_instruction(Batch("multi", [TypeQuota("MCQ", 2, 3, type_code="MCQ_MULTI")]))
         self.assertIn("3 × MCQ worth 2 marks each", text)
-        self.assertIn("Type: MCQ — Multiple Correct.", text)
-        self.assertIn("Format example (never reuse its content):", text)
+        self.assertIn("Write these as MCQ — Multiple Correct questions:", text)
+        self.assertIn("Format example of the printed question (never reuse its content):", text)
         self.assertIn("4 to 5 options, two or more of them correct", text)
         self.assertIn("overrides rule 4", text)
+
+    def test_the_label_is_never_offered_as_the_type_value(self):
+        # Shown as "Type: MCQ — Fill Up", the writer copied the label into the
+        # `type` field, and every question in the batch was thrown away.
+        from services.pool.model1 import _batch_instruction
+        from services.pool.recipes import Batch, TypeQuota
+
+        text = _batch_instruction(Batch("fill", [TypeQuota("MCQ", 1, 2, type_code="MCQ_FILL")]))
+        self.assertNotIn("Type:", text)
+        self.assertIn("Keep `type` set to MCQ.", text)
+        self.assertNotIn(" / ", text)
+        self.assertIn("never repeated inside `question`", text)
 
     def test_original_types_are_told_to_invent_their_stimulus(self):
         from services.pool.model1 import _batch_instruction
@@ -113,6 +125,48 @@ class OptionRuleTests(SimpleTestCase):
         self.assertEqual(invalid, 0)
         self.assertEqual(questions[0].type_code, "MCQ_MULTI")
 
+    def test_a_type_written_as_its_label_keeps_the_question(self):
+        # What the writer returned for a Fill Up batch, on every attempt.
+        raw = {
+            "type": "MCQ — Fill Up",
+            "question": "A reaction in which two substances combine to form one product is called a ________ reaction.",
+            "options": ["decomposition", "combination", "displacement", "redox"],
+            "answer": "(b) combination",
+            "marks": 1,
+        }
+        question = self._normalise(raw, type_hint="MCQ_FILL")
+        self.assertEqual((question.type, question.type_code), ("MCQ", "MCQ_FILL"))
+        # A hyphen for the dash, and no hint at all, read the same way.
+        self.assertEqual(self._normalise({**raw, "type": "MCQ - Fill Up"}).type_code, "MCQ_FILL")
+
+    def test_options_repeated_in_the_stem_are_removed(self):
+        raw = {
+            "type": "MCQ",
+            "question": (
+                "Choose the odd one out. (a) CaO + H2O → Ca(OH)2  (b) 2H2O → 2H2 + O2  "
+                "(c) Fe + CuSO4 → FeSO4 + Cu  (d) Na2SO4 + BaCl2 → BaSO4 + 2NaCl"
+            ),
+            "options": [
+                "CaO + H2O → Ca(OH)2",
+                "2H2O → 2H2 + O2",
+                "Fe + CuSO4 → FeSO4 + Cu",
+                "Na2SO4 + BaCl2 → BaSO4 + 2NaCl",
+            ],
+            "answer": "(b)",
+            "marks": 1,
+        }
+        self.assertEqual(self._normalise(raw).question, "Choose the odd one out.")
+
+    def test_a_stem_that_only_mentions_a_letter_keeps_it(self):
+        raw = {
+            "type": "MCQ",
+            "question": "Statement (a) above is incorrect. Which option corrects it?",
+            "options": ["one", "two", "three", "four"],
+            "answer": "(a)",
+            "marks": 1,
+        }
+        self.assertEqual(self._normalise(raw).question, raw["question"])
+
 
 class AssemblyPreferenceTests(SimpleTestCase):
     @staticmethod
@@ -153,6 +207,27 @@ class AssemblyPreferenceTests(SimpleTestCase):
         )
         self.assertEqual(unfilled, [])
         self.assertEqual(assignments[0].question.type_code, "MCQ_SINGLE")
+
+    def test_a_stand_in_never_takes_another_slots_exact_type(self):
+        # The reported paper: five named MCQ types, and a pool holding only an
+        # odd one out and a standard MCQ. Slots 1 and 2 took both as stand-ins
+        # and the two slots that asked for them by name were left empty.
+        from services.pool.model2 import build_candidates
+
+        pool = [self._question("MCQ_ODD_ONE_OUT"), self._question("MCQ_SINGLE")]
+        slots = [
+            self._slot(1, "MCQ_STATEMENT_EVAL"),
+            self._slot(2, "MCQ_FILL"),
+            self._slot(3, "MCQ_ODD_ONE_OUT"),
+            self._slot(4, "MCQ_SINGLE"),
+            self._slot(5, "MCQ_ANALOGY"),
+        ]
+        assignments, unfilled = build_candidates(pool, slots, alternates=0, seed=7)
+        self.assertEqual(
+            {a.slot.index: a.question.type_code for a in assignments},
+            {3: "MCQ_ODD_ONE_OUT", 4: "MCQ_SINGLE"},
+        )
+        self.assertEqual(sorted(u.slot.index for u in unfilled), [1, 2, 5])
 
 
 class RoutingTests(SimpleTestCase):

@@ -33,3 +33,25 @@ class FindTypeInTextTests(SimpleTestCase):
         self.assertIsNone(find_type_in_text("I have uploaded 2 PDFs"))
         self.assertIsNone(find_type_in_text(""))
         self.assertIsNone(find_type_in_text(None))
+
+
+class LabelResolutionTests(SimpleTestCase):
+    """A type named by its display label, the way a writer echoes it back."""
+
+    def test_a_label_resolves_to_its_type(self):
+        from services.question_types import resolve, shape_of
+
+        self.assertEqual(resolve("MCQ — Fill Up").code, "MCQ_FILL")
+        self.assertEqual(resolve("mcq - fill up").code, "MCQ_FILL")
+        self.assertEqual(shape_of("MCQ — Analogy"), "MCQ")
+
+    def test_codes_and_aliases_still_win_over_labels(self):
+        from services.question_types import resolve
+
+        self.assertEqual(resolve("Short Answer").code, "SA")
+        self.assertEqual(resolve("MCQ").code, "MCQ_SINGLE")
+
+    def test_an_unknown_label_resolves_to_nothing(self):
+        from services.question_types import resolve
+
+        self.assertIsNone(resolve("MCQ — Interpretive Dance"))

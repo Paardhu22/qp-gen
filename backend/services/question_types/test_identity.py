@@ -208,6 +208,21 @@ class RecipeTests(SimpleTestCase):
         self.assertEqual([batch.name for batch in batches], ["mcq_1m", "mcq_1m_mcq_odd_one_out"])
         self.assertEqual(batches[1].quotas[0].type_code, "MCQ_ODD_ONE_OUT")
 
+    def test_a_chosen_variant_carries_a_spare_and_a_default_does_not(self):
+        # One question per named type left no room for a single bad answer from
+        # the writer: the reported five-type paper lost three of its slots.
+        from services.pool.recipes import batches_from_plan
+
+        plan = [
+            self._slot(index=position + 1, type_code=code)
+            for position, code in enumerate(
+                ["MCQ_STATEMENT_EVAL", "MCQ_FILL", "MCQ_ODD_ONE_OUT", "MCQ_SINGLE", "MCQ_ANALOGY"]
+            )
+        ]
+        counts = {batch.name: batch.total for batch in batches_from_plan(plan, target_total=6)}
+        self.assertEqual(counts.pop("mcq_1m"), 1)
+        self.assertEqual(sorted(counts.values()), [2, 2, 2, 2])
+
     def test_hots_reaches_model1_as_a_hint(self):
         from services.pool.recipes import HOTS_HINT, batches_from_plan
 
