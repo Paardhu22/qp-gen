@@ -164,15 +164,17 @@ function Section({
 }) {
   return (
     <section className="space-y-3">
-      <div className="flex items-baseline gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <h3 className="whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
         </h3>
         {hint ? (
           <span className="text-xs text-muted-foreground/70">{hint}</span>
         ) : null}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div>
+      {/* An explicit single column on phones: the implicit one grows to a
+          truncated title's full width and pushes cards off the screen. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div>
     </section>
   );
 }

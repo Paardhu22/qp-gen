@@ -76,7 +76,10 @@ These need local Postgres on :5433, the backend and the frontend, and they spend
 5. Building from the bank keeps each question's exact type.
 6. The PDF and DOCX exports show every paragraph, table and chart.
 7. The Class 2 starter template generates.
-8. The Builder at phone width (~400px) has no overflow in slot rows or the picker popup.
+8. The Builder feels right with live data, at desktop and at phone width (~400px).
+   - Already checked without a backend: the template grid, slot rows, picker, attributes menu and swap dialog were screenshotted headlessly with real catalogue data, at 1280px and 400px, in light and dark.
+   - That pass fixed a blank band in the picker, template cards overflowing on phones and a crowded swap dialog.
+   - What still needs a live run is the same UI fed by the backend.
 
 ---
 

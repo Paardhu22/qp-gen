@@ -162,14 +162,18 @@ export function QuestionTypePicker({
           className="h-9 w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
         />
       </div>
-      <Combobox.Empty className="px-3 py-6 text-center text-xs text-muted-foreground">
+      {/* Rendered even while the list has items (it announces "no results"),
+          so it must take no room when it has nothing to say. */}
+      <Combobox.Empty className="px-3 py-6 text-center text-xs text-muted-foreground empty:m-0 empty:p-0">
         No question type matches that.
       </Combobox.Empty>
       <Combobox.List
         className={cn(
           "overflow-y-auto overscroll-contain p-1 empty:p-0",
+          // Inline, the list sits in a dialog that scrolls on a phone; kept
+          // short enough that the dialog's own buttons stay in view.
           variant === "inline"
-            ? "max-h-[46vh]"
+            ? "max-h-[min(40vh,20rem)]"
             : "max-h-[min(22rem,var(--available-height))]",
         )}
       >

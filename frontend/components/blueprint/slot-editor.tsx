@@ -395,14 +395,18 @@ export function SlotEditor({
                         onChange={(option) => changeType(index, option)}
                         aria-label={`Type of question ${slot.index}`}
                       />
-                      {note ? (
-                        <span
-                          role="img"
-                          aria-label={note}
-                          title={note}
-                          className="size-1.5 shrink-0 rounded-full bg-warning"
-                        />
-                      ) : null}
+                      {/* The dot's room is kept on every row, so the type
+                          column lines up whether or not a row has a note. */}
+                      <span
+                        role={note ? "img" : undefined}
+                        aria-label={note ?? undefined}
+                        aria-hidden={note ? undefined : true}
+                        title={note ?? undefined}
+                        className={cn(
+                          "size-1.5 shrink-0 rounded-full",
+                          note ? "bg-warning" : "invisible",
+                        )}
+                      />
                     </div>
 
                     <div className="flex shrink-0 items-center gap-1">
@@ -425,24 +429,28 @@ export function SlotEditor({
                       <span className="text-[10px] text-muted-foreground">mk</span>
                     </div>
 
-                    <SourceToggle
-                      value={slot.source}
-                      onChange={(source) => update(index, { source })}
-                    />
+                    {/* On a phone these wrap onto a second line, lined up
+                        under the type rather than under the number. */}
+                    <div className="flex shrink-0 items-center gap-2 max-sm:ml-8">
+                      <SourceToggle
+                        value={slot.source}
+                        onChange={(source) => update(index, { source })}
+                      />
 
-                    <AttributesMenu
-                      slot={slot}
-                      onChange={(patch) => update(index, patch)}
-                    />
+                      <AttributesMenu
+                        slot={slot}
+                        onChange={(patch) => update(index, patch)}
+                      />
 
-                    <button
-                      type="button"
-                      aria-label={`Remove question ${slot.index}`}
-                      onClick={() => removeSlot(index)}
-                      className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove question ${slot.index}`}
+                        onClick={() => removeSlot(index)}
+                        className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
