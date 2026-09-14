@@ -471,7 +471,7 @@ export function SlotEditor({
             onClick={() => addSlot(nextSectionTitle(sections.map((s) => s.title)))}
           >
             <Plus className="size-3.5 mr-1.5" />
-            Add New Section
+            Add a section
           </Button>
         </div>
       )}
