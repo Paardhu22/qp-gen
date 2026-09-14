@@ -184,10 +184,14 @@ function toEditorQuestion(question: any) {
   return {
     content: question.content,
     type: question.type,
+    // Without these the block forgets which type the teacher picked, a case
+    // study loses its laid-out parts, and Replace loses the slot it rewrites.
+    typeCode: question.typeCode || question.metadata?.typeCode || "",
     options: question.options || [],
     answer: question.answer,
     marks: question.marks,
     image_url: question.image_url || question.metadata?.image_url || "",
+    metadata: question.metadata || null,
   };
 }
 
@@ -243,6 +247,7 @@ function makeStreamHandler(deps: {
       question: {
         content: question.content,
         type: question.type,
+        typeCode: question.typeCode || question.metadata?.typeCode || "",
         options: question.options || [],
         answer: question.answer,
         marks: question.marks,

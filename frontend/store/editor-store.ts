@@ -8,6 +8,10 @@ export interface Question {
   type: string;
   marks: number;
   image_url?: string;
+  /** The catalogue type ("MCQ_ODD_ONE_OUT"), when the generator knows it. */
+  typeCode?: string;
+  /** Slot provenance and structure (sub-parts, tables) the editor lays out. */
+  metadata?: Record<string, any> | null;
 }
 
 export interface SectionToAppend {

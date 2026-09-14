@@ -109,10 +109,12 @@ export function ReviewTray() {
         questions: items.map((t) => ({
           content: t.question.content,
           type: t.question.type,
+          typeCode: t.question.typeCode,
           options: t.question.options || [],
           answer: t.question.answer,
           marks: t.question.marks,
           image_url: t.question.image_url,
+          metadata: t.question.metadata,
         })),
       })),
     );
