@@ -1300,7 +1300,9 @@ export interface QuestionTypeOption {
   example: string;
   /** Whether the class this menu was fetched for is usually set this type. */
   inClass: boolean;
-  /** Belongs in the short "Suggested" list for this class and subject. */
+  /** How often the menu's subject sets this type. */
+  weight: "core" | "occasional" | "rare";
+  /** Core for this subject, set in this class, and printable: the picker opens on these. */
   common: boolean;
 }
 

@@ -4,15 +4,18 @@
  * Choosing a question type from the catalogue — a hundred-odd types that should
  * never feel like a hundred.
  *
- * Closed, the picker is a quiet button naming the type. Open, it shows only a
- * short "Suggested" list — the types this class and subject are usually set —
- * under a search box that reaches every other type. The full catalogue, grouped
- * by family, appears only once the teacher searches or asks to browse it.
+ * Closed, the picker is a quiet button naming the type. Open, it shows only the
+ * types this subject sets most — its core types for this class — grouped by
+ * family, under a search box that reaches every other type. The rest of the
+ * subject's types appear once the teacher searches or asks to browse them.
  *
- * Nothing is hidden for being unusual. A type usually set to other classes is
- * ranked below the rest and shows its class range instead of its marks; a type
- * that needs a printed picture stays listed but disabled, so a teacher learns
- * it exists without choosing one that could only come back empty.
+ * The menu is already the subject's own (the server leaves out, say, code
+ * questions for Science). Within it nothing is hidden for being unusual: a type
+ * the subject sets only occasionally ranks below its core types, a type usually
+ * set to other classes ranks below those and shows its class range instead of
+ * its marks, and a type that needs a printed picture stays listed but disabled,
+ * so a teacher learns it exists without choosing one that could only come back
+ * empty.
  *
  * Built on Base UI's Combobox, so keyboard navigation, highlighting and
  * screen-reader semantics come with it rather than being rebuilt here.
@@ -23,6 +26,7 @@ import { Combobox } from "@base-ui/react/combobox";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 
 import type { QuestionTypeOption } from "@/lib/api-client";
+import { questionTypeInfo } from "@/lib/question-types";
 import { SHAPE_DEFAULT_TYPE } from "@/lib/question-types.generated";
 import { cn } from "@/lib/utils";
 
@@ -66,10 +70,35 @@ function matchesQuery(option: QuestionTypeOption, query: string): boolean {
     .every((word) => haystack.includes(word));
 }
 
-/** This class's own types first, then other classes', then picture types. */
+const WEIGHT_RANK: Record<QuestionTypeOption["weight"], number> = {
+  core: 0,
+  occasional: 1,
+  rare: 2,
+};
+
+/**
+ * The subject's core types first, then occasional, then rare — all within this
+ * class — then other classes' types, then types that need a picture.
+ */
 function rank(option: QuestionTypeOption): number {
-  if (option.availability !== "available") return 2;
-  return option.inClass ? 0 : 1;
+  if (option.availability !== "available") return 5;
+  if (!option.inClass) return 4;
+  return WEIGHT_RANK[option.weight] ?? 1;
+}
+
+/** Grouped by family in the order families first appear, each ranked. */
+function groupByFamily(options: QuestionTypeOption[]): OptionGroup[] {
+  const byFamily = new Map<string, QuestionTypeOption[]>();
+  for (const option of options) {
+    const list = byFamily.get(option.group) ?? [];
+    list.push(option);
+    byFamily.set(option.group, list);
+  }
+  return Array.from(byFamily, ([label, items]) => ({
+    label,
+    // Array sort is stable, so equal ranks keep the catalogue's order.
+    items: [...items].sort((a, b) => rank(a) - rank(b)),
+  }));
 }
 
 function humanise(code: string): string {
@@ -129,29 +158,23 @@ export function QuestionTypePicker({
     [options, value],
   );
 
-  const families = React.useMemo<OptionGroup[]>(() => {
-    const byFamily = new Map<string, QuestionTypeOption[]>();
-    for (const option of options) {
-      const list = byFamily.get(option.group) ?? [];
-      list.push(option);
-      byFamily.set(option.group, list);
-    }
-    return Array.from(byFamily, ([label, items]) => ({
-      label,
-      items: [...items].sort((a, b) => rank(a) - rank(b)),
-    }));
-  }, [options]);
+  const families = React.useMemo(() => groupByFamily(options), [options]);
 
-  const suggestions = React.useMemo<QuestionTypeOption[]>(() => {
-    const common = options.filter((option) => option.common);
-    // The current type stays one click away even when it is not a suggestion.
-    return selected && !selected.common ? [selected, ...common] : common;
-  }, [options, selected]);
+  const core = React.useMemo<OptionGroup[]>(
+    () =>
+      groupByFamily(
+        // The current type stays one click away even when it is not core.
+        options.filter(
+          (option) => option.common || option.code === selected?.code,
+        ),
+      ),
+    [options, selected],
+  );
 
-  const showAll = browsing || query.trim() !== "" || suggestions.length === 0;
-  const groups: OptionGroup[] = showAll
-    ? families
-    : [{ label: "Suggested", items: suggestions }];
+  const coreCount = core.reduce((sum, group) => sum + group.items.length, 0);
+  const showAll =
+    browsing || query.trim() !== "" || coreCount === 0 || coreCount === options.length;
+  const groups: OptionGroup[] = showAll ? families : core;
 
   const panel = (
     <>
@@ -196,7 +219,7 @@ export function QuestionTypePicker({
           onClick={() => setBrowsing(true)}
           className="w-full border-t border-border px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
         >
-          Browse all {options.length} types
+          Browse all {options.length} types for this subject
         </button>
       )}
     </>
@@ -240,7 +263,10 @@ export function QuestionTypePicker({
             )}
           >
             <span className="truncate">
-              {selected?.label ?? (value ? humanise(value) : "Choose a type")}
+              {selected?.label ??
+                (value
+                  ? questionTypeInfo(value)?.label ?? humanise(value)
+                  : "Choose a type")}
             </span>
             <ChevronsUpDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
           </Combobox.Trigger>
