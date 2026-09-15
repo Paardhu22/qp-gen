@@ -52,6 +52,7 @@ from services.question_types import (
     legacy_bucket,
     resolve_slot_type,
 )
+from services.question_types.subjects import CORE, OCCASIONAL, subject_types
 
 logger = logging.getLogger("[TEMPLATES]")
 
@@ -107,18 +108,20 @@ def _subject_key(subject: str) -> str:
 
 
 def _is_common(spec, class_num: Optional[int]) -> bool:
-    """Whether a type belongs in the picker's short "Suggested" list.
+    """Whether a type is core when the subject has no map of its own.
 
     The types papers have always used, and for Classes 1–5 the worksheet
-    activities those classes are actually set. Everything else is one search
-    away, which is what keeps a hundred-odd types from feeling like a hundred.
+    activities those classes are actually set. A mapped subject grades its own
+    types instead (`services.question_types.subjects`).
     """
     if spec.status == "LIVE":
         return True
     return class_num is not None and class_num <= 5 and spec.family == "PRIMARY_ACTIVITY"
 
 
-def _menu_entry(spec, class_num: Optional[int], family_name: str) -> Dict[str, Any]:
+def _menu_entry(
+    spec, class_num: Optional[int], family_name: str, weight: str
+) -> Dict[str, Any]:
     low, high = spec.classes
     in_class = class_num is None or low <= class_num <= high
     return {
@@ -137,7 +140,11 @@ def _menu_entry(spec, class_num: Optional[int], family_name: str) -> Dict[str, A
         "tests": spec.tests,
         "example": spec.example,
         "inClass": in_class,
-        "common": spec.is_available and in_class and _is_common(spec, class_num),
+        #: How often the subject sets it: "core", "occasional" or "rare".
+        "weight": weight,
+        #: The picker opens on these: core for the subject, set in this
+        #: class, and printable today.
+        "common": spec.is_available and in_class and weight == CORE,
     }
 
 #: The pool types each asset generator can actually write, mirroring what
@@ -191,7 +198,9 @@ def question_types_for(
     """The type menu for one slot.
 
     `subject` keeps the types that belong to it — a chronology MCQ is a Social
-    Science type, a grammar gap-fill a language one. `academic_class` marks the
+    Science type, a grammar gap-fill a language one — and grades each by how
+    often that subject sets it (`services.question_types.subjects`). A subject
+    without a map falls back to each type's own `subjects`. `academic_class` marks the
     types that class is usually set, so the picker can suggest those first;
     nothing is hidden for being outside the class, only ranked below.
 
@@ -202,6 +211,7 @@ def question_types_for(
     those that must come from an independent generator.
     """
     subject_key = _subject_key(subject)
+    graded = subject_types(subject_key) if subject_key else None
     class_num = _class_number(academic_class)
     name = str(generator or "").strip()
     shapes = types_for_generator(name)
@@ -212,8 +222,14 @@ def question_types_for(
     for spec in all_types():
         if spec.resolved_availability not in _LISTED:
             continue
-        if subject_key and spec.subjects and subject_key not in spec.subjects:
-            continue
+        if graded is not None:
+            if spec.code not in graded:
+                continue
+            weight = graded[spec.code]
+        else:
+            if subject_key and spec.subjects and subject_key not in spec.subjects:
+                continue
+            weight = CORE if _is_common(spec, class_num) else OCCASIONAL
         if shapes is not None:
             if spec.shape not in shapes:
                 continue
@@ -222,7 +238,7 @@ def question_types_for(
                 continue
             if not asset_generator and spec.lane == "original" and spec.route is not None:
                 continue
-        menu.append(_menu_entry(spec, class_num, family_names[spec.family]))
+        menu.append(_menu_entry(spec, class_num, family_names[spec.family], weight))
     return menu
 
 

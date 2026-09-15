@@ -422,6 +422,26 @@ class QuestionTypeMenuContentTests(TestCase):
         self.assertTrue(class_ten["ASSERTION_REASON"]["common"])
         self.assertFalse(class_ten["CIRCLE_CORRECT"]["common"])
 
+    def test_the_menu_opens_on_what_the_subject_actually_sets(self):
+        science = self._by_code("Science", academic_class="10")
+        self.assertEqual(science["EXPERIMENT_BASED"]["weight"], "core")
+        self.assertTrue(science["EXPERIMENT_BASED"]["common"])
+        # Offered, but one click away rather than in the opening list.
+        self.assertEqual(science["NEWS_BASED"]["weight"], "occasional")
+        self.assertFalse(science["NEWS_BASED"]["common"])
+        # Not a Science type at all.
+        self.assertNotIn("CODE_OUTPUT", science)
+
+        computer = self._by_code("Computer Science", academic_class="9")
+        self.assertTrue(computer["CODE_OUTPUT"]["common"])
+
+    def test_a_subject_without_a_map_keeps_the_old_menu(self):
+        # No subject: every listed type, core meaning "papers always use it".
+        menu = self._by_code(academic_class="10")
+        self.assertIn("CODE_OUTPUT", menu)
+        self.assertEqual(menu["MCQ_SINGLE"]["weight"], "core")
+        self.assertEqual(menu["MCQ_ANALOGY"]["weight"], "occasional")
+
     def test_picture_types_are_listed_but_not_selectable(self):
         picture = self._by_code()["MCQ_PICTURE"]
         self.assertEqual(picture["availability"], "needs_picture")
