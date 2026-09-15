@@ -18,7 +18,8 @@
  * ungrouped list of 38 identical controls is not something a teacher can read.
  *
  * Each row stays one line. The type comes from the question type catalogue
- * through a picker that suggests this class's usual types first, and the two
+ * through a picker that opens on the types this subject sets most in this
+ * class, and a new row repeats the type and marks of the row before it. The two
  * slot attributes most slots never use — higher-order thinking and real-world
  * framing — sit behind one small menu rather than adding two controls to every
  * row.
@@ -277,20 +278,6 @@ export function SlotEditor({
   };
 
   const addSlot = (sectionTitle: string) => {
-    // A new slot starts as a type this class is usually set, so the row is
-    // already sensible before the teacher touches it.
-    const fallback =
-      questionTypes.find((o) => o.common && o.availability === "available") ??
-      questionTypes.find((o) => o.availability === "available");
-    const next: BlueprintSlot = {
-      index: slots.length + 1,
-      sectionTitle,
-      questionType: fallback?.shape ?? "SHORT_ANSWER",
-      typeCode: fallback?.code,
-      marks: fallback?.defaultMarks ?? 2,
-      source: "generate",
-      choiceRequired: false,
-    };
     // Insert at the end of its own section rather than the end of the paper,
     // or "add a question to Section A" drops it after Section E. A section that
     // does not exist yet has no "end" to sit at: reduce() reports -1 for that,
@@ -299,6 +286,37 @@ export function SlotEditor({
       (found, slot, i) => (slot.sectionTitle === sectionTitle ? i : found),
       -1,
     );
+    // A new question repeats the one before it — a teacher adding to a run of
+    // long answers wants another long answer, not an MCQ to change back. That
+    // is the last question of its section, or of the paper for a new section.
+    // Higher-order and real-world framing are choices about one question, so
+    // they are not carried over.
+    const previous =
+      lastOfSection === -1 ? slots[slots.length - 1] : slots[lastOfSection];
+    // Only a paper with no questions yet starts from a type this subject and
+    // class are usually set.
+    const fallback =
+      questionTypes.find((o) => o.common) ??
+      questionTypes.find((o) => o.availability === "available");
+    const next: BlueprintSlot = previous
+      ? {
+          index: slots.length + 1,
+          sectionTitle,
+          questionType: previous.questionType,
+          typeCode: previous.typeCode,
+          marks: previous.marks,
+          source: previous.source,
+          choiceRequired: false,
+        }
+      : {
+          index: slots.length + 1,
+          sectionTitle,
+          questionType: fallback?.shape ?? "SHORT_ANSWER",
+          typeCode: fallback?.code,
+          marks: fallback?.defaultMarks ?? 2,
+          source: "generate",
+          choiceRequired: false,
+        };
     const copy = [...slots];
     copy.splice(lastOfSection === -1 ? copy.length : lastOfSection + 1, 0, next);
     onChange(reindex(copy));
