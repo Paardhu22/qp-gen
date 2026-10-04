@@ -451,6 +451,76 @@ class AnswerScriptServiceTests(unittest.TestCase):
         # OR-answer expands into extra paragraphs inside the same questionBlock
         self.assertGreaterEqual(len(q_blocks[1]["content"]), 3)
 
+    def test_answer_script_carries_the_papers_masthead(self):
+        """The answer script prints like the paper it answers: same logo,
+        school name and details grid, titled for the marking scheme."""
+        import json
+        from services.answer_script_service import _build_answer_script_content
+
+        class _StubPaper:
+            project = None
+
+        def heading(level, text):
+            return {"type": "heading", "attrs": {"level": level}, "content": [{"type": "text", "text": text}]}
+
+        def masthead(*lines):
+            return {
+                "type": "paperHeaderBlock",
+                "attrs": {"logoUrl": "/media/crest.png", "logoAlign": "auto"},
+                "content": [*lines, {"type": "table", "content": []}],
+            }
+
+        def paper(header):
+            return json.dumps({"editorJSON": {"type": "doc", "content": [
+                {"type": "page", "content": [header, {"type": "questionBlock", "content": []}]},
+            ]}})
+
+        answers = [{"question_number": 1, "marks": 1, "answer": "B",
+                    "question_type": "MCQ", "or_choice_text": None, "or_answer": None}]
+
+        def lines(blocks):
+            header = blocks[0]["content"][0]
+            self.assertEqual(header["type"], "paperHeaderBlock")
+            self.assertEqual(header["attrs"]["logoUrl"], "/media/crest.png")
+            return [
+                (n["content"][0]["text"] if n.get("content") else None)
+                for n in header["content"] if n["type"] == "heading"
+            ], header
+
+        # The default title names the question paper: renamed in place.
+        titles, header = lines(_build_answer_script_content(
+            _StubPaper(), answers, paper(masthead(heading(1, "Greenwood School"), heading(2, "CBSE - Question Paper"))),
+        ))
+        self.assertEqual(titles, ["Greenwood School", "CBSE - Marking Scheme"])
+        self.assertEqual(header["content"][-1]["type"], "table", "the details grid is kept")
+
+        # A branded masthead's second line is the address: kept, with the
+        # scheme's title added beneath.
+        titles, header = lines(_build_answer_script_content(
+            _StubPaper(), answers, paper(masthead(heading(1, "Greenwood School"), heading(2, "12 Park Road, Pune"))),
+        ))
+        self.assertEqual(titles, ["Greenwood School", "12 Park Road, Pune", "MARKING SCHEME"])
+        self.assertEqual(header["content"][-1]["type"], "table", "the title goes above the grid")
+
+        # Copied, not shared: the question paper's own masthead is untouched.
+        source = masthead(heading(2, "Question Paper"))
+        _build_answer_script_content(_StubPaper(), answers, {"type": "doc", "content": [source]})
+        self.assertEqual(source["content"][0]["content"][0]["text"], "Question Paper")
+
+    def test_answer_script_without_a_masthead_keeps_the_plain_title(self):
+        from services.answer_script_service import _build_answer_script_content
+
+        class _StubProject:
+            name = "Class 10 — Science"
+
+        class _StubPaper:
+            project = _StubProject()
+
+        body = _build_answer_script_content(_StubPaper(), [], '{"type": "doc", "content": []}')[0]["content"]
+        self.assertEqual(body[0]["type"], "heading")
+        self.assertEqual(body[0]["content"][0]["text"], "MARKING SCHEME")
+        self.assertEqual(body[1]["content"][0]["text"], "Science")
+
     def test_per_q_budget_is_sufficient_for_reasoning_models(self):
         """Regression: gpt-5 family models eat `max_completion_tokens` with
         internal reasoning. Round-2 cause of "[Answer to be filled by

@@ -22,6 +22,7 @@ SUPPORTED_SUBJECTS: List[str] = [
     "Telugu",
     "Sanskrit",
     "Computer Science",
+    "ICT",
 ]
 
 BOILERPLATE_PATTERNS = [
@@ -53,7 +54,8 @@ Supported Subjects:
 - Hindi
 - Telugu
 - Sanskrit
-- Computer Science
+- ICT — answer "ICT" for Information and Communication Technology or Information Technology (computer basics, office applications, internet, email, cyber safety)
+- Computer Science — programming, algorithms, data structures
 
 Supported Document Types:
 - Textbook

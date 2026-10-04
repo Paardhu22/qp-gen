@@ -17,6 +17,7 @@ SUPPORTED_SUBJECTS: List[str] = [
     "Telugu",
     "Sanskrit",
     "Computer Science",
+    "ICT",
 ]
 
 PROMPT_TEMPLATE = """You are an expert classifier for school educational documents.
@@ -33,7 +34,8 @@ Supported subjects:
 - Hindi
 - Telugu
 - Sanskrit
-- Computer Science
+- ICT — answer "ICT" for Information and Communication Technology or Information Technology (computer basics, office applications, internet, email, cyber safety)
+- Computer Science — programming, algorithms, data structures
 
 JSON format:
 {

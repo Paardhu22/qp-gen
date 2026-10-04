@@ -20,6 +20,10 @@
 
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { Table } from "@tiptap/extension-table";
+import { TableRow } from "@tiptap/extension-table-row";
+import { TableCell } from "@tiptap/extension-table-cell";
+import { TableHeader } from "@tiptap/extension-table-header";
 import { useEffect } from "react";
 
 import { PaginatedDocument } from "@/components/editor/extensions/document-node";
@@ -137,6 +141,11 @@ export default function PaginationHarness() {
         QuestionBlock,
         PageBreak,
         FloatImage,
+        // InstructionBlock's content allows a table; without these the schema throws.
+        Table,
+        TableRow,
+        TableHeader,
+        TableCell,
         MathBlock,
         InlineMath,
         PaginationEngine,

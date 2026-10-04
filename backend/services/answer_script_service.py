@@ -11,6 +11,7 @@ Does NOT touch:
   - streaming pipeline
 """
 
+import copy
 import json
 import logging
 import re
@@ -634,28 +635,110 @@ def _generate_single_answer_llm_only(
     }
 
 
+_MARKING_SCHEME = "MARKING SCHEME"
+_QUESTION_PAPER_RE = re.compile(r"question\s+paper", re.IGNORECASE)
+
+
+def _marking_scheme_masthead(paper_content: Any) -> Optional[dict]:
+    """The question paper's own masthead, titled for the marking scheme.
+
+    The answer script prints as a companion to the paper — same logo, school
+    name and details grid — so it is exported in the same format. Its title is
+    the one change: a line naming the "Question Paper" is renamed in place;
+    otherwise "MARKING SCHEME" is added under the title lines. Nothing is
+    overwritten, because the second line of a branded masthead is the school's
+    address, not a title. None when the paper has no masthead.
+    """
+    try:
+        doc = json.loads(paper_content) if isinstance(paper_content, str) else paper_content
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if isinstance(doc, dict) and isinstance(doc.get("editorJSON"), dict):
+        doc = doc["editorJSON"]
+
+    def find(node: Any) -> Optional[dict]:
+        if not isinstance(node, dict):
+            return None
+        if node.get("type") == "paperHeaderBlock":
+            return node
+        for child in node.get("content") or []:
+            found = find(child)
+            if found:
+                return found
+        return None
+
+    header = find(doc)
+    if header is None:
+        return None
+    header = copy.deepcopy(header)
+    content: List[dict] = list(header.get("content") or [])
+
+    renamed = False
+    for node in content:
+        if node.get("type") != "heading":
+            continue
+        for leaf in node.get("content") or []:
+            if leaf.get("type") == "text" and _QUESTION_PAPER_RE.search(leaf.get("text", "")):
+                leaf["text"] = _QUESTION_PAPER_RE.sub("Marking Scheme", leaf["text"])
+                renamed = True
+    if not renamed:
+        # Under the title lines, above the details grid.
+        at = next((i for i, node in enumerate(content) if node.get("type") == "table"), len(content))
+        content.insert(at, {
+            "type": "heading",
+            "attrs": {"level": 2},
+            "content": [{"type": "text", "text": _MARKING_SCHEME}],
+        })
+    header["content"] = content
+    return header
+
+
 def _build_answer_script_content(
     original_paper: Paper,
     answers: List[Dict[str, Any]],
+    paper_content: Any = None,
 ) -> List[dict]:
     """
     Build the answer script document content as TipTap-compatible JSON blocks.
     These blocks will be saved as a standalone answer script document.
+
+    `paper_content` is the question paper's own content: its masthead heads
+    the answer script when it has one.
     """
-    # Parse original paper metadata
+    # Build TipTap JSON document
+    doc_content: List[dict] = []
+
+    masthead = _marking_scheme_masthead(paper_content) if paper_content else None
+    if masthead is not None:
+        doc_content.append(masthead)
+    else:
+        doc_content.extend(_plain_heading(original_paper))
+
+    _append_answers(doc_content, answers)
+
+    # Wrap the entire marking scheme in a new page node
+    import uuid
+    page_id = f"page-{uuid.uuid4().hex[:8]}"
+
+    return [{
+        "type": "page",
+        "attrs": {"pageId": page_id},
+        "content": doc_content,
+    }]
+
+
+def _plain_heading(original_paper: Paper) -> List[dict]:
+    """The title for a paper with no masthead: the scheme, subject and class."""
     project_name = original_paper.project.name if original_paper.project else ""
     parts = project_name.split(" — ")
     class_label = parts[0].strip() if parts else ""
     subject_label = parts[1].strip() if len(parts) > 1 else ""
 
-    # Build TipTap JSON document
     doc_content: List[dict] = []
-
-    # Header block
     doc_content.append({
         "type": "heading",
         "attrs": {"level": 1, "textAlign": "center"},
-        "content": [{"type": "text", "text": "MARKING SCHEME"}],
+        "content": [{"type": "text", "text": _MARKING_SCHEME}],
     })
 
     if subject_label:
@@ -678,7 +761,10 @@ def _build_answer_script_content(
         "type": "paragraph",
         "content": [],
     })
+    return doc_content
 
+
+def _append_answers(doc_content: List[dict], answers: List[Dict[str, Any]]) -> None:
     # Answer blocks — emit each answer as a `questionBlock` so the
     # editor renders the same number + marks chrome it does for source
     # papers, and the Marks total badge counts these answers (the badge
@@ -724,16 +810,6 @@ def _build_answer_script_content(
             },
             "content": answer_paragraphs,
         })
-
-    # Wrap the entire marking scheme in a new page node
-    import uuid
-    page_id = f"page-{uuid.uuid4().hex[:8]}"
-    
-    return [{
-        "type": "page",
-        "attrs": {"pageId": page_id},
-        "content": doc_content,
-    }]
 
 
 def _build_pages_from_doc(answer_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -990,7 +1066,7 @@ def generate_answer_script(paper_id: str, user, set_id: str = None) -> Dict[str,
     valid_answers = [ans for ans in answers if ans is not None]
 
     # Step 5: Build the answer script document content blocks
-    answer_blocks = _build_answer_script_content(paper, valid_answers)
+    answer_blocks = _build_answer_script_content(paper, valid_answers, paper_content)
 
     # Step 6: Create new paper for the answer script
     try:

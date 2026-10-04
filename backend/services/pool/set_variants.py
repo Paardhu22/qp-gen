@@ -141,25 +141,25 @@ def _find_replacement(
     return rng.choice(candidates)
 
 
-def _replacement_order(assignments: Sequence[SlotAssignment], fixed_types) -> List[int]:
+def _replacement_order(
+    assignments: Sequence[SlotAssignment], fixed_types, rng: random.Random
+) -> List[int]:
     """Positions eligible for replacement, in mark-priority order.
 
-    Higher marks first (5 → 3 → 2 → …); the rng-driven caller breaks ties, so a
-    fixed secondary key here only guarantees a stable starting order. Fixed
-    types (MCQs) are excluded entirely.
+    Higher marks first (5 → 3 → 2 → …); ties within a mark band are broken by
+    the set's own rng. Without that, every set targets the same earliest slots,
+    competes for the same few spares, and B and C collapse into one paper.
+    Fixed types (MCQs) are excluded entirely.
     """
     eligible = [
         i
         for i, a in enumerate(assignments)
         if a.question.type not in fixed_types
     ]
-    # Negative marks → descending. Slot index as a stable secondary key.
-    eligible.sort(
-        key=lambda i: (
-            -int(assignments[i].question.marks),
-            int(getattr(assignments[i].slot, "index", 0) or 0),
-        )
-    )
+    # Shuffle, then a stable sort on marks: the band order is kept and the
+    # shuffle survives inside each band.
+    rng.shuffle(eligible)
+    eligible.sort(key=lambda i: -int(assignments[i].question.marks))
     return eligible
 
 
@@ -229,7 +229,7 @@ def derive_variant(
 
     total = len(assignments)
     fixed_count = sum(1 for a in assignments if a.question.type in fixed_types)
-    replaceable_positions = _replacement_order(assignments, fixed_types)
+    replaceable_positions = _replacement_order(assignments, fixed_types, rng)
 
     # ~30% of the WHOLE paper, matching the spec's "70% remain / 30% replaced".
     target = round(replace_fraction * total)

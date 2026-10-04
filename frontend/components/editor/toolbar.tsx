@@ -1386,7 +1386,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             onClick={handleExportDocx}
             className="hover:text-primary flex items-center gap-1 transition-colors"
           >
-            <FileDown className="h-3 w-3" /> DOCX
+            <FileDown className="h-3 w-3" /> Word
           </button>
           <button
             onClick={() => window.print()}

@@ -176,38 +176,59 @@
           font-size: 12pt;
         }
 
-        /* ===== Paper Header ===== */
+        /* ===== Paper Header =====
+           A printed masthead, not a card: no outline, the school's name and the
+           paper's title centred on the PAGE, and the details in a ruled grid.
+
+           Logos come in every shape — square crests, tall emblems, wide
+           wordmarks — so a logo is fitted inside a box rather than given a
+           width (see `fitLogo` in header-node.tsx). Beside the title it floats,
+           with an invisible twin of the same size floating on the far side:
+           the title is centred between the two, which is the centre of the
+           page, whatever the logo's width. A wordmark goes above the title
+           instead. Floats rather than flex, because the title lines and the
+           details grid live in ONE editable content block: the lines flow
+           between the floats and the grid clears below them. */
         .paper-header-block {
-          margin-bottom: 8px;
+          margin-bottom: 10px;
         }
 
         .paper-header-shell {
-          border: 1px solid hsl(var(--border));
-          border-radius: 0.5rem 0.5rem 0 0;
-          padding: 1rem;
-          background: #ffffff;
           position: relative;
-          /* The logo sits beside the masthead rather than above it, so the
-             title stays optically centred on the page even with a crest in
-             one corner. `align-items: flex-start` keeps a tall logo from
-             stretching the text column. */
-          display: flex;
-          align-items: flex-start;
-          gap: 0.75rem;
+          /* Contains the floats even when the teacher deletes the grid. */
+          display: flow-root;
         }
 
-        .paper-header-logo-wrap {
+        .paper-header-logo-wrap,
+        .paper-header-logo-mirror {
           position: relative;
-          flex: 0 0 auto;
           line-height: 0;
         }
 
+        .paper-header-logo-wrap[data-side="left"],
+        .paper-header-logo-mirror[data-side="left"] {
+          float: left;
+          margin-right: 14px;
+        }
+
+        .paper-header-logo-wrap[data-side="right"],
+        .paper-header-logo-mirror[data-side="right"] {
+          float: right;
+          margin-left: 14px;
+        }
+
+        .paper-header-logo-wrap[data-side="top"] {
+          text-align: center;
+          margin-bottom: 8px;
+        }
+
         .paper-header-logo {
-          display: block;
-          height: auto;
-          /* Width is set inline from the node attribute; height follows from
-             the intrinsic ratio so the two can never disagree. */
-          object-fit: contain;
+          display: inline-block;
+          max-width: 170px;
+        }
+
+        .paper-header-logo-wrap[data-side="top"] .paper-header-logo {
+          max-width: 320px;
         }
 
         .paper-header-logo-wrap .logo-remove-btn {
@@ -232,70 +253,83 @@
           text-align: center;
         }
 
-        /* The text column takes the remaining width in both layouts, so a
-           right-aligned crest does not push the masthead off-centre. */
-        .paper-header-shell > div:not(.paper-header-logo-wrap):not(.paper-header-actions) {
-          flex: 1 1 auto;
-          min-width: 0;
-        }
-
         .paper-header-content h1 {
-          font-size: 16pt;
+          font-size: 17pt;
           font-weight: 700;
           text-transform: uppercase;
-          margin: 0 0 4px;
+          line-height: 1.2;
+          margin: 0 0 2px;
         }
 
         .paper-header-content h2 {
-          font-size: 13pt;
+          font-size: 12.5pt;
           font-weight: 700;
           text-transform: uppercase;
-          margin: 0 0 4px;
+          line-height: 1.25;
+          margin: 2px 0;
         }
 
         .paper-header-content h3 {
-          font-size: 12pt;
+          font-size: 11.5pt;
           font-weight: 700;
           text-transform: uppercase;
-          margin: 0 0 4px;
+          margin: 2px 0;
         }
 
         .paper-header-content p {
-          margin: 2px 0;
-          font-size: 11pt;
+          margin: 1px 0;
+          font-size: 10.5pt;
         }
 
-        .paper-header-block table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-top: 1rem;
-          border: none !important;
+        /* The details grid: full width, below the logo whatever its height. */
+        .paper-header-content .tableWrapper,
+        .paper-header-content table {
+          clear: both;
         }
 
-        .paper-header-block td,
-        .paper-header-block th {
-          border: none !important;
-          padding: 4px 8px;
-          font-size: 10pt;
+        .paper-header-content table {
+          margin: 10px 0 0;
+          table-layout: fixed;
+        }
+
+        .paper-header-block .paper-header-content th,
+        .paper-header-block .paper-header-content td {
+          padding: 3px 6px;
           text-align: center;
+          vertical-align: middle;
         }
 
-        .paper-header-block th {
-          font-weight: 700;
+        /* No letter-spacing: html2canvas draws spaced capitals letter by
+           letter and the PDF printed "S U B J E C T". */
+        .paper-header-block .paper-header-content th {
+          background: #f1f1f1;
+          font-size: 9pt;
           text-transform: uppercase;
         }
 
-        /* Cluster C.2 — paper header Date field */
-        .paper-header-date-row {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          margin-top: 6px;
+        .paper-header-block .paper-header-content td {
           font-size: 11pt;
+        }
+
+        .paper-header-block .paper-header-content th p,
+        .paper-header-block .paper-header-content td p {
+          margin: 0;
+          font-size: inherit;
+        }
+
+        /* Date: under the grid, at the right, as on a printed paper. */
+        .paper-header-date-row {
+          clear: both;
+          display: flex;
+          justify-content: flex-end;
+          align-items: baseline;
+          gap: 6px;
+          margin-top: 4px;
+          font-size: 10.5pt;
           color: #000000;
         }
         .paper-header-date-label {
-          font-weight: 600;
+          font-weight: 700;
         }
         /* G — single date representation. A formatted span is shown
            on top of an invisible native date input; the input still
@@ -326,16 +360,22 @@
         }
         .paper-header-date-display {
           font-weight: 500;
-          font-size: 11pt;
           color: #000000;
-          padding: 1px 4px;
+          padding: 0 2px;
+        }
+        /* The underline says "click to change": only while there is a picker. */
+        .paper-header-date-picker-wrap:has(.paper-header-date-input) .paper-header-date-display {
           border-bottom: 1px dashed #c4c4c8;
         }
+
+        /* Out in the page margin, so they never take room from the masthead. */
         .paper-header-actions {
+          position: absolute;
+          top: 0;
+          right: -38px;
           display: flex;
           flex-direction: column;
           gap: 4px;
-          align-items: flex-end;
         }
         .paper-header-action {
           border: 1px solid #000000;
@@ -382,14 +422,19 @@
           page-break-inside: avoid;
         }
 
+        /* Flex, not an inline-block label: html2canvas paints an inline-block's
+           background OVER a block child's text, so every "SECTION A" printed as
+           an empty dark bar in the PDF. */
         .section-header {
-          display: block;
+          display: flex;
+          align-items: center;
+          gap: 8px;
           text-align: left;
           padding: 4px 0;
         }
 
         .section-title {
-          display: inline-block;
+          display: block;
           background-color: #4b5563;
           color: white;
           padding: 4px 12px;
@@ -401,10 +446,22 @@
 
         .section-summary {
           display: inline-block;
-          margin-left: 8px;
           font-style: italic;
           color: hsl(var(--muted-foreground));
           font-size: 10pt;
+        }
+
+        .section-summary-input {
+          font: inherit;
+          color: inherit;
+          field-sizing: content;
+          min-width: 16ch;
+          max-width: 100%;
+          border: none;
+          border-bottom: 1px dashed hsl(var(--border));
+          background: transparent;
+          outline: none;
+          padding: 0;
         }
 
         .section-instructions {
@@ -442,6 +499,8 @@
           position: absolute;
           right: -6px;
           top: -6px;
+          display: flex;
+          gap: 4px;
           opacity: 0;
           transition: opacity 0.2s ease;
         }
@@ -632,6 +691,11 @@
           margin-left: 2px;
         }
 
+        /* Read-only and exported marks: the input's gap before the "M". */
+        .question-marks-input-readonly {
+          margin-right: 3px;
+        }
+
         .question-controls {
           /* Cluster B.3 — push the hover-popup column further to the right
              of the question block and give it a bigger inter-button gap so
@@ -812,9 +876,9 @@
           position: relative;
           margin: 0 0 10px 0;
           padding: 8px 10px;
-          border: 1px solid hsl(var(--border));
-          border-top: none;
-          border-radius: 0 0 0.5rem 0.5rem;
+          /* A box of its own: it used to hang under a bordered header card. */
+          border: 1px solid #d1d5db;
+          border-radius: 4px;
           background: #f3f4f6;
           break-inside: avoid;
           page-break-inside: avoid;
@@ -917,7 +981,12 @@
            cover all four orderings of questionBlock / groupedQuestionBlock
            siblings; the inner-doc selectors apply in the editor while the
            data-attribute selectors apply to the serialised renderHTML
-           output used by exports and previews. */
+           output used by exports and previews.
+
+           The live editor matches neither: TipTap wraps each branch in a
+           `.react-renderer` div with no data-type, so until the first selector
+           below existed no OR printed on screen or in the PDF. */
+        .question-group-content .react-renderer + .react-renderer::before,
         .question-group-content > [data-type="question-block"] + [data-type="question-block"]::before,
         .question-group-content > [data-type="grouped-question-block"] + [data-type="grouped-question-block"]::before,
         .question-group-content > [data-type="question-block"] + [data-type="grouped-question-block"]::before,
@@ -933,7 +1002,6 @@
           font-size: 11pt;
           color: #000;
           margin: 8px 0;
-          letter-spacing: 0.05em;
         }
 
         .question-group-controls {

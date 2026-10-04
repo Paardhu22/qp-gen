@@ -141,19 +141,33 @@ export function ReviewTray() {
     });
   };
 
-  const undoInsert = (item: TrayItem) => {
-    // Pull the question out of the paper, flip the tray marker back to
+  const undoItems = (items: TrayItem[]) => {
+    // Pull the questions out of the paper, flip the tray markers back to
     // pending. Useful when a teacher inserts a section and then notices a
     // bad question — they undo from the tray without hunting in the doc.
-    removeSectionFromEditor({
-      sectionTitle: item.sectionTitle,
-      content: item.question.content,
-    });
-    markTrayUninserted([item.id]);
+    // Removals queue, so a whole batch lands in one editor pass.
+    items.forEach((item) =>
+      removeSectionFromEditor({
+        sectionTitle: item.sectionTitle,
+        content: item.question.content,
+      }),
+    );
+    markTrayUninserted(items.map((item) => item.id));
+  };
+
+  const undoInsert = (item: TrayItem) => {
+    undoItems([item]);
     toast.message("Removed from paper. The question is back as pending.");
   };
 
   const insertedCount = tray.length - pending.length;
+
+  const undoAll = () => {
+    undoItems(tray.filter((t) => t.inserted));
+    toast.message(
+      `Removed ${insertedCount} question${insertedCount === 1 ? "" : "s"} from the paper. They are back as pending.`,
+    );
+  };
 
   return (
     <div className="mt-6 border-t border-border pt-6">
@@ -189,6 +203,16 @@ export function ReviewTray() {
           className="h-8"
         >
           Insert all ({pending.length})
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={undoAll}
+          disabled={insertedCount === 0}
+          className="h-8"
+        >
+          <Undo2 className="h-3.5 w-3.5 mr-1" />
+          Undo all ({insertedCount})
         </Button>
         <Button
           size="sm"

@@ -155,7 +155,9 @@ function rewriteHeaderDateForExport(clonedDoc: Document): void {
       "";
     if (input) input.remove();
 
-    if (!iso) return;
+    // The header already prints the formatted date beside the picker; adding
+    // another would print it twice.
+    if (!iso || row.querySelector(".paper-header-date-display")) return;
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return;
     let pretty: string;
@@ -173,6 +175,20 @@ function rewriteHeaderDateForExport(clonedDoc: Document): void {
     span.textContent = " " + pretty;
     row.appendChild(span);
   });
+}
+
+// html2canvas draws a form field's value small and pinned to the top of the
+// box, so every question's marks printed as a tiny raised digit. The read-only
+// editor shows marks as text; the export clone does the same.
+function rewriteMarksInputsForExport(clonedDoc: Document): void {
+  clonedDoc
+    .querySelectorAll<HTMLInputElement>("input.question-marks-input")
+    .forEach((input) => {
+      const span = clonedDoc.createElement("span");
+      span.className = "question-marks-input-readonly";
+      span.textContent = input.value || input.getAttribute("value") || "";
+      input.replaceWith(span);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +393,7 @@ export async function exportToPDF(
           .forEach((el) => (el.style.display = "none"));
       });
       rewriteHeaderDateForExport(clonedDoc);
+      rewriteMarksInputsForExport(clonedDoc);
       await inlineAllImageSources(clonedDoc.body);
       // After image inlining (so we never convert an SVG we're about to
       // replace anyway): swap inline SVGs (KaTeX radicals, accents,

@@ -228,3 +228,16 @@ class MultipleVariantsTests(TestCase):
             sorted(_ids(variants[0].assignments)),
             sorted(_ids(variants[1].assignments)),
         )
+
+    def test_variants_do_not_collapse_when_each_slot_has_one_alternate(self):
+        # The production pool budgets few spares, so most slots have at most
+        # one alternate. If B and C target the same slots they both take that
+        # alternate and end up with the same questions.
+        master = [_assign(_q(f"s{i}", topic=f"t{i}"), i) for i in range(1, 11)]
+        pool = [a.question for a in master] + [
+            _q(f"s{i}_alt", topic=f"t{i}") for i in range(1, 11)
+        ]
+        b, c = derive_variants(master, pool, num_variants=2)
+        self.assertEqual(b.replaced_count, 3)
+        self.assertEqual(c.replaced_count, 3)
+        self.assertNotEqual(sorted(_ids(b.assignments)), sorted(_ids(c.assignments)))

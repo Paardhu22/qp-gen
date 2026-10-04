@@ -153,6 +153,7 @@ const SUBJECTS = [
   "Telugu",
   "Sanskrit",
   "Computer Science",
+  "ICT",
 ];
 const DIFFICULTIES = ["easy", "medium", "hard"];
 

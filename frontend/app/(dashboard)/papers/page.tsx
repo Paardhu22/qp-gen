@@ -498,18 +498,21 @@ export default function QuestionBankPage() {
                     <Eye className="h-3.5 w-3.5" />
                     Open in Editor
                   </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      router.push(
-                        `/editor?paperId=${selectedPaperId}&action=export-pdf`,
-                      )
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
-                  >
-                    <FileDown className="h-3.5 w-3.5" />
-                    Export PDF
-                  </button>
+                  {(["pdf", "docx"] as const).map((format) => (
+                    <button
+                      key={format}
+                      type="button"
+                      onClick={() =>
+                        router.push(
+                          `/editor?paperId=${selectedPaperId}&action=export-${format}`,
+                        )
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
+                    >
+                      <FileDown className="h-3.5 w-3.5" />
+                      {format === "pdf" ? "Export PDF" : "Export Word"}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -639,22 +642,34 @@ export default function QuestionBankPage() {
                   const isGenerating = generatingIds.has(activeSet?.id ? `${selectedPaperId}-${activeSet.id}` : selectedPaperId);
                   
                   if (setAnswerScriptId) {
+                    // `exportType` files the download as an answer script,
+                    // not as another question paper.
+                    const answerScriptUrl = `/editor?paperId=${setAnswerScriptId}&exportType=answer_script`;
                     return (
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs text-muted-foreground">
                           Generated
                         </span>
                         <button
                           type="button"
-                          onClick={() =>
-                            router.push(
-                              `/editor?paperId=${setAnswerScriptId}`,
-                            )
-                          }
+                          onClick={() => router.push(answerScriptUrl)}
                           className="text-xs font-medium text-primary hover:underline"
                         >
                           View answer script
                         </button>
+                        {(["pdf", "docx"] as const).map((format) => (
+                          <button
+                            key={format}
+                            type="button"
+                            onClick={() =>
+                              router.push(`${answerScriptUrl}&action=export-${format}`)
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent transition-colors"
+                          >
+                            <FileDown className="h-3.5 w-3.5" />
+                            {format === "pdf" ? "PDF" : "Word"}
+                          </button>
+                        ))}
                       </div>
                     );
                   }

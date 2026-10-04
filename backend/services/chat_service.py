@@ -84,7 +84,7 @@ _SPEC_SCHEMA = {
             "type": ["string", "null"],
             "description": (
                 "One of: Science, Mathematics, Social Science, English, "
-                "Hindi, Telugu."
+                "Hindi, Telugu, ICT."
             ),
         },
         "difficulty": {
@@ -159,7 +159,11 @@ board-pattern paper is 80 marks — say so and let them correct you.
 - When everything required is known, summarise the paper in two or three \
 lines and tell them they can generate it.
 - Supported: Science, Mathematics, Social Science, English, Hindi, Telugu, \
-classes 1-10. Say plainly if you are asked for something outside that.
+ICT (Information and Communication Technology), classes 1-10. Say plainly if \
+you are asked for something outside that.
+- ICT has no board-pattern paper here. For ICT, ask the teacher to describe \
+the paper's shape (question types, counts, marks) and keep it as their \
+template.
 
 Always: be brief and plain. No preamble, no bullet-point walls, no emoji. If \
 the teacher changes the subject away from the paper, follow them — the paper \
@@ -281,14 +285,14 @@ def spec_is_ready(spec: Optional[Dict[str, Any]]) -> bool:
 # ── Interactive follow-ups ──────────────────────────────────────────────
 #
 # The next question is derived here, not asked of the model. Every field the
-# generator takes has a closed, known set of answers — six subjects, ten
+# generator takes has a closed, known set of answers — seven subjects, ten
 # classes, three set counts — so a model has nothing to add except the chance
 # of offering an eleventh class or misspelling "Social Science". The
 # assistant's prose asks the question conversationally; this decides what the
 # interface puts under it, and the two always agree because both are driven
 # by the same spec.
 
-_SUBJECTS = ["Science", "Mathematics", "Social Science", "English", "Hindi", "Telugu"]
+_SUBJECTS = ["Science", "Mathematics", "Social Science", "English", "Hindi", "Telugu", "ICT"]
 
 _FOLLOW_UPS: List[Dict[str, Any]] = [
     {

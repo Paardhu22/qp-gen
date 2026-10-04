@@ -101,12 +101,9 @@ export function headerJSONFromBrand(): any {
     header.content[1] = textNode(kit.instituteAddress.trim(), 2);
   }
   if (logo?.url) {
-    header.attrs = {
-      ...(header.attrs || {}),
-      logoUrl: logo.url,
-      logoWidth: 72,
-      logoAlign: "left",
-    };
+    // Size and placement are the header's defaults: medium height, and
+    // "auto", which puts a wordmark on top and a crest at the side.
+    header.attrs = { ...(header.attrs || {}), logoUrl: logo.url };
   }
 
   return header;

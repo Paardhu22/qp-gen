@@ -74,6 +74,8 @@ backend/*.premigrate.bak
 /.cursor/
 /.cursorrules
 .vscode/
+/.trinker/
+/graphify-out/
 
 # Root level temp files
 /next-env.d.ts

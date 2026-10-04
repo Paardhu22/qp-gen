@@ -435,6 +435,14 @@ class QuestionTypeMenuContentTests(TestCase):
         computer = self._by_code("Computer Science", academic_class="9")
         self.assertTrue(computer["CODE_OUTPUT"]["common"])
 
+        ict = self._by_code("ICT", academic_class="7")
+        self.assertTrue(ict["SHORTCUT_KEY"]["common"])
+        self.assertTrue(ict["SPREADSHEET_FORMULA"]["common"])
+        self.assertFalse(ict["CODE_WRITE"]["common"])
+        self.assertNotIn("EXPERIMENT_BASED", ict)
+        # Reserved for computing subjects, so Science never sees them.
+        self.assertNotIn("SHORTCUT_KEY", science)
+
     def test_a_subject_without_a_map_keeps_the_old_menu(self):
         # No subject: every listed type, core meaning "papers always use it".
         menu = self._by_code(academic_class="10")

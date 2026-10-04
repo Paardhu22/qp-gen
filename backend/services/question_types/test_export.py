@@ -1,7 +1,7 @@
 """The checked-in projections must match the catalogue they project.
 
 Two files are written from `services.question_types` and committed: the
-migration 0016 seed snapshot and the frontend module. Nothing regenerates them
+newest migration's seed snapshot (0017) and the frontend module. Nothing regenerates them
 at runtime, so without these tests a catalogue edit would reach neither the
 database nor the editor — silently.
 """
@@ -23,7 +23,7 @@ from services.question_types.export import (
 )
 
 _SNAPSHOT = (
-    Path(settings.BASE_DIR) / "apps" / "projects" / "migrations" / "data" / "question_types_0016.json"
+    Path(settings.BASE_DIR) / "apps" / "projects" / "migrations" / "data" / "question_types_0017.json"
 )
 _FRONTEND = Path(settings.BASE_DIR).parent / FRONTEND_MODULE_PATH
 
@@ -34,7 +34,7 @@ class ProjectionSyncTests(SimpleTestCase):
         self.assertEqual(
             frozen,
             db_snapshot(),
-            "The catalogue changed after migration 0016 was written. Add a new "
+            "The catalogue changed after migration 0017 was written. Add a new "
             "migration with a fresh snapshot: python manage.py "
             "export_question_types --snapshot apps/projects/migrations/data/question_types_00NN.json",
         )
@@ -50,7 +50,7 @@ class ProjectionSyncTests(SimpleTestCase):
 
 
 class SeededCatalogueTests(TestCase):
-    """What migration 0016 leaves in the database (the test DB runs it)."""
+    """What migrations 0016–0017 leave in the database (the test DB runs them)."""
 
     def test_every_catalogue_type_is_seeded_in_its_family(self):
         from apps.projects.models import QuestionType

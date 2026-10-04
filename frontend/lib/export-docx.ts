@@ -1,746 +1,94 @@
-import {
-  Document,
-  ImageRun,
-  Packer,
-  Paragraph,
-  TextRun,
-  HeadingLevel,
-  Table,
-  TableRow,
-  TableCell,
-  WidthType,
-  AlignmentType,
-  BorderStyle,
-} from "docx";
+/**
+ * Download the paper in the editor as a Word document.
+ *
+ * The layout lives in `docx-paper.ts`, built from the editor's document; this
+ * file is the browser half — fetching every image the paper prints, in a form
+ * Word can embed, and saving the file.
+ */
+
+import { Packer } from "docx";
 import { saveAs } from "file-saver";
+
 import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
+import { buildPaperDocx, type LoadedImage } from "./docx-paper";
 
-type DocxSource = string | HTMLElement;
+/** Formats Word embeds as they are; anything else (SVG, WebP) becomes a PNG. */
+const NATIVE: Record<string, LoadedImage["type"]> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/gif": "gif",
+  "image/bmp": "bmp",
+};
 
-export async function exportToDocx(
-  source: DocxSource,
-  filename: string = "exam-paper.docx",
-): Promise<Blob> {
-  // HTML→DOCX converter that handles paper structure (headers, sections,
-  // questions, OR groups) and figures (`floatImage`). Figures are loaded
-  // asynchronously — SVG data URLs are rasterized to PNG via canvas;
-  // /media/... source images are fetched from the resolved Django origin.
+/** Long edge a vector is drawn at, so it stays sharp at print resolution. */
+const RASTER_EDGE = 1600;
 
-  const parser = new CustomHtmlToDocxParser(source);
-  const children = (await parser.parse()).filter(Boolean);
-
-  // Fallback to avoid generating a corrupted/empty document if no content is found
-  if (children.length === 0) {
-    children.push(new Paragraph({ text: "Empty Document" }));
-  }
-
-  const doc = new Document({
-    sections: [
-      {
-        properties: {},
-        children: children,
-      },
-    ],
-  });
-
-  const buffer = await Packer.toBlob(doc);
-  saveAs(buffer, filename);
-  return buffer;
-}
-
-// ---------------------------------------------------------------------------
-// Figure helpers — DOCX needs raw image bytes (PNG/JPEG); the editor's
-// floatImage src can be a `data:image/svg+xml;base64,...` URL (the inline-SVG
-// figure pipeline) or a `/media/...` path (a real PDF page image). For SVG we
-// rasterize via canvas; for raster we fetch through resolveFigureSrc so the
-// fetch hits Django, not the FE origin, which would 404.
-// ---------------------------------------------------------------------------
-
-type FigureKind = "png" | "jpg" | "gif" | "bmp" | "svg";
-
-interface FigureBytes {
-  kind: FigureKind;
-  data: Uint8Array;
-  /** For SVG, the rasterized PNG fallback (Word fallbacks for older versions). */
-  fallback?: Uint8Array;
-}
-
-function detectKindFromMime(mime: string): FigureKind | null {
-  const m = (mime || "").toLowerCase();
-  if (m === "image/png") return "png";
-  if (m === "image/jpeg" || m === "image/jpg") return "jpg";
-  if (m === "image/gif") return "gif";
-  if (m === "image/bmp") return "bmp";
-  if (m === "image/svg+xml") return "svg";
-  return null;
-}
-
-function detectKindFromExtension(url: string): FigureKind | null {
-  const u = url.toLowerCase().split("?")[0];
-  if (u.endsWith(".png")) return "png";
-  if (u.endsWith(".jpg") || u.endsWith(".jpeg")) return "jpg";
-  if (u.endsWith(".gif")) return "gif";
-  if (u.endsWith(".bmp")) return "bmp";
-  if (u.endsWith(".svg")) return "svg";
-  return null;
-}
-
-async function rasterizeSvgToPng(
-  svgUrl: string,
-  width: number,
-  height: number,
-): Promise<Uint8Array> {
-  return await new Promise<Uint8Array>((resolve, reject) => {
+function decode(blob: Blob): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
     const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = async () => {
-      try {
-        const canvas = document.createElement("canvas");
-        // 2× supersample so the rasterized SVG looks sharp in Word.
-        canvas.width = Math.max(1, width * 2);
-        canvas.height = Math.max(1, height * 2);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) throw new Error("canvas 2d unavailable");
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const blob: Blob | null = await new Promise((r) =>
-          canvas.toBlob((b) => r(b), "image/png"),
-        );
-        if (!blob) throw new Error("canvas toBlob returned null");
-        const buf = new Uint8Array(await blob.arrayBuffer());
-        resolve(buf);
-      } catch (err) {
-        reject(err);
-      }
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
     };
-    img.onerror = () => reject(new Error("svg image failed to load"));
-    img.src = svgUrl;
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("image failed to decode"));
+    };
+    img.src = url;
   });
 }
 
-async function loadFigureBytes(
-  rawSrc: string,
-  width: number,
-  height: number,
-): Promise<FigureBytes | null> {
+async function toPng(img: HTMLImageElement, vector: boolean): Promise<Uint8Array> {
+  const scale = vector ? Math.min(4, RASTER_EDGE / Math.max(img.naturalWidth, img.naturalHeight)) : 1;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(img.naturalWidth * Math.max(scale, 1)));
+  canvas.height = Math.max(1, Math.round(img.naturalHeight * Math.max(scale, 1)));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas unavailable");
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) throw new Error("canvas produced no image");
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+/**
+ * One image as Word needs it, or null — a figure that will not load is left
+ * out rather than failing the whole export.
+ */
+async function loadImage(rawSrc: string): Promise<LoadedImage | null> {
   const src = resolveFigureSrc(rawSrc);
   if (!src) return null;
-
-  // data: URLs — decode bytes directly so we don't need a fetch.
-  if (src.startsWith("data:")) {
-    const match = src.match(/^data:([^;]+);base64,(.*)$/);
-    if (!match) return null;
-    const [, mime, b64] = match;
-    const kind = detectKindFromMime(mime);
-    if (!kind) return null;
-    const raw = atob(b64);
-    const bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    if (kind === "svg") {
-      try {
-        const fallback = await rasterizeSvgToPng(src, width, height);
-        return { kind, data: bytes, fallback };
-      } catch {
-        return null;
-      }
-    }
-    return { kind, data: bytes };
-  }
-
-  // Network fetch (raster source images via Django). Falls back silently
-  // if CORS / 404 / network — we drop the figure rather than blow up the
-  // whole export.
   try {
-    // `credentials: "include"` would force the server to echo a specific
-    // Access-Control-Allow-Origin AND set Access-Control-Allow-Credentials:
-    // true. Media files don't need cookies, and many production deployments
-    // serve /media/ via nginx without a credentials-allow header — that
-    // mismatch silently drops every figure. "same-origin" lets cookies flow
-    // when FE+BE share an origin (the common nginx-proxy deploy) and avoids
-    // the preflight rejection on split-origin deploys.
+    // `fetch` reads data: URLs as well as /media/ ones. "same-origin"
+    // credentials: media needs no cookie, and a split-origin deploy rejects
+    // credentialed requests without an explicit allow header.
     const response = await fetch(src, { mode: "cors", credentials: "same-origin" });
     if (!response.ok) return null;
     const blob = await response.blob();
-    let kind = detectKindFromMime(blob.type);
-    if (!kind) kind = detectKindFromExtension(src);
-    if (!kind) return null;
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    if (kind === "svg") {
-      // Rasterize the fetched SVG too (older Word renders the fallback).
-      const objectUrl = URL.createObjectURL(blob);
-      try {
-        const fallback = await rasterizeSvgToPng(objectUrl, width, height);
-        return { kind, data: bytes, fallback };
-      } catch {
-        return null;
-      } finally {
-        URL.revokeObjectURL(objectUrl);
-      }
-    }
-    return { kind, data: bytes };
+    const img = await decode(blob);
+    const native = NATIVE[blob.type.toLowerCase()];
+    return {
+      data: native ? new Uint8Array(await blob.arrayBuffer()) : await toPng(img, blob.type.includes("svg")),
+      type: native ?? "png",
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+    };
   } catch {
     return null;
   }
 }
 
-function buildImageParagraph(
-  fig: FigureBytes,
-  width: number,
-  height: number,
-): Paragraph {
-  // SVG files can cause corruption in MS Word when embedded natively using 'svg' type.
-  // Instead, we use the rasterized PNG fallback directly to ensure robust cross-platform compatibility.
-  if (fig.kind === "svg" && fig.fallback) {
-    return new Paragraph({
-      alignment: AlignmentType.CENTER,
-      children: [
-        new ImageRun({
-          type: "png",
-          data: fig.fallback,
-          transformation: { width, height },
-        }),
-      ],
-    });
-  }
-  // For SVG without a fallback we drop the figure (we couldn't rasterize).
-  // For raster, embed directly.
-  const rasterKind = fig.kind === "svg" ? null : fig.kind;
-  if (!rasterKind) {
-    return new Paragraph({ children: [] });
-  }
-  return new Paragraph({
-    alignment: AlignmentType.CENTER,
-    children: [
-      new ImageRun({
-        type: rasterKind,
-        data: fig.data,
-        transformation: { width, height },
-      }),
-    ],
-  });
-}
-
-class CustomHtmlToDocxParser {
-  constructor(private source: DocxSource) {}
-
-  async parse(): Promise<(Paragraph | Table)[]> {
-    const docxElements: (Paragraph | Table)[] = [];
-
-    // Async figure loads need to happen IN ORDER so the resulting docx
-    // preserves the source DOM order. We push a tagged sentinel into the
-    // element array during the synchronous walk, then resolve all sentinels
-    // and splice the resulting Paragraphs in their original positions.
-    type FigureTask = {
-      sentinelIndex: number;
-      src: string;
-      width: number;
-      height: number;
-    };
-    const figureTasks: FigureTask[] = [];
-
-    // Create a temporary DOM element to parse HTML
-    if (typeof document === "undefined") return [];
-    const container =
-      typeof this.source === "string"
-        ? (() => {
-            const node = document.createElement("div");
-            node.innerHTML = this.source;
-            return node;
-          })()
-        : this.source;
-
-    const shouldSkip = (el: HTMLElement) => {
-      if (el.matches("button, input, select, textarea")) return true;
-      if (el.closest(
-        ".question-controls, .section-controls, .instruction-controls, .question-group-controls, .paper-header-delete, .logo-remove-btn, .block-drag-handle",
-      )) {
-        return true;
-      }
-      return false;
-    };
-
-    const paragraph = (
-      text: string,
-      options: { bold?: boolean; indentLeft?: number; spacingAfter?: number } = {},
-    ) =>
-      new Paragraph({
-        children: [new TextRun({ text, bold: options.bold })],
-        indent: options.indentLeft ? { left: options.indentLeft } : undefined,
-        spacing: options.spacingAfter ? { after: options.spacingAfter } : undefined,
-      });
-
-    const cellBorder = {
-      top: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-      bottom: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-      left: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-      right: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-    };
-
-    const buildQuestionTable = (
-      numberText: string,
-      marksText: string,
-      body: (Paragraph | Table)[],
-    ) => {
-      // TableCell must always contain at least one Paragraph in OpenXML format
-      const bodyChildren = body.length > 0 ? body : [new Paragraph({ children: [] })];
-
-      const numCell = new TableCell({
-        width: { size: 8, type: WidthType.PERCENTAGE },
-        borders: cellBorder,
-        children: [
-          new Paragraph({
-            text: numberText,
-            alignment: AlignmentType.CENTER,
-          }),
-        ],
-      });
-
-      const bodyCell = new TableCell({
-        width: { size: 84, type: WidthType.PERCENTAGE },
-        borders: cellBorder,
-        children: bodyChildren,
-      });
-
-      const marksCell = new TableCell({
-        width: { size: 8, type: WidthType.PERCENTAGE },
-        borders: cellBorder,
-        children: [
-          new Paragraph({
-            text: marksText,
-            alignment: AlignmentType.CENTER,
-          }),
-        ],
-      });
-
-      return new Table({
-        rows: [new TableRow({ children: [numCell, bodyCell, marksCell] })],
-        width: { size: 100, type: WidthType.PERCENTAGE },
-      });
-    };
-
-    // ── Math-aware text extraction ──────────────────────────────────
-    // A naive innerText read is wrong for both math DOM shapes:
-    //   • live NodeView DOM: KaTeX emits the visual HTML layer PLUS a
-    //     visually-hidden MathML annotation of the LaTeX source, so
-    //     innerText returns the expression TWICE (garbled);
-    //   • static renderHTML output: the math span is EMPTY (latex lives
-    //     only in data-latex), so innerText silently DROPS the math.
-    // Substitute each math node with its LaTeX source (in \( \) so it
-    // stays lossless and recognisable in Word) before reading text.
-    const MATH_NODE_SELECTOR =
-      '[data-type="inline-math"], [data-type="math-block"], .inline-math, .math-block';
-
-    const mathLatexOf = (el: HTMLElement): string =>
-      (
-        el.getAttribute("data-latex") ||
-        el.querySelector("annotation")?.textContent ||
-        ""
-      ).trim();
-
-    const docxText = (el: HTMLElement): string => {
-      if (!el.querySelector(MATH_NODE_SELECTOR)) return el.innerText;
-      const clone = el.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll<HTMLElement>(MATH_NODE_SELECTOR).forEach((math) => {
-        const latex = mathLatexOf(math);
-        math.replaceWith(
-          clone.ownerDocument.createTextNode(latex ? `\\(${latex}\\)` : ""),
-        );
-      });
-      // textContent (not innerText): the detached clone has no layout.
-      return (clone.textContent || "").replace(/\s+/g, " ").trim();
-    };
-
-    const extractOptions = (listEl: HTMLElement | null) => {
-      if (!listEl) return [] as Paragraph[];
-      const items = Array.from(listEl.querySelectorAll("li"));
-      return items.map((li, index) => {
-        const label = String.fromCharCode(65 + index);
-        return paragraph(`${label}) ${docxText(li as HTMLElement)}`, {
-          indentLeft: 360,
-        });
-      });
-    };
-
-    const extractSubQuestions = (listEl: HTMLElement | null) => {
-      if (!listEl) return [] as Paragraph[];
-      const items = Array.from(listEl.querySelectorAll("li"));
-      return items.map((li, index) => {
-        const label = String.fromCharCode(97 + index);
-        return paragraph(`${label}) ${docxText(li as HTMLElement)}`, {
-          indentLeft: 360,
-        });
-      });
-    };
-
-    /** An HTML table as a DOCX table, or null when it has no cells. */
-    const buildDocxTable = (tableEl: HTMLElement): Table | null => {
-      const rows: TableRow[] = [];
-      tableEl.querySelectorAll("tr").forEach((tr) => {
-        const tds = tr.querySelectorAll("td, th");
-        // An empty row would be invalid table XML.
-        if (tds.length === 0) return;
-        const cells: TableCell[] = [];
-        tds.forEach((td) => {
-          cells.push(
-            new TableCell({
-              children: [
-                new Paragraph({
-                  children: [
-                    new TextRun({
-                      text: docxText(td as HTMLElement),
-                      bold: td.tagName === "TH",
-                    }),
-                  ],
-                }),
-              ],
-              width: { size: 100 / tds.length, type: WidthType.PERCENTAGE },
-            }),
-          );
-        });
-        rows.push(new TableRow({ children: cells }));
-      });
-      return rows.length > 0
-        ? new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } })
-        : null;
-    };
-
-    const buildQuestionBlock = (el: HTMLElement) => {
-      const num = el.getAttribute("data-number") || "";
-      const marks = el.getAttribute("data-marks");
-      const marksText = marks ? `${marks} M` : "";
-
-      const contentRoot =
-        el.querySelector(".question-content") || el;
-
-      // Everything in the question, in order. Reading only the first
-      // paragraph and the first list dropped the Reason of every
-      // Assertion–Reason question, and would drop any statement list, word
-      // box or table printed with a question.
-      const body: (Paragraph | Table)[] = [];
-      for (const child of Array.from(contentRoot.children) as HTMLElement[]) {
-        if (shouldSkip(child)) continue;
-        if (child.tagName === "OL" || child.tagName === "UL") {
-          body.push(...extractOptions(child));
-          continue;
-        }
-        const tableEl =
-          child.tagName === "TABLE" ? child : child.querySelector<HTMLElement>("table");
-        if (tableEl) {
-          const table = buildDocxTable(tableEl);
-          if (table) body.push(table);
-          continue;
-        }
-        // Figures inside a question are exported by the page walker.
-        if (child.getAttribute("data-type") === "float-image") continue;
-        const text = docxText(child);
-        if (text) body.push(paragraph(text, { spacingAfter: 120 }));
-      }
-
-      const numberText = num ? `${num}.` : "";
-      return buildQuestionTable(numberText, marksText, body);
-    };
-
-    const buildGroupedQuestionBlock = (el: HTMLElement) => {
-      const num = el.getAttribute("data-number") || "";
-      const marks = el.getAttribute("data-marks");
-      const marksText = marks ? `${marks} M` : "";
-
-      const contentRoot =
-        el.querySelector(".question-content") || el;
-      const stem = contentRoot.querySelector("p");
-      const stemText = stem ? docxText(stem as HTMLElement) : "";
-      const list = contentRoot.querySelector("ol, ul");
-      const subQuestions = extractSubQuestions(list as HTMLElement | null);
-
-      const body: Paragraph[] = [];
-      if (stemText) {
-        body.push(paragraph(stemText, { spacingAfter: 120 }));
-      }
-      if (subQuestions.length > 0) {
-        body.push(...subQuestions);
-      }
-
-      const numberText = num ? `${num}.` : "";
-      return buildQuestionTable(numberText, marksText, body);
-    };
-
-    const enqueueFigure = (el: HTMLElement) => {
-      const rawSrc =
-        el.getAttribute("data-src") ||
-        el.querySelector("img")?.getAttribute("src") ||
-        "";
-      if (!rawSrc) return;
-      const width = Math.max(
-        80,
-        Math.min(520, parseInt(el.getAttribute("data-width") || "320", 10) || 320),
-      );
-      // Maintain a sensible aspect — without intrinsic height info we
-      // assume 4:3 for source PDF images and let SVG rasterization pick.
-      const height = Math.round(width * 0.75);
-      // Reserve a slot in the output array; we'll splice the resolved
-      // Paragraph in by index after all figures are loaded.
-      const placeholderParagraph = new Paragraph({ children: [] });
-      docxElements.push(placeholderParagraph);
-      const sentinelIndex = docxElements.length - 1;
-      figureTasks.push({ sentinelIndex, src: rawSrc, width, height });
-    };
-
-    /**
-     * Queue the institute logo out of a paper-header block.
-     *
-     * Word needs an explicit size for every embedded image — `ImageRun` has no
-     * way to ask a picture how big it is — so the height has to be derived
-     * here. The printed width comes from the node's own `data-logo-width`; the
-     * ratio comes from the live `<img>`'s intrinsic size when it has decoded,
-     * and falls back to 1:1 when it has not. A square-ish crest is a far
-     * better guess for a logo than the 4:3 used for figures, and a wrong ratio
-     * distorts rather than drops the image.
-     */
-    const enqueueHeaderLogo = (headerEl: HTMLElement) => {
-      const img = headerEl.querySelector<HTMLImageElement>(".paper-header-logo");
-      const rawSrc =
-        img?.getAttribute("src") ||
-        headerEl.getAttribute("data-logo-url") ||
-        "";
-      if (!rawSrc) return;
-
-      const declared = parseInt(
-        headerEl.getAttribute("data-logo-width") || "",
-        10,
-      );
-      const width = Math.max(24, Math.min(240, declared || 72));
-      const naturalW = img?.naturalWidth || 0;
-      const naturalH = img?.naturalHeight || 0;
-      const height =
-        naturalW > 0 && naturalH > 0
-          ? Math.round(width * (naturalH / naturalW))
-          : width;
-
-      const placeholderParagraph = new Paragraph({ children: [] });
-      docxElements.push(placeholderParagraph);
-      figureTasks.push({
-        sentinelIndex: docxElements.length - 1,
-        src: rawSrc,
-        width,
-        height,
-      });
-    };
-
-    const walk = (node: ChildNode) => {
-      if (node.nodeType !== Node.ELEMENT_NODE) return;
-      const el = node as HTMLElement;
-      if (shouldSkip(el)) return;
-
-      const dataType = el.getAttribute("data-type");
-      const hasClass = (name: string) => el.classList.contains(name);
-
-      // Figure (inline-SVG or /media/ source image). Must be handled BEFORE
-      // the generic DIV branch so we capture the floatImage NodeView wrapper.
-      if (dataType === "float-image" || hasClass("float-image-wrapper")) {
-        enqueueFigure(el);
-        return;
-      }
-
-      if (dataType === "page") {
-        const content = el.querySelector(".doc-page-content");
-        const scope = content || el;
-        Array.from(scope.childNodes).forEach(walk);
-        return;
-      }
-
-      if (el.tagName === "H1") {
-        docxElements.push(new Paragraph({ text: docxText(el), heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }));
-        return;
-      }
-      if (el.tagName === "H2") {
-        docxElements.push(new Paragraph({ text: docxText(el), heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER }));
-        return;
-      }
-      if (el.tagName === "H3") {
-        docxElements.push(new Paragraph({ text: docxText(el), heading: HeadingLevel.HEADING_3, alignment: AlignmentType.CENTER }));
-        return;
-      }
-      if (el.tagName === "P") {
-        docxElements.push(new Paragraph({
-          children: [new TextRun({ text: docxText(el), bold: el.querySelector("strong") !== null })]
-        }));
-        return;
-      }
-      if (el.tagName === "HR") {
-        docxElements.push(new Paragraph({ text: "__________________________________________________________________________", alignment: AlignmentType.CENTER }));
-        return;
-      }
-      if (el.tagName === "TABLE") {
-        const table = buildDocxTable(el);
-        if (table) docxElements.push(table);
-        return;
-      }
-
-      if (el.tagName === "DIV") {
-        if (dataType === "paper-header-block") {
-          // Before the masthead text, so the crest reads as part of it. Word
-          // has no float, so a side-by-side layout is not reproducible — the
-          // logo becomes its own centred paragraph above the title, which is
-          // the conventional printed form anyway.
-          enqueueHeaderLogo(el);
-
-          const headerContent = el.querySelector(".paper-header-content");
-          if (headerContent) {
-            Array.from(headerContent.childNodes).forEach(walk);
-          }
-          // Issue 1 — emit the date row exactly once, as the formatted string.
-          // The editor view shows only the `<input type="date">`, so the DOCX
-          // walker must look up the persisted `data-date-value` rather than
-          // any visible "Jun 08, 2026" sibling (which no longer exists in
-          // the editor DOM).
-          const dateRow = el.querySelector<HTMLElement>(
-            ".paper-header-date-row",
-          );
-          if (dateRow) {
-            const input = dateRow.querySelector<HTMLInputElement>(
-              "input.paper-header-date-input",
-            );
-            const iso =
-              dateRow.getAttribute("data-date-value") ||
-              input?.value ||
-              input?.getAttribute("value") ||
-              "";
-            if (iso) {
-              const d = new Date(iso);
-              if (!Number.isNaN(d.getTime())) {
-                let pretty: string;
-                try {
-                  pretty = new Intl.DateTimeFormat(undefined, {
-                    day: "2-digit",
-                    month: "short",
-                    year: "numeric",
-                  }).format(d);
-                } catch {
-                  pretty = d.toDateString();
-                }
-                docxElements.push(
-                  new Paragraph({
-                    children: [
-                      new TextRun({ text: "Date: ", bold: true }),
-                      new TextRun({ text: pretty }),
-                    ],
-                  }),
-                );
-              }
-            }
-          }
-          return;
-        }
-        if (dataType === "section-block" || hasClass("section-block")) {
-          docxElements.push(new Paragraph({ text: el.innerText, heading: HeadingLevel.HEADING_3 }));
-          return;
-        }
-        if (dataType === "instruction-block" || hasClass("instruction-block")) {
-          docxElements.push(new Paragraph({ children: [new TextRun({ text: "Instructions:", bold: true })] }));
-          const listItems = el.querySelectorAll("li");
-          if (listItems.length > 0) {
-            listItems.forEach((li, index) => {
-              const text = `${index + 1}. ${docxText(li as HTMLElement)}`;
-              docxElements.push(new Paragraph({ text }));
-            });
-          } else {
-            el.querySelectorAll("p").forEach(p => {
-              docxElements.push(new Paragraph({ text: docxText(p as HTMLElement) }));
-            });
-          }
-          return;
-        }
-        if (dataType === "question-block" || hasClass("question-block")) {
-          docxElements.push(buildQuestionBlock(el));
-          return;
-        }
-        if (dataType === "grouped-question-block" || hasClass("grouped-question-block")) {
-          docxElements.push(buildGroupedQuestionBlock(el));
-          return;
-        }
-        if (dataType === "math-block" || hasClass("math-block")) {
-          // Live NodeView DOM has no data-latex attribute — recover the
-          // source from KaTeX's MathML annotation instead of innerText
-          // (which would return the doubled visual+MathML text).
-          const latex = mathLatexOf(el) || docxText(el);
-          docxElements.push(new Paragraph({ text: `$$ ${latex} $$`, alignment: AlignmentType.CENTER }));
-          return;
-        }
-        if (dataType === "question-group" || hasClass("question-group")) {
-          // Issue 4 — emit the GROUP HEADER (e.g. "Answer any ONE of the
-          // following:") exactly once at the top, then walk the immediate
-          // question siblings, interleaving a bold-centred "OR" between
-          // each consecutive pair. The OR is not a child node in the
-          // document any more (see or-group-invariant.ts), so the DOCX
-          // pipeline must reconstruct it the same way the editor's CSS
-          // pseudo-element does.
-          const groupLabel = el.getAttribute("data-label");
-          if (groupLabel) {
-            docxElements.push(
-              new Paragraph({
-                children: [new TextRun({ text: groupLabel, bold: true })],
-              }),
-            );
-          }
-          const questionSiblings = Array.from(
-            el.querySelectorAll<HTMLElement>(
-              ":scope > div[data-type='question-block'], :scope > div[data-type='grouped-question-block'], :scope > .question-block, :scope > .grouped-question-block",
-            ),
-          );
-          questionSiblings.forEach((q, idx) => {
-            if (idx > 0) {
-              docxElements.push(
-                new Paragraph({
-                  children: [new TextRun({ text: "OR", bold: true })],
-                  alignment: AlignmentType.CENTER,
-                }),
-              );
-            }
-            const isGrouped =
-              q.getAttribute("data-type") === "grouped-question-block" ||
-              q.classList.contains("grouped-question-block");
-            docxElements.push(
-              isGrouped ? buildGroupedQuestionBlock(q) : buildQuestionBlock(q),
-            );
-          });
-          return;
-        }
-
-        Array.from(el.childNodes).forEach(walk);
-        return;
-      }
-
-      Array.from(el.childNodes).forEach(walk);
-    };
-
-    Array.from(container.childNodes).forEach(walk);
-
-    // Resolve all figures in parallel and replace the placeholder
-    // Paragraphs at their reserved indices. Failed loads keep the empty
-    // placeholder (an empty paragraph) so the surrounding question text
-    // still surfaces — matches the "text-self-contained fallback"
-    // contract from the backend figure pipeline.
-    const figureResults = await Promise.all(
-      figureTasks.map(async (task) => {
-        const fig = await loadFigureBytes(task.src, task.width, task.height);
-        return { task, fig };
-      }),
-    );
-    for (const { task, fig } of figureResults) {
-      if (!fig) continue;
-      try {
-        docxElements[task.sentinelIndex] = buildImageParagraph(
-          fig,
-          task.width,
-          task.height,
-        );
-      } catch {
-        // ImageRun construction can throw on malformed bytes; leave the
-        // empty placeholder rather than aborting the whole export.
-      }
-    }
-
-    return docxElements;
-  }
+/** `source` is the editor's root element (TipTap hangs the editor on it). */
+export async function exportToDocx(
+  source: HTMLElement,
+  filename = "exam-paper.docx",
+): Promise<Blob> {
+  const editor = (source as HTMLElement & { editor?: { getJSON(): any } }).editor;
+  if (!editor) throw new Error("No editor to export.");
+  const document = await buildPaperDocx(editor.getJSON(), loadImage);
+  const blob = await Packer.toBlob(document);
+  saveAs(blob, filename);
+  return blob;
 }

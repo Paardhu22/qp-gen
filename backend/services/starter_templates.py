@@ -239,6 +239,72 @@ STARTERS: Tuple[Starter, ...] = (
         "పఠనం, వ్యాకరణం, రచన మరియు పాఠ్యపుస్తకం.",
         "Telugu", "telugu", (9, 9), _LANGUAGE_NINE,
     ),
+    # ── ICT: no board engine at any class, so every band has a starter ────
+    Starter(
+        "starter-ict-1-2", "Class 1–2 ICT Worksheet",
+        "Circle, tick, word-bank blanks, join and sort the parts of a computer.",
+        "ICT", "ict", (1, 2),
+        (
+            _s("Section A", ("CIRCLE_CORRECT", 1, 5), ("TICK_CROSS", 3, 1)),
+            _s("Section B", ("FILL_BLANK_BANK", 3, 1), ("JOIN_LINES", 4, 1)),
+            _s("Section C", ("CLASSIFY_SORT", 2, 1), ("CROSS_OUT", 1, 3)),
+        ),
+    ),
+    Starter(
+        "starter-ict-3-5", "Class 3–5 ICT Unit Test",
+        "MCQs, tools and shortcut keys, blanks, matching and software steps.",
+        "ICT", "ict", (3, 5),
+        (
+            _s("Section A", ("MCQ_SINGLE", 1, 5), ("TOOL_IDENTIFY", 1, 3)),
+            _s("Section B", ("FILL_BLANK", 1, 5), ("TRUE_FALSE", 1, 5)),
+            _s(
+                "Section C",
+                ("SHORTCUT_KEY", 1, 4),
+                ("MATCH_FOLLOWING", 4, 1),
+                ("CLASSIFY_SORT", 2, 1),
+            ),
+            _s("Section D", ("VSA", 2, 3), ("SOFTWARE_STEPS", 3, 2)),
+        ),
+    ),
+    Starter(
+        "starter-ict-6-8", "Class 6–8 ICT Periodic Test",
+        "Shortcuts and full forms, software steps, spreadsheet formulas, an algorithm and a cyber-safety case study.",
+        "ICT", "ict", (6, 8),
+        (
+            _s("Section A", ("MCQ_SINGLE", 1, 6), ("TOOL_IDENTIFY", 1, 2), ("MCQ_SEQUENCE", 1, 2)),
+            _s("Section B", ("FILL_BLANK", 1, 4), ("SHORTCUT_KEY", 1, 3), ("FULL_FORM", 1, 3)),
+            _s("Section C", ("DIFFERENTIATE", 3, 2), ("SOFTWARE_STEPS", 3, 2)),
+            _s(
+                "Section D",
+                ("SPREADSHEET_FORMULA", 3, 1),
+                ("ALGORITHM_DESIGN", 3, 1),
+                ("SAFETY_PROCEDURE", 3, 1),
+            ),
+            _s("Section E", ("LA", 5, 1), ("CASE_STUDY", 4, 1)),
+        ),
+    ),
+    Starter(
+        "starter-ict-9-10", "Class 9–10 ICT Paper",
+        "Objective, short and long answers on the CBSE Information Technology (402) pattern.",
+        "ICT", "ict", (9, 10),
+        (
+            _s(
+                "Section A — Objective",
+                ("MCQ_SINGLE", 1, 16),
+                ("ASSERTION_REASON", 1, 2),
+                ("TOOL_IDENTIFY", 1, 2),
+                ("MCQ_SEQUENCE", 1, 2),
+                ("MCQ_NUMERICAL", 1, 2),
+            ),
+            _s("Section B — Short Answer", ("SA", 2, 6), ("DIFFERENTIATE", 2, 1)),
+            _s(
+                "Section C — Long Answer",
+                ("SOFTWARE_STEPS", 4, 1),
+                ("SPREADSHEET_FORMULA", 4, 1),
+                ("CASE_STUDY", 4, 1),
+            ),
+        ),
+    ),
 )
 
 

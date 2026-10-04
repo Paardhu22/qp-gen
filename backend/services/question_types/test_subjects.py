@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 from services import question_types as qt
 from services.question_types.subjects import (
     CORE,
+    OCCASIONAL,
     SUBJECT_TYPES,
     WEIGHTS,
     subject_types,
@@ -80,6 +81,18 @@ class SubjectMapContentTests(SimpleTestCase):
         self.assertNotIn("EXPERIMENT_BASED", computer)
         self.assertNotIn("UNIT_SYMBOL", computer)
 
+    def test_ict_sets_application_skills_and_less_code(self):
+        ict = subject_types("ICT")
+        for code in (
+            "SHORTCUT_KEY", "SOFTWARE_STEPS", "SPREADSHEET_FORMULA",
+            "TOOL_IDENTIFY", "FULL_FORM", "SAFETY_PROCEDURE",
+        ):
+            self.assertEqual(ict[code], CORE)
+        self.assertEqual(ict["CODE_WRITE"], OCCASIONAL)
+        self.assertEqual(subject_types("computer science")["CODE_WRITE"], CORE)
+        for code in ("EXPERIMENT_BASED", "MAP_SKILL", "SYNONYM_ANTONYM", "WORD_PROBLEM"):
+            self.assertNotIn(code, ict)
+
     def test_maps_belong_to_social_science(self):
         social = subject_types("social science")
         self.assertEqual(social["MAP_SKILL"], CORE)
@@ -99,5 +112,9 @@ class SubjectMapContentTests(SimpleTestCase):
     def test_display_names_resolve(self):
         self.assertIs(subject_types("EVS"), SUBJECT_TYPES["science"])
         self.assertIs(subject_types("sanskrit"), SUBJECT_TYPES["hindi"])
+        self.assertIs(
+            subject_types("Information and Communication Technology"), SUBJECT_TYPES["ict"]
+        )
+        self.assertIs(subject_types("information technology"), SUBJECT_TYPES["ict"])
         self.assertIsNone(subject_types("general knowledge"))
         self.assertIsNone(subject_types(""))

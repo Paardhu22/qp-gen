@@ -36,6 +36,13 @@ holds.
 Sanskrit uses Hindi's list, and the display names the Builder sends ("Computer
 Science", "EVS") resolve through `SUBJECT_ALIASES`.
 
+ICT is graded from papers rather than the research, which predates it: the CBSE
+Information Technology (402) sample papers for Classes 9–10, the CBSE/NCERT ICT
+strands for Classes 1–8, and Cambridge IGCSE ICT (0417) Paper 1. It differs
+from Computer Science in weight, not in kind: application skills (shortcuts,
+software steps, spreadsheet formulas, cyber safety) are core, writing code is
+occasional.
+
 Django-free, like the rest of the package.
 """
 
@@ -213,9 +220,35 @@ SUBJECT_TYPES: Mapping[str, Mapping[str, str]] = {
             SHORT_JUSTIFY DIFFERENTIATE LIST_STATE EXAMPLE_GIVE OPINION_JUSTIFY
             PREDICT_OUTCOME DATA_INTERPRETATION NEWS_BASED PICTURE_BASED
             DIAGRAM_DRAW DIAGRAM_LABEL GRAPH_PLOT GRAPH_READ IMAGE_IDENTIFY
+            SHORTCUT_KEY SOFTWARE_STEPS SPREADSHEET_FORMULA
             {_WORKSHEET}
         """,
         rare="DIALOGUE_BASED",
+    ),
+    # Information and Communication Technology, Classes 1–10 (CBSE IT 402 in 9–10).
+    "ict": _grade(
+        core=f"""
+            MCQ_SINGLE MCQ_FILL MCQ_IDENTIFY MCQ_CORRECT MCQ_INCORRECT MCQ_MULTI
+            MCQ_SEQUENCE MCQ_PICTURE ASSERTION_REASON TOOL_IDENTIFY
+            FILL_BLANK FILL_BLANK_BANK TRUE_FALSE ONE_WORD MATCH_FOLLOWING
+            NAME_FOLLOWING CLASSIFY_SORT FULL_FORM SHORTCUT_KEY
+            VSA SA LA DEFINE DIFFERENTIATE LIST_STATE EXAMPLE_GIVE
+            APPLICATION_SCENARIO SAFETY_PROCEDURE SOFTWARE_STEPS SPREADSHEET_FORMULA
+            CASE_STUDY TABLE_COMPLETE ALGORITHM_DESIGN FLOWCHART_DRAW
+            DIAGRAM_LABEL IMAGE_IDENTIFY
+            {_WORKSHEET} NAME_PICTURE CIRCLE_PICTURE
+        """,
+        occasional="""
+            MCQ_MATCH MCQ_STATEMENT_EVAL MCQ_ODD_ONE_OUT MCQ_DATA MCQ_NUMERICAL
+            MCQ_TF_COMBO MCQ_CASE MCQ_ANALOGY MATRIX_MATCH
+            TRUE_FALSE_CORRECT SEQUENCE_WRITE ODD_ONE_OUT_JUSTIFY NUMERIC_ENTRY NUMERICAL
+            VLA SHORT_JUSTIFY COMPARE_TABLE EXPLAIN_PROCESS OPINION_JUSTIFY PREDICT_OUTCOME
+            DATA_INTERPRETATION GRAPH_READ NEWS_BASED PICTURE_BASED INFOGRAPHIC_BASED
+            FLOWCHART_COMPLETE DIAGRAM_DRAW
+            CODE_OUTPUT CODE_WRITE CODE_DEBUG
+            PATTERN_COMPLETE DRAW_COLOUR MAZE_PATH SEQUENCE_PICTURES
+        """,
+        rare="DIALOGUE_BASED MCQ_CAUSE_EFFECT GRAPH_PLOT",
     ),
 }
 
@@ -224,8 +257,10 @@ SUBJECT_ALIASES: Mapping[str, str] = {
     "computer": "computer science",
     "computers": "computer science",
     "computer applications": "computer science",
-    "ict": "computer science",
-    "information technology": "computer science",
+    "information and communication technology": "ict",
+    "information and communications technology": "ict",
+    "information & communication technology": "ict",
+    "information technology": "ict",
     "evs": "science",
     "environmental studies": "science",
     "environmental science": "science",

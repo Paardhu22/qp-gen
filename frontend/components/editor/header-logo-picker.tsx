@@ -26,29 +26,37 @@ import {
 import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { LOGO_HEIGHTS, type LogoAlign } from "@/components/editor/masthead";
 
-/** Printed widths, in px on the 794px A4 page. */
-const SIZES: { label: string; width: number }[] = [
-  { label: "Small", width: 48 },
-  { label: "Medium", width: 72 },
-  { label: "Large", width: 104 },
+/** Printed heights; the width follows from the logo's shape. */
+const SIZES: { label: string; height: number }[] = [
+  { label: "Small", height: LOGO_HEIGHTS.small },
+  { label: "Medium", height: LOGO_HEIGHTS.medium },
+  { label: "Large", height: LOGO_HEIGHTS.large },
+];
+
+const POSITIONS: { value: LogoAlign; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "left", label: "Left" },
+  { value: "top", label: "Top" },
+  { value: "right", label: "Right" },
 ];
 
 interface Props {
   currentUrl: string;
-  width: number;
-  align: "left" | "right";
+  height: number;
+  align: LogoAlign;
   onClose: () => void;
   onApply: (attrs: {
     logoUrl: string;
-    logoWidth: number;
-    logoAlign: "left" | "right";
+    logoHeight: number;
+    logoAlign: LogoAlign;
   }) => void;
 }
 
 export function HeaderLogoPicker({
   currentUrl,
-  width,
+  height,
   align,
   onClose,
   onApply,
@@ -57,7 +65,7 @@ export function HeaderLogoPicker({
   const [isLoading, setIsLoading] = React.useState(true);
   const [isUploading, setIsUploading] = React.useState(false);
   const [selectedUrl, setSelectedUrl] = React.useState(currentUrl);
-  const [selectedWidth, setSelectedWidth] = React.useState(width);
+  const [selectedHeight, setSelectedHeight] = React.useState(height);
   const [selectedAlign, setSelectedAlign] = React.useState(align);
   const [failedImages, setFailedImages] = React.useState<Set<string>>(new Set());
   const fileRef = React.useRef<HTMLInputElement | null>(null);
@@ -224,10 +232,10 @@ export function HeaderLogoPicker({
                   <button
                     key={size.label}
                     type="button"
-                    onClick={() => setSelectedWidth(size.width)}
+                    onClick={() => setSelectedHeight(size.height)}
                     className={cn(
                       "rounded-md px-2 py-1 text-xs transition-colors",
-                      selectedWidth === size.width
+                      selectedHeight === size.height
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted text-muted-foreground hover:text-foreground",
                     )}
@@ -238,24 +246,31 @@ export function HeaderLogoPicker({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="w-12 text-xs text-muted-foreground">Side</span>
-              <div className="flex gap-1.5">
-                {(["left", "right"] as const).map((side) => (
-                  <button
-                    key={side}
-                    type="button"
-                    onClick={() => setSelectedAlign(side)}
-                    className={cn(
-                      "rounded-md px-2 py-1 text-xs capitalize transition-colors",
-                      selectedAlign === side
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {side}
-                  </button>
-                ))}
+            <div className="flex items-start gap-2">
+              <span className="w-12 pt-1 text-xs text-muted-foreground">Place</span>
+              <div>
+                <div className="flex gap-1.5">
+                  {POSITIONS.map((position) => (
+                    <button
+                      key={position.value}
+                      type="button"
+                      onClick={() => setSelectedAlign(position.value)}
+                      className={cn(
+                        "rounded-md px-2 py-1 text-xs transition-colors",
+                        selectedAlign === position.value
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {position.label}
+                    </button>
+                  ))}
+                </div>
+                {selectedAlign === "auto" ? (
+                  <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                    A wide logo goes above the school name; a crest goes beside it.
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>
@@ -271,7 +286,7 @@ export function HeaderLogoPicker({
               onClick={() =>
                 onApply({
                   logoUrl: "",
-                  logoWidth: selectedWidth,
+                  logoHeight: selectedHeight,
                   logoAlign: selectedAlign,
                 })
               }
@@ -292,7 +307,7 @@ export function HeaderLogoPicker({
               onClick={() =>
                 onApply({
                   logoUrl: selectedUrl,
-                  logoWidth: selectedWidth,
+                  logoHeight: selectedHeight,
                   logoAlign: selectedAlign,
                 })
               }

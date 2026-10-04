@@ -6,6 +6,9 @@ from services.question_types.catalog._build import FOUR, family_builder
 
 _ = family_builder("PRACTICAL")
 
+#: Application-skill types: set in ICT and Computer Science, nowhere else.
+_COMPUTING = ("ict", "computer science")
+
 ENTRIES = [
     _("EXPERIMENT_BASED", "Experiment Based", "H1", "LIVE", "EXPERIMENTAL",
       "Procedure, apparatus and observation.", 3, (6, 10), "SHORT_TEXT", "APPLY",
@@ -55,8 +58,9 @@ ENTRIES = [
       marks_range=(3, 5), marking="SCHEME", aliases=("WRITE A PROGRAM",),
       brief="A small task; the student writes a program. The answer is a sample program plus a marking scheme.",
       example="Write a Python program to print the multiplication table of a number entered by the user."),
+    # Class 10 too: the CBSE IT (402) paper asks shortcut and menu MCQs.
     _("TOOL_IDENTIFY", "Identify Tool / Shortcut", "H10", "NEW", "MCQ",
-      "Software tools and shortcuts.", 1, (3, 8), "MCQ_4", "IDENTIFY",
+      "Software tools and shortcuts.", 1, (3, 10), "MCQ_4", "IDENTIFY",
       options=FOUR, aliases=("KEYBOARD SHORTCUT",),
       brief="A question about a software tool or keyboard shortcut, with four options.",
       example="Which keyboard shortcut is used to copy selected text?\n(a) Ctrl + X  (b) Ctrl + C  (c) Ctrl + V  (d) Ctrl + Z",
@@ -66,6 +70,36 @@ ENTRIES = [
       marks_range=(1, 3), marking="KEYWORD_SET", aliases=("SAFETY PRECAUTIONS",),
       brief="Ask for N safety precautions or procedure steps for a stated setting; one mark each.",
       example="State three safety precautions to be followed while working in a science laboratory."),
+    # ICT application skills, from the CBSE IT (402) and Cambridge IGCSE ICT papers.
+    _("SHORTCUT_KEY", "Write the Shortcut Key", "H12", "NEW", "ONE_WORD",
+      "Keyboard shortcut recall.", 1, (3, 10), "SHORT_TEXT", "RECALL",
+      subjects=_COMPUTING, aliases=("SHORTCUT KEY", "WRITE THE SHORTCUT KEY"),
+      brief=("A task in a named application or the operating system; the student writes its "
+             "keyboard shortcut, keys joined with +. Use the shortcut the chapter teaches."),
+      example="Write the shortcut key to undo the last action.",
+      answer="Ctrl + Z"),
+    _("SOFTWARE_STEPS", "Write the Steps (Software)", "H13", "NEW", "SHORT_ANSWER",
+      "Carrying out a task in an application.", 3, (3, 10), "LONG_TEXT", "SEQUENCE",
+      marks_range=(2, 5), marking="SCHEME", subjects=_COMPUTING,
+      aliases=("SOFTWARE STEPS", "MENU PATH"),
+      brief=("A task in a named application (word processor, spreadsheet, presentation, browser, "
+             "email); the student writes the numbered steps, giving each menu path as Menu → Option. "
+             "One mark per key step."),
+      example="Write the steps to insert a table with 4 rows and 3 columns in a Writer document.",
+      answer="Place the cursor 1 · Table → Insert Table 1 · set 3 columns and 4 rows, click Insert 1"),
+    _("SPREADSHEET_FORMULA", "Write the Spreadsheet Formula", "H14", "NEW", "SHORT_ANSWER",
+      "Formulas and functions on a worksheet.", 4, (5, 10), "SHORT_TEXT", "APPLY",
+      marks_range=(2, 5), stimulus="TABLE", container="SUB_PARTS", marking="SCHEME",
+      subjects=_COMPUTING, aliases=("EXCEL FORMULA", "CALC FORMULA", "SPREADSHEET FUNCTION"),
+      brief=("A small worksheet as a table: the header row is the column letters and the first "
+             "column the row numbers. Parts (i), (ii)… each name a cell and a result; the student "
+             "writes the formula or function, starting with =, that goes in it. 1 mark each."),
+      example=("The worksheet shows the marks of three students.\n|   | A | B | C | D |\n"
+               "| 1 | Name | Maths | Science | Total |\n| 2 | Anu | 78 | 85 |  |\n"
+               "| 3 | Ravi | 64 | 72 |  |\n| 4 | Meena | 91 | 88 |  |\n"
+               "(i) Write the formula in D2 to find Anu's total marks.\n"
+               "(ii) Write the function in B5 to find the highest marks in Maths."),
+      answer="(i) =B2+C2 or =SUM(B2:C2) (ii) =MAX(B2:B4)"),
     # Seeded by migration 0012 but not in Draft 1 of the catalogue.
     _("PRACTICAL_TASK", "Practical Task", "H+1", "DB", "SHORT_ANSWER",
       "Hands-on skill.", 1, (1, 10), "SHORT_TEXT", "APPLY",

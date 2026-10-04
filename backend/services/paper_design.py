@@ -429,11 +429,12 @@ _DESIGN_SCHEMA = {
                     "type": ["string", "null"],
                     "description": (
                         "One of: Science, Mathematics, Social Science, "
-                        "English, Hindi, Telugu. Null if not stated. Map what "
-                        "they wrote onto this list — 'maths'/'algebra' is "
+                        "English, Hindi, Telugu, ICT. Null if not stated. Map "
+                        "what they wrote onto this list — 'maths'/'algebra' is "
                         "Mathematics, 'physics'/'biology'/'chemistry' is "
                         "Science, 'history'/'civics'/'geography' is Social "
-                        "Science — but return null rather than forcing a "
+                        "Science, 'information (and communication) technology'/"
+                        "'IT 402' is ICT — but return null rather than forcing a "
                         "subject that is not one of these."
                     ),
                 },
@@ -980,7 +981,7 @@ class Gap:
         }
 
 
-SUBJECTS = ["Science", "Mathematics", "Social Science", "English", "Hindi", "Telugu"]
+SUBJECTS = ["Science", "Mathematics", "Social Science", "English", "Hindi", "Telugu", "ICT"]
 
 _DIFFICULTY_OPTIONS = [
     {"value": "easy", "label": "Easy"},
@@ -1181,7 +1182,8 @@ def infer_settings(instructions: str) -> Dict[str, str]:
     if class_match and 1 <= int(class_match.group(1)) <= 10:
         found["academicClass"] = class_match.group(1)
 
-    for subject in SUBJECTS:
+    # Longest first: "social science" also contains "science".
+    for subject in sorted(SUBJECTS, key=len, reverse=True):
         if re.search(rf"\b{re.escape(subject.lower())}\b", text):
             found["subject"] = subject
             break
@@ -1190,6 +1192,8 @@ def infer_settings(instructions: str) -> Dict[str, str]:
             found["subject"] = "Mathematics"
         elif re.search(r"\bsst\b|\bsocial\b", text):
             found["subject"] = "Social Science"
+        elif re.search(r"\binformation (?:and communications? )?technology\b", text):
+            found["subject"] = "ICT"
 
     for level in ("easy", "medium", "hard"):
         if re.search(rf"\b{level}\b", text):

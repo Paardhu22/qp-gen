@@ -418,6 +418,19 @@ class InferSettingsTests(TestCase):
         self.assertEqual(infer_settings("class 9 maths test")["subject"], "Mathematics")
         self.assertEqual(infer_settings("sst revision")["subject"], "Social Science")
 
+    def test_social_science_is_not_read_as_science(self):
+        self.assertEqual(
+            infer_settings("class 8 social science test")["subject"], "Social Science"
+        )
+
+    def test_ict_resolves_by_acronym_or_name(self):
+        self.assertEqual(infer_settings("class 7 ICT unit test")["subject"], "ICT")
+        self.assertEqual(
+            infer_settings("information and communication technology, class 6")["subject"],
+            "ICT",
+        )
+        self.assertEqual(infer_settings("class 9 information technology")["subject"], "ICT")
+
     def test_an_out_of_range_class_is_not_claimed(self):
         self.assertNotIn("academicClass", infer_settings("class 12 physics"))
 

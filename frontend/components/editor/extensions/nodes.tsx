@@ -5,7 +5,7 @@ import {
   NodeViewContent,
 } from "@tiptap/react";
 import React, { useState } from "react";
-import { GripVertical, Trash, Plus } from "lucide-react";
+import { GripVertical, Trash, Plus, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError, replaceQuestion } from "@/lib/api-client";
 import {
@@ -675,9 +675,20 @@ export const GroupedQuestionBlock = Node.create({
 // SectionBlock - Enhanced from SectionHeader
 // ==========================================
 
-const SectionComponent = ({ node, deleteNode, editor }: any) => {
+const SectionComponent = ({ node, deleteNode, editor, updateAttributes }: any) => {
   const summaryText = node.attrs?.summaryText || "";
+  // The teacher's own summary wins over the counted "8 x 9 = 72 Marks" and no
+  // longer follows the questions; "" hides it. Null means counted.
+  const override: string | null = node.attrs?.summaryOverride ?? null;
+  const shown = override ?? summaryText;
   const instructions = node.attrs?.instructions || "";
+  const [editingSummary, setEditingSummary] = useState(false);
+
+  const saveSummary = (value: string) => {
+    const next = value.trim();
+    updateAttributes({ summaryOverride: next === summaryText ? null : next });
+    setEditingSummary(false);
+  };
 
   return (
     <NodeViewWrapper className="section-block group">
@@ -695,9 +706,31 @@ const SectionComponent = ({ node, deleteNode, editor }: any) => {
         <div className="section-title">
           <NodeViewContent />
         </div>
-        {summaryText ? (
-          <div className="section-summary" contentEditable={false}>
-            ({summaryText})
+        {shown || editingSummary ? (
+          <div
+            className="section-summary"
+            contentEditable={false}
+            onClick={editor?.isEditable && !editingSummary ? () => setEditingSummary(true) : undefined}
+            title={editor?.isEditable && !editingSummary ? "Click to edit" : undefined}
+            style={editor?.isEditable ? { cursor: "text" } : undefined}
+          >
+            {editingSummary ? (
+              <input
+                className="section-summary-input"
+                defaultValue={shown}
+                size={Math.max(shown.length + 2, 16)}
+                autoFocus
+                placeholder="Empty hides it"
+                onMouseDown={(e) => e.stopPropagation()}
+                onBlur={(e) => saveSummary(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") e.currentTarget.value = shown;
+                  if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                }}
+              />
+            ) : (
+              `(${shown})`
+            )}
           </div>
         ) : null}
       </div>
@@ -708,6 +741,15 @@ const SectionComponent = ({ node, deleteNode, editor }: any) => {
       ) : null}
       {editor?.isEditable && (
         <div className="section-controls" contentEditable={false}>
+          {override !== null && (
+            <button
+              onClick={() => updateAttributes({ summaryOverride: null })}
+              className="section-delete"
+              title="Use the counted marks summary again"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
+          )}
           <button
             onClick={deleteNode}
             className="section-delete"
@@ -736,6 +778,7 @@ export const SectionBlock = Node.create({
       questionCount: { default: 0, renderHTML: () => ({}) },
       marksEach: { default: null, renderHTML: () => ({}) },
       summaryText: { default: "", renderHTML: () => ({}) },
+      summaryOverride: { default: null, renderHTML: () => ({}) },
     };
   },
 
@@ -750,7 +793,7 @@ export const SectionBlock = Node.create({
     // ProseMirror requires the content hole (`0`) to be the only child of its
     // immediate parent array. Wrap `0` in its own `.section-title` div so we
     // can still emit sibling decorations like the section summary span.
-    const summaryText = node.attrs?.summaryText;
+    const summaryText = node.attrs?.summaryOverride ?? node.attrs?.summaryText;
     const titleSpec: any[] = ["div", { class: "section-title" }, 0];
 
     if (summaryText) {
@@ -778,8 +821,41 @@ export const SectionBlock = Node.create({
 // InstructionBlock
 // ==========================================
 
-const InstructionComponent = ({ node, deleteNode, editor }: any) => {
-  const summaryItems = node.attrs?.summaryItems || [];
+const InstructionComponent = ({ node, deleteNode, editor, getPos }: any) => {
+  const summaryItems: string[] = node.attrs?.summaryItems || [];
+
+  // The listed lines are written for the teacher — counted from the sections,
+  // or sent by generation. Clicking them hands them over: they become ordinary
+  // text in the block, which stops following the sections.
+  const takeOver = () => {
+    const pos = typeof getPos === "function" ? getPos() : undefined;
+    const items = summaryItems.map(String).filter((item) => item.trim());
+    if (!editor?.isEditable || pos === undefined || items.length === 0) return;
+    const list = editor.schema.nodeFromJSON({
+      type: "orderedList",
+      content: items.map((item) => ({
+        type: "listItem",
+        content: [{ type: "paragraph", content: [{ type: "text", text: item }] }],
+      })),
+    });
+    // A block holding only its empty starter paragraph has nothing to keep.
+    const onlyEmpty =
+      node.childCount === 1 &&
+      node.firstChild?.type.name === "paragraph" &&
+      node.firstChild.content.size === 0;
+    editor
+      .chain()
+      .command(({ tr }: any) => {
+        tr.setNodeMarkup(pos, undefined, { ...node.attrs, variant: "custom", summaryItems: [] });
+        if (onlyEmpty) tr.replaceWith(pos + 1, pos + node.nodeSize - 1, list);
+        else tr.insert(pos + 1, list);
+        return true;
+      })
+      // The end of the last line.
+      .setTextSelection(pos + list.nodeSize - 2)
+      .focus()
+      .run();
+  };
 
   return (
     <NodeViewWrapper className="instruction-block group">
@@ -797,7 +873,13 @@ const InstructionComponent = ({ node, deleteNode, editor }: any) => {
         General Instructions
       </div>
       {summaryItems.length > 0 ? (
-        <ol className="instruction-list" contentEditable={false}>
+        <ol
+          className="instruction-list"
+          contentEditable={false}
+          onClick={editor?.isEditable ? takeOver : undefined}
+          title={editor?.isEditable ? "Click to edit" : undefined}
+          style={editor?.isEditable ? { cursor: "text" } : undefined}
+        >
           {summaryItems.map((item: string, index: number) => (
             <li key={`${index}-${item}`}>{item}</li>
           ))}

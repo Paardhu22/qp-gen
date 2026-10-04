@@ -10,6 +10,9 @@
 // in the renderer would print a logo on screen and silently drop it from every
 // file the teacher actually sends out.
 //
+// And the logo-fitting rules (`masthead.ts`): logos come in every shape, so
+// each is sized by height, capped in width, and a wordmark goes on top.
+//
 // Also re-checks the ProseMirror content-hole rule for this node, which
 // test-todom-shape.mjs does not cover.
 //
@@ -30,6 +33,9 @@ const jiti = createJiti(here, {
 
 const { PaperHeaderBlock } = await jiti.import(
   path.resolve(here, "../components/editor/extensions/header-node.tsx"),
+);
+const { fitLogo, resolveLogoSide } = await jiti.import(
+  path.resolve(here, "../components/editor/masthead.ts"),
 );
 
 if (!PaperHeaderBlock?.config?.renderHTML) {
@@ -112,7 +118,7 @@ function validateHole(spec, at = "$") {
     showDate: false,
     dateValue: "",
     logoUrl: "/media/brand-assets/u1/crest.png",
-    logoWidth: 104,
+    logoHeight: 88,
     logoAlign: "left",
   });
 
@@ -132,8 +138,8 @@ function validateHole(spec, at = "$") {
     `got src="${imgAttrs.src}"`,
   );
   check(
-    "logo <img> width comes from the attribute",
-    String(imgAttrs.style || "").includes("width:104px"),
+    "logo <img> height cap comes from the attribute",
+    String(imgAttrs.style || "").includes("max-height:88px"),
     `got style="${imgAttrs.style}"`,
   );
 
@@ -143,8 +149,8 @@ function validateHole(spec, at = "$") {
     root["data-logo-url"] === "/media/brand-assets/u1/crest.png",
   );
   check(
-    "root carries data-logo-width for the DOCX size calculation",
-    root["data-logo-width"] === "104",
+    "root carries data-logo-height for the DOCX size calculation",
+    root["data-logo-height"] === "88",
   );
   check("root carries data-logo-align", root["data-logo-align"] === "left");
 
@@ -158,36 +164,42 @@ function validateHole(spec, at = "$") {
   check("logo → content hole rule still holds", holeOk);
 }
 
-// ── Alignment changes the order, not just a class ──────────────────────────
+// ── Placement is a float side, read from the wrapper ───────────────────────
 {
-  const layoutChildren = (align) => {
-    const spec = render({
-      logoUrl: "/media/x.png",
-      logoWidth: 72,
-      logoAlign: align,
-    });
-    // The layout row is the root div's only child; its children are the
-    // image and the text column, in whichever order alignment dictates.
-    return spec[2].slice(2);
+  const sideOf = (align) => {
+    const spec = render({ logoUrl: "/media/x.png", logoHeight: 64, logoAlign: align });
+    // spec[2] is the shell; its children are the logo, the content, the date.
+    const wrap = spec[2].slice(2).find(
+      (child) => Array.isArray(child) && attrsOf(child).class === "paper-header-logo-wrap",
+    );
+    return attrsOf(wrap)["data-side"];
   };
+  check("logoAlign=left → data-side=left", sideOf("left") === "left");
+  check("logoAlign=right → data-side=right", sideOf("right") === "right");
+  check("logoAlign=top → data-side=top", sideOf("top") === "top");
+  check("logoAlign=auto with no shape known → left", sideOf("auto") === "left");
+}
 
-  const left = layoutChildren("left");
-  const right = layoutChildren("right");
+// ── Fitting: every shape reads at the same weight ──────────────────────────
+{
+  const crest = fitLogo(1, 64, "left");
+  check("a square crest prints at the chosen height", crest.width === 64 && crest.height === 64);
+
+  const emblem = fitLogo(0.5, 64, "left");
+  check("a tall emblem keeps its height, not its width", emblem.height === 64 && emblem.width === 32);
+
+  const wordmark = fitLogo(4, 64, "left");
   check(
-    "logoAlign=left puts the image before the text column",
-    Array.isArray(left[0]) && left[0][0] === "img",
-    `first child was ${Array.isArray(left[0]) ? left[0][0] : typeof left[0]}`,
+    "a wordmark beside the title is capped in width, keeping its shape",
+    wordmark.width === 170 && wordmark.height === Math.round(170 / 4),
+    JSON.stringify(wordmark),
   );
-  check(
-    "logoAlign=right puts the image after the text column",
-    Array.isArray(right[right.length - 1]) &&
-      right[right.length - 1][0] === "img",
-    `last child was ${
-      Array.isArray(right[right.length - 1])
-        ? right[right.length - 1][0]
-        : typeof right[right.length - 1]
-    }`,
-  );
+  const onTop = fitLogo(4, 64, "top");
+  check("a wordmark on top gets the wider cap", onTop.width === 256 && onTop.height === 64);
+
+  check("auto puts a wordmark on top", resolveLogoSide("auto", 3.5) === "top");
+  check("auto keeps a crest at the side", resolveLogoSide("auto", 1.1) === "left");
+  check("an explicit side wins over the shape", resolveLogoSide("right", 4) === "right");
 }
 
 // ── parseHTML round-trips what renderHTML wrote ────────────────────────────
@@ -198,8 +210,8 @@ function validateHole(spec, at = "$") {
       "data-show-date": "true",
       "data-date-value": "2026-08-03",
       "data-logo-url": "/media/crest.png",
-      "data-logo-width": "48",
-      "data-logo-align": "right",
+      "data-logo-height": "48",
+      "data-logo-align": "top",
     },
     getAttribute(name) {
       return this._attrs[name] ?? null;
@@ -207,8 +219,8 @@ function validateHole(spec, at = "$") {
   };
   const parsed = rule.getAttrs(fakeEl);
   check("parse recovers logoUrl", parsed.logoUrl === "/media/crest.png");
-  check("parse recovers logoWidth as a number", parsed.logoWidth === 48);
-  check("parse recovers logoAlign", parsed.logoAlign === "right");
+  check("parse recovers logoHeight as a number", parsed.logoHeight === 48);
+  check("parse recovers logoAlign", parsed.logoAlign === "top");
 
   // A document written before logos existed must still open.
   const legacyEl = {
@@ -219,14 +231,11 @@ function validateHole(spec, at = "$") {
   const legacy = rule.getAttrs(legacyEl);
   check("a pre-logo document parses with no logo", legacy.logoUrl === "");
   check(
-    "a pre-logo document gets the default width, not NaN",
-    legacy.logoWidth === 72,
-    `got ${legacy.logoWidth}`,
+    "a pre-logo document gets the default height, not NaN",
+    legacy.logoHeight === 64,
+    `got ${legacy.logoHeight}`,
   );
-  check(
-    "a pre-logo document defaults to left alignment",
-    legacy.logoAlign === "left",
-  );
+  check("a pre-logo document defaults to auto placement", legacy.logoAlign === "auto");
 }
 
 console.log(

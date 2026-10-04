@@ -64,6 +64,7 @@ import {
   buildQuestionBlocks,
   buildQuestionContentNodes,
 } from "./editor/question-nodes";
+import { planRemovals } from "./editor/removal-plan";
 
 import { isEnglishSubject } from "@/lib/subject";
 import { useEditorStore } from "@/store/editor-store";
@@ -1550,9 +1551,7 @@ export const TiptapEditor = ({
 
   // ── Tray "Undo" → remove a previously inserted question from the doc ──
   // The review tray records every generated question and lets the teacher
-  // pull one back out after inserting. We match by section title + the
-  // first ~120 chars of content (enough to disambiguate within a section
-  // without being fragile to whitespace tweaks).
+  // pull them back out after inserting (see `planRemovals` for the matching).
   useEffect(() => {
     if (questionRemovals.length === 0 || !editor) return;
     if (editor.isDestroyed) {
@@ -1560,36 +1559,7 @@ export const TiptapEditor = ({
       return;
     }
 
-    const normalize = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 120);
-    const targets = questionRemovals.map((r) => ({
-      sectionTitle: normalize(r.sectionTitle),
-      content: normalize(r.content),
-    }));
-
-    let currentSectionTitle = "";
-    const removalsToRun: { from: number; to: number }[] = [];
-
-    editor.state.doc.descendants((node: any, pos: number) => {
-      if (node.type.name === "sectionBlock") {
-        currentSectionTitle = normalize(String(node.textContent || ""));
-        return;
-      }
-      if (
-        node.type.name !== "questionBlock" &&
-        node.type.name !== "groupedQuestionBlock"
-      ) {
-        return;
-      }
-      const nodeText = normalize(String(node.textContent || ""));
-      const hit = targets.find(
-        (t) =>
-          (t.sectionTitle === "" || t.sectionTitle === currentSectionTitle) &&
-          nodeText.startsWith(t.content.slice(0, 60)),
-      );
-      if (hit) {
-        removalsToRun.push({ from: pos, to: pos + node.nodeSize });
-      }
-    });
+    const removalsToRun = planRemovals(editor.state.doc, questionRemovals);
 
     if (removalsToRun.length > 0) {
       // Delete bottom-up so earlier positions stay valid.
