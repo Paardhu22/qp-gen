@@ -57,32 +57,62 @@ interface Props {
   onMenuLeave: () => void;
 }
 
-function useAnchorRect(element: HTMLElement | null) {
-  const [rect, setRect] = React.useState<DOMRect | null>(null);
+function useMenuPosition(element: HTMLElement | null, menu: React.RefObject<HTMLDivElement | null>) {
+  const [position, setPosition] = React.useState<{ element: HTMLElement; top: number; left: number } | null>(null);
 
-  React.useEffect(() => {
-    if (!element) {
-      setRect(null);
-      return;
-    }
-    const measure = () => setRect(element.getBoundingClientRect());
+  React.useLayoutEffect(() => {
+    const toolbar = menu.current;
+    if (!element || !toolbar) return;
+    const canvas = element.closest<HTMLElement>("[data-editor-scroll]");
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const rect = element.getBoundingClientRect();
+      const bounds = canvas?.getBoundingClientRect();
+      const topEdge = Math.max(0, bounds ? bounds.top + canvas!.clientTop : 0);
+      const bottomEdge = Math.min(window.innerHeight, bounds ? bounds.top + canvas!.clientTop + canvas!.clientHeight : window.innerHeight);
+      const leftEdge = Math.max(0, bounds ? bounds.left + canvas!.clientLeft : 0);
+      const rightEdge = Math.min(window.innerWidth, bounds ? bounds.left + canvas!.clientLeft + canvas!.clientWidth : window.innerWidth);
+      const visibleTop = Math.max(rect.top, topEdge);
+      const visibleBottom = Math.min(rect.bottom, bottomEdge);
+      const { width, height } = toolbar.getBoundingClientRect();
+      // Never leave actions floating over another question or over the editor
+      // toolbar after their question has left the scroll viewport.
+      if (
+        !element.isConnected || visibleBottom - visibleTop < 24 ||
+        rect.right <= leftEdge || rect.left >= rightEdge ||
+        height + 16 > bottomEdge - topEdge || width + 16 > rightEdge - leftEdge
+      ) {
+        setPosition(current => current === null ? current : null);
+        return;
+      }
+      const top = Math.max(topEdge + 8, Math.min((rect.top + rect.bottom - height) / 2, bottomEdge - height - 8));
+      // Use the paper's right margin when it fits, keeping the marks readable.
+      // A horizontally panned phone view falls back inside the visible canvas.
+      const preferredLeft = rect.right + 8 + width <= rightEdge - 8 ? rect.right + 8 : rect.right - width - 8;
+      const left = Math.max(leftEdge + 8, Math.min(preferredLeft, rightEdge - width - 8));
+      setPosition(current => current?.element === element && current.top === top && current.left === left ? current : { element, top, left });
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
     measure();
 
-    // The editor scrolls inside its own container and the page can resize, so
-    // a position measured once drifts. Observing both keeps the menu attached
-    // to the question rather than to where the question used to be.
-    const observer = new ResizeObserver(measure);
+    // Coalesce scroll/resize work into one layout read per frame. Only the
+    // active question, canvas and single shared menu are observed.
+    const observer = new ResizeObserver(schedule);
     observer.observe(element);
-    window.addEventListener("scroll", measure, true);
-    window.addEventListener("resize", measure);
+    observer.observe(toolbar);
+    if (canvas) observer.observe(canvas);
+    window.addEventListener("scroll", schedule, { capture: true, passive: true });
+    window.addEventListener("resize", schedule);
     return () => {
+      cancelAnimationFrame(frame);
       observer.disconnect();
-      window.removeEventListener("scroll", measure, true);
-      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", schedule, true);
+      window.removeEventListener("resize", schedule);
     };
-  }, [element]);
+  }, [element, menu]);
 
-  return rect;
+  return position?.element === element ? position : null;
 }
 
 function MenuButton({
@@ -110,7 +140,7 @@ function MenuButton({
       title={label}
       aria-label={label}
       className={cn(
-        "flex h-7 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium transition-colors",
+        "flex size-9 shrink-0 items-center justify-center rounded-lg p-0 text-[11px] font-medium transition-colors pointer-coarse:size-11",
         "disabled:cursor-not-allowed disabled:opacity-60",
         tone === "destructive"
           ? "text-destructive hover:bg-destructive/10"
@@ -127,20 +157,18 @@ function MenuButton({
 }
 
 export function QuestionHoverMenu({ target, onMenuEnter, onMenuLeave }: Props) {
-  const rect = useAnchorRect(target?.element ?? null);
+  const menu = React.useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = React.useState(false);
+  const element = mounted ? target?.element ?? null : null;
+  const position = useMenuPosition(element, menu);
 
   React.useEffect(() => setMounted(true), []);
 
-  if (!mounted || !target || !rect) return null;
-
-  const MENU_WIDTH = 40; // Approximate width for icon-only or vertical layout
-  const top = rect.top + (rect.height / 2) - 50; // Roughly center vertically (menu is taller now)
-  // Float inside the right edge to avoid a hover gap
-  const left = rect.right - MENU_WIDTH - 8;
+  if (!mounted || !target) return null;
 
   return createPortal(
     <div
+      ref={menu}
       role="toolbar"
       aria-label="Question actions"
       data-question-menu="true"
@@ -148,13 +176,13 @@ export function QuestionHoverMenu({ target, onMenuEnter, onMenuLeave }: Props) {
       onMouseLeave={onMenuLeave}
       style={{
         position: "fixed",
-        top,
-        left,
-        zIndex: 60,
+        top: position?.top ?? 0,
+        left: position?.left ?? 0,
+        visibility: position ? "visible" : "hidden",
+        zIndex: 40,
       }}
       className={cn(
         "flex flex-col items-center gap-1 rounded-lg border border-border bg-popover p-1.5 shadow-lg",
-        "animate-in fade-in-0 zoom-in-95 duration-100",
         // Never printed and never rasterised into an export: this is chrome,
         // not paper. Matches the existing `.float-image-hide-in-pdf` rule.
         "print:hidden float-image-hide-in-pdf",
