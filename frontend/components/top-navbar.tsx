@@ -23,7 +23,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AnimatePresence, motion } from "framer-motion";
+import { Dialog as Drawer } from "@base-ui/react/dialog";
 import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -61,43 +61,37 @@ export const TopNavbar = () => {
     setDrawerOpen(false);
   }, [pathname]);
 
-  // Lock background scroll + allow Escape-to-close while the drawer is open.
+  // A navigation drawer should not survive a resize to the desktop layout.
   useEffect(() => {
-    if (!drawerOpen) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDrawerOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = previous;
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [drawerOpen]);
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const closeOnDesktop = () => { if (desktop.matches) setDrawerOpen(false); };
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
 
   const userName = session?.user?.name || "User";
   const userEmail = session?.user?.email || "";
   const userInitial = userName.charAt(0).toUpperCase();
 
   return (
-    <header className="border-b border-border bg-background/80 backdrop-blur-md pt-safe px-safe sticky top-0 z-40">
-      <div className="flex items-center px-3 sm:px-4 h-16 lg:h-[4.5rem]">
+    <Drawer.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+    <header className="shrink-0 border-b border-border bg-background pt-safe px-safe sticky top-0 z-40">
+      <div className="flex items-center px-4 sm:px-6 h-16 lg:h-[4.5rem]">
         <div className="flex w-full justify-between items-center h-full gap-2">
           {/* Logo */}
-          <Link href="/dashboard" className="flex items-center h-full shrink-0">
-            <div className="relative h-11 w-32 sm:h-14 sm:w-44">
+          <Link href="/dashboard" aria-label="HSAT home" className="flex items-center h-full shrink-0 lg:w-[calc(16rem-1.5rem)]">
+            <div className="relative h-11 w-28 sm:h-12 sm:w-36">
               <Image
                 src="/lighttheme.png"
-                alt="Logo"
+                alt="HSAT"
                 fill
-                sizes="(max-width: 768px) 128px, 200px"
+                sizes="(max-width: 640px) 112px, 144px"
                 className="dark:hidden object-contain object-left"
                 priority
               />
               <Image
                 src="/darktheme.svg"
-                alt="Logo"
+                alt="HSAT"
                 fill
                 className="hidden dark:block object-contain object-left"
                 priority
@@ -113,14 +107,15 @@ export const TopNavbar = () => {
                 <Link
                   key={href}
                   href={href}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex flex-col items-center justify-center gap-0.5 px-4 py-1.5 rounded-lg text-xs font-medium transition-colors select-none",
+                    "flex items-center justify-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium transition-colors duration-150 select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                     active
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-primary/10 text-primary font-semibold"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent",
                   )}
                 >
-                  {Icon && <Icon className="h-4 w-4" />}
+                  {Icon && <Icon className="h-4 w-4" strokeWidth={1.7} />}
                   <span>{label}</span>
                 </Link>
               );
@@ -132,11 +127,11 @@ export const TopNavbar = () => {
             {/* User dropdown (shown on lg+ where there's room beside the nav) */}
             <div className="hidden lg:block">
               <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer">
-                  <span className="text-sm font-medium text-foreground hidden md:block">
+                <DropdownMenuTrigger aria-label="Open account menu" className="flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer">
+                  <span className="max-w-32 truncate text-xs font-medium text-muted-foreground hidden xl:block">
                     {userName}
                   </span>
-                  <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-sm font-bold text-primary-foreground hover:opacity-80 transition-opacity">
+                  <div className="h-8 w-8 rounded-full border border-border bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground hover:bg-accent transition-colors">
                     {userInitial}
                   </div>
                 </DropdownMenuTrigger>
@@ -165,52 +160,29 @@ export const TopNavbar = () => {
             </div>
 
             {/* Mobile/tablet: avatar (visual only) + hamburger */}
-            <div className="lg:hidden h-9 w-9 rounded-full bg-primary flex items-center justify-center text-sm font-bold text-primary-foreground">
+            <div className="lg:hidden h-9 w-9 rounded-full border border-border bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground">
               {userInitial}
             </div>
-            <button
-              type="button"
-              onClick={() => setDrawerOpen(true)}
+            <Drawer.Trigger
               aria-label="Open navigation menu"
               aria-expanded={drawerOpen}
               className="lg:hidden inline-flex items-center justify-center h-11 w-11 -mr-1 rounded-lg text-foreground hover:bg-accent transition-colors"
             >
               <Menu className="h-6 w-6" />
-            </button>
+            </Drawer.Trigger>
           </div>
         </div>
       </div>
 
-      {/* Mobile slide-out drawer */}
-      <AnimatePresence>
-        {drawerOpen && (
-          <motion.div
-            className="fixed inset-0 z-50 lg:hidden"
-            initial="closed"
-            animate="open"
-            exit="closed"
-          >
-            {/* Backdrop */}
-            <motion.div
-              className="absolute inset-0 app-scrim"
-              variants={{ open: { opacity: 1 }, closed: { opacity: 0 } }}
-              transition={{ duration: 0.2 }}
-              onClick={() => setDrawerOpen(false)}
-              aria-hidden="true"
-            />
+    </header>
 
-            {/* Panel */}
-            <motion.div
-              role="dialog"
-              aria-modal="true"
-              aria-label="Navigation menu"
-              className="absolute right-0 top-0 h-full w-[82%] max-w-xs bg-background border-l border-border shadow-xl flex flex-col pt-safe pb-safe pr-safe"
-              variants={{
-                open: { x: 0 },
-                closed: { x: "100%" },
-              }}
-              transition={{ type: "tween", duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+      {/* The primitive handles focus trapping, Escape, and restoring focus. */}
+      <Drawer.Portal>
+            <Drawer.Backdrop className="fixed inset-0 z-50 bg-black/35 transition-opacity duration-150 data-starting-style:opacity-0 data-ending-style:opacity-0 motion-reduce:transition-none" />
+            <Drawer.Popup
+              className="fixed right-0 top-0 z-50 h-dvh w-[min(20rem,90vw)] bg-sidebar border-l border-border flex flex-col pt-safe pb-safe pr-safe outline-none transition-transform duration-200 ease-[var(--ease)] data-starting-style:translate-x-full data-ending-style:translate-x-full motion-reduce:transition-none"
             >
+              <Drawer.Title className="sr-only">Navigation menu</Drawer.Title>
               {/* Drawer header: user + close */}
               <div className="flex items-center justify-between gap-3 px-4 h-16 border-b border-border">
                 <div className="flex items-center gap-3 min-w-0">
@@ -226,14 +198,12 @@ export const TopNavbar = () => {
                     </span>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setDrawerOpen(false)}
+                <Drawer.Close
                   aria-label="Close navigation menu"
                   className="inline-flex items-center justify-center h-11 w-11 -mr-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
                   <X className="h-6 w-6" />
-                </button>
+                </Drawer.Close>
               </div>
 
               {/* Drawer nav */}
@@ -244,11 +214,12 @@ export const TopNavbar = () => {
                     <Link
                       key={href}
                       href={href}
+                      aria-current={active ? "page" : undefined}
                       onClick={() => setDrawerOpen(false)}
                       className={cn(
                         "flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors",
                         active
-                          ? "bg-primary text-primary-foreground"
+                          ? "bg-primary/10 text-primary font-semibold"
                           : "text-muted-foreground hover:text-foreground hover:bg-accent",
                       )}
                     >
@@ -276,10 +247,8 @@ export const TopNavbar = () => {
                   Log out
                 </button>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </header>
+            </Drawer.Popup>
+      </Drawer.Portal>
+    </Drawer.Root>
   );
 };

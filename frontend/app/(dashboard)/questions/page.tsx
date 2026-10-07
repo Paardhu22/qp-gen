@@ -597,11 +597,11 @@ export default function SavedQuestionsPage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="relative">
+          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+            <div className="relative min-w-0 flex-1 sm:flex-none">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="h-8 w-56 pl-8 text-sm"
+                className="h-8 w-full pl-8 text-sm sm:w-56"
                 placeholder="Search questions…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -702,7 +702,7 @@ export default function SavedQuestionsPage() {
 
       {/* ── Selection action bar ──────────────────────────────────────── */}
       {selectedIds.size > 0 && (
-        <div className="flex shrink-0 items-center gap-3 border-b border-primary/20 bg-primary/5 px-4 py-2 text-sm sm:px-6">
+        <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-primary/20 bg-primary/5 px-4 py-2 text-sm sm:px-6">
           <FileText className="h-4 w-4 text-primary" />
           <span className="text-foreground">
             {selectedIds.size} selected
@@ -772,28 +772,28 @@ export default function SavedQuestionsPage() {
             )}
           </div>
         ) : (
-          <table className="w-full border-collapse text-sm">
-            <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
+          <table className="w-full table-fixed border-collapse text-sm md:table-auto">
+            <thead className="sticky top-0 z-10 bg-muted">
               <tr className="border-b border-border text-left text-xs">
-                <th className="w-9 px-3 py-2">
+                <th className="w-12 px-2 py-2 md:w-9 md:px-3">
                   <input
                     type="checkbox"
                     aria-label="Select all visible"
                     checked={allVisibleSelected}
                     onChange={toggleSelectAllVisible}
-                    className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                    className="h-5 w-5 cursor-pointer accent-primary md:h-3.5 md:w-3.5"
                   />
                 </th>
-                <SortHeader label="Question" col="content" sort={sortState} className="min-w-[22rem]" />
-                <SortHeader label="Type" col="type" sort={sortState} />
-                <SortHeader label="Marks" col="marks" sort={sortState} align="right" />
-                <SortHeader label="Class" col="class" sort={sortState} />
-                <SortHeader label="Subject" col="subject" sort={sortState} />
-                <SortHeader label="Chapter" col="chapter" sort={sortState} />
-                <SortHeader label="Difficulty" col="difficulty" sort={sortState} />
-                <SortHeader label="Bloom" col="bloom" sort={sortState} />
-                <SortHeader label="Date" col="date" sort={sortState} align="right" />
-                <th className="w-9 px-3 py-2" />
+                <SortHeader label="Question" col="content" sort={sortState} className="md:min-w-[22rem]" />
+                <SortHeader label="Type" col="type" sort={sortState} className="hidden md:table-cell" />
+                <SortHeader label="Marks" col="marks" sort={sortState} align="right" className="hidden md:table-cell" />
+                <SortHeader label="Class" col="class" sort={sortState} className="hidden md:table-cell" />
+                <SortHeader label="Subject" col="subject" sort={sortState} className="hidden md:table-cell" />
+                <SortHeader label="Chapter" col="chapter" sort={sortState} className="hidden md:table-cell" />
+                <SortHeader label="Difficulty" col="difficulty" sort={sortState} className="hidden md:table-cell" />
+                <SortHeader label="Bloom" col="bloom" sort={sortState} className="hidden md:table-cell" />
+                <SortHeader label="Date" col="date" sort={sortState} align="right" className="hidden md:table-cell" />
+                <th className="w-16 px-2 py-2 md:w-9 md:px-3" />
               </tr>
             </thead>
             <tbody>
@@ -810,39 +810,42 @@ export default function SavedQuestionsPage() {
                       isDeleting && "pointer-events-none opacity-40",
                     )}
                   >
-                    <td className="px-3 py-1.5 align-top">
+                    <td className="w-12 px-2 py-3 align-top md:px-3 md:py-1.5">
                       <input
                         type="checkbox"
                         aria-label="Select question"
                         checked={isSelected}
                         onChange={() => toggleSelect(q.id)}
                         onClick={(e) => e.stopPropagation()}
-                        className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-primary"
+                        className="mt-0.5 h-5 w-5 cursor-pointer accent-primary md:h-3.5 md:w-3.5"
                       />
                     </td>
-                    <td className="px-3 py-1.5 align-top">
-                      <span className="line-clamp-2 leading-snug text-foreground">
+                    <td className="px-2 py-3 align-top md:px-3 md:py-1.5">
+                      <span className="leading-snug break-words text-foreground md:line-clamp-2">
                         {q.content}
                       </span>
+                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground md:hidden">
+                        {[q.classLabel && `Class ${q.classLabel}`, q.subjectLabel, q.type && (typeMap.get(q.type) || q.type), `${q.marks} marks`, q.chapterLabel, q.difficulty, q.bloom_taxonomy].filter(Boolean).join(" · ")}
+                      </p>
                     </td>
-                    <td className="px-3 py-1.5 align-top">
+                    <td className="hidden md:table-cell px-3 py-1.5 align-top">
                       <span className="inline-flex items-center rounded-sm border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">
                         {q.type ? (typeMap.get(q.type) || q.type) : "—"}
                       </span>
                     </td>
-                    <td className="px-3 py-1.5 text-right align-top tabular-nums text-muted-foreground">
+                    <td className="hidden md:table-cell px-3 py-1.5 text-right align-top tabular-nums text-muted-foreground">
                       {q.marks}
                     </td>
-                    <td className="px-3 py-1.5 align-top whitespace-nowrap text-muted-foreground">
+                    <td className="hidden md:table-cell px-3 py-1.5 align-top whitespace-nowrap text-muted-foreground">
                       {q.classLabel || "—"}
                     </td>
-                    <td className="px-3 py-1.5 align-top whitespace-nowrap text-muted-foreground">
+                    <td className="hidden md:table-cell px-3 py-1.5 align-top whitespace-nowrap text-muted-foreground">
                       {q.subjectLabel || "—"}
                     </td>
-                    <td className="px-3 py-1.5 align-top text-muted-foreground">
+                    <td className="hidden md:table-cell px-3 py-1.5 align-top text-muted-foreground">
                       <span className="line-clamp-1">{q.chapterLabel || "—"}</span>
                     </td>
-                    <td className="px-3 py-1.5 align-top">
+                    <td className="hidden md:table-cell px-3 py-1.5 align-top">
                       {q.difficulty ? (
                         <span
                           className={cn(
@@ -856,7 +859,7 @@ export default function SavedQuestionsPage() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-1.5 align-top">
+                    <td className="hidden md:table-cell px-3 py-1.5 align-top">
                       {q.bloom_taxonomy ? (
                         <span className="inline-flex items-center rounded-sm border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium capitalize text-muted-foreground whitespace-nowrap">
                           {q.bloom_taxonomy}
@@ -865,16 +868,16 @@ export default function SavedQuestionsPage() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-1.5 text-right align-top whitespace-nowrap tabular-nums text-muted-foreground">
+                    <td className="hidden md:table-cell px-3 py-1.5 text-right align-top whitespace-nowrap tabular-nums text-muted-foreground">
                       {formatShortDate(q.updated_at ?? q.created_at)}
                     </td>
-                    <td className="px-3 py-1.5 align-top">
+                    <td className="px-2 py-3 align-top md:px-3 md:py-1.5">
                       <button
                         type="button"
                         aria-label="Delete question"
                         disabled={isDeleting}
                         onClick={(e) => handleDeleteQuestion(q.id, e)}
-                        className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+                        className="flex h-11 w-11 items-center md:h-6 md:w-6 justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>

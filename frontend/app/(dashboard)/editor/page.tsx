@@ -1106,6 +1106,7 @@ export default function EditorPage() {
               </span>
             )}
           </span>
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground sm:hidden">Swipe tools →</span>
         </div>
 
         <TiptapEditor

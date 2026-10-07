@@ -27,7 +27,6 @@
 import * as React from "react";
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 import { ArrowUp, Paperclip, Square, X, FileText } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
 
 import { cn } from "@/lib/utils";
 
@@ -76,29 +75,24 @@ function AttachmentChip({
   disabled?: boolean;
 }) {
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      transition={{ duration: 0.15 }}
-      className="flex items-center gap-2 rounded-lg border border-border bg-muted/60 py-1.5 pr-1.5 pl-2.5 text-xs"
+    <div
+      className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 py-1.5 pr-1.5 pl-2.5 text-xs"
     >
       <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <span className="max-w-[180px] truncate font-medium">
+      <span className="min-w-0 max-w-[180px] truncate font-medium">
         {attachment.name}
       </span>
       {!disabled && (
         <button
           type="button"
           onClick={onRemove}
-          className="rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground sm:h-6 sm:w-6"
           aria-label={`Remove ${attachment.name}`}
         >
           <X className="h-3 w-3" />
         </button>
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -229,14 +223,9 @@ export function PromptInputBox({
         className,
       )}
     >
-      <AnimatePresence initial={false}>
         {attachments.length > 0 && (
-          <motion.div
-            layout
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="flex flex-wrap gap-2 overflow-hidden px-1 pt-1 pb-2"
+          <div
+            className="flex flex-wrap gap-2 px-1 pt-1 pb-2"
           >
             {attachments.map((attachment, index) => (
               <AttachmentChip
@@ -250,9 +239,8 @@ export function PromptInputBox({
                 }
               />
             ))}
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
 
       <textarea
         ref={textareaRef}
@@ -289,7 +277,7 @@ export function PromptInputBox({
                 disabled={isBusy || isLoading}
                 aria-label="Attach PDFs"
                 className={cn(
-                  "flex h-8 w-8 items-center justify-center rounded-full",
+                  "flex h-11 w-11 items-center justify-center rounded-full sm:h-8 sm:w-8",
                   "text-muted-foreground transition-colors",
                   "hover:bg-foreground/5 hover:text-foreground",
                   "disabled:cursor-not-allowed disabled:opacity-50",
@@ -327,7 +315,7 @@ export function PromptInputBox({
             disabled={isLoading ? !onStop : !hasContent || isBusy}
             aria-label={isLoading ? "Stop generating" : "Send message"}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+              "flex h-11 w-11 items-center justify-center rounded-full transition-colors sm:h-8 sm:w-8",
               isLoading
                 ? "bg-foreground/10 text-foreground hover:bg-foreground/20"
                 : hasContent

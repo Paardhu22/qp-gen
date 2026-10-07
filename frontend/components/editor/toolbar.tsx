@@ -67,6 +67,7 @@ import {
   SelectValue,
 } from "../ui/select";
 import { Badge } from "../ui/badge";
+import { Popover } from "@base-ui/react/popover";
 import { useEditorStore } from "@/store/editor-store";
 import { exportPaper } from "@/lib/export-paper";
 import type { ExportType } from "@/lib/s3-upload";
@@ -148,23 +149,11 @@ const ColorPicker: React.FC<{
   label: string;
 }> = ({ onSelect, currentColor, onClear, label }) => {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setOpen(!open)}
         title={label}
         className="h-7 w-7 flex flex-col items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
       >
@@ -173,46 +162,49 @@ const ColorPicker: React.FC<{
           className="h-0.5 w-4 rounded-full mt-0.5"
           style={{ backgroundColor: currentColor || "#ffffff" }}
         />
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-lg p-2 shadow-xl w-[180px]">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
-            {label}
-          </p>
-          <div className="grid grid-cols-6 gap-1">
-            {COLOR_PALETTE.map((color) => (
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner sideOffset={6} align="start" className="z-50">
+          <Popover.Popup initialFocus={(type) => type === "keyboard"} finalFocus={false} className="max-h-[var(--available-height)] max-w-[calc(100vw-1rem)] overflow-y-auto outline-none bg-popover border border-border rounded-lg p-2 shadow-xl w-[208px] sm:w-[180px]">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
+              {label}
+            </p>
+            <div className="grid grid-cols-4 gap-1 sm:grid-cols-6">
+              {COLOR_PALETTE.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    onSelect(color);
+                    setOpen(false);
+                  }}
+                  aria-label={`Choose ${color}`}
+                  className={cn(
+                    "h-11 w-11 rounded-sm sm:h-6 sm:w-6 border border-border hover:scale-110 transition-transform",
+                    currentColor === color && "ring-2 ring-primary",
+                  )}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+            </div>
+            {onClear && (
               <button
-                key={color}
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
-                  onSelect(color);
+                  onClear();
                   setOpen(false);
                 }}
-                className={cn(
-                  "h-6 w-6 rounded-sm border border-border hover:scale-110 transition-transform",
-                  currentColor === color && "ring-2 ring-primary",
-                )}
-                style={{ backgroundColor: color }}
-              />
-            ))}
-          </div>
-          {onClear && (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                onClear();
-                setOpen(false);
-              }}
-              className="mt-2 w-full text-[10px] text-muted-foreground hover:text-foreground py-1 hover:bg-accent rounded-sm transition-colors"
-            >
-              Remove Color
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+                className="mt-2 w-full text-[10px] text-muted-foreground hover:text-foreground py-1 hover:bg-accent rounded-sm transition-colors"
+              >
+                Remove Color
+              </button>
+            )}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 };
 
@@ -248,23 +240,11 @@ const ChemistryPicker: React.FC<{
   onInsertInline: (latex: string) => void;
 }> = ({ onInsertInline }) => {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setOpen(!open)}
         title="Insert Chemistry"
         className={cn(
           "h-7 w-7 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-all",
@@ -272,31 +252,33 @@ const ChemistryPicker: React.FC<{
         )}
       >
         <FlaskConical className="h-3.5 w-3.5" />
-      </button>
-      {open && (
-        <div className="absolute top-full right-0 mt-1 z-50 bg-popover border border-border rounded-lg p-2 shadow-xl w-[200px]">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2 px-1">
-            Chemistry
-          </p>
-          <div className="flex flex-col gap-1">
-            {CHEMISTRY_TEMPLATES.map((tpl) => (
-              <button
-                key={tpl.label}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onInsertInline(tpl.latex);
-                  setOpen(false);
-                }}
-                className="text-left text-[11px] text-foreground hover:text-primary px-2 py-1.5 rounded-sm hover:bg-accent transition-colors"
-              >
-                {tpl.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner sideOffset={6} align="start" className="z-50">
+          <Popover.Popup initialFocus={(type) => type === "keyboard"} finalFocus={false} className="max-h-[var(--available-height)] max-w-[calc(100vw-1rem)] overflow-y-auto outline-none bg-popover border border-border rounded-lg p-2 shadow-xl w-[200px]">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2 px-1">
+              Chemistry
+            </p>
+            <div className="flex flex-col gap-1">
+              {CHEMISTRY_TEMPLATES.map((tpl) => (
+                <button
+                  key={tpl.label}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    onInsertInline(tpl.latex);
+                    setOpen(false);
+                  }}
+                  className="text-left text-[11px] text-foreground hover:text-primary px-2 py-1.5 rounded-sm hover:bg-accent transition-colors"
+                >
+                  {tpl.label}
+                </button>
+              ))}
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 };
 
@@ -305,23 +287,11 @@ const MathPicker: React.FC<{
   onInsertInline: (latex: string) => void;
 }> = ({ onInsertBlock, onInsertInline }) => {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setOpen(!open)}
         title="Insert Math"
         className={cn(
           "h-7 w-7 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-all",
@@ -329,57 +299,59 @@ const MathPicker: React.FC<{
         )}
       >
         <Sigma className="h-3.5 w-3.5" />
-      </button>
-      {open && (
-        <div className="absolute top-full right-0 mt-1 z-50 bg-popover border border-border rounded-lg p-2 shadow-xl w-[220px]">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2 px-1">
-            Math Templates
-          </p>
-          <div className="flex flex-col gap-1">
-            {MATH_TEMPLATES.map((tpl) => (
-              <div key={tpl.label} className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    onInsertBlock(tpl.latex);
-                    setOpen(false);
-                  }}
-                  className="flex-1 text-left text-[11px] text-foreground hover:text-primary px-2 py-1.5 rounded-sm hover:bg-accent transition-colors"
-                >
-                  Block: {tpl.label}
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    onInsertInline(tpl.latex);
-                    setOpen(false);
-                  }}
-                  className="text-[10px] text-muted-foreground hover:text-primary px-2 py-1.5 rounded-sm hover:bg-accent transition-colors"
-                  title="Insert Inline"
-                >
-                  Inline
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="mt-2 pt-2 border-t border-border">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                onInsertBlock("E = mc^2");
-                setOpen(false);
-              }}
-              className="w-full text-left text-[11px] text-primary hover:text-primary px-2 py-1.5 rounded-sm hover:bg-primary/10 transition-colors"
-            >
-              + Custom Math Block
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner sideOffset={6} align="start" className="z-50">
+          <Popover.Popup initialFocus={(type) => type === "keyboard"} finalFocus={false} className="max-h-[var(--available-height)] max-w-[calc(100vw-1rem)] overflow-y-auto outline-none bg-popover border border-border rounded-lg p-2 shadow-xl w-[220px]">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2 px-1">
+              Math Templates
+            </p>
+            <div className="flex flex-col gap-1">
+              {MATH_TEMPLATES.map((tpl) => (
+                <div key={tpl.label} className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      onInsertBlock(tpl.latex);
+                      setOpen(false);
+                    }}
+                    className="flex-1 text-left text-[11px] text-foreground hover:text-primary px-2 py-1.5 rounded-sm hover:bg-accent transition-colors"
+                  >
+                    Block: {tpl.label}
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      onInsertInline(tpl.latex);
+                      setOpen(false);
+                    }}
+                    className="text-[10px] text-muted-foreground hover:text-primary px-2 py-1.5 rounded-sm hover:bg-accent transition-colors"
+                    title="Insert Inline"
+                  >
+                    Inline
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onInsertBlock("E = mc^2");
+                  setOpen(false);
+                }}
+                className="w-full text-left text-[11px] text-primary hover:text-primary px-2 py-1.5 rounded-sm hover:bg-primary/10 transition-colors"
+              >
+                + Custom Math Block
+              </button>
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 };
 
@@ -403,16 +375,6 @@ const InsertBlockDropdown: React.FC<InsertBlockDropdownProps> = ({
   editor,
 }) => {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   const handleSelect = (fn: () => void) => {
     fn();
@@ -622,11 +584,9 @@ const InsertBlockDropdown: React.FC<InsertBlockDropdownProps> = ({
   ];
 
   return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setOpen(!open)}
         className={cn(
           "h-6 px-3 text-[10px] font-semibold rounded-sm transition-colors flex items-center gap-1.5",
           "border border-border bg-background text-foreground hover:bg-accent hover:border-primary/40",
@@ -636,31 +596,33 @@ const InsertBlockDropdown: React.FC<InsertBlockDropdownProps> = ({
         <PlusCircle className="h-3 w-3 text-primary" />
         Insert Block
         <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", open && "rotate-180")} />
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[180px]">
-          <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground px-3 pt-1.5 pb-1">
-            Paper Structure
-          </p>
-          {options.map((opt) => (
-            <button
-              key={opt.label}
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => handleSelect(opt.action)}
-              className={cn(
-                "w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-medium transition-colors text-left",
-                opt.color,
-                opt.hoverBg,
-              )}
-            >
-              <PlusCircle className="h-3 w-3 shrink-0" />
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner sideOffset={6} align="start" className="z-50">
+          <Popover.Popup initialFocus={(type) => type === "keyboard"} finalFocus={false} className="max-h-[var(--available-height)] max-w-[calc(100vw-1rem)] overflow-y-auto outline-none bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[180px]">
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground px-3 pt-1.5 pb-1">
+              Paper Structure
+            </p>
+            {options.map((opt) => (
+              <button
+                key={opt.label}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleSelect(opt.action)}
+                className={cn(
+                  "w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-medium transition-colors text-left",
+                  opt.color,
+                  opt.hoverBg,
+                )}
+              >
+                <PlusCircle className="h-3 w-3 shrink-0" />
+                {opt.label}
+              </button>
+            ))}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 };
 
@@ -1349,7 +1311,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
       </div>
 
       {/* Secondary Toolbar - Paper Structure (compact dropdown). */}
-      <div className="flex items-center gap-2 px-2 py-1 border-t border-border/50 bg-muted/30">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 border-t border-border/50 bg-muted/30">
         <InsertBlockDropdown
           insertAfterCurrentBlock={insertAfterCurrentBlock}
           editor={editor}
@@ -1375,26 +1337,26 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
           <Trash className="h-3 w-3" /> Clear All
         </button>
 
-        <div className="ml-auto flex items-center gap-3 text-[10px] text-muted-foreground">
+        <div className="ml-auto flex shrink-0 items-center gap-3 whitespace-nowrap text-xs text-muted-foreground">
           <button
             onClick={handleExportPDF}
-            className="hover:text-primary flex items-center gap-1 transition-colors"
+            className="flex min-h-11 min-w-11 items-center justify-center gap-1 px-2 transition-colors hover:text-primary sm:min-h-0 sm:min-w-0 sm:px-0"
           >
             <FileDown className="h-3 w-3" /> PDF
           </button>
           <button
             onClick={handleExportDocx}
-            className="hover:text-primary flex items-center gap-1 transition-colors"
+            className="flex min-h-11 min-w-11 items-center justify-center gap-1 px-2 transition-colors hover:text-primary sm:min-h-0 sm:min-w-0 sm:px-0"
           >
             <FileDown className="h-3 w-3" /> Word
           </button>
           <button
             onClick={() => window.print()}
-            className="hover:text-primary flex items-center gap-1 transition-colors"
+            className="flex min-h-11 min-w-11 items-center justify-center gap-1 px-2 transition-colors hover:text-primary sm:min-h-0 sm:min-w-0 sm:px-0"
           >
             <Printer className="h-3 w-3" /> Print
           </button>
-          <span className="flex items-center gap-1">
+          <span className="hidden items-center gap-1 sm:flex">
             <span className="h-1 w-1 rounded-full bg-green-500 animate-pulse" />
             Live Sync
           </span>

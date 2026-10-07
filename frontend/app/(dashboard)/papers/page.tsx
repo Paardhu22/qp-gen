@@ -729,11 +729,11 @@ export default function QuestionBankPage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="relative">
+          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+            <div className="relative min-w-0 flex-1 sm:flex-none">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="h-8 w-56 pl-8 text-sm"
+                className="h-8 w-full pl-8 text-sm sm:w-56"
                 placeholder="Search papers…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -1016,25 +1016,25 @@ export default function QuestionBankPage() {
             )}
           </div>
         ) : (
-          <table className="w-full border-collapse text-sm">
-            <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
+          <table className="w-full table-fixed border-collapse text-sm md:table-auto">
+            <thead className="sticky top-0 z-10 bg-muted">
               <tr className="border-b border-border text-left text-xs">
                 <th className="px-4 py-2.5 font-semibold text-muted-foreground sm:px-6">
                   Title
                 </th>
-                <th className="px-3 py-2.5 font-semibold text-muted-foreground">
+                <th className="hidden md:table-cell px-3 py-2.5 font-semibold text-muted-foreground">
                   Subject
                 </th>
-                <th className="px-3 py-2.5 font-semibold text-muted-foreground">
+                <th className="hidden md:table-cell px-3 py-2.5 font-semibold text-muted-foreground">
                   Class
                 </th>
-                <th className="px-3 py-2.5 font-semibold text-muted-foreground">
+                <th className="hidden md:table-cell px-3 py-2.5 font-semibold text-muted-foreground">
                   Board
                 </th>
-                <th className="px-3 py-2.5 font-semibold text-muted-foreground text-right">
+                <th className="hidden md:table-cell px-3 py-2.5 font-semibold text-muted-foreground text-right">
                   Created
                 </th>
-                <th className="w-10 px-3 py-2.5" />
+                <th className="w-16 px-2 py-2.5 md:w-10 md:px-3" />
               </tr>
             </thead>
             <tbody>
@@ -1052,25 +1052,28 @@ export default function QuestionBankPage() {
                     <td className="px-4 py-3 sm:px-6">
                       <div className="flex items-center gap-2">
                         <FileText className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-                        <span className="font-medium text-foreground line-clamp-1">
-                          {paper.title}
-                        </span>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedPaperId(paper.id); }} className="min-w-0 flex-1 text-left font-medium text-foreground">
+                          <span className="line-clamp-2 break-words md:line-clamp-1">{paper.title}</span>
+                        </button>
                         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
+                      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground md:hidden">
+                        {[paper.subjectLabel, paper.classLabel && `Class ${paper.classLabel}`, paper.boardLabel, formatDate(paper.created_at ?? paper.updated_at)].filter(Boolean).join(" · ")}
+                      </p>
                     </td>
-                    <td className="px-3 py-3 text-muted-foreground whitespace-nowrap">
+                    <td className="hidden md:table-cell px-3 py-3 text-muted-foreground whitespace-nowrap">
                       {paper.subjectLabel}
                     </td>
-                    <td className="px-3 py-3 text-muted-foreground whitespace-nowrap">
+                    <td className="hidden md:table-cell px-3 py-3 text-muted-foreground whitespace-nowrap">
                       {paper.classLabel}
                     </td>
-                    <td className="px-3 py-3 text-muted-foreground whitespace-nowrap">
+                    <td className="hidden md:table-cell px-3 py-3 text-muted-foreground whitespace-nowrap">
                       {paper.boardLabel}
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-muted-foreground whitespace-nowrap">
+                    <td className="hidden md:table-cell px-3 py-3 text-right tabular-nums text-muted-foreground whitespace-nowrap">
                       {formatDate(paper.created_at ?? paper.updated_at)}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-2 py-3 md:px-3">
                       <button
                         type="button"
                         aria-label="Delete paper"
@@ -1079,7 +1082,7 @@ export default function QuestionBankPage() {
                           e.stopPropagation();
                           handleDeletePaper(paper.id);
                         }}
-                        className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100"
+                        className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive md:h-7 md:w-7 md:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1124,7 +1127,7 @@ function StatCard({
   value: number;
 }) {
   return (
-    <div className="flex flex-col items-center gap-1 rounded-lg border border-border bg-card p-3">
+    <div className="flex min-w-0 flex-col items-start gap-1 border-t border-border py-3">
       <span className="text-muted-foreground">{icon}</span>
       <span className="text-lg font-bold tabular-nums text-foreground">
         {value}

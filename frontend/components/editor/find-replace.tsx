@@ -222,7 +222,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2 bg-background border-b border-border animate-in slide-in-from-top-2 duration-200 shadow-sm">
       {/* Find row */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Search className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
         <input
           ref={searchRef}
@@ -231,7 +231,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
           onChange={(e) => setSearchTerm(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Find in document…"
-          className="flex-1 h-7 bg-muted/50 border border-border rounded-sm px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/60"
+          className="min-w-0 flex-1 basis-[calc(100%-2rem)] h-7 bg-muted/50 border border-border rounded-sm px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/60 sm:basis-auto"
         />
         <span className="text-[10px] text-muted-foreground min-w-[44px] text-center font-mono tabular-nums">
           {matchCount > 0 ? `${currentMatch} / ${matchCount}` : "0 / 0"}
@@ -240,7 +240,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
           onClick={findPrev}
           disabled={matchCount === 0}
           title="Previous match (Shift+Enter)"
-          className="h-6 w-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 transition-colors"
+          className="h-11 w-11 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 transition-colors sm:h-6 sm:w-6"
         >
           <ChevronUp className="h-3.5 w-3.5" />
         </button>
@@ -248,14 +248,14 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
           onClick={findNext}
           disabled={matchCount === 0}
           title="Next match (Enter)"
-          className="h-6 w-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 transition-colors"
+          className="h-11 w-11 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 transition-colors sm:h-6 sm:w-6"
         >
           <ChevronDown className="h-3.5 w-3.5" />
         </button>
         <button
           onClick={() => setShowReplace(!showReplace)}
           className={cn(
-            "h-6 w-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground hover:bg-muted dark:hover:bg-card transition-colors",
+            "h-11 w-11 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground hover:bg-muted dark:hover:bg-card transition-colors sm:h-6 sm:w-6",
             showReplace && "text-primary bg-primary/10 dark:text-primary dark:bg-primary/30"
           )}
           title="Toggle Replace"
@@ -268,7 +268,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
             onClose();
           }}
           title="Close (Esc)"
-          className="h-6 w-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground hover:bg-muted dark:hover:bg-card transition-colors"
+          className="h-11 w-11 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground hover:bg-muted dark:hover:bg-card transition-colors sm:h-6 sm:w-6"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -276,7 +276,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
 
       {/* Replace row */}
       {showReplace && (
-        <div className="flex items-center gap-2 animate-in fade-in duration-200">
+        <div className="flex flex-wrap items-center gap-2 animate-in fade-in duration-200 motion-reduce:animate-none!">
           <Replace className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
           <input
             type="text"
@@ -284,7 +284,7 @@ export const FindReplace: React.FC<FindReplaceProps> = ({
             onChange={(e) => setReplaceTerm(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Replace with…"
-            className="flex-1 h-7 bg-muted/50 border border-border rounded-sm px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/60"
+            className="min-w-0 flex-1 basis-[calc(100%-2rem)] h-7 bg-muted/50 border border-border rounded-sm px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/60 sm:basis-auto"
           />
           <button
             onClick={replaceOne}

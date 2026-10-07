@@ -30,6 +30,7 @@ import {
   Pause,
   Play,
   Trash2,
+  X,
 } from "lucide-react";
 
 import {
@@ -739,7 +740,7 @@ export default function DashboardPage() {
       onSend={handleSend}
       onAttach={handleAttach}
       isLoading={isStreaming}
-      autoFocus={isEmpty}
+      autoFocus={false}
       onPickFile={(open) => {
         attachRef.current = open;
       }}
@@ -757,13 +758,13 @@ export default function DashboardPage() {
         <ChatBackdrop />
         <aside
           className={cn(
-            "z-30 w-64 shrink-0 rounded-2xl border border-border/50 bg-white/60 dark:bg-black/40 shadow-xl backdrop-blur-xl",
-            "flex flex-col transition-transform duration-200 lg:static lg:translate-x-0",
-            "absolute inset-y-4 left-4 lg:my-4 lg:ml-4 lg:mr-2",
-            sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+2rem)]",
+            "z-30 w-64 shrink-0 border-r border-border bg-sidebar",
+            "flex flex-col transition-transform duration-200 motion-reduce:transition-none lg:static lg:translate-x-0",
+            "absolute inset-y-0 left-0",
+            sidebarOpen ? "translate-x-0" : "invisible -translate-x-[calc(100%+2rem)] lg:visible",
           )}
         >
-          <div className="p-3">
+          <div className="flex items-center gap-1 p-3">
             <Button
               variant="outline"
               className="w-full justify-start"
@@ -771,6 +772,9 @@ export default function DashboardPage() {
             >
               <MessageSquarePlus className="mr-2 h-4 w-4" />
               New session
+            </Button>
+            <Button variant="ghost" size="icon" className="h-11 w-11 shrink-0 lg:hidden" aria-label="Close sessions" onClick={() => setSidebarOpen(false)}>
+              <X className="h-4 w-4" />
             </Button>
           </div>
           <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -786,8 +790,9 @@ export default function DashboardPage() {
               >
                 <button
                   onClick={() => loadConversation(conversation.id)}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                  className="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 text-left lg:min-h-8"
                   title={conversation.title}
+                  aria-label={conversation.title}
                 >
                   <span className="truncate">{conversation.title}</span>
                   {conversation.status === "paused" && (
@@ -803,7 +808,7 @@ export default function DashboardPage() {
                 <button
                   onClick={() => handleDelete(conversation.id)}
                   aria-label={`Delete ${conversation.title}`}
-                  className="shrink-0 rounded-sm p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground group-hover:opacity-100"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-opacity hover:bg-foreground/10 hover:text-foreground lg:h-8 lg:w-8 lg:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -848,10 +853,10 @@ export default function DashboardPage() {
           )}
 
           {isEmpty ? (
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4">
-              <div className="w-full max-w-2xl space-y-6">
+            <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overscroll-contain px-4 py-6 sm:py-8">
+              <div className="my-auto w-full max-w-2xl shrink-0 space-y-5 sm:space-y-6">
                 <div className="space-y-2 text-center">
-                  <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                  <h1 className="text-2xl font-semibold tracking-[-0.04em] sm:text-4xl">
                     What can I help with?
                   </h1>
                   <p className="text-sm text-muted-foreground">
@@ -879,7 +884,7 @@ export default function DashboardPage() {
                         <Link
                           key={paper.id}
                           href={`/editor?paperId=${paper.id}`}
-                          className="flex max-w-[15rem] items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+                          className="flex min-h-11 max-w-full items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-muted sm:min-h-8 sm:max-w-[15rem] sm:text-xs"
                         >
                           <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                           <span className="truncate">{paper.title}</span>
@@ -887,7 +892,7 @@ export default function DashboardPage() {
                       ))}
                       <Link
                         href="/papers"
-                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        className="flex min-h-11 items-center rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:min-h-8 sm:text-xs"
                       >
                         All papers →
                       </Link>
@@ -900,7 +905,7 @@ export default function DashboardPage() {
                     <button
                       key={suggestion}
                       onClick={() => handleSend(suggestion, [])}
-                      className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground/25 hover:text-foreground"
+                      className="min-h-11 max-w-full rounded-2xl bg-muted/70 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary sm:min-h-8 sm:rounded-full sm:py-1.5 sm:text-xs"
                     >
                       {suggestion}
                     </button>

@@ -181,7 +181,7 @@ export function GenerateDock({
           title="Open Paper Studio"
           aria-label="Open Paper Studio"
           className={cn(
-            "relative flex h-9 w-9 items-center justify-center rounded-full",
+            "relative flex h-11 w-11 items-center justify-center rounded-full lg:h-9 lg:w-9",
             "bg-primary text-primary-foreground transition-transform",
             "hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           )}

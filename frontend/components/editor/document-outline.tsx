@@ -210,7 +210,7 @@ export function DocumentOutline({
           onClick={() => onOpenChange(true)}
           title="Show document panel"
           aria-label="Show document panel"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:h-9 lg:w-9"
         >
           <PanelLeftOpen className="h-[18px] w-[18px]" />
         </button>

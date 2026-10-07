@@ -30,7 +30,7 @@ body {
     -webkit-tap-highlight-color: transparent;
 }
 
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 767px) {
     /* Comfortable 44px touch targets (WCAG 2.5.5 / Apple HIG) for genuine
        controls. Layout-only elements are unaffected. */
     button,
@@ -61,17 +61,19 @@ body {
     #tiptap-paper-container input,
     #tiptap-paper-container select,
     .question-block button,
-    .question-block input,
-    .editor-toolbar-scroll button,
-    .editor-toolbar-scroll input,
-    .editor-toolbar-scroll select {
+    .question-block input {
         min-height: 0;
     }
     #tiptap-paper-container input,
-    #tiptap-paper-container select,
-    .editor-toolbar-scroll input,
-    .editor-toolbar-scroll select {
+    #tiptap-paper-container select {
         font-size: inherit;
+    }
+
+    .editor-toolbar-scroll button {
+        min-width: 44px;
+    }
+    .editor-toolbar-scroll > * {
+        flex-shrink: 0;
     }
 }
 

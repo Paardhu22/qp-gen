@@ -12,7 +12,7 @@ export default function DashboardLayout({
     <ProtectedLayout>
       <div className="h-dvh relative bg-background overflow-hidden flex flex-col">
         <TopNavbar />
-        <main className="flex-1 overflow-auto overflow-x-hidden flex flex-col pb-safe">
+        <main className="min-h-0 flex-1 overflow-auto overflow-x-hidden flex flex-col pb-safe">
           {children}
         </main>
       </div>
