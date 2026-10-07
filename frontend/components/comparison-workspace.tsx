@@ -538,7 +538,7 @@ export function ComparisonWorkspace() {
                                   onClick={() =>
                                     deleteQuestion(label, row.slotIndex)
                                   }
-                                  className="h-7 text-xs text-destructive hover:text-destructive"
+                                  className="delete-icon-button"
                                   title="Delete this question from this set"
                                 >
                                   <Trash2 className="h-3 w-3" />

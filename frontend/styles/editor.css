@@ -232,24 +232,6 @@
           max-width: 320px;
         }
 
-        .paper-header-logo-wrap .logo-remove-btn {
-          position: absolute;
-          top: -6px;
-          right: -6px;
-          display: none;
-          align-items: center;
-          justify-content: center;
-          width: 16px;
-          height: 16px;
-          border-radius: 9999px;
-          background: var(--destructive);
-          color: #fff;
-        }
-
-        .paper-header-block:hover .logo-remove-btn {
-          display: flex;
-        }
-
         .paper-header-content {
           text-align: center;
         }
@@ -442,23 +424,16 @@
         }
 
         .paper-header-delete {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
           opacity: 0;
-          transition: opacity 0.2s ease;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+          pointer-events: none;
+          cursor: pointer;
+          transition: opacity 140ms ease, background-color 140ms ease;
         }
 
         .paper-header-block:hover .paper-header-delete,
         .paper-header-block:focus-within .paper-header-delete {
           opacity: 1;
+          pointer-events: auto;
         }
 
         /* ===== Section Block ===== */
@@ -550,29 +525,30 @@
 
         .section-controls {
           position: absolute;
-          right: -6px;
-          top: -6px;
+          right: -44px;
+          top: 6px;
           display: flex;
+          flex-direction: column;
           gap: 4px;
+          padding-left: 8px;
           opacity: 0;
+          pointer-events: none;
           transition: opacity 0.2s ease;
         }
 
-        .section-block:hover .section-controls {
+        .section-block:hover .section-controls,
+        .section-block:focus-within .section-controls {
           opacity: 1;
+          pointer-events: auto;
         }
 
-        .section-delete {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+
+        @media (pointer: coarse), (max-width: 767px) {
+          .section-controls,
+          .instruction-controls,
+          .question-group-controls {
+            right: -52px;
+          }
         }
 
         /* ===== Drag Handles ===== */
@@ -771,7 +747,6 @@
           opacity: 1;
         }
 
-        .question-delete,
         .question-replace {
           border: 1px solid #000000;
           background: #ffffff;
@@ -954,28 +929,20 @@
 
         .instruction-controls {
           position: absolute;
-          right: -6px;
-          top: -6px;
+          right: -44px;
+          top: 0;
+          padding-left: 8px;
           opacity: 0;
+          pointer-events: none;
           transition: opacity 0.2s ease;
         }
 
-        .instruction-block:hover .instruction-controls {
+        .instruction-block:hover .instruction-controls,
+        .instruction-block:focus-within .instruction-controls {
           opacity: 1;
+          pointer-events: auto;
         }
 
-        .instruction-delete {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
 
         /* ===== Question Group (OR) ===== */
         /*
@@ -1059,28 +1026,20 @@
 
         .question-group-controls {
           position: absolute;
-          right: -6px;
-          top: -6px;
+          right: -44px;
+          top: 0;
+          padding-left: 8px;
           opacity: 0;
+          pointer-events: none;
           transition: opacity 0.2s ease;
         }
 
-        .question-group:hover .question-group-controls {
+        .question-group:hover .question-group-controls,
+        .question-group:focus-within .question-group-controls {
           opacity: 1;
+          pointer-events: auto;
         }
 
-        .question-group-delete {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
 
         /* ===== Math ===== */
         .math-block {
@@ -1222,18 +1181,6 @@
           background: #ffffff;
         }
 
-        .drawing-delete {
-          border: 1px solid #000000;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
 
         /* ===== Float Image Block ===== */
         .float-image-wrapper {
@@ -1494,7 +1441,6 @@
           .block-drag-handle,
           .paper-header-delete,
           .paper-header-actions,
-          .logo-remove-btn,
           .paper-header-date-input,
           .instruction-delete,
           .drawing-delete,

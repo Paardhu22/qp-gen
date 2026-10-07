@@ -808,7 +808,7 @@ export default function DashboardPage() {
                 <button
                   onClick={() => handleDelete(conversation.id)}
                   aria-label={`Delete ${conversation.title}`}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-opacity hover:bg-foreground/10 hover:text-foreground lg:h-8 lg:w-8 lg:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
+                  className="delete-icon-button lg:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>

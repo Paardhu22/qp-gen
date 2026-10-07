@@ -91,16 +91,6 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode, editor, getP
         // cannot do `object-fit`, and the DOCX export reads this box back.
         style={box ? { width: box.width, height: box.height } : { maxHeight: logoHeight }}
       />
-      {editor?.isEditable ? (
-        <button
-          type="button"
-          onClick={() => updateAttributes({ logoUrl: "" })}
-          className="logo-remove-btn print:hidden"
-          title="Remove logo"
-        >
-          <Trash className="w-2.5 h-2.5" />
-        </button>
-      ) : null}
     </div>
   ) : null;
 
@@ -183,10 +173,11 @@ const PaperHeaderComponent = ({ node, updateAttributes, deleteNode, editor, getP
             <button
               type="button"
               onClick={deleteNode}
-              className="paper-header-delete"
-              title="Remove Header"
+              className="paper-header-delete delete-icon-button"
+              title="Remove entire paper header"
+              aria-label="Remove entire paper header"
             >
-              <Trash className="w-3 h-3" />
+              <Trash className="size-4" />
             </button>
           </div>
         )}

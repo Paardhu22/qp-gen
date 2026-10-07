@@ -102,7 +102,7 @@ function Card({
           : "border-border bg-card",
       )}
     >
-      <div className="flex items-start gap-3">
+      <div className={cn("flex items-start gap-3", onDelete && "pr-10")}>
         {Icon ? (
           <span
             className={cn(
@@ -144,7 +144,7 @@ function Card({
             e.stopPropagation();
             onDelete();
           }}
-          className="absolute right-2 top-2 rounded-lg p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+          className="delete-icon-button absolute right-2 top-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100"
         >
           <Trash2 className="size-3.5" />
         </button>

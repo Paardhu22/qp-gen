@@ -143,7 +143,7 @@ function MenuButton({
         "flex size-9 shrink-0 items-center justify-center rounded-lg p-0 text-[11px] font-medium transition-colors pointer-coarse:size-11",
         "disabled:cursor-not-allowed disabled:opacity-60",
         tone === "destructive"
-          ? "text-destructive hover:bg-destructive/10"
+          ? "delete-icon-button"
           : "text-foreground hover:bg-muted",
       )}
     >

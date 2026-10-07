@@ -332,7 +332,7 @@ export function TemplateEditorPanel({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-7 gap-1.5 text-xs text-muted-foreground"
+                  className="destructive-action h-7 gap-1.5 text-xs"
                   onClick={() => setSlots([])}
                   title="Drop the fixed structure and let the instructions decide each time"
                 >

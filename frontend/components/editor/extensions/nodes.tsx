@@ -744,16 +744,19 @@ const SectionComponent = ({ node, deleteNode, editor, updateAttributes }: any) =
           {override !== null && (
             <button
               onClick={() => updateAttributes({ summaryOverride: null })}
-              className="section-delete"
+              type="button"
+              className="section-reset editor-control-button"
               title="Use the counted marks summary again"
             >
               <RotateCcw className="w-3 h-3" />
             </button>
           )}
           <button
+            type="button"
             onClick={deleteNode}
-            className="section-delete"
+            className="section-delete delete-icon-button"
             title="Delete Section"
+            aria-label="Delete section"
           >
             <Trash className="w-3 h-3" />
           </button>
@@ -891,9 +894,11 @@ const InstructionComponent = ({ node, deleteNode, editor, getPos }: any) => {
       {editor?.isEditable && (
         <div className="instruction-controls" contentEditable={false}>
           <button
+            type="button"
             onClick={deleteNode}
-            className="instruction-delete"
+            className="instruction-delete delete-icon-button"
             title="Delete Instructions"
+            aria-label="Delete instructions"
           >
             <Trash className="w-3 h-3" />
           </button>
@@ -985,9 +990,11 @@ const QuestionGroupComponent = ({ node, deleteNode, editor }: any) => {
       {editor?.isEditable && (
         <div className="question-group-controls" contentEditable={false}>
           <button
+            type="button"
             onClick={deleteNode}
-            className="question-group-delete"
+            className="question-group-delete delete-icon-button"
             title="Delete Group"
+            aria-label="Delete group"
           >
             <Trash className="w-3 h-3" />
           </button>

@@ -282,7 +282,7 @@ export function HeaderLogoPicker({
               type="button"
               variant="ghost"
               size="sm"
-              className="text-destructive hover:text-destructive"
+              className="destructive-action"
               onClick={() =>
                 onApply({
                   logoUrl: "",

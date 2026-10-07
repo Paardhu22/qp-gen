@@ -151,7 +151,7 @@ function SourceRow({
           type="button"
           aria-label={removeLabel}
           onClick={onRemove}
-          className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="delete-icon-button"
         >
           <X className="size-3.5" />
         </button>
@@ -336,7 +336,7 @@ export function SourcePanel({
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="h-7 px-2 text-xs"
+                        className="destructive-action h-7 px-2 text-xs"
                         onClick={() => onRemoveDoc(doc.id)}
                       >
                         Remove

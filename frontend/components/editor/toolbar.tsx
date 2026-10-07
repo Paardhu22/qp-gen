@@ -1067,7 +1067,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             <ToolbarBtn
               onClick={() => editor.chain().focus().deleteTable().run()}
               title="Delete Table"
-              className="text-red-400 hover:text-red-300"
+              className="delete-icon-button"
             >
               <Trash className="h-3.5 w-3.5" />
             </ToolbarBtn>
@@ -1332,7 +1332,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
               },
             });
           }}
-          className="h-6 px-2 text-[10px] font-medium text-red-400 hover:bg-red-500/10 rounded-sm transition-colors flex items-center gap-1"
+          className="destructive-action h-6 px-2 text-[10px] font-medium rounded-lg transition-colors flex items-center gap-1"
         >
           <Trash className="h-3 w-3" /> Clear All
         </button>

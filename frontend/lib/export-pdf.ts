@@ -134,7 +134,6 @@ const HIDE_IN_PDF = [
   ".question-group-controls",
   ".paper-header-delete",
   ".paper-header-actions",
-  ".logo-remove-btn",
   ".drawing-delete",
   ".float-image-hide-in-pdf", // alignment toolbar + resize handle
 ];

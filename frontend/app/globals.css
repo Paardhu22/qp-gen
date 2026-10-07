@@ -30,6 +30,69 @@ body {
     -webkit-tap-highlight-color: transparent;
 }
 
+/* Shared deletion controls in the workspace and on the editable paper. */
+.delete-icon-button,
+.editor-control-button {
+    display: inline-flex;
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 8px;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    transition: color 140ms ease, background-color 140ms ease, opacity 140ms ease;
+}
+
+.delete-icon-button,
+.destructive-action {
+    color: var(--destructive);
+}
+
+.delete-icon-button:hover,
+.delete-icon-button:focus-visible,
+.destructive-action:hover,
+.destructive-action:focus-visible {
+    color: var(--destructive);
+    background-color: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+
+.delete-icon-button:focus-visible,
+.destructive-action:focus-visible {
+    outline: 2px solid var(--destructive);
+    outline-offset: 2px;
+}
+
+.delete-icon-button:disabled {
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+.delete-icon-button svg {
+    width: 16px;
+    height: 16px;
+}
+
+.editor-control-button {
+    color: #666b75;
+}
+
+.editor-control-button:hover,
+.editor-control-button:focus-visible {
+    background: #f3f4f6;
+}
+
+@media (pointer: coarse), (max-width: 767px) {
+    .delete-icon-button,
+    .editor-control-button {
+        width: 44px;
+        height: 44px;
+    }
+}
+
 @media (pointer: coarse), (max-width: 767px) {
     /* Comfortable 44px touch targets (WCAG 2.5.5 / Apple HIG) for genuine
        controls. Layout-only elements are unaffected. */

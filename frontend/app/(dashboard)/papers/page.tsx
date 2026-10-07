@@ -812,7 +812,7 @@ export default function QuestionBankPage() {
                   }}
                   className="group relative w-56 shrink-0 cursor-pointer rounded-lg border border-border bg-background p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/40"
                 >
-                  <div className="flex items-start gap-2">
+                  <div className="flex items-start gap-2 pr-10">
                     <FileText className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-foreground">
@@ -860,7 +860,7 @@ export default function QuestionBankPage() {
                       e.stopPropagation();
                       void deleteDraft(draft);
                     }}
-                    className="absolute right-1.5 top-1.5 rounded-sm p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                    className="delete-icon-button absolute right-1.5 top-1.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -903,7 +903,7 @@ export default function QuestionBankPage() {
             </span>
             {showTrash && (
               <AlertDialog>
-                <AlertDialogTrigger className="ml-auto text-[11px] text-muted-foreground underline underline-offset-2 hover:text-destructive">
+                <AlertDialogTrigger className="destructive-action ml-auto rounded-lg text-[11px] underline underline-offset-2">
                   Empty bin
                 </AlertDialogTrigger>
                 <AlertDialogContent>
@@ -917,7 +917,7 @@ export default function QuestionBankPage() {
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => void handleEmptyTrash()}>
+                    <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => void handleEmptyTrash()}>
                       Empty bin
                     </AlertDialogAction>
                   </AlertDialogFooter>
@@ -962,7 +962,7 @@ export default function QuestionBankPage() {
                       type="button"
                       aria-label={`Permanently delete ${paper.title || "this paper"}`}
                       onClick={() => void purgePaperById(paper.id)}
-                      className="inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] text-muted-foreground hover:text-destructive"
+                      className="destructive-action inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px]"
                     >
                       <Trash2 className="h-3 w-3" aria-hidden />
                       Delete for good
@@ -1082,7 +1082,7 @@ export default function QuestionBankPage() {
                           e.stopPropagation();
                           handleDeletePaper(paper.id);
                         }}
-                        className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive md:h-7 md:w-7 md:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
+                        className="delete-icon-button md:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>

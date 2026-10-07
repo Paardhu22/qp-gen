@@ -86,7 +86,7 @@ function AttachmentChip({
         <button
           type="button"
           onClick={onRemove}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground sm:h-6 sm:w-6"
+          className="delete-icon-button"
           aria-label={`Remove ${attachment.name}`}
         >
           <X className="h-3 w-3" />

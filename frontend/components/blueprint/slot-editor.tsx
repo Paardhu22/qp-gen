@@ -464,7 +464,7 @@ export function SlotEditor({
                         type="button"
                         aria-label={`Remove question ${slot.index}`}
                         onClick={() => removeSlot(index)}
-                        className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        className="delete-icon-button"
                       >
                         <Trash2 className="size-3.5" />
                       </button>

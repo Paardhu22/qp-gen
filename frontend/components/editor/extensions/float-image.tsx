@@ -212,12 +212,14 @@ const FloatImageComponent = ({
             ))}
             <span className="float-img-divider" />
             <button
-              className="float-img-btn"
+              type="button"
+              className="delete-icon-button"
               onMouseDown={(e) => {
                 e.preventDefault();
                 deleteNode();
               }}
               title="Delete image"
+              aria-label="Delete image"
             >
               <Trash className="w-3 h-3" />
             </button>

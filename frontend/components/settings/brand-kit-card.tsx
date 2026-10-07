@@ -175,7 +175,7 @@ export function BrandKitCard() {
                         type="button"
                         onClick={() => void handleDelete(logo)}
                         aria-label={`Remove ${logo.name || "logo"}`}
-                        className="absolute right-1 top-1 rounded-full bg-destructive p-1 text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                        className="delete-icon-button absolute right-1 top-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>

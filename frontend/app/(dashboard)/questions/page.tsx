@@ -877,7 +877,7 @@ export default function SavedQuestionsPage() {
                         aria-label="Delete question"
                         disabled={isDeleting}
                         onClick={(e) => handleDeleteQuestion(q.id, e)}
-                        className="flex h-11 w-11 items-center md:h-6 md:w-6 justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+                        className="delete-icon-button"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
