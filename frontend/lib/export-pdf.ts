@@ -86,11 +86,21 @@ const PAGE_CHROME_RESET = `
   }
 `;
 
+// html2canvas measures font baselines in the ORIGINAL document with a hidden
+// span and a 1px image. Tailwind's block-image reset puts that probe on another
+// line, shifting text down into the question border. Scope this correction to
+// its probe so paper logos/figures and their measured geometry stay intact.
+const FONT_METRICS_RESET = `
+  body > div[style*="visibility: hidden"] > img[width="1"][height="1"] {
+    display: inline-block !important;
+  }
+`;
+
 /** Patch a cloned document so html2canvas can parse all CSS colours. */
 function patchClonedDocument(clonedDoc: Document): void {
   // 1. Inject CSS-variable overrides (highest priority)
   const override = clonedDoc.createElement("style");
-  override.textContent = OKLCH_OVERRIDES + PAGE_CHROME_RESET;
+  override.textContent = OKLCH_OVERRIDES + PAGE_CHROME_RESET + FONT_METRICS_RESET;
   clonedDoc.head.insertBefore(override, clonedDoc.head.firstChild);
 
   // 2. Text-replace oklch / lab / lch in every existing <style> block
@@ -404,6 +414,11 @@ export async function exportToPDF(
     },
   };
 
+  const fontProbeStyle = document.createElement("style");
+  fontProbeStyle.dataset.pdfFontMetrics = "true";
+  fontProbeStyle.textContent = FONT_METRICS_RESET;
+  document.head.appendChild(fontProbeStyle);
+
   try {
     let pdfHasContent = false;
 
@@ -450,5 +465,7 @@ export async function exportToPDF(
     console.error("Error exporting PDF:", error);
     // Re-throw so the caller (toolbar) can show the error toast.
     throw error instanceof Error ? error : new Error("Failed to export PDF");
+  } finally {
+    fontProbeStyle.remove();
   }
 }
