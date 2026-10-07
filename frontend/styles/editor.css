@@ -400,9 +400,9 @@
           font-family: var(--font-manrope), sans-serif;
         }
         .paper-header-action {
-          border: 1px solid var(--border);
+          border: 1px solid #dce2f2;
           background: #ffffff;
-          color: #000000;
+          color: #3f5dc6;
           border-radius: 8px;
           padding: 4px;
           height: 28px;
@@ -411,24 +411,34 @@
           align-items: center;
           justify-content: center;
           cursor: pointer;
+          transition: background-color 140ms ease, border-color 140ms ease;
         }
         .paper-header-edit {
           width: auto;
           gap: 6px;
           padding: 4px 8px;
           font-size: 11px;
-          color: var(--primary);
+          color: #3f5dc6;
         }
         .paper-header-action:hover, .paper-header-action:focus-visible {
-          background: #f3f4f6;
+          background: #f0f3ff;
+          border-color: #c5d1f7;
+        }
+        .paper-header-action:focus-visible {
+          outline: 2px solid #3f5dc6;
+          outline-offset: 2px;
         }
         @media (pointer: coarse) {
           .paper-header-actions { top: -46px; }
           .paper-header-action, .paper-header-delete { min-width: 40px; min-height: 40px; }
         }
         .paper-header-action.is-active {
-          background: #18181b;
-          color: #ffffff;
+          background: #edf1ff;
+          border-color: #c5d1f7;
+          color: #3f5dc6;
+        }
+        .paper-header-action.is-active:hover {
+          background: #e4eaff;
         }
 
         .paper-header-delete {
@@ -459,33 +469,39 @@
           page-break-inside: avoid;
         }
 
-        /* Flex, not an inline-block label: html2canvas paints an inline-block's
-           background OVER a block child's text, so every "SECTION A" printed as
-           an empty dark bar in the PDF. */
+        /* A compact heading row, shared by the editor and PDF capture. */
         .section-header {
           display: flex;
-          align-items: center;
-          gap: 8px;
+          align-items: baseline;
+          gap: 16px;
           text-align: left;
-          padding: 4px 0;
+          padding: 6px 0 8px;
+          border-bottom: 1px solid #cbd2df;
         }
 
         .section-title {
           display: block;
-          background-color: #4b5563;
-          color: white;
-          padding: 4px 12px;
-          border-radius: 4px;
+          flex: 1;
+          min-width: 0;
+          color: #1f2937;
           font-weight: 700;
           font-size: 11pt;
+          line-height: 1.35;
+          letter-spacing: 0.035em;
           text-transform: uppercase;
+          overflow-wrap: break-word;
         }
 
         .section-summary {
           display: inline-block;
+          flex: 0 1 auto;
+          max-width: 45%;
+          text-align: right;
           font-style: italic;
-          color: hsl(var(--muted-foreground));
+          color: #475569;
           font-size: 10pt;
+          line-height: 1.35;
+          overflow-wrap: break-word;
         }
 
         .section-summary-input {
@@ -495,7 +511,7 @@
           min-width: 16ch;
           max-width: 100%;
           border: none;
-          border-bottom: 1px dashed hsl(var(--border));
+          border-bottom: 1px dashed #cbd2df;
           background: transparent;
           outline: none;
           padding: 0;

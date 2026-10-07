@@ -409,25 +409,29 @@ async function instructions(node: Json, ctx: Context): Promise<Block[]> {
   ];
 }
 
-/** "SECTION A" on a dark bar, then its summary in italics. */
+/** A clean heading row with a right-aligned summary and a thin divider. */
 function section(node: Json): Block[] {
   const title = textOf(node).trim();
   const summary = node.attrs?.summaryOverride ?? node.attrs?.summaryText ?? "";
   const children: ParagraphChild[] = [
     new TextRun({
-      // Non-breaking spaces pad the bar, as the label's CSS padding does.
-      text: `  ${title}  `,
+      text: title,
       bold: true,
       allCaps: true,
       size: pt(11),
-      color: "FFFFFF",
-      shading: { type: ShadingType.CLEAR, color: "auto", fill: "4B5563" },
+      color: "1F2937",
     }),
   ];
   if (summary) {
-    children.push(new TextRun({ text: `   (${summary})`, italics: true, size: pt(10), color: "4B5563" }));
+    children.push(new TextRun({ text: `\t(${summary})`, italics: true, size: pt(10), color: "475569" }));
   }
-  return [new Paragraph({ spacing: { before: 160, after: 80 }, children })];
+  return [new Paragraph({
+    spacing: { before: 160, after: 100 },
+    tabStops: [{ type: TabStopType.RIGHT, position: CONTENT }],
+    border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "CBD2DF", space: 6 } },
+    keepNext: true,
+    children,
+  })];
 }
 
 const OPTION_LABELS = (index: number) => `(${String.fromCharCode(65 + index)})`;
