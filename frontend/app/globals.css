@@ -136,8 +136,7 @@ body {
        `fixed` over the viewport -- baking `position` in here would put this
        utility in a source-order fight with the `fixed`/`absolute` class next
        to it, and which one won would depend on stylesheet order. */
-    background-color: rgb(0 0 0 / 0.5);
-    backdrop-filter: blur(4px);
+    background-color: rgb(0 0 0 / 0.35);
 }
 
 /* Hide the scrollbar but keep scrolling — used by horizontally scrollable
@@ -153,13 +152,17 @@ body {
 @theme inline {
     --color-background: var(--background);
     --color-foreground: var(--foreground);
-    --font-sans: var(--font-inter);
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    --font-heading: var(--font-inter);
-    --font-sora: var(--font-sora), sans-serif;
-    /* Page identity only -- see the note in app/layout.tsx. `--font-heading`
-       stays on Inter deliberately; this is not a rename of it. */
-    --font-display: var(--font-playfair), Georgia, "Times New Roman", serif;
+    --font-sans: var(--font-manrope), "Manrope", "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --font-heading: var(--font-manrope), "Manrope", "Segoe UI", sans-serif;
+    --font-display: var(--font-manrope), "Manrope", "Segoe UI", sans-serif;
+    --color-primary-hover: var(--primary-hover);
+    --shadow-xs: 0 1px 2px color-mix(in srgb, var(--foreground) 6%, transparent);
+    --shadow-sm: 0 1px 3px color-mix(in srgb, var(--foreground) 8%, transparent);
+    --shadow-md: 0 4px 12px color-mix(in srgb, var(--foreground) 9%, transparent);
+    --shadow-lg: 0 12px 28px color-mix(in srgb, var(--foreground) 12%, transparent);
+    --shadow-xl: 0 18px 40px color-mix(in srgb, var(--foreground) 14%, transparent);
+    --color-destructive-foreground: var(--destructive-foreground);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -207,125 +210,137 @@ body {
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    /* ── Theme kit: ink #282d3c + sand #D7C3A3 ────────────────────────────
-       White is the canvas (`--background`), so `--primary` — the token every
-       shadcn button, icon accent and focus ring resolves to — is the ink.
-       Setting `--primary` itself to white would render every `bg-primary`
-       button invisible on the white page.
-
-       `--brand-sand` is the warm counterpart: the Grainient hue behind the
-       dashboard chat is built from it, and it drives the muted warm surfaces
-       below so the flat UI and the animated background read as one palette. */
-    --brand-ink: oklch(0.2990 0.0282 270.30); /* #282d3c */
-    --brand-sand: oklch(0.8257 0.0486 79.53); /* #D7C3A3 */
-    --primary: oklch(0.2990 0.0282 270.30);
-    --primary-foreground: oklch(1 0 0);
-    --secondary: oklch(0.9628 0.0119 79.78);
-    --secondary-foreground: oklch(0.2990 0.0282 270.30);
-    --muted: oklch(0.9628 0.0119 79.78);
-    --muted-foreground: oklch(0.5 0.012 270);
-    --accent: oklch(0.9228 0.0268 80.25);
-    --accent-foreground: oklch(0.2990 0.0282 270.30);
-    --destructive: oklch(0.577 0.245 27.325);
-    /* Muted semantic status tokens (calm on the sand/ink base). */
-    --success: oklch(0.58 0.13 155);
-    --success-foreground: oklch(0.985 0 0);
-    --warning: oklch(0.68 0.13 75);
-    --warning-foreground: oklch(0.205 0 0);
-    --border: oklch(0.905 0.011 79);
-    --input: oklch(0.905 0.011 79);
-    --ring: oklch(0.2990 0.0282 270.30);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
-}
-
-/* Issue 6 — auth pages are always light. `[data-auth-page]` on <html> is set
-   synchronously by `app/(auth)/layout.tsx` before paint, and AuthThemeScope
-   strips `.dark` once mounted. This rule is a belt-and-braces fallback for
-   any nested `.dark` class that survives the layout's sync script (e.g. a
-   future portal that mounts outside the html root). */
-html[data-auth-page] .dark,
-html[data-auth-page] *.dark {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --brand-ink: oklch(0.2990 0.0282 270.30);
-    --brand-sand: oklch(0.8257 0.0486 79.53);
-    --primary: oklch(0.2990 0.0282 270.30);
-    --primary-foreground: oklch(1 0 0);
-    --secondary: oklch(0.9628 0.0119 79.78);
-    --secondary-foreground: oklch(0.2990 0.0282 270.30);
-    --muted: oklch(0.9628 0.0119 79.78);
-    --muted-foreground: oklch(0.5 0.012 270);
-    --accent: oklch(0.9228 0.0268 80.25);
-    --accent-foreground: oklch(0.2990 0.0282 270.30);
-    --border: oklch(0.905 0.011 79);
-    --input: oklch(0.905 0.011 79);
-    --ring: oklch(0.2990 0.0282 270.30);
+    --radius: 0.75rem;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    color-scheme: light;
+    --background: #fcfcfd;
+    --foreground: #282b30;
+    --card: #ffffff;
+    --card-foreground: #282b30;
+    --popover: #ffffff;
+    --popover-foreground: #282b30;
+    --brand-ink: #282b30;
+    --brand-sand: #dfe6ff;
+    --primary: #3f5dc6;
+    --primary-hover: #2a439c;
+    --primary-foreground: #ffffff;
+    --secondary: #f3f4f6;
+    --secondary-foreground: #282b30;
+    --muted: #f3f4f6;
+    --muted-foreground: #666b75;
+    --accent: #eceef4;
+    --accent-foreground: #282b30;
+    --destructive: #c84b4b;
+    --destructive-foreground: #ffffff;
+    --success: #4d8a4c;
+    --success-foreground: #ffffff;
+    --warning: #bc8c28;
+    --warning-foreground: #282b30;
+    --border: #e7e8ec;
+    --input: #d4d6dd;
+    --ring: #3f5dc6;
+    --chart-1: #3f5dc6;
+    --chart-2: #858b97;
+    --chart-3: #b4bac8;
+    --chart-4: #dfe6ff;
+    --chart-5: #c4777d;
+    --sidebar: #f7f7f9;
+    --sidebar-foreground: #282b30;
+    --sidebar-primary: #3f5dc6;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #fcfcfd;
+    --sidebar-accent-foreground: #282b30;
+    --sidebar-border: #e7e8ec;
+    --sidebar-ring: #3f5dc6;
 }
 
 .dark {
-    /* Dark mode is the ink itself, deepened so `--card`/`--popover` can sit a
-       step above it. `--primary` inverts to sand: ink-on-ink would be an
-       invisible button, and sand is the palette's only other anchor. */
-    --background: oklch(0.2100 0.0230 271.00); /* a shade under #282d3c */
-    --foreground: oklch(0.9628 0.0119 79.78);
-    --card: oklch(0.2990 0.0282 270.30); /* #282d3c */
-    --card-foreground: oklch(0.9628 0.0119 79.78);
-    --popover: oklch(0.2990 0.0282 270.30);
-    --popover-foreground: oklch(0.9628 0.0119 79.78);
-    --brand-ink: oklch(0.2990 0.0282 270.30);
-    --brand-sand: oklch(0.8257 0.0486 79.53);
-    --primary: oklch(0.8257 0.0486 79.53); /* #D7C3A3 */
-    --primary-foreground: oklch(0.2990 0.0282 270.30);
-    --secondary: oklch(0.3502 0.0346 268.87);
-    --secondary-foreground: oklch(0.9628 0.0119 79.78);
-    --muted: oklch(0.3502 0.0346 268.87);
-    --muted-foreground: oklch(0.72 0.024 80);
-    --accent: oklch(0.3502 0.0346 268.87);
-    --accent-foreground: oklch(0.9628 0.0119 79.78);
-    --destructive: oklch(0.704 0.191 22.216);
-    --success: oklch(0.7 0.14 155);
-    --success-foreground: oklch(0.205 0 0);
-    --warning: oklch(0.78 0.14 75);
-    --warning-foreground: oklch(0.205 0 0);
-    --border: oklch(0.8257 0.0486 79.53 / 14%);
-    --input: oklch(0.8257 0.0486 79.53 / 18%);
-    --ring: oklch(0.8257 0.0486 79.53);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    color-scheme: dark;
+    --background: #181b24;
+    --foreground: #edf0f7;
+    --card: #202530;
+    --card-foreground: #edf0f7;
+    --popover: #202530;
+    --popover-foreground: #edf0f7;
+    --brand-ink: #edf0f7;
+    --brand-sand: #28375b;
+    --primary: #8da7ff;
+    --primary-hover: #acc0ff;
+    --primary-foreground: #181b24;
+    --secondary: #272d3a;
+    --secondary-foreground: #edf0f7;
+    --muted: #272d3a;
+    --muted-foreground: #a7afc2;
+    --accent: #2c3547;
+    --accent-foreground: #edf0f7;
+    --destructive: #ed8585;
+    --destructive-foreground: #181b24;
+    --success: #86ba83;
+    --success-foreground: #181b24;
+    --warning: #dbb65d;
+    --warning-foreground: #181b24;
+    --border: #343b4b;
+    --input: #485168;
+    --ring: #8da7ff;
+    --chart-1: #8da7ff;
+    --chart-2: #a7afc2;
+    --chart-3: #68738b;
+    --chart-4: #28375b;
+    --chart-5: #dc929a;
+    --sidebar: #1c202a;
+    --sidebar-foreground: #edf0f7;
+    --sidebar-primary: #8da7ff;
+    --sidebar-primary-foreground: #181b24;
+    --sidebar-accent: #283044;
+    --sidebar-accent-foreground: #edf0f7;
+    --sidebar-border: #343b4b;
+    --sidebar-ring: #8da7ff;
+}
+
+/* Keep authentication light even when returning from a dark workspace. */
+html[data-auth-page],
+html[data-auth-page] .dark,
+html[data-auth-page] *.dark {
+    color-scheme: light;
+    --background: #fcfcfd;
+    --foreground: #282b30;
+    --card: #ffffff;
+    --card-foreground: #282b30;
+    --popover: #ffffff;
+    --popover-foreground: #282b30;
+    --brand-ink: #282b30;
+    --brand-sand: #dfe6ff;
+    --primary: #3f5dc6;
+    --primary-hover: #2a439c;
+    --primary-foreground: #ffffff;
+    --secondary: #f3f4f6;
+    --secondary-foreground: #282b30;
+    --muted: #f3f4f6;
+    --muted-foreground: #666b75;
+    --accent: #eceef4;
+    --accent-foreground: #282b30;
+    --destructive: #c84b4b;
+    --destructive-foreground: #ffffff;
+    --success: #4d8a4c;
+    --success-foreground: #ffffff;
+    --warning: #bc8c28;
+    --warning-foreground: #282b30;
+    --border: #e7e8ec;
+    --input: #d4d6dd;
+    --ring: #3f5dc6;
+    --chart-1: #3f5dc6;
+    --chart-2: #858b97;
+    --chart-3: #b4bac8;
+    --chart-4: #dfe6ff;
+    --chart-5: #c4777d;
+    --sidebar: #f7f7f9;
+    --sidebar-foreground: #282b30;
+    --sidebar-primary: #3f5dc6;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #fcfcfd;
+    --sidebar-accent-foreground: #282b30;
+    --sidebar-border: #e7e8ec;
+    --sidebar-ring: #3f5dc6;
 }
 
 @layer base {
@@ -334,6 +349,9 @@ html[data-auth-page] *.dark {
     }
     body {
         @apply bg-background text-foreground;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
     }
     html {
         @apply font-sans;
@@ -454,44 +472,32 @@ html[data-auth-page] *.dark {
 /* ===== Landing page ===== */
 
 .landing-title {
-    font-family: var(--font-sora), sans-serif;
+    font-family: var(--font-manrope), "Manrope", sans-serif;
     font-size: clamp(2.5rem, 6vw, 5.25rem);
     font-weight: 600;
     line-height: 1.05;
     letter-spacing: -0.03em;
     text-wrap: balance;
     margin: 0;
-    background: linear-gradient(
-        110deg,
-        #111111 0%,
-        #111111 40%,
-        #5c5c5c 55%,
-        #111111 70%,
-        #111111 100%
-    );
-    background-size: 200% 200%;
-    -webkit-background-clip: text;
-    color: transparent;
-    animation:
-        landing-shimmer 7s ease-in-out infinite,
-        landing-rise 0.9s ease-out both;
+    color: var(--foreground);
+    animation: landing-rise 0.45s var(--ease) both;
 }
 
 .landing-subtitle {
     font-size: clamp(1rem, 2.2vw, 1.35rem);
-    color: #4b4b4b;
+    color: var(--muted-foreground);
 }
 
 .landing-kicker {
     font-size: 0.65rem;
     letter-spacing: 0.6em;
     text-transform: uppercase;
-    color: #7a7a7a;
+    color: var(--muted-foreground);
     font-weight: 600;
 }
 
 .landing-fade {
-    animation: landing-fade 0.9s ease-out both;
+    animation: landing-fade 0.35s var(--ease) both;
 }
 
 .landing-grainient {
@@ -763,4 +769,49 @@ html[data-auth-page] *.dark {
   html {
     scroll-behavior: auto;
   }
+}
+
+/* Shared app motion and the blue field use only opacity and transforms. */
+@keyframes workspace-enter {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+}
+
+@utility workspace-enter {
+    animation: workspace-enter 200ms var(--ease) both;
+}
+
+.workspace-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        radial-gradient(ellipse at 100% 100%, color-mix(in srgb, var(--primary) 9%, transparent), transparent 55%),
+        radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--primary) 5%, transparent), transparent 55%);
+}
+
+[data-slot="alert-dialog-content"] {
+    animation: workspace-enter 200ms var(--ease) both;
+}
+[data-slot="alert-dialog-overlay"] {
+    backdrop-filter: none;
+    background-color: rgb(0 0 0 / 0.35);
+    animation: landing-fade 200ms var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .workspace-enter,
+    .landing-title,
+    .landing-fade,
+    [data-slot="dialog-content"],
+    [data-slot="dialog-overlay"],
+    [data-slot="alert-dialog-content"],
+    [data-slot="alert-dialog-overlay"],
+    [data-slot="dropdown-menu-content"],
+    [data-slot="dropdown-menu-sub-content"],
+    [data-slot="select-content"] {
+        animation: none !important;
+        transition: none !important;
+    }
 }

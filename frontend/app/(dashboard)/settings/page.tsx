@@ -141,7 +141,7 @@ function ChangePasswordModal({
       />
 
       {/* Modal panel */}
-      <div className="relative z-10 w-full max-w-md mx-4 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-background rounded-2xl border border-border shadow-2xl p-4 sm:p-6">
+      <div className="relative z-10 w-full max-w-md mx-4 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain bg-background rounded-2xl border border-border shadow-lg p-4 sm:p-6 workspace-enter">
         {/* Close button */}
         <button
           type="button"
@@ -365,7 +365,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto space-y-6 bg-background min-h-full">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto space-y-10 bg-background min-h-full">
       <div>
         <PageTitle>Settings</PageTitle>
         <p className="text-muted-foreground mt-1">
@@ -374,7 +374,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Row 1 — Account Details (full width) */}
-      <Card className="bg-card border-border">
+      <Card variant="section">
         <CardHeader className="pb-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -423,7 +423,7 @@ export default function SettingsPage() {
       </Card>
 
       {/* Row 2 — API Token Usage (full width) */}
-      <Card className="bg-card border-border">
+      <Card variant="section">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <div>
@@ -453,7 +453,7 @@ export default function SettingsPage() {
           {isLoading ? (
             <Skeleton className="h-[8.5rem] w-full rounded-xl" />
           ) : (
-            <div className="flex flex-col items-center justify-center py-8 bg-muted/20 border border-border rounded-xl">
+            <div className="flex flex-col items-start justify-center py-4">
               <span className="text-5xl font-extrabold tracking-tight text-foreground">
                 {((user as any)?.tokens_consumed || 0).toLocaleString()}
               </span>
@@ -474,7 +474,7 @@ export default function SettingsPage() {
       <BrandKitCard />
 
       {/* Row 4 — Appearance (full width) */}
-      <Card className="bg-card border-border">
+      <Card variant="section">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <div>
@@ -489,7 +489,7 @@ export default function SettingsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between p-4 bg-muted/20 border border-border rounded-xl">
+          <div className="flex items-center justify-between gap-4 py-2">
             <div>
               <h3 className="text-sm font-medium text-foreground">Theme Preference</h3>
               <p className="text-xs text-muted-foreground mt-1">

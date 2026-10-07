@@ -38,7 +38,7 @@ export interface ThemeToggleProps {
   barHeight?: number;
   /** Diameter of the icon button in px. Default: 36 */
   buttonSize?: number;
-  /** Curtain animation duration in ms. Default: 550 */
+  /** Curtain animation duration in ms. Default: 200 */
   duration?: number;
   /** Called after each theme change completes */
   onThemeChange?: (theme: Theme) => void;
@@ -50,28 +50,28 @@ export interface ThemeToggleProps {
 
 const TOKENS: Record<Theme, Record<string, string>> = {
   light: {
-    pageBg:    "#f3ede1",
-    pageText:  "#1a1a1a",
-    barBg:     "#1a1a1a",
+    pageBg:    "#fcfcfd",
+    pageText:  "#282b30",
+    barBg:     "#282b30",
     barText:   "#ffffff",
     barBorder: "rgba(255,255,255,0.07)",
-    btnBg:     "#f3ede1",
-    btnText:   "#1a1a1a",
+    btnBg:     "#fcfcfd",
+    btnText:   "#282b30",
     btnRing:   "rgba(255,255,255,0.15)",
     inputBg:   "rgba(255,255,255,0.1)",
     inputText: "#ffffff",
   },
   dark: {
-    pageBg:    "#0e0e0e",
-    pageText:  "#dfd8c6",
-    barBg:     "#dfd8c6",
-    barText:   "#1a1a1a",
+    pageBg:    "#181b24",
+    pageText:  "#edf0f7",
+    barBg:     "#edf0f7",
+    barText:   "#282b30",
     barBorder: "rgba(0,0,0,0.10)",
-    btnBg:     "#0e0e0e",
-    btnText:   "#dfd8c6",
+    btnBg:     "#181b24",
+    btnText:   "#edf0f7",
     btnRing:   "rgba(0,0,0,0.25)",
     inputBg:   "rgba(0,0,0,0.08)",
-    inputText: "#1a1a1a",
+    inputText: "#282b30",
   },
 };
 
@@ -147,7 +147,7 @@ export function ThemeToggle({
   defaultTheme = "light",
   barHeight: explicitBarHeight,
   buttonSize   = 36,
-  duration     = 550,
+  duration     = 200,
   onThemeChange,
   children,
 }: ThemeToggleProps) {
@@ -188,6 +188,13 @@ export function ThemeToggle({
   const toggle = useCallback(() => {
     if (phase !== "idle") return;
     const next: Theme = theme === "light" ? "dark" : "light";
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setTheme(next);
+      localStorage.setItem("theme", next);
+      document.documentElement.classList.toggle("dark", next === "dark");
+      onThemeChange?.(next);
+      return;
+    }
     curtainColorRef.current = TOKENS[next].pageBg;
     setPhase("falling");
 

@@ -232,7 +232,7 @@ function SuperAdminDashboard() {
         </>
       )}
 
-      <Card>
+      <Card variant="section">
         <CardHeader>
           <CardTitle>All schools</CardTitle>
           <CardDescription>
@@ -370,7 +370,7 @@ function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
 
       <SchoolDomains org={org} onSaved={setOrg} />
 
-      <Card>
+      <Card variant="section">
         <CardHeader>
           <CardTitle>Members</CardTitle>
           <CardDescription>Approve, reject, or remove teachers from your school.</CardDescription>

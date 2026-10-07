@@ -43,7 +43,7 @@ export function ForgotPasswordForm({
       )}
       {...props}
     >
-      <div className="w-full max-w-md rounded-2xl border border-white/30 bg-white/30 p-6 sm:p-8 shadow-xl backdrop-blur-md">
+      <div className="w-full max-w-md workspace-enter p-6 sm:p-8">
         <div className="flex flex-col items-center gap-6">
           <div className="text-center">
             <h1 className="text-2xl font-semibold text-foreground">

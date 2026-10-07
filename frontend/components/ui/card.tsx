@@ -5,14 +5,17 @@ import { cn } from "@/lib/utils"
 function Card({
   className,
   size = "default",
+  variant = "card",
   ...props
-}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+}: React.ComponentProps<"div"> & { size?: "default" | "sm"; variant?: "card" | "section" }) {
   return (
     <div
       data-slot="card"
       data-size={size}
+      data-variant={variant}
       className={cn(
         "group/card flex flex-col gap-4 overflow-hidden rounded-xl border border-border bg-card py-4 text-sm text-card-foreground has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+        variant === "section" && "gap-5 rounded-none border-0 border-t bg-transparent pt-6 pb-0 [&>[data-slot=card-header]]:rounded-none [&>[data-slot=card-header]]:px-0 [&>[data-slot=card-header]]:pb-0 [&>[data-slot=card-content]]:px-0 [&>[data-slot=card-footer]]:rounded-none [&>[data-slot=card-footer]]:bg-transparent [&>[data-slot=card-footer]]:px-0",
         className
       )}
       {...props}

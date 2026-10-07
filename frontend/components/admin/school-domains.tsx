@@ -63,7 +63,7 @@ export function SchoolDomains({
   };
 
   return (
-    <Card>
+    <Card variant="section">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <AtSign className="h-4 w-4 text-muted-foreground" aria-hidden />

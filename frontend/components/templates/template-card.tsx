@@ -92,7 +92,7 @@ export function SavedTemplateCard({
   const sections = blueprint.bySection ?? [];
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40">
+    <div className="border-t border-border py-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-semibold">{template.name}</h3>
@@ -247,7 +247,7 @@ export function BuiltinTemplateCard({
         : `Classes ${range[0]}–${range[1]}`;
 
   return (
-    <div className="flex flex-col rounded-xl border border-dashed border-border bg-card/50 p-4">
+    <div className="flex flex-col border-t border-border py-5">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold leading-snug">{template.name}</h3>

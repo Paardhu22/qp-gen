@@ -115,7 +115,7 @@ export function BrandKitCard() {
   };
 
   return (
-    <Card>
+    <Card variant="section">
       <CardHeader>
         <CardTitle>Institute branding</CardTitle>
         <CardDescription>

@@ -112,7 +112,7 @@ export function TeacherInvites({ orgId }: { orgId: string }) {
   );
 
   return (
-    <Card>
+    <Card variant="section">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <MailPlus className="h-4 w-4 text-muted-foreground" aria-hidden />

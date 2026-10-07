@@ -94,7 +94,7 @@ export default function OrganizationDetailPage() {
 
           <SchoolDomains org={org} onSaved={setOrg} />
 
-          <Card>
+          <Card variant="section">
             <CardHeader>
               <CardTitle>Members</CardTitle>
               <CardDescription>Approve, reject, or remove users in this school.</CardDescription>

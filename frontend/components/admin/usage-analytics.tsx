@@ -115,7 +115,7 @@ function StatTile({
   hint?: string;
 }) {
   return (
-    <Card>
+    <Card variant="section">
       <CardContent className="p-4">
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
         {/* Proportional figures: a standalone number, not a column to align. */}
@@ -194,7 +194,7 @@ export function UsageAnalytics({
         />
       </div>
 
-      <Card>
+      <Card variant="section">
         <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
           <div>
             <CardTitle>Token usage over time</CardTitle>
@@ -286,7 +286,7 @@ export function UsageAnalytics({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card variant="section">
         <CardHeader>
           <CardTitle>Heaviest schools</CardTitle>
           <CardDescription>
@@ -371,7 +371,7 @@ function BreakdownCard({
   const rows = slices.filter((s) => s.tokens > 0).slice(0, 8);
 
   return (
-    <Card>
+    <Card variant="section">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>

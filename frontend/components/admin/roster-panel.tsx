@@ -69,7 +69,7 @@ export function RosterPanel({
 
   if (nothingWaiting) {
     return (
-      <Card>
+      <Card variant="section">
         <CardHeader>
           <CardTitle>Nothing waiting</CardTitle>
           <CardDescription>
@@ -83,7 +83,7 @@ export function RosterPanel({
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       {pending_members.length > 0 && (
-        <Card>
+        <Card variant="section">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <UserPlus className="h-4 w-4 text-muted-foreground" aria-hidden />
@@ -117,7 +117,7 @@ export function RosterPanel({
       )}
 
       {(pending_invites.length > 0 || expired_invite_count > 0) && (
-        <Card>
+        <Card variant="section">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" aria-hidden />
