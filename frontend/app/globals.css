@@ -636,13 +636,13 @@ html[data-auth-page] *.dark {
     transform: none;
   }
 
-  [data-slot="card"] {
+  [data-slot="card"]:not([data-variant="section"]) {
     transition:
       transform 150ms ease,
       box-shadow 150ms ease;
   }
 
-  [data-slot="card"]:hover {
+  [data-slot="card"]:not([data-variant="section"]):hover {
     transform: translateY(-1px);
     box-shadow: 0 2px 8px oklch(0 0 0 / 6%);
   }
