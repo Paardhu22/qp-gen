@@ -22,6 +22,7 @@
 
 import { fetchBrandKit, type BrandKit } from "@/lib/api-client";
 import { defaultHeaderJSON } from "@/components/editor/templates";
+import { isGenericPaperTitle } from "@/components/editor/header-details";
 
 let cached: BrandKit | null = null;
 let inFlight: Promise<BrandKit | null> | null = null;
@@ -75,30 +76,28 @@ function textNode(text: string, level: 1 | 2) {
  * name but no address replaces the title line and leaves everything else as it
  * was — a half-filled kit must not produce a half-empty masthead.
  */
-export function headerJSONFromBrand(): any {
+export function headerJSONFromBrand(metadata: {
+  subject?: string; className?: string; examName?: string;
+  marks?: string | number; setLabel?: string; time?: string;
+} = {}): any {
   const kit = cached;
-  if (!kit) return defaultHeaderJSON;
 
-  const hasName = Boolean(kit.instituteName?.trim());
-  const hasAddress = Boolean(kit.instituteAddress?.trim());
-  const logo = kit.logos?.[0];
-
-  if (!hasName && !hasAddress && !logo) return defaultHeaderJSON;
+  const hasName = Boolean(kit?.instituteName?.trim());
+  const hasAddress = Boolean(kit?.instituteAddress?.trim());
+  const logo = kit?.logos?.[0];
 
   // Structural clone so a caller mutating the returned node — ProseMirror
   // normalises what it is given — cannot corrupt the template for the next
   // insertion.
   const header = JSON.parse(JSON.stringify(defaultHeaderJSON));
 
-  if (hasName) {
+  if (hasName && kit) {
     header.content[0] = textNode(kit.instituteName.trim().toUpperCase(), 1);
   }
-  if (hasAddress) {
-    // The address replaces the subtitle line rather than being appended: the
-    // second heading is the one a school uses for "CBSE - Question Paper" or
-    // its own address, and adding a third line would push the marks table off
-    // a page that is already tight.
-    header.content[1] = textNode(kit.instituteAddress.trim(), 2);
+  if (hasAddress && kit) {
+    header.content.splice(1, 0, {
+      type: "paragraph", content: [{ type: "text", text: kit.instituteAddress.trim() }],
+    });
   }
   if (logo?.url) {
     // Size and placement are the header's defaults: medium height, and
@@ -106,5 +105,16 @@ export function headerJSONFromBrand(): any {
     header.attrs = { ...(header.attrs || {}), logoUrl: logo.url };
   }
 
+  if (metadata.examName?.trim()) {
+    const title = textNode(metadata.examName.trim(), 2);
+    if (!isGenericPaperTitle(title)) header.content.push(title);
+  }
+  const values: Record<string, string | number | undefined> = {
+    subject: metadata.subject, class: metadata.className, marks: metadata.marks,
+    set: metadata.setLabel, time: metadata.time,
+  };
+  header.attrs.details = header.attrs.details.map((field: any) => ({
+    ...field, value: values[field.id] == null ? field.value : String(values[field.id]).trim(),
+  }));
   return header;
 }

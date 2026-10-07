@@ -43,6 +43,7 @@ import {
   formatPaperDate,
   resolveLogoSide,
 } from "@/components/editor/masthead";
+import { isGenericPaperTitle, legacyHeaderTableIndex, visibleHeaderDetails } from "@/components/editor/header-details";
 import { latexToMath } from "./docx-math";
 
 export interface LoadedImage {
@@ -252,20 +253,22 @@ function table(
 
 /** The header's own heading sizes, as `.paper-header-content` sets them. */
 const MASTHEAD: Record<string, RunStyle> = {
-  h1: { bold: true, allCaps: true, size: pt(17) },
-  h2: { bold: true, allCaps: true, size: pt(12.5) },
+  h1: { bold: true, allCaps: true, size: pt(18) },
+  h2: { size: pt(11.5) },
   h3: { bold: true, allCaps: true, size: pt(11.5) },
-  p: { size: pt(10.5) },
+  p: { size: pt(9.5), color: "444444" },
 };
 
 async function masthead(node: Json, ctx: Context): Promise<Block[]> {
   const attrs = node.attrs ?? {};
   const children = node.content ?? [];
-  // The title lines sit beside the logo; the details grid and anything after
-  // it run full width beneath.
-  const split = children.findIndex((child) => child.type === "table");
-  const titles = split === -1 ? children : children.slice(0, split);
-  const rest = split === -1 ? [] : children.slice(split);
+  // The titles sit beside the logo. Preserve custom tables beneath them,
+  // while the old metadata grid becomes the same strip as the editor.
+  const legacyIndex = legacyHeaderTableIndex(node);
+  const split = children.findIndex(child => child.type === "table");
+  const titles = (split === -1 ? children : children.slice(0, split)).filter(child =>
+    !isGenericPaperTitle(child) && !(node.attrs?.showSchoolName === false && child.type === "heading" && child.attrs?.level === 1));
+  const rest = split === -1 ? [] : children.slice(split).filter((_, i) => i + split !== legacyIndex);
 
   const titleParagraphs = titles.map((child) => {
     const key = child.type === "heading" ? `h${child.attrs?.level ?? 1}` : "p";
@@ -341,19 +344,19 @@ async function masthead(node: Json, ctx: Context): Promise<Block[]> {
     }
   }
 
+  const details = visibleHeaderDetails(node);
   const date = attrs.showDate ? formatPaperDate(attrs.dateValue) : "";
-  if (date) {
-    out.push(
-      new Paragraph({
-        alignment: AlignmentType.RIGHT,
-        spacing: { before: 60 },
-        children: [
-          new TextRun({ text: "Date: ", bold: true, size: pt(10.5) }),
-          new TextRun({ text: date, size: pt(10.5) }),
-        ],
-      }),
-    );
+  const detailRuns: TextRun[] = [];
+  for (const field of [...details, ...(date ? [{ id: "date", label: "Date", value: date }] : [])]) {
+    if (detailRuns.length) detailRuns.push(new TextRun({ text: "    ", size: pt(10.5) }));
+    detailRuns.push(new TextRun({ text: `${field.label}: `, bold: true, size: pt(10.5) }),
+      new TextRun({ text: field.value.trim(), size: pt(10.5) }));
   }
+  out.push(new Paragraph({
+    spacing: { before: 100, after: 100, ...(detailRuns.length ? {} : { line: 40 }) },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "333333", space: 5 } },
+    children: detailRuns,
+  }));
   out.push(spacer(8));
   return out;
 }

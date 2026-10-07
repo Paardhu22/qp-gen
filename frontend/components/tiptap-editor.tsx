@@ -424,7 +424,7 @@ function createEmptyDocument() {
   };
 }
 
-export function normalizeInitialContent(rawContent: string | undefined) {
+export function normalizeInitialContent(rawContent: string | undefined, metadata?: PaperMetadata) {
   if (rawContent === undefined) return createEmptyDocument();
 
   const trimmed = rawContent.trim();
@@ -444,7 +444,11 @@ export function normalizeInitialContent(rawContent: string | undefined) {
     
       // Convert raw generator result (e.g. Set B / C) into TipTap JSON directly
     if (parsed && Array.isArray(parsed.sections)) {
-      const pageContent: any[] = [defaultHeaderJSON];
+      const pageContent: any[] = [headerJSONFromBrand({
+        ...metadata,
+        marks: parsed.meta?.totalMarks,
+        setLabel: parsed.meta?.setLabel ?? metadata?.setLabel,
+      })];
       parsed.sections.forEach((section: any) => {
         const title = String(section.title || "").trim();
         if (title) {
@@ -480,6 +484,7 @@ type PaperMetadata = {
   examName?: string;
   className?: string;
   subject?: string;
+  setLabel?: string;
 };
 
 function resolvePaperMetadata(metadata?: PaperMetadata | null) {
@@ -1240,7 +1245,7 @@ export const TiptapEditor = ({
         ? new Date(serverUpdatedAt).getTime()
         : 0;
 
-      let contentToLoad = normalizeInitialContent(initialContent ?? "");
+      let contentToLoad = normalizeInitialContent(initialContent ?? "", paperMetadataRef.current);
       let liveDocument: LiveEditorDocument | null = null;
 
       // An approved generation replaces the tab's document outright. Skipping
@@ -1422,7 +1427,7 @@ export const TiptapEditor = ({
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       
       if (!hasHeader) {
-        editor.commands.insertContentAt(0, headerJSONFromBrand());
+        editor.commands.insertContentAt(0, headerJSONFromBrand(paperMetadataRef.current));
       }
 
       editor.commands.focus("end");
@@ -1459,7 +1464,7 @@ export const TiptapEditor = ({
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       
       if (!hasHeader) {
-        editor.commands.insertContentAt(0, headerJSONFromBrand());
+        editor.commands.insertContentAt(0, headerJSONFromBrand(paperMetadataRef.current));
       }
 
       editor.commands.focus("end");
@@ -1537,7 +1542,7 @@ export const TiptapEditor = ({
       editor.commands.insertContentAt(insertPosition, contentToInsert);
       
       if (!hasHeader) {
-        editor.commands.insertContentAt(0, headerJSONFromBrand());
+        editor.commands.insertContentAt(0, headerJSONFromBrand(paperMetadataRef.current));
       }
 
       editor.commands.focus("end");

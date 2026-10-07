@@ -186,15 +186,16 @@
            with an invisible twin of the same size floating on the far side:
            the title is centred between the two, which is the centre of the
            page, whatever the logo's width. A wordmark goes above the title
-           instead. Floats rather than flex, because the title lines and the
-           details grid live in ONE editable content block: the lines flow
-           between the floats and the grid clears below them. */
+           instead. Editable title lines flow between the floats; the compact
+           details strip clears below them. */
         .paper-header-block {
-          margin-bottom: 10px;
+          margin-bottom: 14px;
         }
 
         .paper-header-shell {
           position: relative;
+          border-bottom: 1px solid #333333;
+          padding-bottom: 10px;
           /* Contains the floats even when the teacher deletes the grid. */
           display: flow-root;
         }
@@ -241,7 +242,7 @@
           width: 16px;
           height: 16px;
           border-radius: 9999px;
-          background: hsl(var(--destructive));
+          background: var(--destructive);
           color: #fff;
         }
 
@@ -254,19 +255,22 @@
         }
 
         .paper-header-content h1 {
-          font-size: 17pt;
+          font-size: 18pt;
           font-weight: 700;
           text-transform: uppercase;
           line-height: 1.2;
           margin: 0 0 2px;
         }
 
+        .paper-header-block[data-show-school-name="false"] .paper-header-content h1 {
+          display: none;
+        }
+
         .paper-header-content h2 {
-          font-size: 12.5pt;
-          font-weight: 700;
-          text-transform: uppercase;
-          line-height: 1.25;
-          margin: 2px 0;
+          font-size: 11.5pt;
+          font-weight: 500;
+          line-height: 1.3;
+          margin: 4px 0 0;
         }
 
         .paper-header-content h3 {
@@ -277,8 +281,9 @@
         }
 
         .paper-header-content p {
-          margin: 1px 0;
-          font-size: 10.5pt;
+          margin: 2px 0;
+          font-size: 9.5pt;
+          color: #444444;
         }
 
         /* The details grid: full width, below the logo whatever its height. */
@@ -317,15 +322,31 @@
           font-size: inherit;
         }
 
-        /* Date: under the grid, at the right, as on a printed paper. */
-        .paper-header-date-row {
+        /* A single strip, with only the details the teacher chose to print. */
+        .paper-header-details {
           clear: both;
           display: flex;
-          justify-content: flex-end;
+          flex-wrap: wrap;
+          justify-content: space-between;
           align-items: baseline;
-          gap: 6px;
-          margin-top: 4px;
+          gap: 5px 18px;
+          padding-top: 10px;
           font-size: 10.5pt;
+          line-height: 1.4;
+          color: #000000;
+        }
+        .paper-header-detail {
+          overflow-wrap: anywhere;
+          max-width: 100%;
+        }
+        .paper-header-detail-label {
+          font-weight: 700;
+        }
+        .paper-header-date-row {
+          display: inline-flex;
+          align-items: baseline;
+          gap: 5px;
+          font-size: inherit;
           color: #000000;
         }
         .paper-header-date-label {
@@ -371,24 +392,39 @@
         /* Out in the page margin, so they never take room from the masthead. */
         .paper-header-actions {
           position: absolute;
-          top: 0;
-          right: -38px;
+          top: -36px;
+          right: 0;
           display: flex;
-          flex-direction: column;
+          align-items: center;
           gap: 4px;
+          font-family: var(--font-manrope), sans-serif;
         }
         .paper-header-action {
-          border: 1px solid #000000;
+          border: 1px solid var(--border);
           background: #ffffff;
           color: #000000;
-          border-radius: 999px;
-          padding: 2px;
-          height: 20px;
-          width: 20px;
+          border-radius: 8px;
+          padding: 4px;
+          height: 28px;
+          width: 28px;
           display: flex;
           align-items: center;
           justify-content: center;
           cursor: pointer;
+        }
+        .paper-header-edit {
+          width: auto;
+          gap: 6px;
+          padding: 4px 8px;
+          font-size: 11px;
+          color: var(--primary);
+        }
+        .paper-header-action:hover, .paper-header-action:focus-visible {
+          background: #f3f4f6;
+        }
+        @media (pointer: coarse) {
+          .paper-header-actions { top: -46px; }
+          .paper-header-action, .paper-header-delete { min-width: 40px; min-height: 40px; }
         }
         .paper-header-action.is-active {
           background: #18181b;
@@ -410,7 +446,8 @@
           justify-content: center;
         }
 
-        .paper-header-block:hover .paper-header-delete {
+        .paper-header-block:hover .paper-header-delete,
+        .paper-header-block:focus-within .paper-header-delete {
           opacity: 1;
         }
 
@@ -1440,6 +1477,9 @@
           .question-group-controls,
           .block-drag-handle,
           .paper-header-delete,
+          .paper-header-actions,
+          .logo-remove-btn,
+          .paper-header-date-input,
           .instruction-delete,
           .drawing-delete,
           .float-image-hide-in-pdf {
@@ -1452,5 +1492,8 @@
 
           .custom-scrollbar {
             overflow: visible !important;
+          }
+          .paper-header-date-display {
+            border-bottom: none !important;
           }
         }

@@ -81,6 +81,9 @@ const PAGE_CHROME_RESET = `
     box-shadow: none !important;
     background: #ffffff !important;
   }
+  .paper-header-date-display {
+    border-bottom: none !important;
+  }
 `;
 
 /** Patch a cloned document so html2canvas can parse all CSS colours. */

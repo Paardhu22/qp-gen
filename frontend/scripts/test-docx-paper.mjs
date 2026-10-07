@@ -114,7 +114,7 @@ const plain = (xml) => xml.replace(/<w:tab\/>/g, "\t").replace(/<[^>]+>/g, "");
   check("A4 page", /<w:pgSz w:w="11910" w:h="16845"/.test(xml));
   check("the masthead carries the logo", (xml.match(/<w:drawing>/g) || []).length === 1);
   check("the school name prints", body.includes("Greenwood School"));
-  check("the details grid prints", body.includes("Subject") && body.includes("ICT"));
+  check("legacy details print in the compact header", body.includes("Subject") && body.includes("ICT"));
   check("the date prints", /Date: .*2026/.test(body));
   check("the instruction lines print, summary and own", body.includes("This question paper has 1 section.") && body.includes("All questions are compulsory."));
   check("the section bar prints with the teacher's own summary", body.includes("SECTION A") && body.includes("(Answer any 1)"));
@@ -144,6 +144,39 @@ const plain = (xml) => xml.replace(/<w:tab\/>/g, "\t").replace(/<[^>]+>/g, "");
 {
   const xml = await documentXml({ type: "doc", content: [] }, { width: 1, height: 1 });
   check("an empty paper still builds", xml.includes("<w:body>"));
+}
+
+// Optional detail values stay saved but must never leak into the Word file.
+{
+  const copy = structuredClone(PAPER);
+  const header = copy.content[0].content[0];
+  header.content = header.content.filter(node => node.type !== "table");
+  header.attrs.details = [
+    { id: "subject", label: "Subject", value: "Science" },
+    { id: "set", label: "Set", value: "PRIVATE-SET-VALUE" },
+    { id: "time", label: "Time", value: "PRIVATE-TIME-VALUE" },
+    { id: "marks", label: "Max marks", value: "" },
+  ];
+  header.attrs.hiddenFields = ["set", "time"];
+  header.attrs.showDate = false;
+  const xml = await documentXml(copy, { width: 200, height: 200 });
+  const body = plain(xml);
+  check("Word prints the visible subject", body.includes("Subject: Science"));
+  check("Word omits hidden set and time values", !body.includes("PRIVATE-SET-VALUE") && !body.includes("PRIVATE-TIME-VALUE"));
+  check("Word omits empty marks and disabled date", !body.includes("Max marks:") && !body.includes("Date:"));
+  check("the compact header has a separator", /<w:pBdr>/.test(xml));
+  header.attrs.hiddenFields = [];
+  const restored = plain(await documentXml(copy, { width: 200, height: 200 }));
+  check("re-enabled details print their retained values", restored.includes("PRIVATE-SET-VALUE") && restored.includes("PRIVATE-TIME-VALUE"));
+  header.attrs.showSchoolName = false;
+  const hiddenSchool = plain(await documentXml(copy, { width: 200, height: 200 }));
+  check("hidden school name is omitted from Word", !hiddenSchool.includes("Greenwood School"));
+  check("custom exam title remains visible", hiddenSchool.includes("Unit Test"));
+  header.attrs.showSchoolName = true;
+  header.content[1].content = [text("Question Paper")];
+  const schoolOnly = plain(await documentXml(copy, { width: 200, height: 200 }));
+  check("school name can be restored with its saved value", schoolOnly.includes("Greenwood School"));
+  check("legacy generic subtitle is omitted from Word", !schoolOnly.includes("Question Paper"));
 }
 
 console.log(failures === 0 ? "\nAll docx-paper cases passed" : `\n${failures} case(s) FAILED`);

@@ -1172,6 +1172,7 @@ export default function EditorPage() {
             examName: paperExamName,
             className: paperClass,
             subject: paperSubject,
+            setLabel: setTabs.length > 1 ? activeSetTab : "",
           }}
           hsatSources={hsatSources}
           uploadedDocs={uploadedDocs}

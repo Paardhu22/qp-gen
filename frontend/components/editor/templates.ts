@@ -1,41 +1,17 @@
+import { HEADER_FIELDS } from "./header-details";
+
 export const defaultHeaderJSON = {
   type: "paperHeaderBlock",
+  attrs: { details: HEADER_FIELDS.map(field => ({ ...field, value: "" })), hiddenFields: [] },
   content: [
     { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "SCHOOL NAME" }] },
-    { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "CBSE - Question Paper" }] },
-    {
-      type: "table",
-      content: [
-        {
-          type: "tableRow",
-          content: [
-            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "SUBJECT" }] }] },
-            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "GRADE" }] }] },
-            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "SET" }] }] },
-            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "MAX MARK" }] }] },
-            { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "TIME" }] }] }
-          ]
-        },
-        {
-          type: "tableRow",
-          content: [
-            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "Subject Name" }] }] },
-            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "X" }] }] },
-            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "A" }] }] },
-            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "40" }] }] },
-            { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "90 min" }] }] }
-          ]
-        }
-      ]
-    }
-  ]
+  ],
 };
 
 export const templates = {
   cbse: `
     <div data-type="paper-header-block">
       <h1>SCHOOL NAME</h1>
-      <h2>CBSE - Question Paper</h2>
       <table>
         <thead>
           <tr>

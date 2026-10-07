@@ -236,6 +236,49 @@ function validateHole(spec, at = "$") {
     `got ${legacy.logoHeight}`,
   );
   check("a pre-logo document defaults to auto placement", legacy.logoAlign === "auto");
+  check("existing headers keep the school name visible", legacy.showSchoolName === true);
+  const hiddenSchool = attrsOf(render({ showSchoolName: false }));
+  check("school visibility survives saved HTML", rule.getAttrs({ getAttribute: name => hiddenSchool[name] ?? null }).showSchoolName === false);
+}
+
+// Optional details survive saved HTML without printing hidden or blank values.
+{
+  const fields = [
+    { id: "subject", label: "Subject", value: "Science & Technology" },
+    { id: "set", label: "Set", value: "B" },
+    { id: "time", label: "Time", value: "90 min" },
+    { id: "marks", label: "Max marks", value: "" },
+  ];
+  const spec = render({ details: fields, hiddenFields: ["set", "time"] });
+  validateHole(spec);
+  const metadata = spec.find(child => Array.isArray(child) && child[0] === "div");
+  const printed = JSON.stringify(metadata);
+  check("hidden set and time are absent from printed header", !printed.includes('"Set:"') && !printed.includes('"Time:"'));
+  check("blank values print no label", !printed.includes('"Max marks:"'));
+  check("subject still prints", printed.includes("Science & Technology"));
+  const rootAttrs = attrsOf(spec);
+  const rule = PaperHeaderBlock.config.parseHTML.call({})[0];
+  const roundTrip = rule.getAttrs({ getAttribute: name => rootAttrs[name] ?? null });
+  check("hidden values are retained for re-enabling", roundTrip.details.find(field => field.id === "time").value === "90 min");
+  check("visibility survives HTML round-trip", JSON.stringify(roundTrip.hiddenFields) === JSON.stringify(["set", "time"]));
+  const empty = render({ details: fields, hiddenFields: fields.map(field => field.id), showDate: false });
+  check("all hidden details leave no empty strip", !JSON.stringify(empty.slice(2)).includes("paper-header-details"));
+}
+
+// New papers use supplied information rather than fixed sample values.
+{
+  const { headerJSONFromBrand, clearBrandHeaderCache } = await jiti.import(path.resolve(here, "../lib/brand-header.ts"));
+  clearBrandHeaderCache();
+  check("new headers omit the generic subtitle", !headerJSONFromBrand().content.some(node => node.type === "heading" && node.attrs.level === 2));
+  check("generic exam metadata cannot reinsert the subtitle", !headerJSONFromBrand({ examName: "CBSE - Question Paper" }).content.some(node => node.type === "heading" && node.attrs.level === 2));
+  const header = headerJSONFromBrand({ subject: "Mathematics", className: "8", marks: 75, examName: "Unit Assessment" });
+  const fields = header.attrs.details;
+  check("new headers have no details grid", !header.content.some(node => node.type === "table"));
+  check("new headers use actual subject, class and marks", fields.find(f => f.id === "subject").value === "Mathematics" && fields.find(f => f.id === "class").value === "8" && fields.find(f => f.id === "marks").value === "75");
+  check("set and time stay blank until supplied", fields.find(f => f.id === "set").value === "" && fields.find(f => f.id === "time").value === "");
+  check("exam title remains separate from school details", header.content[1].content[0].text === "Unit Assessment");
+  header.attrs.details[0].value = "Changed";
+  check("one paper cannot change another header's defaults", headerJSONFromBrand().attrs.details.every(f => f.value === ""));
 }
 
 console.log(
