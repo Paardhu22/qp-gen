@@ -43,6 +43,7 @@ import { FloatImage } from "./editor/extensions/float-image";
 import { PaginatedDocument } from "./editor/extensions/document-node";
 import { PageNode } from "./editor/extensions/page-node";
 import { PaginationEngine } from "./editor/extensions/pagination-engine";
+import { CompositeQuestionFrame } from "./editor/extensions/composite-question-frame";
 import { FontSize } from "./editor/extensions/font-size";
 import { LineHeight } from "./editor/extensions/line-height";
 import { Indent as IndentExtension } from "./editor/extensions/indent";
@@ -1823,6 +1824,7 @@ export function getTiptapExtensions(isEditable = true) {
         InstructionBlock,
         QuestionGroupBlock,
         GroupedQuestionBlock,
+        CompositeQuestionFrame,
         OrGroupInvariant,
         PaperHeaderBlockExt,
         MathBlock,

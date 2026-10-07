@@ -179,5 +179,25 @@ const plain = (xml) => xml.replace(/<w:tab\/>/g, "\t").replace(/<[^>]+>/g, "");
   check("legacy generic subtitle is omitted from Word", !schoolOnly.includes("Question Paper"));
 }
 
+// Saved composite questions have page-level passage/sub-question siblings.
+// The Word table must include them even when the editor split them overleaf.
+{
+  const head = { ...question(36, "Read the monument case.", null, 4), attrs: { number: 36, marks: 4, questionType: "CASE_STUDY" } };
+  const doc = { type: "doc", content: [
+    { type: "page", content: [head, para(text("An observer moves 20 m closer."))] },
+    { type: "page", content: [para(text("(i) Find the distance. [1]")), para(text("(ii) Find the height. [3]")), question(37, "The next question.", null, 2)] },
+  ] };
+  const xml = await documentXml(doc, { width: 200, height: 200 });
+  const tables = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) || [];
+  check("a case study and the next question have separate ruled boxes", tables.length === 2);
+  check("the complete case stays inside its question table across saved pages", ["Read the monument case.", "An observer moves 20 m closer.", "(i) Find the distance.", "(ii) Find the height."].every((t) => plain(tables[0] || "").includes(t)));
+  check("the next question is not absorbed into the case study", !plain(tables[0] || "").includes("The next question.") && plain(tables[1] || "").includes("The next question."));
+  check("a composite table can flow across Word pages", /<w:cantSplit w:val="(?:false|0)"\/>/.test(tables[0] || ""));
+  check("ordinary questions still stay together", /<w:cantSplit\/>/.test(tables[1] || ""));
+  doc.content = [{ type: "page", content: [{ type: "questionGroupBlock", content: [head, para(text("First branch passage.")), { ...head, attrs: { ...head.attrs, subLabel: "36(B)" } }, para(text("Second branch passage."))] }] }];
+  const branches = await documentXml(doc, { width: 200, height: 200 });
+  check("OR composite branches retain both passages in their boxes", /First branch passage\.[\s\S]*OR[\s\S]*Second branch passage\./.test(plain(branches)));
+}
+
 console.log(failures === 0 ? "\nAll docx-paper cases passed" : `\n${failures} case(s) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

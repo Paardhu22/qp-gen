@@ -50,6 +50,8 @@ const COMPOSITE_TYPES = new Set([
   "READING_COMP",
   "GRAMMAR",
   "CASE_STUDY",
+  "CASE_STUDY_MATHS",
+  "DATA_INTERPRETATION",
   "EXTRACT_PROSE",
   "EXTRACT_POETRY",
   "ANALYTICAL_PARAGRAPH",
@@ -466,6 +468,32 @@ const STRUCTURAL_BLOCKS = new Set([
   "paperHeaderBlock",
   "pageBreak",
 ]);
+
+/**
+ * Join a composite head to its following passage/sub-question blocks. Callers
+ * flatten pages first: a page boundary must not detach part of a question.
+ * Structural blocks still delimit questions, including within OR groups.
+ * This also recognises saved papers created before composite framing existed.
+ */
+export function groupQuestionRuns<T>(
+  nodes: readonly T[],
+  describe: (node: T) => { type: string; questionType?: unknown },
+): { head: T; body: T[] }[] {
+  const runs: { head: T; body: T[] }[] = [];
+  let composite: { head: T; body: T[] } | null = null;
+  for (const node of nodes) {
+    const { type, questionType } = describe(node);
+    if (composite && !STRUCTURAL_BLOCKS.has(type)) {
+      composite.body.push(node);
+      continue;
+    }
+    const run = { head: node, body: [] as T[] };
+    runs.push(run);
+    composite = (type === "questionBlock" || type === "groupedQuestionBlock") &&
+      isCompositeQuestionType(questionType) ? run : null;
+  }
+  return runs;
+}
 
 /**
  * How far a composite question extends past its head block.

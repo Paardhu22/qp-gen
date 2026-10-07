@@ -268,6 +268,9 @@ function getBlockElements(view: EditorView, pageNode: any, pagePos: number) {
  * have no wrapper and are returned unchanged.
  */
 function styledBlockElement(dom: HTMLElement): HTMLElement {
+  // Composite continuation decorations live on the outer node DOM. Its
+  // frame/padding contributes height even when the content is a React view.
+  if (dom.classList.contains("composite-question-body")) return dom;
   const inner = dom.firstElementChild;
   if (
     dom.classList.contains("react-renderer") &&

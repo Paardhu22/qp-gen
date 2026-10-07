@@ -633,18 +633,52 @@
           border-left: 1px solid #000000;
         }
 
+        /* A case study is one ruled question even when its editable passage
+           spans several page-level blocks. Keep the same number/body/marks
+           columns throughout; reopen the rules when it continues overleaf. */
+        .composite-question-head .question-block {
+          margin-bottom: 0;
+        }
+
+        .composite-question-head:not(.composite-fragment-end) .question-row {
+          border-bottom: 0;
+          padding-bottom: 1px;
+        }
+
+        .ProseMirror .composite-question-body {
+          box-sizing: border-box;
+          margin: 0;
+          border: 0;
+          border-left: 1px solid #000000;
+          border-right: 1px solid #000000;
+          padding: 5px 80px 5px 65px;
+          line-height: 1.35;
+          overflow-wrap: break-word;
+          background-image:
+            linear-gradient(to right, transparent 56px, #000000 56px, #000000 57px, transparent 57px),
+            linear-gradient(to left, transparent 71px, #000000 71px, #000000 72px, transparent 72px);
+        }
+
+        .ProseMirror .composite-question-body > [data-node-view-wrapper] {
+          margin: 0;
+        }
+
+        .ProseMirror .composite-question-body.composite-fragment-start {
+          border-top: 1px solid #000000;
+          padding-top: 4px;
+        }
+
+        .ProseMirror .composite-question-body.composite-fragment-end {
+          border-bottom: 1px solid #000000;
+          padding-bottom: 4px;
+          margin-bottom: 4px;
+        }
+
         /* ── English papers ──────────────────────────────────────────────
            Reading and grammar tasks print as flowing prose in the CBSE
            paper, not in the ruled grid the other subjects use.
 
-           The grid is also what would make a composite look broken now
-           that its passage and sub-questions are page-level siblings (see
-           `buildQuestionBlocks`): only the head block sits in a
-           `.question-row`, so a ruled box drawn around that single line
-           with the passage bare underneath reads as a mistake. Dropping
-           the rules and letting the row collapse to its content lets the
-           whole run read as one continuous task, with the number hanging
-           beside it the way the reference paper prints it. */
+           Preserve that format for composite passages too. */
         .is-english-paper .question-row {
           display: flex;
           align-items: baseline;
@@ -666,6 +700,14 @@
 
         .is-english-paper .question-marks {
           margin-left: auto;
+        }
+
+        .ProseMirror.is-english-paper .composite-question-body,
+        .is-english-paper .ProseMirror .composite-question-body {
+          border: none;
+          background-image: none;
+          padding: 0;
+          margin: 0 0 6px;
         }
 
         .question-no {

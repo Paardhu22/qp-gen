@@ -44,6 +44,7 @@ import {
   resolveLogoSide,
 } from "@/components/editor/masthead";
 import { isGenericPaperTitle, legacyHeaderTableIndex, visibleHeaderDetails } from "@/components/editor/header-details";
+import { groupQuestionRuns } from "@/components/editor/question-nodes";
 import { latexToMath } from "./docx-math";
 
 export interface LoadedImage {
@@ -529,11 +530,11 @@ async function questionBody(node: Json, ctx: Context): Promise<Block[]> {
 }
 
 /** One question: number | body | marks, ruled, as `.question-row`. */
-async function question(node: Json, ctx: Context): Promise<Block[]> {
+async function question(node: Json, ctx: Context, continuation: Json[] = []): Promise<Block[]> {
   const attrs = node.attrs ?? {};
   const number = attrs.subLabel || (attrs.number ? `${attrs.number}.` : "");
   const marks = attrs.marks ?? "";
-  const body = await questionBody(node, ctx);
+  const body = await questionBody({ ...node, content: [...(node.content ?? []), ...continuation] }, ctx);
   return [
     new Table({
       layout: TableLayoutType.FIXED,
@@ -541,7 +542,9 @@ async function question(node: Json, ctx: Context): Promise<Block[]> {
       columnWidths: [NUMBER_COL, BODY_COL, MARKS_COL],
       rows: [
         new TableRow({
-          cantSplit: true,
+          // Word can flow a long passage onto another page inside its ruled
+          // row. Keeping a composite row indivisible would clip long cases.
+          cantSplit: continuation.length === 0,
           children: [
             new TableCell({
               width: { size: NUMBER_COL, type: WidthType.DXA },
@@ -579,8 +582,8 @@ async function question(node: Json, ctx: Context): Promise<Block[]> {
 
 /** "Answer any one": the branches with a bold OR between each pair. */
 async function orGroup(node: Json, ctx: Context): Promise<Block[]> {
-  const branches = (node.content ?? []).filter(
-    (child) => child.type === "questionBlock" || child.type === "groupedQuestionBlock",
+  const branches = groupQuestionRuns(node.content ?? [], describeQuestion).filter(
+    ({ head }) => head.type === "questionBlock" || head.type === "groupedQuestionBlock",
   );
   const out: Block[] = [];
   for (const [index, branch] of branches.entries()) {
@@ -593,7 +596,7 @@ async function orGroup(node: Json, ctx: Context): Promise<Block[]> {
         }),
       );
     }
-    out.push(...(await question(branch, ctx)));
+    out.push(...(await question(branch.head, ctx, branch.body)));
   }
   return out;
 }
@@ -613,13 +616,17 @@ const HEADINGS = [
   HeadingLevel.HEADING_6,
 ];
 
+const describeQuestion = (node: Json) => ({ type: node.type, questionType: node.attrs?.questionType });
+const flattenPages = (nodes: Json[]): Json[] => nodes.flatMap(
+  (node) => node.type === "page" ? flattenPages(node.content ?? []) : [node],
+);
+
 async function blocks(nodes: Json[] | undefined, ctx: Context): Promise<Block[]> {
   const out: Block[] = [];
-  for (const node of nodes ?? []) {
+  // Pagination is a screen concern. Rejoin a composite across saved pages so
+  // the passage and every sub-question stay inside the same Word table.
+  for (const { head: node, body } of groupQuestionRuns(flattenPages(nodes ?? []), describeQuestion)) {
     switch (node.type) {
-      case "page":
-        out.push(...(await blocks(node.content, ctx)));
-        break;
       case "paperHeaderBlock":
         out.push(...(await masthead(node, ctx)));
         break;
@@ -631,7 +638,7 @@ async function blocks(nodes: Json[] | undefined, ctx: Context): Promise<Block[]>
         break;
       case "questionBlock":
       case "groupedQuestionBlock":
-        out.push(...(await question(node, ctx)));
+        out.push(...(await question(node, ctx, body)));
         break;
       case "questionGroupBlock":
         out.push(...(await orGroup(node, ctx)));
