@@ -216,32 +216,6 @@ INGEST_EMBEDDINGS_ENABLED = _bool_env("INGEST_EMBEDDINGS_ENABLED", True)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-        },
-    },
-    "root": {
-        "handlers": ["console"],
-        "level": "INFO",
-    },
-    "loggers": {
-        "httpx": {
-            "handlers": ["console"],
-            "level": "WARNING",
-            "propagate": False,
-        },
-        "httpcore": {
-            "handlers": ["console"],
-            "level": "WARNING",
-            "propagate": False,
-        },
-    },
-}
-
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "apps.common.authentication.CognitoJWTAuthentication",
@@ -716,6 +690,12 @@ LOGGING = {
             "handlers": ["console"],
             "level": "INFO",
             "propagate": False,
+        },
+        # HTTP client chatter: every OpenAI/JWKS request logs at INFO. openai>=3
+        # sends through httpx2/httpcore2, older code paths through httpx.
+        **{
+            name: {"handlers": ["console"], "level": "WARNING", "propagate": False}
+            for name in ("httpx", "httpcore", "httpx2", "httpcore2")
         },
     },
 }
