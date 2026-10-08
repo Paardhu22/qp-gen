@@ -55,7 +55,7 @@ def extract_first_pages_text(buffer: bytes, max_pages: int = 5) -> str:
 
     # 1. Try PyMuPDF (fitz) first
     try:
-        import fitz
+        import pymupdf as fitz
 
         doc = fitz.open(stream=buffer, filetype="pdf")
         pages_to_read = min(len(doc), max_pages)

@@ -79,7 +79,6 @@ This document lists the currently registered backend routes and the endpoints cu
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `POST` | `/debug/science-engine-health` | Runs a public debug health check for the science generation engine. |
 | `GET` | `/media/{path}` | Resolves stable media paths by redirecting to signed storage URLs or serving local media. |
 | `ANY` | `/admin/` | Exposes the Django admin site. |
 

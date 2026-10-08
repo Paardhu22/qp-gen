@@ -2,11 +2,9 @@ from django.contrib import admin
 from django.urls import include, path, re_path
 
 from apps.common.views import serve_media
-from config.debug_views import science_engine_health
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("debug/science-engine-health", science_engine_health),
     path("api/", include("apps.common.urls")),
     path("api/auth/", include("apps.accounts.urls")),
     path("api/chat/", include("apps.chat.urls")),

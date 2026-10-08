@@ -118,7 +118,7 @@ def extract_smart_pages_text(buffer: bytes, max_pages: int = 5) -> Tuple[str, Li
 
     # 1. Try PyMuPDF (fitz)
     try:
-        import fitz
+        import pymupdf as fitz
 
         doc = fitz.open(stream=buffer, filetype="pdf")
         total_pages = len(doc)
