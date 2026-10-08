@@ -29,6 +29,7 @@ execFileSync(
     "--target", "es2022",
     "--moduleResolution", "bundler",
     "--skipLibCheck",
+    "--ignoreConfig",
   ],
   { stdio: "inherit" },
 );
