@@ -14,6 +14,7 @@
 /.swarm/
 .claudeignore
 db.sqlite3
+ruvector.db
 
 # testing
 /coverage
