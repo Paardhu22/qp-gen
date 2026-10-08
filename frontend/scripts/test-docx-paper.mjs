@@ -192,7 +192,7 @@ const plain = (xml) => xml.replace(/<w:tab\/>/g, "\t").replace(/<[^>]+>/g, "");
   check("a case study and the next question have separate ruled boxes", tables.length === 2);
   check("the complete case stays inside its question table across saved pages", ["Read the monument case.", "An observer moves 20 m closer.", "(i) Find the distance.", "(ii) Find the height."].every((t) => plain(tables[0] || "").includes(t)));
   check("the next question is not absorbed into the case study", !plain(tables[0] || "").includes("The next question.") && plain(tables[1] || "").includes("The next question."));
-  check("a composite table can flow across Word pages", /<w:cantSplit w:val="(?:false|0)"\/>/.test(tables[0] || ""));
+  check("a composite table can flow across Word pages", /<w:cantSplit w:val="(?:false|0|off)"\/>/.test(tables[0] || ""));
   check("ordinary questions still stay together", /<w:cantSplit\/>/.test(tables[1] || ""));
   doc.content = [{ type: "page", content: [{ type: "questionGroupBlock", content: [head, para(text("First branch passage.")), { ...head, attrs: { ...head.attrs, subLabel: "36(B)" } }, para(text("Second branch passage."))] }] }];
   const branches = await documentXml(doc, { width: 200, height: 200 });

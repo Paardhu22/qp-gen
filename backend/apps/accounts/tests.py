@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock, patch
+from django.http.request import HttpHeaders
 from django.test import TestCase
 from django.contrib.auth.models import AnonymousUser
 from rest_framework.exceptions import AuthenticationFailed
@@ -6,6 +7,20 @@ from rest_framework.exceptions import AuthenticationFailed
 from apps.accounts.models import User
 from apps.common.permissions import IsAdmin, IsApprovedOrAdmin
 from apps.common.authentication import CognitoJWTAuthentication
+
+
+class _HeaderRequest:
+    """Request stub whose `headers` derive from META, as on a real HttpRequest.
+
+    DRF >= 3.16 reads the Authorization header via `request.headers`, so a bare
+    MagicMock with only META set would hand back a mock instead of the header.
+    """
+
+    META: dict = {}
+
+    @property
+    def headers(self):
+        return HttpHeaders(self.META)
 
 
 class CognitoAuthAndPermissionsTests(TestCase):
@@ -105,7 +120,7 @@ class CognitoAuthAndPermissionsTests(TestCase):
         authenticator = CognitoJWTAuthentication()
 
         # Create mock request with header
-        mock_request = MagicMock()
+        mock_request = _HeaderRequest()
         mock_request.META = {
             "HTTP_AUTHORIZATION": "Bearer valid_mock_token"
         }
@@ -147,7 +162,7 @@ class CognitoAuthAndPermissionsTests(TestCase):
         mock_validator.validate_token.return_value = mock_payload
 
         authenticator = CognitoJWTAuthentication()
-        mock_request = MagicMock()
+        mock_request = _HeaderRequest()
         mock_request.META = {
             "HTTP_AUTHORIZATION": "Bearer valid_mock_token"
         }
@@ -175,7 +190,7 @@ class CognitoAuthAndPermissionsTests(TestCase):
         }
 
         authenticator = CognitoJWTAuthentication()
-        mock_request = MagicMock()
+        mock_request = _HeaderRequest()
         mock_request.META = {"HTTP_AUTHORIZATION": "Bearer valid_mock_token"}
 
         user, _ = authenticator.authenticate(mock_request)
@@ -196,7 +211,7 @@ class CognitoAuthAndPermissionsTests(TestCase):
         }
 
         authenticator = CognitoJWTAuthentication()
-        mock_request = MagicMock()
+        mock_request = _HeaderRequest()
         mock_request.META = {"HTTP_AUTHORIZATION": "Bearer valid_mock_token"}
 
         user, _ = authenticator.authenticate(mock_request)
@@ -217,7 +232,7 @@ class CognitoAuthAndPermissionsTests(TestCase):
         }
 
         authenticator = CognitoJWTAuthentication()
-        mock_request = MagicMock()
+        mock_request = _HeaderRequest()
         mock_request.META = {"HTTP_AUTHORIZATION": "Bearer valid_mock_token"}
 
         user, _ = authenticator.authenticate(mock_request)
@@ -227,7 +242,7 @@ class CognitoAuthAndPermissionsTests(TestCase):
 
     def test_cognito_authentication_missing_header(self):
         authenticator = CognitoJWTAuthentication()
-        mock_request = MagicMock()
+        mock_request = _HeaderRequest()
         mock_request.META = {}
 
         result = authenticator.authenticate(mock_request)
@@ -235,7 +250,7 @@ class CognitoAuthAndPermissionsTests(TestCase):
 
     def test_cognito_authentication_malformed_header(self):
         authenticator = CognitoJWTAuthentication()
-        mock_request = MagicMock()
+        mock_request = _HeaderRequest()
         mock_request.META = {
             "HTTP_AUTHORIZATION": "InvalidFormat"
         }
@@ -245,7 +260,7 @@ class CognitoAuthAndPermissionsTests(TestCase):
 
     def test_cognito_authentication_invalid_bearer_format(self):
         authenticator = CognitoJWTAuthentication()
-        mock_request = MagicMock()
+        mock_request = _HeaderRequest()
         mock_request.META = {
             "HTTP_AUTHORIZATION": "Bearer token1 token2"
         }
