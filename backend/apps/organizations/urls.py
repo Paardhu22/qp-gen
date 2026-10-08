@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     OrganizationDetailView,
+    OrganizationMemberAssignView,
     OrganizationInviteAcceptView,
     OrganizationInviteCreateView,
     OrganizationInviteRevokeView,
@@ -9,12 +10,16 @@ from .views import (
     OrganizationListView,
     OrganizationLogoView,
     OrganizationMemberApproveView,
+    OrganizationMemberPapersView,
     OrganizationMemberRejectView,
     OrganizationMemberRemoveView,
+    OrganizationMemberRoleView,
     OrganizationMembersListView,
     OrganizationSwitchView,
     OrganizationTeacherInviteView,
     OrganizationUsageSummaryView,
+    PlatformSuperadminView,
+    PlatformUserDeleteView,
     PublicOrganizationListView,
     SuperAdminAnalyticsView,
 )
@@ -34,6 +39,24 @@ urlpatterns = [
     path("switch", OrganizationSwitchView.as_view(), name="organizations-switch"),
     path("usage", OrganizationUsageSummaryView.as_view(), name="organizations-usage"),
     path("analytics", SuperAdminAnalyticsView.as_view(), name="organizations-analytics"),
+    # Platform-level: assign a user to a school, or move them between schools.
+    # Must stay above the "<str:org_id>/..." block — "members" would otherwise
+    # be read as an organization id.
+    path(
+        "members/<str:user_id>/assign",
+        OrganizationMemberAssignView.as_view(),
+        name="organizations-member-assign",
+    ),
+    path(
+        "members/<str:user_id>/superadmin",
+        PlatformSuperadminView.as_view(),
+        name="platform-superadmin",
+    ),
+    path(
+        "members/<str:user_id>",
+        PlatformUserDeleteView.as_view(),
+        name="platform-user-delete",
+    ),
     path("", OrganizationListView.as_view(), name="organizations-list"),
 
     path("<str:org_id>", OrganizationDetailView.as_view(), name="organizations-detail"),
@@ -45,6 +68,11 @@ urlpatterns = [
         name="organizations-teacher-invites",
     ),
     path(
+        "<str:org_id>/members/<str:user_id>/papers",
+        OrganizationMemberPapersView.as_view(),
+        name="organizations-member-papers",
+    ),
+    path(
         "<str:org_id>/members/<str:user_id>/approve",
         OrganizationMemberApproveView.as_view(),
         name="organizations-member-approve",
@@ -53,6 +81,11 @@ urlpatterns = [
         "<str:org_id>/members/<str:user_id>/reject",
         OrganizationMemberRejectView.as_view(),
         name="organizations-member-reject",
+    ),
+    path(
+        "<str:org_id>/members/<str:user_id>/role",
+        OrganizationMemberRoleView.as_view(),
+        name="organizations-member-role",
     ),
     path(
         "<str:org_id>/members/<str:user_id>",

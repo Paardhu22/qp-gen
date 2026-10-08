@@ -38,6 +38,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MembersTable } from "@/components/admin/members-table";
 import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
+import { UsersPanel } from "@/components/admin/users-panel";
 import { Mail } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -183,7 +184,7 @@ function compactTokens(n: number): string {
   return String(n);
 }
 
-function SuperAdminDashboard() {
+function SuperAdminDashboard({ currentUserId }: { currentUserId?: string }) {
   const [orgs, setOrgs] = useState<OrganizationSummary[]>([]);
   const [analytics, setAnalytics] = useState<SuperAdminAnalytics | null>(null);
   const [days, setDays] = useState(30);
@@ -320,11 +321,30 @@ function SuperAdminDashboard() {
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>All users</CardTitle>
+          <CardDescription>
+            Everyone on the platform. Move them between schools, change their
+            role, approve or remove them — each one emails the user.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <UsersPanel currentUserId={currentUserId} organizations={orgs} />
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
+function OrgAdminDashboard({
+  organizationId,
+  currentUserId,
+}: {
+  organizationId: string;
+  currentUserId?: string;
+}) {
   const [org, setOrg] = useState<OrganizationDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -373,12 +393,16 @@ function OrgAdminDashboard({ organizationId }: { organizationId: string }) {
       <Card variant="section">
         <CardHeader>
           <CardTitle>Members</CardTitle>
-          <CardDescription>Approve, reject, or remove teachers from your school.</CardDescription>
+          <CardDescription>
+            Approve, reject, or remove teachers, and move them between teacher and
+            school admin. Every change is emailed to them.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <MembersTable
             orgId={org.id}
             members={org.members}
+            currentUserId={currentUserId}
             onChange={(members) => setOrg({ ...org, members })}
           />
         </CardContent>
@@ -400,7 +424,7 @@ export default function AdminPage() {
   }
 
   if (isSuperAdmin(user)) {
-    return <SuperAdminDashboard />;
+    return <SuperAdminDashboard currentUserId={user?.id} />;
   }
 
   // Multi-org: an admin of two schools manages the one they are working as.
@@ -413,7 +437,10 @@ export default function AdminPage() {
     ) ?? adminSchools[0];
   if (activeAdminSchool) {
     return (
-      <OrgAdminDashboard organizationId={activeAdminSchool.organization_id} />
+      <OrgAdminDashboard
+        organizationId={activeAdminSchool.organization_id}
+        currentUserId={user?.id}
+      />
     );
   }
 
