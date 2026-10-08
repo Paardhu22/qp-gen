@@ -3,7 +3,6 @@ import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import React, { useState } from "react";
 import "katex/dist/katex.min.css";
 
-// Actually we installed `react-katex`. Let's import from that.
 import katex from "katex";
 
 export const MathBlockComponent = ({ node, updateAttributes }: any) => {
