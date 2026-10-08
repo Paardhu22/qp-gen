@@ -4,13 +4,64 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def _normalise(raw) -> str:
+    return str(raw or "").strip().upper().replace(" ", "_").replace("-", "_")
+
+
+def map_legacy_types(apps, schema_editor):
+    """Point every Question.type at a seeded QuestionType code before the FK lands.
+
+    Rows written before the catalogue carry free-text vocabularies ("mcq",
+    "SHORT", "MCQ"), which the foreign key would reject. Same rules as
+    apps.projects.question_types.resolve_type_code, against historical models:
+    catalogue resolution, then alias rows, then "SA" (blank included — the
+    column is still NOT NULL while this runs).
+    """
+    from services.question_types import default_type_for_shape, resolve
+
+    Question = apps.get_model("projects", "Question")
+    QuestionType = apps.get_model("projects", "QuestionType")
+    QuestionTypeAlias = apps.get_model("projects", "QuestionTypeAlias")
+    valid = set(QuestionType.objects.values_list("code", flat=True))
+    if not valid:
+        return
+
+    def code_for(raw):
+        value = _normalise(raw)
+        if value in valid:
+            return value
+        resolution = resolve(value)
+        if resolution is not None:
+            if resolution.code in valid:
+                return resolution.code
+            fallback = default_type_for_shape(resolution.spec.shape)
+            if fallback in valid:
+                return fallback
+        alias = (
+            QuestionTypeAlias.objects.filter(alias__iexact=value)
+            .values_list("type_id", flat=True)
+            .first()
+        )
+        if alias in valid:
+            return alias
+        return "SA" if "SA" in valid else sorted(valid)[0]
+
+    for raw in Question.objects.exclude(type__in=valid).values_list("type", flat=True).distinct():
+        Question.objects.filter(type=raw).update(type=code_for(raw))
+
+
 class Migration(migrations.Migration):
+    # Non-atomic so the data fix commits before the ALTER: on PostgreSQL,
+    # updating rows and then altering the same table in one transaction fails
+    # with "pending trigger events" (Django's FKs are deferred).
+    atomic = False
 
     dependencies = [
         ("projects", "0012_seed_question_types"),
     ]
 
     operations = [
+        migrations.RunPython(map_legacy_types, migrations.RunPython.noop, atomic=True),
         migrations.AlterField(
             model_name="question",
             name="type",
