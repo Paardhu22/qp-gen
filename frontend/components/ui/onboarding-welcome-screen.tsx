@@ -79,6 +79,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         animate="visible"
         variants={imageVariants}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element -- imageUrl is caller-supplied and may be any origin */}
         <img
           src={imageUrl}
           alt="Welcome"

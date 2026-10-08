@@ -76,7 +76,6 @@ export function ChartFigureEditor({ spec, onSpecChange, onPreviewChange }: Props
       cancelled = true;
       window.clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   const patch = (changes: Partial<ChartSpec>) => onSpecChange({ ...spec, ...changes });

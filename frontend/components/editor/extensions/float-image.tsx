@@ -234,6 +234,7 @@ const FloatImageComponent = ({
               engine to re-measure. The engine's resize observer now catches
               this too; asking directly is a frame earlier and does not
               depend on the figure's parent faithfully passing the growth on. */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- pagination and the PDF/DOCX exporters measure and inline this exact element */}
           <img
             src={resolveFigureSrc(src)}
             alt={alt || ""}

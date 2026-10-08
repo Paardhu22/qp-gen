@@ -267,6 +267,7 @@ export function RegisterForm({
           </div>
 
           <div className="relative h-44 w-full max-w-[300px]">
+            {/* eslint-disable-next-line @next/next/no-img-element -- decorative backdrop; not worth an images.remotePatterns entry */}
             <img
               src="https://pub-940ccf6255b54fa799a9b01050e6c227.r2.dev/cloud.jpg"
               alt="Cloud background"

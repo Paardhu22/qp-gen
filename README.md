@@ -1435,7 +1435,8 @@ inherits the previous slot's type and marks.
 tabs, find/replace, and the **question hover menu**: replace, swap type and
 marks, add figure, copy from library. There are also a review tray, a blank
 state that offers a starting point, and a generate dock.
-`app/pagination-harness` is a browser harness for the pagination engine.
+`app/(harness)/pagination-harness` is a browser harness for the pagination engine
+(production builds serve it only with `ENABLE_TEST_HARNESS=1`).
 
 **Insertion modes.** The store models `review` vs `auto` insertion. In review
 mode, each streamed question lands in the review tray, badged by `sourceType`.
