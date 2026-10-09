@@ -60,14 +60,14 @@ export default function Home() {
               className="landing-kicker landing-fade"
               style={{ animationDelay: "240ms" }}
             >
-              HSAT
+              HSAT QP-Gen
             </p>
             <h1 className="landing-title">papers made easier</h1>
             <p
               className="landing-subtitle landing-fade mx-auto mt-6"
               style={{ animationDelay: "360ms" }}
             >
-              Build, review, and export polished papers in minutes.
+              QP-Gen by HSAT Edu Solutions: build, review, and export polished question papers in minutes.
             </p>
 
             <div
