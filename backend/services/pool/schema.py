@@ -35,7 +35,7 @@ from services.question_types import (
     resolve,
     shape_of,
 )
-from services.pool.options import normalize_options
+from services.pool.options import normalize_answer, normalize_options
 from services.pool.structure import StructureError, parse_structure
 from utils.ids import generate_id
 
@@ -521,7 +521,8 @@ def normalize_pool_question(
     # pieces kept for the editor. A container that came back flat, the way
     # every case study used to, is kept as it is.
     metadata: Dict[str, Any] = {}
-    answer = str(raw.get("answer") or "").strip()
+    # Keyed by part ({"i": …, "ii": …}) is read as one line per part.
+    answer = normalize_answer(raw.get("answer"))
     spec = CATALOG.get(type_code)
     if spec is not None and spec.is_container and raw.get("parts"):
         try:

@@ -5,7 +5,8 @@ from __future__ import annotations
 from django.test import SimpleTestCase
 
 from services.assets.schema import GrammarAsset, SubQuestion
-from services.pool.options import normalize_options
+from services.pool.options import normalize_answer, normalize_options
+from services.pool.schema import normalize_pool_question
 
 
 class NormalizeOptionsTests(SimpleTestCase):
@@ -74,3 +75,33 @@ class AssetOptionParsingTests(SimpleTestCase):
             {"question": "Pick one.", "answer": "A", "options": {"A": "yes", "B": "no"}}
         )
         self.assertEqual(part.options, ["yes", "no"])
+
+
+class NormalizeAnswerTests(SimpleTestCase):
+    def test_an_answer_keyed_by_part_prints_one_line_per_part(self):
+        self.assertEqual(normalize_answer({"i": "x", "ii": "B"}), "(i) x\n(ii) B")
+
+    def test_a_stringified_part_map_is_repaired(self):
+        self.assertEqual(
+            normalize_answer("{'i': 'Because she talked.', 'ii': 'B'}"),
+            "(i) Because she talked.\n(ii) B",
+        )
+
+    def test_plain_answers_are_unchanged(self):
+        self.assertEqual(normalize_answer("B"), "B")
+        self.assertEqual(normalize_answer("{not a dict}"), "{not a dict}")
+        self.assertEqual(normalize_answer(None), "")
+
+    def test_a_pool_question_with_a_part_keyed_answer_stores_text(self):
+        question = normalize_pool_question(
+            {
+                "type": "EXTRACT_PROSE",
+                "type_code": "EXTRACT_SEEN",
+                "marks": 5,
+                "question": "Read the extract and answer.\n\n(i) Why?\n(ii) Who?",
+                "answer": {"i": "Because.", "ii": "Sanne."},
+            },
+            subject="English",
+            chapter="From the Diary of Anne Frank",
+        )
+        self.assertEqual(question.answer, "(i) Because.\n(ii) Sanne.")

@@ -1,4 +1,7 @@
-"""Reading a model's `options` into plain option strings.
+"""Reading a model's `options` and `answer` into plain text.
+
+`normalize_answer`, at the bottom, does the same for answer keys keyed by
+part. Everything above is about options.
 
 The schema asks for a list of strings, and most responses send one. Some do
 not, and every shape seen so far is a reasonable reading of "four options":
@@ -95,3 +98,39 @@ def normalize_options(raw: Any) -> List[str]:
         if text:
             options.append(_strip_own_label(text, len(options)))
     return options
+
+
+def _answer_line(label: Any, value: Any) -> str:
+    text = _entry_text(value) if isinstance(value, (dict, str)) else str(value or "").strip()
+    return f"({str(label).strip()}) {text}".strip() if text else ""
+
+
+def normalize_answer(raw: Any) -> str:
+    """An answer key as printable text, whatever shape the model sent.
+
+    A multi-part question's answer is asked for as text, and sometimes comes
+    back keyed by part — {"i": "...", "ii": "B"} — which `str()` printed into
+    the answer key as a Python dict. Parts become one "(i) …" line each.
+    """
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not _DICT_LITERAL.match(stripped):
+            return stripped
+        try:
+            parsed = ast.literal_eval(stripped)
+        except (ValueError, SyntaxError):
+            return stripped
+        if not isinstance(parsed, dict):
+            return stripped
+        raw = parsed
+    if isinstance(raw, dict):
+        if any(key in raw for key in _TEXT_KEYS):
+            return _entry_text(raw)
+        return "\n".join(
+            line for line in (_answer_line(key, value) for key, value in raw.items()) if line
+        )
+    if isinstance(raw, (list, tuple)):
+        return "\n".join(text for text in (_entry_text(item) for item in raw) if text)
+    return str(raw).strip()
