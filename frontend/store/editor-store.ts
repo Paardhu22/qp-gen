@@ -202,6 +202,11 @@ interface EditorState {
    * until the teacher approves.
    */
   approvedSets: Record<string, any>;
+  /** Per tab, the `approvedAt` whose approved set that tab has already loaded.
+   *  An approval is applied to a tab once; after that the tab's draft — with
+   *  the teacher's edits — wins. Persisted, so a reload respects it. */
+  appliedApprovals: Record<string, number>;
+  markApprovalApplied: (tab: string, approvedAt: number) => void;
   /**
    * Bumped on every approval. The editor folds this into its content-load key
    * so a second generation replaces the tab's document instead of losing to
@@ -396,6 +401,7 @@ export const useEditorStore = create<EditorState>()(
       activeEditorPaperId: null,
       comparisonOpen: false,
       approvedSets: {},
+      appliedApprovals: {},
       approvedAt: 0,
       awaitingGeneratedPaper: false,
       generatorContext: initialGeneratorContext,
@@ -511,6 +517,7 @@ export const useEditorStore = create<EditorState>()(
           comparisonSetsPaperId: null,
           comparisonOpen: false,
           approvedSets: {},
+          appliedApprovals: {},
           approvedAt: 0,
           awaitingGeneratedPaper: false,
         }),
@@ -589,6 +596,10 @@ export const useEditorStore = create<EditorState>()(
         set({ awaitingGeneratedPaper: false }),
 
       clearApprovedSets: () => set({ approvedSets: {}, approvedAt: 0, awaitingGeneratedPaper: false }),
+      markApprovalApplied: (tab, approvedAt) =>
+        set((state) => ({
+          appliedApprovals: { ...state.appliedApprovals, [tab]: approvedAt },
+        })),
 
       setUploadedDocs: (docs) =>
         set((state) => ({
@@ -631,6 +642,7 @@ export const useEditorStore = create<EditorState>()(
         // Approved sets survive navigation so returning to the editor from
         // another route does not lose the paper the teacher just accepted.
         approvedSets: state.approvedSets,
+        appliedApprovals: state.appliedApprovals,
         approvedAt: state.approvedAt,
         awaitingGeneratedPaper: state.awaitingGeneratedPaper,
         generatorContext: state.generatorContext,
@@ -671,6 +683,7 @@ export function resetEditorStoreForAccountSwitch(): void {
     comparisonSetsPaperId: null,
     comparisonOpen: false,
     approvedSets: {},
+    appliedApprovals: {},
     approvedAt: 0,
     awaitingGeneratedPaper: false,
     questionsToAppend: [],

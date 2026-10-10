@@ -119,6 +119,8 @@ export default function EditorPage() {
   // more. `approvedAt` changes on every approval and is what tells the editor
   // this content supersedes whatever draft is in IndexedDB for that tab.
   const approvedSets = useEditorStore((state) => state.approvedSets);
+  const appliedApprovals = useEditorStore((state) => state.appliedApprovals);
+  const markApprovalApplied = useEditorStore((state) => state.markApprovalApplied);
   const approvedAt = useEditorStore((state) => state.approvedAt);
 
   // Drives the blank state. `pages` is the paginated view of the live
@@ -1255,7 +1257,17 @@ export default function EditorPage() {
           // Approving is an explicit "use this paper" instruction, so it has to
           // beat the IndexedDB draft the tab may already hold from an earlier
           // generation. Anything else and a second approval silently no-ops.
-          forceInitialContent={Boolean(approvedSets?.[activeSetTab])}
+          //
+          // Once per tab, though. The editor remounts on every tab switch, and
+          // forcing on each mount threw away whatever the teacher had changed
+          // since — every edit, every tray Undo — the moment they looked at
+          // another set, and on every reload. The editor reports when it has
+          // applied the approval, and from then on the tab's draft wins.
+          forceInitialContent={
+            Boolean(approvedSets?.[activeSetTab]) &&
+            appliedApprovals[activeSetTab] !== approvedAt
+          }
+          onForcedContentApplied={() => markApprovalApplied(activeSetTab, approvedAt)}
           contentVersion={approvedAt}
           serverUpdatedAt={paperUpdatedAt}
           paperMetadata={{

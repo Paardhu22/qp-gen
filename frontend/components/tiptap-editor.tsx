@@ -578,6 +578,12 @@ type TiptapEditorProps = {
    */
   forceInitialContent?: boolean;
   /**
+   * Called once a forced `initialContent` is in the document and persisted, so
+   * the page can stop forcing it: from then on the tab's draft — the teacher's
+   * edits — is the authority, as it is for any other tab.
+   */
+  onForcedContentApplied?: () => void;
+  /**
    * Changes whenever `initialContent` is authoritatively replaced (the
    * approval timestamp). Folded into the load key so the same JSON approved
    * twice still triggers a reload.
@@ -607,6 +613,7 @@ export const TiptapEditor = ({
   onPaperCreatedAction,
   exportType = "question_paper",
   forceInitialContent = false,
+  onForcedContentApplied,
   contentVersion = 0,
   leftPanel,
   rightPanel,
@@ -638,6 +645,10 @@ export const TiptapEditor = ({
 
   const onPaperCreatedRef =
     useRef<TiptapEditorProps["onPaperCreatedAction"]>(onPaperCreatedAction);
+  const onForcedContentAppliedRef = useRef(onForcedContentApplied);
+  useEffect(() => {
+    onForcedContentAppliedRef.current = onForcedContentApplied;
+  }, [onForcedContentApplied]);
   const syncPromiseRef = useRef<Promise<void>>(Promise.resolve());
   // Holds the AbortController for the currently in-flight save/update HTTP
   // request.  Replaced on every sync so the previous request is cancelled when
@@ -1283,6 +1294,7 @@ export const TiptapEditor = ({
           // if the teacher never types.
           debouncedLiveSync(editor);
           debouncedLiveSync.flush();
+          onForcedContentAppliedRef.current?.();
         });
         return;
       }
