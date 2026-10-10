@@ -454,8 +454,67 @@ export function buildQuestionBlocks(question: InsertableQuestion): any[] {
   return [
     head,
     ...parts.body.flatMap((chunk) => buildQuestionContentNodes(chunk)),
-    ...parts.subQuestions.flatMap((chunk) => buildQuestionContentNodes(chunk)),
+    ...parts.subQuestions.flatMap((chunk) =>
+      buildQuestionContentNodes(compactSubQuestionOptions(chunk)),
+    ),
   ];
+}
+
+// ── Compact sub-question options ────────────────────────────────────────
+
+/** Gap between options packed onto one line. Em spaces, because ordinary
+ *  spaces collapse in saved HTML and in the Word export. */
+const OPTION_GAP = "\u2003\u2003\u2003";
+/** Roughly what fits on one line of the question column, in characters. */
+const LINE_BUDGET = 64;
+/** The longest option that still pairs with another on one line. */
+const PAIR_BUDGET = 30;
+
+/**
+ * Pack a sub-question's options onto fewer lines.
+ *
+ * Inside a composite (a grammar task set, a passage's MCQs) each option is a
+ * text line of its own — "A. many", "B. much" — so four one-word options took
+ * four lines, and a twelve-item grammar set ran across pages. Short options
+ * now share a line: all four when they fit, else two per line, the way a
+ * printed paper sets them. Long options keep a line each, since packing those
+ * would only wrap them mid-option.
+ *
+ * Only a trailing run of lines labelled in sequence (A–D, a–d, 1–4, with or
+ * without brackets) counts as options, so a sub-question's own text is never
+ * mistaken for one. A top-level MCQ does not come through here: its options
+ * are a list, which the editor's CSS already lays out in columns.
+ */
+export function compactSubQuestionOptions(chunk: string): string {
+  const lines = chunk.split("\n");
+  let start = lines.length;
+  while (start > 1 && OPTION_LINE_RE.test(lines[start - 1])) start -= 1;
+  const options = lines.slice(start).map((line) => line.trim());
+  if (options.length < 2 || options.length > 6) return chunk;
+
+  const labels = options.map((line) => OPTION_LINE_RE.exec(line)?.[1] ?? "");
+  const inSequence = OPTION_SEQUENCES.some((sequence) =>
+    labels.every((label, index) => label === sequence[index]),
+  );
+  if (!inSequence) return chunk;
+
+  const longest = Math.max(...options.map((option) => option.length));
+  const total =
+    options.reduce((sum, option) => sum + option.length, 0) +
+    (options.length - 1) * OPTION_GAP.length * 2;
+
+  let rows: string[];
+  if (total <= LINE_BUDGET) {
+    rows = [options.join(OPTION_GAP)];
+  } else if (longest <= PAIR_BUDGET) {
+    rows = [];
+    for (let i = 0; i < options.length; i += 2) {
+      rows.push(options.slice(i, i + 2).join(OPTION_GAP));
+    }
+  } else {
+    return chunk;
+  }
+  return [...lines.slice(0, start), ...rows].join("\n");
 }
 
 /** Blocks that can never be part of a preceding composite's run. */
