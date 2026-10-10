@@ -535,6 +535,10 @@ export function BlueprintModal({
       },
       instructions,
     });
+    // The Builder stays mounted between papers, so a set count chosen for one
+    // paper used to carry into every later one — and quietly turned each of
+    // them into a multi-set run. Each new paper starts as a single set.
+    setNumberOfSets("1");
   };
 
   // The rail's own labels, so the receipt below reads like the controls it is
