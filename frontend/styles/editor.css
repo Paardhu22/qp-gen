@@ -640,12 +640,15 @@
           margin-bottom: 0;
         }
 
+        /* No bottom border, and no padding in its place: the column rules are
+           the cells' borders, and they stop where the cells do, so padding
+           here opened a pixel-high gap in every rule at the join. */
         .composite-question-head:not(.composite-fragment-end) .question-row {
           border-bottom: 0;
-          padding-bottom: 1px;
         }
 
         .ProseMirror .composite-question-body {
+          position: relative;
           box-sizing: border-box;
           margin: 0;
           border: 0;
@@ -654,9 +657,50 @@
           padding: 5px 80px 5px 65px;
           line-height: 1.35;
           overflow-wrap: break-word;
-          background-image:
-            linear-gradient(to right, transparent 56px, #000000 56px, #000000 57px, transparent 57px),
-            linear-gradient(to left, transparent 71px, #000000 71px, #000000 72px, transparent 72px);
+        }
+
+        /* The two column rules. They used to be background gradients, which
+           the browser antialiases instead of snapping to device pixels: on a
+           scaled display they came out a pixel thicker than the head row's
+           rules above, and a pixel off their line.
+
+           Each is now the left border of its own zero-width box, placed at
+           the same left edge as the head's cell border it continues
+           (`.question-cell + .question-cell`: 56px | 1fr | 72px inside a 1px
+           border). Same edge, same border, same rounding — so the rules run
+           unbroken from the head into the passage at any zoom. Anchoring the
+           marks rule from the right instead rounded a pixel differently. */
+        .ProseMirror .composite-question-body::before,
+        .ProseMirror .composite-question-body::after {
+          content: "";
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          width: 0;
+          height: auto;
+          float: none;
+          border-left: 1px solid #000000;
+          pointer-events: none;
+        }
+
+        .ProseMirror .composite-question-body::before {
+          left: 56px;
+        }
+
+        .ProseMirror .composite-question-body::after {
+          left: calc(100% - 72px);
+        }
+
+        /* An empty line inside a question keeps its rule and shows no ghost
+           text — "Start writing your exam paper…" does not belong mid-question.
+           More specific than the placeholder rule, which also uses ::before. */
+        .ProseMirror .composite-question-body.is-empty[data-placeholder]::before {
+          content: "";
+          position: absolute;
+          left: 56px;
+          height: auto;
+          float: none;
+          font-style: normal;
         }
 
         .ProseMirror .composite-question-body > [data-node-view-wrapper] {
@@ -705,9 +749,15 @@
         .ProseMirror.is-english-paper .composite-question-body,
         .is-english-paper .ProseMirror .composite-question-body {
           border: none;
-          background-image: none;
           padding: 0;
           margin: 0 0 6px;
+        }
+
+        .ProseMirror.is-english-paper .composite-question-body::before,
+        .ProseMirror.is-english-paper .composite-question-body::after,
+        .is-english-paper .ProseMirror .composite-question-body::before,
+        .is-english-paper .ProseMirror .composite-question-body::after {
+          display: none;
         }
 
         .question-no {
