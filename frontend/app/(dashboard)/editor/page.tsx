@@ -48,8 +48,9 @@ import {
   getLiveDocumentId,
   getLatestLiveDocumentForUser,
   getLiveDocument,
+  patchLiveDocument,
 } from "@/lib/live-document-db";
-import { deleteServerDraft, pullDrafts } from "@/lib/drafts-sync";
+import { deleteServerDraft, pullDrafts, pushDraft } from "@/lib/drafts-sync";
 import {
   basePaperId,
   withSetSuffix,
@@ -142,6 +143,9 @@ export default function EditorPage() {
   const [loadedPaperTitle, setLoadedPaperTitle] = useState<string | null>(null);
   const [paperUpdatedAt, setPaperUpdatedAt] = useState<string | null>(null);
   const [paperLoading, setPaperLoading] = useState(false);
+  // The draft whose sources the store currently holds — see the source sync
+  // effect below.
+  const sourcesHydratedForRef = useRef<string | null>(null);
   const [paperError, setPaperError] = useState<string | null>(null);
   const [currentPaperId, setCurrentPaperId] = useState<string | null>(null);
 
@@ -570,6 +574,7 @@ export default function EditorPage() {
     // are local-only too and must take the IndexedDB path, not be sent to
     // `getPaperAction` as if they were backend rows.
     if (paperId && isDraftPaperId(paperId)) {
+      sourcesHydratedForRef.current = null;
       const loadLocalDraft = async () => {
         const userId = sessionData?.user?.id;
         if (!userId) return;
@@ -610,6 +615,7 @@ export default function EditorPage() {
             setPaperError(null);
             setHsatSources(draft.metadata?.hsatSources || []);
             setUploadedDocs(draft.metadata?.uploadedDocs || []);
+            sourcesHydratedForRef.current = paperId;
           } else if (active) {
             setPaperContent("");
             setLoadedPaperTitle("Unsaved Draft");
@@ -621,6 +627,7 @@ export default function EditorPage() {
             setPaperError(null);
             setHsatSources([]);
             setUploadedDocs([]);
+            sourcesHydratedForRef.current = paperId;
           }
         } catch (error) {
           console.error("Failed to load local draft metadata:", error);
@@ -712,6 +719,50 @@ export default function EditorPage() {
       active = false;
     };
   }, [paperId, isNew, sessionData?.user?.id, router, resetToNewPaper]);
+
+  // ── Keep the draft's sources in step with the teacher's ─────────────────
+  // A draft's metadata is what the load above restores its sources from, but
+  // only the editor's autosave writes it, and that runs on content edits.
+  // Removing a chapter edits nothing, so the removed chapter stayed in the
+  // draft and came back on the next load. Sources belong to the paper, so
+  // every set tab's copy is updated.
+  //
+  // Gated on the load having finished for THIS paper: until then the store
+  // still holds the previous paper's sources, and writing those here would
+  // attach them to the wrong draft.
+  useEffect(() => {
+    const userId = sessionData?.user?.id;
+    if (!userId || !paperId || !isDraftPaperId(paperId)) return;
+    if (sourcesHydratedForRef.current !== paperId) return;
+
+    const scopes = [
+      paperId,
+      ...(["A", "B", "C"] as const).map((set) => withSetSuffix(paperId, set)),
+    ];
+    void Promise.all(
+      scopes.map(async (scope) => {
+        const written = await patchLiveDocument(
+          getLiveDocumentId(userId, scope),
+          (doc) =>
+            sameSources(doc.metadata?.uploadedDocs, uploadedDocs) &&
+            sameSources(doc.metadata?.hsatSources, hsatSources)
+              ? null
+              : {
+                  ...doc,
+                  metadata: { ...doc.metadata, uploadedDocs, hsatSources },
+                  updatedAt: Date.now(),
+                  sync: { ...doc.sync, status: "pending" },
+                },
+        ).catch((error) => {
+          console.error("Could not update the draft's sources:", error);
+          return null;
+        });
+        // The server copy too, or another device (or a cleared browser)
+        // pulls the old list straight back.
+        if (written) void pushDraft(written);
+      }),
+    );
+  }, [uploadedDocs, hsatSources, paperId, sessionData?.user?.id]);
 
   // Once a draft has been saved it IS a paper, and papers are listed from the
   // backend. Its draft-scoped IndexedDB rows have to go, or the Papers page
@@ -1419,4 +1470,9 @@ export default function EditorPage() {
 
     </div>
   );
+}
+
+/** Same sources in the same order, overrides included. */
+function sameSources(saved: unknown[] | undefined, current: unknown[]): boolean {
+  return JSON.stringify(saved ?? []) === JSON.stringify(current);
 }

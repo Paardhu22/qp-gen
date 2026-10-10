@@ -93,6 +93,40 @@ export async function saveLiveDocument(
   });
 }
 
+/**
+ * Read-modify-write one document inside a single transaction.
+ *
+ * A separate get and put would let an editor autosave land between them and
+ * be overwritten with the older body. IndexedDB serialises readwrite
+ * transactions on a store, so doing both here is atomic with respect to every
+ * other save. `patch` returns null to leave the document untouched; the
+ * result is the written document, or null when nothing was written.
+ */
+export async function patchLiveDocument(
+  id: string,
+  patch: (document: LiveEditorDocument) => LiveEditorDocument | null,
+): Promise<LiveEditorDocument | null> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(id);
+    let written: LiveEditorDocument | null = null;
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const current = request.result as LiveEditorDocument | undefined;
+      const next = current ? patch(current) : null;
+      if (next) {
+        written = next;
+        store.put(next);
+      }
+    };
+    transaction.oncomplete = () => resolve(written);
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+
 export async function getLiveDocument(
   id: string,
 ): Promise<LiveEditorDocument | null> {
