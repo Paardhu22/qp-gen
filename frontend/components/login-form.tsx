@@ -54,7 +54,7 @@ export function LoginForm({
       >
         <div className="relative w-full max-w-sm h-[600px] overflow-hidden rounded-2xl border border-border shadow-sm bg-card">
           <WelcomeScreen
-            imageUrl="/IMG-20260514-WA0000.jpg-removebg-preview.png"
+            imageUrl="/hsat-logo.png"
             title={
               <>
                 Welcome to <span className="text-primary">HSAT</span>
