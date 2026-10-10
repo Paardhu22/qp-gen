@@ -10,22 +10,27 @@ A teacher no longer picks a mode and then discovers what it implies. They pick
 a paper — "CBSE Class 10 Science, Sample Paper 2025-26" — see its blueprint,
 and change whatever they like.
 
-## Why the catalog is generated, not typed out
+## Board cards are generated, but only Class 10 is listed
 
 The supported (subject, class) matrix already exists in one place:
-`generation_router._NEW_ENGINE_ELIGIBILITY`. Hand-listing ~30 catalog entries
-beside it would create a second list to keep in step, and the failure mode is
-silent — a subject the engine supports but the picker never offers. So the
-board templates are derived from that matrix, and adding a class to the engine
-adds its template for free.
+`generation_router._NEW_ENGINE_ELIGIBILITY`, so the board cards are derived
+from it rather than typed out beside it.
+
+Only the Class 10 cards are *listed*. CBSE publishes sample papers for the
+board year alone, and below it the engine falls back to a generic progression
+— a "CBSE Class 1 Science — Sample Paper" card resolved to ten identical
+one-mark questions under a Class 10 description. The other classes' cards
+still resolve, so a saved template or a link that names one keeps working;
+the picker just stops offering them.
 
 ## Class starters
 
-The one hand-written list is the class starters in `services.starter_templates`:
-a ready paper for a band of classes, written from the question types those
-classes are actually set. Nothing can derive them, so they are data. They
-resolve without running the engine, and they come back to the Builder like
-every other card — as a blueprint the teacher reviews and edits.
+Every other class is covered by the class starters in
+`services.starter_templates`: at least two ready papers for every subject in
+every class, written from the question types those classes are actually set.
+Nothing can derive them, so they are data. They resolve without running the
+engine, and they come back to the Builder like every other card — as a
+blueprint the teacher reviews and edits.
 
 ## Resolution is lazy
 
@@ -94,6 +99,11 @@ class CatalogEntry:
     rank: int = 100
     #: The classes a starter suits, inclusive. None on every other kind.
     class_range: Optional[Tuple[int, int]] = None
+    #: False keeps an entry resolvable by id but out of the picker.
+    listed: bool = True
+    #: The paper's total, when the card knows it — the picker orders a class's
+    #: cards from the short test to the full exam by it.
+    total_marks: int = 0
 
     def as_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
@@ -113,6 +123,8 @@ class CatalogEntry:
         }
         if self.class_range:
             payload["classRange"] = list(self.class_range)
+        if self.total_marks:
+            payload["totalMarks"] = self.total_marks
         return payload
 
 
@@ -136,9 +148,11 @@ def _cbse_entries() -> List[CatalogEntry]:
                     board="CBSE",
                     academic_class=str(class_num),
                     subject=label,
-                    # Class 10 first: it is the board year, and the reason most
-                    # of these blueprints exist.
-                    rank=10 if class_num == 10 else 50,
+                    rank=10,
+                    total_marks=80,
+                    # See the module docstring: only the board year has a real
+                    # pattern to offer.
+                    listed=class_num == 10,
                 )
             )
     return entries
@@ -158,6 +172,7 @@ def _starter_entries() -> List[CatalogEntry]:
             # Within the rank they sort by name, which is by class band.
             rank=30,
             class_range=starter.classes,
+            total_marks=starter.total_marks,
         )
         for starter in STARTERS
     ]
@@ -228,7 +243,8 @@ def list_templates(
     return [
         entry.as_dict()
         for entry in sorted(
-            (e for e in entries if keep(e)), key=lambda e: (e.rank, e.name)
+            (e for e in entries if e.listed and keep(e)),
+            key=lambda e: (e.rank, e.name),
         )
     ]
 

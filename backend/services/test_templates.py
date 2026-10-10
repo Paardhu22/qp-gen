@@ -270,16 +270,51 @@ class CatalogTests(TestCase):
         # returning the richer object underneath them.
         self.assertIsInstance(resolve_builtin("cbse-science-10"), TemplateBlueprint)
 
-    def test_the_catalog_covers_the_engine_matrix(self):
+    def test_every_board_year_card_is_listed(self):
         # The catalog is derived from _NEW_ENGINE_ELIGIBILITY precisely so a
         # supported subject can never be missing from the picker.
         from services.generation_router import _NEW_ENGINE_ELIGIBILITY
 
         ids = {entry["id"] for entry in list_templates()}
         for subject_norm, classes in _NEW_ENGINE_ELIGIBILITY.items():
-            for class_num in classes:
-                expected = f"cbse-{subject_norm.replace(' ', '-')}-{class_num}"
+            if 10 in classes:
+                expected = f"cbse-{subject_norm.replace(' ', '-')}-10"
                 self.assertIn(expected, ids, f"{expected} missing from the picker")
+
+    def test_cards_below_the_board_year_resolve_but_are_not_offered(self):
+        # Below Class 10 the engine has no real pattern — "Class 1 Science —
+        # Sample Paper" was ten one-mark questions — so the starters cover
+        # those classes. The ids still resolve for anything that saved one.
+        from services.generation_router import _NEW_ENGINE_ELIGIBILITY
+
+        ids = {entry["id"] for entry in list_templates()}
+        for subject_norm, classes in _NEW_ENGINE_ELIGIBILITY.items():
+            for class_num in classes:
+                if class_num == 10:
+                    continue
+                card = f"cbse-{subject_norm.replace(' ', '-')}-{class_num}"
+                with self.subTest(card=card):
+                    self.assertNotIn(card, ids)
+                    self.assertIsNotNone(get_entry(card))
+
+    def test_every_subject_has_two_templates_in_every_class(self):
+        # The Builder offers these subjects for Classes 1–10, and a class with
+        # nothing to start from sends the teacher to a blank paper.
+        subjects = (
+            "Science", "Social Science", "Mathematics", "English", "Hindi",
+            "Telugu", "Sanskrit", "Computer Science", "ICT",
+        )
+        for subject in subjects:
+            for class_num in range(1, 11):
+                with self.subTest(subject=subject, class_num=class_num):
+                    listed = [
+                        entry
+                        for entry in list_templates(
+                            subject=subject, academic_class=str(class_num)
+                        )
+                        if entry["kind"] in (KIND_CBSE, KIND_STARTER)
+                    ]
+                    self.assertGreaterEqual(len(listed), 2)
 
     def test_filtering_narrows_board_templates_but_keeps_the_universal_ones(self):
         listed = list_templates(subject="Science", academic_class="10")
