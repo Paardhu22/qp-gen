@@ -6,7 +6,23 @@
  * on whitespace. A section header the removal leaves with no questions goes
  * too, so undoing a whole inserted section leaves no bare "SECTION B" behind.
  *
- * Pure, so `scripts/test-removal-plan.mjs` can run it without an editor.
+ * ## Composite questions are runs, not blocks
+ *
+ * A passage, grammar set or extract is inserted as a head `questionBlock`
+ * holding only its preamble ("Extract:") followed by sibling paragraphs —
+ * see `buildQuestionBlocks`. Matching the head's text alone failed, because
+ * the preamble is shorter than the 60 characters compared, so Undo did
+ * nothing; and deleting the head alone would have left the passage behind.
+ * So a head is matched by its whole run, and the run goes with it.
+ *
+ * The run is the siblings after the head whose text is part of the question
+ * the tray holds, continuing onto the next page when pagination split it.
+ * Reading it off the tray's own text, rather than "every paragraph until the
+ * next question", means a paragraph the teacher typed under a question is
+ * never taken with it.
+ *
+ * Pure and import-free, so `scripts/test-removal-plan.mjs` can compile and
+ * run it without an editor.
  */
 
 export interface RemovalTarget {
@@ -19,14 +35,70 @@ export interface Range {
   to: number;
 }
 
-const normalize = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 120);
+/** Blocks that end a run. Mirrors STRUCTURAL_BLOCKS in question-nodes.ts. */
+const STRUCTURAL = new Set([
+  "questionBlock",
+  "groupedQuestionBlock",
+  "questionGroupBlock",
+  "sectionBlock",
+  "instructionBlock",
+  "paperHeaderBlock",
+  "pageBreak",
+]);
+
+const squash = (s: string) => s.replace(/\s+/g, " ").trim();
+const normalize = (s: string) => squash(s).slice(0, 120);
+
+interface Entry {
+  node: any;
+  pos: number;
+  parent: any;
+}
 
 /** Ranges in the order found; delete them bottom-up. */
 export function planRemovals(doc: any, requests: RemovalTarget[]): Range[] {
   const targets = requests.map((r) => ({
     sectionTitle: normalize(r.sectionTitle),
     content: normalize(r.content),
+    full: squash(r.content),
   }));
+
+  const entries: Entry[] = [];
+  doc.descendants((node: any, pos: number, parent: any) => {
+    entries.push({ node, pos, parent });
+  });
+
+  /** The next block after `i` at the same level, crossing onto the next page. */
+  const nextSibling = (i: number): number => {
+    const parent = entries[i].parent;
+    const onPage = parent?.type?.name === "page";
+    for (let j = i + 1; j < entries.length; j += 1) {
+      const other = entries[j].parent;
+      if (other === parent) return j;
+      if (onPage && other?.type?.name === "page" && other !== parent) return j;
+    }
+    return -1;
+  };
+
+  /** The head's run: the following siblings whose text is in `full`. */
+  const runOf = (head: number, full: string): number[] => {
+    const run: number[] = [];
+    let pending: number[] = [];
+    for (let k = nextSibling(head); k !== -1; k = nextSibling(k)) {
+      const node = entries[k].node;
+      if (STRUCTURAL.has(node.type?.name)) break;
+      const text = squash(String(node.textContent || ""));
+      if (!text) {
+        pending.push(k); // a blank line inside the run, kept only if it continues
+      } else if (full.includes(text)) {
+        run.push(...pending, k);
+        pending = [];
+      } else {
+        break;
+      }
+    }
+    return run;
+  };
 
   const ranges: Range[] = [];
   let currentSectionTitle = "";
@@ -37,7 +109,7 @@ export function planRemovals(doc: any, requests: RemovalTarget[]): Range[] {
     }
   };
 
-  doc.descendants((node: any, pos: number) => {
+  entries.forEach(({ node, pos }, index) => {
     if (node.type.name === "sectionBlock") {
       dropIfEmptied();
       section = { from: pos, to: pos + node.nodeSize, removed: 0, kept: 0 };
@@ -48,13 +120,27 @@ export function planRemovals(doc: any, requests: RemovalTarget[]): Range[] {
       return;
     }
     const nodeText = normalize(String(node.textContent || ""));
-    const hit = targets.some(
-      (t) =>
-        (t.sectionTitle === "" || t.sectionTitle === currentSectionTitle) &&
-        nodeText.startsWith(t.content.slice(0, 60)),
-    );
+    let run: number[] = [];
+    const hit = targets.some((t) => {
+      if (t.sectionTitle !== "" && t.sectionTitle !== currentSectionTitle) return false;
+      const prefix = t.content.slice(0, 60);
+      const candidate = runOf(index, t.full);
+      const runText = normalize(
+        [node, ...candidate.map((k) => entries[k].node)]
+          .map((n) => String(n.textContent || ""))
+          .join(" "),
+      );
+      if (nodeText.startsWith(prefix) || (candidate.length > 0 && runText.startsWith(prefix))) {
+        run = candidate;
+        return true;
+      }
+      return false;
+    });
     if (hit) {
       ranges.push({ from: pos, to: pos + node.nodeSize });
+      for (const k of run) {
+        ranges.push({ from: entries[k].pos, to: entries[k].pos + entries[k].node.nodeSize });
+      }
       if (section) section.removed += 1;
     } else if (section) {
       section.kept += 1;
