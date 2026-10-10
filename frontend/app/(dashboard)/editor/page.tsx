@@ -313,8 +313,11 @@ export default function EditorPage() {
   //
   // Left for the teacher to insert by hand: a run that ended in an error (a
   // partial paper is theirs to judge), and a resumed run, whose replay is
-  // only the tail of the paper. Multi-set runs are reviewed in the Comparison
-  // Workspace instead.
+  // only the tail of the paper.
+  //
+  // A multi-set run's sets are adopted straight into the document tabs, and
+  // its Set A is recorded in the tray as already inserted (usePaperGeneration),
+  // so it only needs the toast and the pointer.
   const handleRunComplete = useCallback(
     ({
       ok,
@@ -327,8 +330,18 @@ export default function EditorPage() {
       resumed: boolean;
       trayIds: string[];
     }) => {
-      if (multiSet || trayIds.length === 0) return;
       const store = useEditorStore.getState();
+      if (multiSet) {
+        const labels = store.comparisonSets.map((set) => set.label);
+        if (ok && labels.length > 1) {
+          toast.success(
+            `Sets ${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]} are ready — each is its own tab on the left. Set A's questions are in the review tray.`,
+          );
+        }
+        store.requestTrayAttention();
+        return;
+      }
+      if (trayIds.length === 0) return;
       if (ok && !resumed && store.insertionMode === "review") {
         const inserted = insertTrayItems(trayIds);
         if (inserted > 0) {
@@ -351,12 +364,9 @@ export default function EditorPage() {
   // dock (see its `review` prop) rather than in a floating panel, so the
   // effect below opens the dock — otherwise a run that finishes while the
   // rail is collapsed would stage questions into a surface nobody can see.
-  // Multi-set runs review in the Comparison Workspace instead, so the two
-  // never compete for the screen.
-  const reviewPending =
-    insertionMode === "review" &&
-    !generation.multiSetMode &&
-    generatedTray.length > 0;
+  // Every run lands here, multi-set ones included: their Set A is recorded
+  // as already inserted, so the tray is the record and the Undo for it.
+  const reviewPending = insertionMode === "review" && generatedTray.length > 0;
 
   useEffect(() => {
     if (reviewPending) setDockOpen(true);

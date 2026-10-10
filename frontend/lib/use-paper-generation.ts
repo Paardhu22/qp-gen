@@ -223,6 +223,51 @@ export interface UsePaperGenerationOptions {
   }) => void;
 }
 
+/** A streamed question as a review-tray item. */
+function trayItemFrom(sectionTitle: string, question: any) {
+  return {
+    sectionTitle,
+    sourceType:
+      (question?.sourceType as TrayItem["sourceType"] | undefined) ||
+      (question?.metadata?.sourceType as TrayItem["sourceType"] | undefined) ||
+      "unknown",
+    question: {
+      content: question.content,
+      type: question.type,
+      typeCode: question.typeCode || question.metadata?.typeCode || "",
+      options: question.options || [],
+      answer: question.answer,
+      marks: question.marks,
+      image_url: question.image_url || question.metadata?.image_url || "",
+      metadata: question.metadata || {},
+      bloom: question.bloom,
+      or_choice: question.or_choice,
+    },
+  };
+}
+
+/**
+ * Record a multi-set run's Set A in the review tray, as already inserted.
+ *
+ * Sets are adopted straight into the document tabs, so nothing of a
+ * multi-set run used to reach the tray: no record of what was written, and no
+ * Undo. Set A's questions — the paper in the first tab — are staged from the
+ * adopted result itself, so the tray holds exactly what the document holds and
+ * Undo can find each one. Sets B and C live only in their tabs.
+ */
+function stageAdoptedSet(result: any) {
+  const store = useEditorStore.getState();
+  const ids: string[] = [];
+  for (const section of result?.sections || []) {
+    for (const question of section?.questions || []) {
+      const id = `set-a-${Date.now()}-${ids.length}`;
+      store.pushToTray({ ...trayItemFrom(section.title || "", question), id });
+      ids.push(id);
+    }
+  }
+  if (ids.length > 0) store.markTrayInserted(ids);
+}
+
 /**
  * The SSE event handler, as one definition used by both paths.
  *
@@ -255,25 +300,7 @@ function makeStreamHandler(deps: {
   };
 
   const stageForReview = (sectionTitle: string, question: any) => {
-    useEditorStore.getState().pushToTray({
-      sectionTitle,
-      sourceType:
-        (question?.sourceType as TrayItem["sourceType"] | undefined) ||
-        (question?.metadata?.sourceType as TrayItem["sourceType"] | undefined) ||
-        "unknown",
-      question: {
-        content: question.content,
-        type: question.type,
-        typeCode: question.typeCode || question.metadata?.typeCode || "",
-        options: question.options || [],
-        answer: question.answer,
-        marks: question.marks,
-        image_url: question.image_url || question.metadata?.image_url || "",
-        metadata: question.metadata || {},
-        bloom: question.bloom,
-        or_choice: question.or_choice,
-      },
-    });
+    useEditorStore.getState().pushToTray(trayItemFrom(sectionTitle, question));
   };
 
   return (rawEvent: string, rawData: unknown) => {
@@ -576,6 +603,11 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
   // editor is already open on the paper; there is no navigation to hand off to.
   const setComparisonSets = useEditorStore((s) => s.setComparisonSets);
   const adoptGeneratedSets = useEditorStore((s) => s.adoptGeneratedSets);
+  // Set A is staged into the tray once per run, however often this re-runs.
+  const adoptedRunRef = React.useRef(false);
+  React.useEffect(() => {
+    if (state.isGenerating) adoptedRunRef.current = false;
+  }, [state.isGenerating]);
   React.useEffect(() => {
     if (!state.multiSetMode || allSets.length < 2) return;
     const sets = allSets.map((s) => ({ label: s.label, result: s.result }));
@@ -587,6 +619,10 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
       setComparisonSets(sets);
     } else {
       adoptGeneratedSets(sets, { awaitPaper: false });
+      if (!adoptedRunRef.current) {
+        adoptedRunRef.current = true;
+        stageAdoptedSet(sets[0]?.result);
+      }
     }
   }, [
     state.multiSetMode,

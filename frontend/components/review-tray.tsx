@@ -21,9 +21,10 @@
  * The tray itself is part of the editor store, so it survives in-app
  * navigation and reloads alongside the paper (see Issue 1).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useEditorStore, TrayItem } from "@/store/editor-store";
 import { groupBySection, insertTrayItems } from "@/lib/tray-insert";
+import { useAttentionBounce } from "@/lib/use-attention-bounce";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -57,43 +58,9 @@ export function ReviewTray() {
   const pending = useMemo(() => tray.filter((t) => !t.inserted), [tray]);
   const grouped = useMemo(() => groupBySection(tray), [tray]);
 
-  // ── "Your questions are ready" ──────────────────────────────────────
-  // The tray sits at the bottom of the Studio dock, usually below the fold,
-  // so a finished run scrolls it into view and bounces its header. Done on
-  // the DOM rather than through state: it is a one-shot effect, and a class
-  // swap restarts the animation even when two runs finish back to back.
-  //
-  // Only a request from the last few seconds counts — the editor remounts
-  // this on every set-tab switch, and an old finish must not replay. The
-  // window also covers the dock opening (and this mounting) just after the
-  // request. A copy that is not on screen (the dock vs the phone panel) has
-  // no offsetParent and does nothing.
-  const hasItems = tray.length > 0;
-  useEffect(() => {
-    if (!trayAttentionAt || Date.now() - trayAttentionAt > 4000) return;
-    const root = rootRef.current;
-    const header = headerRef.current;
-    if (!root || !header || root.offsetParent === null) return;
-    const reduceMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
-    root.scrollIntoView({
-      behavior: reduceMotion ? "auto" : "smooth",
-      block: "start",
-    });
-    header.classList.remove("tray-attention");
-    void header.offsetWidth; // restart the animation
-    header.classList.add("tray-attention");
-    // Two animations run (bounce, then the longer ring); the class comes off
-    // when the ring — the last to finish — ends.
-    const done = (event: AnimationEvent) => {
-      if (event.animationName === "tray-ring") {
-        header.classList.remove("tray-attention");
-      }
-    };
-    header.addEventListener("animationend", done);
-    return () => header.removeEventListener("animationend", done);
-  }, [trayAttentionAt, hasItems]);
+  // A finished run scrolls the tray — usually below the fold in the Studio
+  // dock — into view and bounces its header.
+  useAttentionBounce(trayAttentionAt, rootRef, headerRef, tray.length > 0);
 
   if (tray.length === 0) return null;
 
