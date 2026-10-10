@@ -146,11 +146,43 @@ function buildTableNode(rows: string[]): any {
   };
 }
 
+/**
+ * The longest paragraph that is sure to fit on one page, in characters.
+ *
+ * Pagination breaks only between blocks, so a paragraph taller than a page is
+ * clipped at its edge. At the paper's measure (~75 characters a line, 24px
+ * lines, ~1,000px of page) a page holds about 3,000 characters of plain text;
+ * this leaves room for the question frame and a line or two above it.
+ */
+const MAX_PARAGRAPH_CHARS = 1800;
+
+/**
+ * Split an over-long paragraph at sentence ends into pieces that each fit.
+ * A passage copied whole from a chapter is the usual culprit. A paragraph
+ * with no sentence end to split at is left as it is.
+ */
+function splitLongParagraph(line: string): string[] {
+  if (line.length <= MAX_PARAGRAPH_CHARS) return [line];
+  const sentences = line.match(/[^.!?]+(?:[.!?]+["'”’)]*\s*|$)/g) ?? [line];
+  const pieces: string[] = [];
+  let current = "";
+  for (const sentence of sentences) {
+    if (current && (current + sentence).length > MAX_PARAGRAPH_CHARS * 0.75) {
+      pieces.push(current.trim());
+      current = "";
+    }
+    current += sentence;
+  }
+  if (current.trim()) pieces.push(current.trim());
+  return pieces.length > 1 ? pieces : [line];
+}
+
 function pushTextBlocks(chunk: string, blocks: any[]) {
   const lines = chunk
     .split(/\n{2,}|\n/)
     .map((l) => l.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .flatMap(splitLongParagraph);
 
   let tableRun: string[] = [];
   const flushTable = () => {
@@ -420,6 +452,30 @@ function readCompositeParts(question: InsertableQuestion): CompositeParts | null
 }
 
 /**
+ * A composite-type question that arrived as one flat string — no
+ * `metadata.composite` — split on its blank lines into the same pieces.
+ *
+ * Not every generator sends the pieces: a seen extract with an OR alternative
+ * came through as 4,000 characters of passage, questions, "OR" and a second
+ * passage in one `content`. As a single block it is taller than a page, and
+ * pagination, which only breaks between a page's blocks, clipped it at the
+ * page edge. Split, it is the run every other composite already is, and it
+ * flows across pages paragraph by paragraph.
+ *
+ * Only for types that are composite anyway, so the head is framed with its
+ * run (`groupQuestionRuns`) and an ordinary question keeps its single block.
+ */
+function splitFlatComposite(question: InsertableQuestion): CompositeParts | null {
+  if (!isCompositeQuestionType(question.type)) return null;
+  const chunks = String(question.content || "")
+    .split(/\n\s*\n/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+  if (chunks.length < 2) return null;
+  return { preamble: chunks[0], body: [], subQuestions: chunks.slice(1) };
+}
+
+/**
  * Every editor node one generated question becomes.
  *
  * Ordinary questions are a single `questionBlock` — one node, as before. A
@@ -441,7 +497,7 @@ function readCompositeParts(question: InsertableQuestion): CompositeParts | null
  * already renders into their text.
  */
 export function buildQuestionBlocks(question: InsertableQuestion): any[] {
-  const parts = readCompositeParts(question);
+  const parts = readCompositeParts(question) ?? splitFlatComposite(question);
   if (!parts) return [buildQuestionBlock(question)];
 
   // `options` is dropped from the head: a composite's choices belong to its

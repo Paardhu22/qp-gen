@@ -44,6 +44,7 @@ const {
   compositeRunSize,
   buildSlotMeta,
   parseSlotMeta,
+  compactSubQuestionOptions,
 } = await import(`file://${file}`);
 
 let passed = 0;
@@ -420,6 +421,59 @@ check("a run that reaches the end of the page is bounded by it", () => {
 check("an ordinary question's run is just itself", () => {
   const parent = fakeParent([stub("questionBlock", 9), stub("questionBlock", 4)]);
   eq(compositeRunSize(parent, 0), 9);
+});
+
+// ── Flat composites, long paragraphs, packed options ─────────────────────
+
+const plainText = (node) =>
+  node.text ?? (node.content ?? []).map(plainText).join("");
+
+check("a flat extract becomes a framed run, not one page-tall block", () => {
+  const blocks = buildQuestionBlocks({
+    type: "EXTRACT_PROSE",
+    marks: 5,
+    content: "Extract:\n\nA passage line.\n\n(i) Why? (2 marks)\n\nOR\n\nAnother passage.",
+  });
+  eq(blocks[0].type, "questionBlock");
+  eq(blocks[0].attrs.questionType, "EXTRACT_PROSE");
+  eq(plainText(blocks[0]), "Extract:");
+  eq(blocks.slice(1).map(plainText), ["A passage line.", "(i) Why? (2 marks)", "OR", "Another passage."]);
+});
+
+check("an ordinary long answer stays one block", () => {
+  const blocks = buildQuestionBlocks({ type: "LONG_ANSWER", marks: 5, content: "Explain.\n\nGive two reasons." });
+  eq(blocks.length, 1);
+});
+
+check("a paragraph too tall for a page is split at sentence ends, losing nothing", () => {
+  const sentence = "Mr Keesing had a good laugh at my arguments and assigned another essay. ";
+  const passage = sentence.repeat(40).trim();
+  const blocks = buildQuestionBlocks({ type: "EXTRACT_PROSE", marks: 5, content: `Extract:\n\n${passage}` });
+  const body = blocks.slice(1).map(plainText);
+  if (body.length < 2) throw new Error(`expected a split, got ${body.length} paragraph(s)`);
+  if (body.some((p) => p.length > 1800)) throw new Error("a piece is still too long");
+  eq(body.join(" ").replace(/\s+/g, " "), passage.replace(/\s+/g, " "));
+});
+
+check("four short sub-question options share one line", () => {
+  eq(
+    compactSubQuestionOptions("II. Pick one.\n      A. many\n      B. much\n      C. few\n      D. several"),
+    "II. Pick one.\nA. many\u2003\u2003\u2003B. much\u2003\u2003\u2003C. few\u2003\u2003\u2003D. several",
+  );
+});
+
+check("medium options go two per line, long ones keep a line each", () => {
+  const medium = compactSubQuestionOptions(
+    "XI. Pair?\n A. headphones / headphone\n B. is / are\n C. comfortable / comfortably\n D. wear / wore",
+  );
+  eq(medium.split("\n").length, 3);
+  const long = "(i) Why?\n (a) " + "x".repeat(40) + "\n (b) " + "y".repeat(40);
+  eq(compactSubQuestionOptions(long), long);
+});
+
+check("lines that are not options in sequence are left alone", () => {
+  const text = "III. Choose:\n A. one\n C. two";
+  eq(compactSubQuestionOptions(text), text);
 });
 
 // ── Report ──────────────────────────────────────────────────────────────
