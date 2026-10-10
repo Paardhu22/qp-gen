@@ -267,8 +267,13 @@ async function masthead(node: Json, ctx: Context): Promise<Block[]> {
   // while the old metadata grid becomes the same strip as the editor.
   const legacyIndex = legacyHeaderTableIndex(node);
   const split = children.findIndex(child => child.type === "table");
+  // An empty line goes too — chiefly the school name before one is set, which
+  // the editor collapses and which would otherwise open the Word masthead
+  // with a blank line.
   const titles = (split === -1 ? children : children.slice(0, split)).filter(child =>
-    !isGenericPaperTitle(child) && !(node.attrs?.showSchoolName === false && child.type === "heading" && child.attrs?.level === 1));
+    !isGenericPaperTitle(child) &&
+    !(node.attrs?.showSchoolName === false && child.type === "heading" && child.attrs?.level === 1) &&
+    textOf(child).trim() !== "");
   const rest = split === -1 ? [] : children.slice(split).filter((_, i) => i + split !== legacyIndex);
 
   const titleParagraphs = titles.map((child) => {

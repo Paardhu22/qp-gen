@@ -1756,6 +1756,12 @@ export function getTiptapExtensions(isEditable = true) {
         Placeholder.configure({
           includeChildren: true,
           showOnlyCurrent: false,
+          // `is-current` marks the empty line the cursor is in, so CSS can
+          // collapse an empty header line except while it is being typed in.
+          // Focus too: an untouched editor's selection sits at the start of
+          // the document — inside the header's first line.
+          emptyNodeClass: ({ hasAnchor, editor }) =>
+            hasAnchor && editor.isFocused ? "is-empty is-current" : "is-empty",
           placeholder: ({ editor, node, pos }) => {
             try {
               const $pos = editor.state.doc.resolve(pos);
@@ -1810,11 +1816,11 @@ export function getTiptapExtensions(isEditable = true) {
                   return "Instruction…";
                 }
                 if (name === "paperHeaderBlock") {
-                  if (ancestor.type.name === "paperHeaderBlock") {
-                    // Headings & paragraphs inside the header — give a
-                    // generic prompt that doesn't tie to a specific slot.
-                    return "Header line…";
-                  }
+                  // No ghost text in the masthead. An empty school-name
+                  // heading rendered "Header line…" at heading size, which
+                  // read as part of the paper; the line is filled from
+                  // "Edit header" or the brand kit instead.
+                  return "";
                 }
               }
             } catch {

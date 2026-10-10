@@ -199,5 +199,23 @@ const plain = (xml) => xml.replace(/<w:tab\/>/g, "\t").replace(/<[^>]+>/g, "");
   check("OR composite branches retain both passages in their boxes", /First branch passage\.[\s\S]*OR[\s\S]*Second branch passage\./.test(plain(branches)));
 }
 
+// ── An empty school-name line is left out, not printed as a blank line ────
+{
+  const header = {
+    type: "paperHeaderBlock",
+    attrs: { details: [], hiddenFields: [] },
+    content: [{ type: "heading", attrs: { level: 1 } }],
+  };
+  const built = await buildPaperDocx(
+    { type: "doc", content: [{ type: "page", content: [header, question(1, "What is RAM?", null)] }] },
+    loader({ width: 1, height: 1 }),
+  );
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(built));
+  const xml = await zip.file("word/document.xml").async("string");
+  const firstParagraph = xml.split("<w:body>")[1].match(/<w:p>[\s\S]*?<\/w:p>/)?.[0] ?? "";
+  // The masthead's first paragraph is its rule, not an empty 18pt title.
+  check("an empty school name adds no blank title line", /<w:pBdr>/.test(firstParagraph), firstParagraph.slice(0, 120));
+}
+
 console.log(failures === 0 ? "\nAll docx-paper cases passed" : `\n${failures} case(s) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

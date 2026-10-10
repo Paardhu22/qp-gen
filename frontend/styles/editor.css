@@ -1409,8 +1409,15 @@
           height: 0;
           font-style: italic;
         }
+        /* An empty line in the masthead (the school name, before one is set)
+           takes no space, so the header does not open with a heading-tall
+           gap. It opens up while the cursor is in it, so it can still be
+           typed into. */
+        .ProseMirror .paper-header-block .is-empty:not(.is-current) {
+          display: none;
+        }
         /* Ghost lines are an editing aid — an empty school-name line must
-           print as nothing, not as "Header line…". */
+           print as nothing. */
         @media print {
           .ProseMirror .is-empty[data-placeholder]::before,
           .ProseMirror .is-editor-empty:first-child::before {
