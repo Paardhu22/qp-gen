@@ -1256,6 +1256,8 @@ export interface BuiltinTemplate {
   settings: Record<string, string>;
   /** The classes a starter suits, inclusive. Absent on every other kind. */
   classRange?: [number, number];
+  /** The paper's total, on starters and board cards. */
+  totalMarks?: number;
 }
 
 export interface PaperTemplate {

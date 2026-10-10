@@ -880,3 +880,45 @@ html[data-auth-page] *.dark {
         transition: none !important;
     }
 }
+
+/* ── Paper builder motion ────────────────────────────────────────────────
+   The builder is the front door to every paper, so it arrives with more
+   presence than a confirm dialog: a rise-and-settle instead of a 150ms fade.
+   `transform` is free to animate here — Tailwind v4 centres the popup with the
+   separate `translate` property. Cards rise in a short stagger (`--i` is the
+   card's index) and each step's content re-enters when the step changes. */
+@keyframes builder-in {
+    from { opacity: 0; transform: translateY(28px) scale(0.96); }
+    to { opacity: 1; transform: none; }
+}
+@keyframes builder-rise {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: none; }
+}
+@keyframes builder-flash {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 45%, transparent); }
+    100% { box-shadow: 0 0 0 14px transparent; }
+}
+
+[data-slot="dialog-content"].builder-dialog[data-open] {
+    animation: builder-in 420ms var(--ease) both;
+}
+.builder-step {
+    animation: builder-rise 320ms var(--ease) both;
+}
+.builder-card {
+    animation: builder-rise 380ms var(--ease) both;
+    animation-delay: calc(min(var(--i, 0), 12) * 35ms);
+}
+.builder-flash {
+    animation: builder-flash 900ms var(--ease) 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    [data-slot="dialog-content"].builder-dialog[data-open],
+    .builder-step,
+    .builder-card,
+    .builder-flash {
+        animation: none !important;
+    }
+}

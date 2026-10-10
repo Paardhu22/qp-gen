@@ -9,10 +9,9 @@
  * editor's generation flow, where it belongs, so nothing was orphaned.
  *
  * Two kinds of template share the list, and the difference is real rather than
- * cosmetic. Built-ins are generated server-side from the engine's eligibility
- * matrix — code, not rows — which is what keeps the catalog in step with the
- * engine for free, and also means a built-in has nothing to edit and nowhere to
- * be filed. "Make it mine" forks one into a row the teacher owns, and from that
+ * cosmetic. Built-ins are defined server-side — code, not rows — so a built-in
+ * has nothing to edit and nowhere to be filed. There are at least two for
+ * every subject in every class, so they are browsed one class at a time. "Make it mine" forks one into a row the teacher owns, and from that
  * point it behaves like anything else here.
  *
  * Folders are pure filing: nothing in generation reads them, and an unfiled
@@ -48,6 +47,7 @@ import {
   SavedTemplateCard,
 } from "@/components/templates/template-card";
 import { TemplateEditorPanel } from "@/components/templates/template-editor-panel";
+import { fitsClass } from "@/components/blueprint/template-picker-grid";
 import {
   createTemplateFolder,
   deletePaperTemplate,
@@ -63,6 +63,13 @@ import {
   type TemplateFolder,
 } from "@/lib/api-client";
 import { useEditorStore } from "@/store/editor-store";
+import { cn } from "@/lib/utils";
+import { PAPER_CLASSES, PAPER_SUBJECTS, paperSubjectEntry } from "@/lib/subject";
+
+/** A ready-made paper for a class, as opposed to Blank / Describe It Yourself. */
+function isClassTemplate(template: BuiltinTemplate) {
+  return template.kind === "starter" || template.kind === "cbse_blueprint";
+}
 
 /** Mirrors backend MAX_FOLDER_DEPTH. Used only to hide actions the API rejects. */
 const MAX_FOLDER_DEPTH = 3;
@@ -84,6 +91,7 @@ export default function TemplatesPage() {
     kind: "all",
   });
   const [search, setSearch] = React.useState("");
+  const [builtinClass, setBuiltinClass] = React.useState("10");
   const [editing, setEditing] = React.useState<PaperTemplate | null>(null);
   const [forkingId, setForkingId] = React.useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = React.useState<PendingDelete | null>(
@@ -154,12 +162,36 @@ export default function TemplatesPage() {
     return rows;
   }, [templates, selection, term]);
 
+  // A search looks across every class — the teacher typing "Sanskrit" wants
+  // all of them, not the ones under whichever tab happened to be open.
   const visibleBuiltins = React.useMemo(() => {
-    if (!term) return builtins;
-    return builtins.filter((t) =>
-      [t.name, t.description, t.subject].join(" ").toLowerCase().includes(term),
+    if (term) {
+      return builtins.filter((t) =>
+        [t.name, t.description, t.subject].join(" ").toLowerCase().includes(term),
+      );
+    }
+    const classNum = Number.parseInt(builtinClass, 10);
+    return builtins.filter((t) => !isClassTemplate(t) || fitsClass(t, classNum));
+  }, [builtins, term, builtinClass]);
+
+  // Start-from-nothing first, then one group per subject, short test to full
+  // exam within each.
+  const builtinGroups = React.useMemo(() => {
+    const universal = visibleBuiltins.filter((t) => !isClassTemplate(t));
+    const byMarks = (a: BuiltinTemplate, b: BuiltinTemplate) =>
+      Number(b.kind === "cbse_blueprint") - Number(a.kind === "cbse_blueprint") ||
+      (a.totalMarks ?? 0) - (b.totalMarks ?? 0) ||
+      a.name.localeCompare(b.name);
+    const groups = PAPER_SUBJECTS.map((subject) => ({
+      label: subject,
+      templates: visibleBuiltins
+        .filter((t) => isClassTemplate(t) && paperSubjectEntry(t.subject) === subject)
+        .sort(byMarks),
+    }));
+    return [{ label: "Start from scratch", templates: universal }, ...groups].filter(
+      (group) => group.templates.length > 0,
     );
-  }, [builtins, term]);
+  }, [visibleBuiltins]);
 
   /* ── Actions ─────────────────────────────────────────────────────────── */
 
@@ -417,15 +449,50 @@ export default function TemplatesPage() {
           {isLoading ? (
             <SkeletonCards cards={6} className="xl:grid-cols-3" />
           ) : showingBuiltins ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {visibleBuiltins.map((builtin) => (
-                <BuiltinTemplateCard
-                  key={builtin.id}
-                  template={builtin}
-                  isForking={forkingId === builtin.id}
-                  onFork={() => void handleFork(builtin)}
-                  onUse={() => handleUse(builtin.id, builtin.name)}
-                />
+            <div className="space-y-6">
+              {term ? null : (
+                <div
+                  role="tablist"
+                  aria-label="Class"
+                  className="-mx-1 flex gap-1 overflow-x-auto border-b border-border px-1"
+                >
+                  {PAPER_CLASSES.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      role="tab"
+                      aria-selected={c === builtinClass}
+                      onClick={() => setBuiltinClass(c)}
+                      className={cn(
+                        "-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium tabular-nums transition-colors",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        c === builtinClass
+                          ? "border-primary text-primary"
+                          : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
+                      )}
+                    >
+                      Class {c}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {builtinGroups.map((group) => (
+                <section key={group.label} className="space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {group.label}
+                  </h3>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {group.templates.map((builtin) => (
+                      <BuiltinTemplateCard
+                        key={builtin.id}
+                        template={builtin}
+                        isForking={forkingId === builtin.id}
+                        onFork={() => void handleFork(builtin)}
+                        onUse={() => handleUse(builtin.id, builtin.name)}
+                      />
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           ) : visibleTemplates.length === 0 ? (

@@ -40,9 +40,16 @@ import {
   ArrowRight,
   BookOpen,
   Check,
-  FileStack,
+  Cpu,
+  FlaskConical,
+  Globe,
+  Languages,
+  Monitor,
   Save,
+  Sigma,
+  Sparkles,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -72,6 +79,7 @@ import {
 } from "@/lib/api-client";
 import { recomputeTotals } from "@/lib/blueprint-totals";
 import type { AppliedHsatSource } from "@/lib/hsat-source";
+import { PAPER_CLASSES, PAPER_SUBJECTS, paperSubjectEntry } from "@/lib/subject";
 
 import { TemplatePickerGrid } from "./template-picker-grid";
 import { SlotEditor } from "./slot-editor";
@@ -137,26 +145,28 @@ const DESCRIBE_TEMPLATE_ID = "describe-it-yourself";
 
 type Step = "template" | "sources" | "questions";
 
+/**
+ * Paper first, template second. The template picker browses by class and
+ * subject, so it opens on the ones the teacher has just set — and the chapters
+ * attached there are what every template is generated from anyway.
+ */
 const STEPS: { id: Step; label: string }[] = [
+  // Class, subject, difficulty and sets are set on this step, beside the
+  // chapters they must agree with — hence the label.
+  { id: "sources", label: "Paper & sources" },
   { id: "template", label: "Template" },
-  { id: "sources", label: "Sources" },
   { id: "questions", label: "Questions" },
 ];
 
-const CLASSES = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
-const SUBJECTS = [
-  "Science",
-  "Social Science",
-  "Mathematics",
-  "English",
-  "Hindi",
-  "Telugu",
-  "Sanskrit",
-  "Computer Science",
-  "ICT",
-];
+const CLASSES = PAPER_CLASSES;
+const SUBJECTS = PAPER_SUBJECTS;
+const subjectEntry = paperSubjectEntry;
 const DIFFICULTIES = ["easy", "medium", "hard"];
 
+/** Questions is the one step that needs a template; the rest are always open. */
+function stepReachable(step: Step, templateId: string | null) {
+  return step !== "questions" || templateId !== null;
+}
 
 export function BlueprintModal({
   open,
@@ -176,7 +186,7 @@ export function BlueprintModal({
   initialInstructions,
   initialTemplateId,
 }: Props) {
-  const [step, setStep] = React.useState<Step>("template");
+  const [step, setStep] = React.useState<Step>("sources");
   const [builtin, setBuiltin] = React.useState<BuiltinTemplate[]>([]);
   const [saved, setSaved] = React.useState<PaperTemplate[]>([]);
   const [catalogLoading, setCatalogLoading] = React.useState(false);
@@ -273,13 +283,23 @@ export function BlueprintModal({
   }, [open, subject, academicClass]);
 
   const applyTemplate = React.useCallback(
-    // `briefOverride` exists because the Studio dock seeds the brief and
+    // `options.brief` exists because the Studio dock seeds the brief and
     // resolves in the same tick. Reading `instructions` from the closure there
     // would send the PREVIOUS value (state has not committed yet), so the
     // blueprint would come back planned from the wrong text — or from nothing
     // at all on the first use.
-    async (id: string, kind: string, briefOverride?: string) => {
-      const brief = briefOverride ?? instructions;
+    //
+    // `options.academicClass` is the class tab a ready-made paper was picked
+    // under: a Class 3–5 test chosen on the Class 3 tab is a Class 3 paper,
+    // whatever the rail said before.
+    async (
+      id: string,
+      kind: string,
+      options: { brief?: string; academicClass?: string; nextStep?: Step } = {},
+    ) => {
+      const brief = options.brief ?? instructions;
+      const requestedClass = options.academicClass || academicClass;
+      if (options.academicClass) setAcademicClass(options.academicClass);
       setTemplateId(id);
       setTemplateKind(kind);
       const match =
@@ -298,7 +318,7 @@ export function BlueprintModal({
         const result = await resolveTemplate({
           templateId: id,
           subject: builtinMatch?.subject || subject,
-          academicClass: builtinMatch?.academicClass || academicClass,
+          academicClass: builtinMatch?.academicClass || requestedClass,
           difficulty,
           instructions: brief,
         });
@@ -308,12 +328,15 @@ export function BlueprintModal({
         }
         applyDetected(result.detected);
         setDesignNotes(result.corrections ?? []);
-        // Always hand over to Sources. Skipping ahead to Questions when the
-        // template happened to resolve slots was a shortcut that skipped the
-        // one step the paper cannot be generated without — a teacher who
-        // never sees step 2 has no chapter attached, and finds out only when
-        // generation produces nothing.
-        setStep("sources");
+        // Picked here, the template hands over to its questions — the paper
+        // and its chapters were set on the step before. "Describe It
+        // Yourself" with nothing written yet stays put: its box is on this
+        // step. A template applied on arrival (a Studio brief, "Use" on the
+        // Templates page) says where to land instead, because that teacher
+        // has not seen the chapters step yet.
+        const emptyBrief =
+          kind === "instructions" && result.blueprint.slots.length === 0;
+        setStep(options.nextStep ?? (emptyBrief ? "template" : "questions"));
       } catch (error: any) {
         console.error("Template resolve failed:", error);
         toast.error(
@@ -353,7 +376,10 @@ export function BlueprintModal({
 
     appliedBriefRef.current = brief;
     setInstructions(brief);
-    void applyTemplate(DESCRIBE_TEMPLATE_ID, "instructions", brief);
+    void applyTemplate(DESCRIBE_TEMPLATE_ID, "instructions", {
+      brief,
+      nextStep: "sources",
+    });
   }, [open, initialInstructions, builtin.length, applyTemplate]);
 
   // ── Opened from the Templates page with a chosen template ───────────────
@@ -390,6 +416,7 @@ export function BlueprintModal({
     void applyTemplate(
       wanted,
       "builtin" in match && match.builtin ? match.kind : "saved",
+      { nextStep: "sources" },
     );
   }, [
     open,
@@ -399,6 +426,45 @@ export function BlueprintModal({
     saved,
     applyTemplate,
   ]);
+
+  // ── Class and subject, read off the attached chapters ───────────────────
+  // The first source that knows what it is wins: a library book carries its
+  // grade and subject, an upload carries the subject the backend detected.
+  // First, not latest, so a second off-subject chapter is flagged by the
+  // mismatch warning instead of quietly flipping the whole paper.
+  const sourceHint = React.useMemo(() => {
+    const book = hsatSources.find((s) => s.subject);
+    if (book) {
+      return { subject: book.subject, academicClass: book.grade, from: book.book };
+    }
+    const doc = uploadedDocs.find((d) => d.subject);
+    return doc ? { subject: doc.subject!, academicClass: "", from: doc.name } : null;
+  }, [hsatSources, uploadedDocs]);
+
+  // A board paper or class starter fixes its subject — a Maths blueprint must
+  // not silently become a Science paper because a Science book was attached.
+  // There the hint is offered as a one-click switch rather than applied.
+  const templateSubject = builtin.find((t) => t.id === templateId)?.subject;
+  const hintKey = sourceHint
+    ? `${sourceHint.subject}|${sourceHint.academicClass}|${sourceHint.from}`
+    : "";
+  const [flashKey, setFlashKey] = React.useState(0);
+  const appliedHintRef = React.useRef("");
+  React.useEffect(() => {
+    if (!sourceHint || appliedHintRef.current === hintKey) return;
+    appliedHintRef.current = hintKey;
+    if (templateSubject) return;
+    if (subjectEntry(sourceHint.subject)) setSubject(sourceHint.subject);
+    if (CLASSES.includes(sourceHint.academicClass)) {
+      setAcademicClass(sourceHint.academicClass);
+    }
+    setFlashKey((k) => k + 1);
+  }, [sourceHint, hintKey, templateSubject]);
+
+  const hintMatches =
+    !!sourceHint &&
+    subjectEntry(sourceHint.subject) === subjectEntry(subject) &&
+    (!sourceHint.academicClass || sourceHint.academicClass === academicClass);
 
   const handleSlotsChange = (slots: BlueprintSlot[]) => {
     setBlueprint(recomputeTotals(slots));
@@ -494,7 +560,7 @@ export function BlueprintModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="flex h-[min(88vh,900px)] w-[min(96vw,1100px)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
+        className="builder-dialog flex h-[min(92vh,980px)] w-[min(96vw,1280px)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
@@ -503,7 +569,7 @@ export function BlueprintModal({
               Create a paper
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Pick a starting point, then change anything you like.
+              Set up the paper, pick a template, then change anything you like.
             </DialogDescription>
           </div>
           <button
@@ -526,8 +592,9 @@ export function BlueprintModal({
         >
           {STEPS.map((entry, i) => {
             const active = entry.id === step;
-            const reachable = i === 0 || templateId !== null;
-            const done = i < stepIndex && templateId !== null;
+            const reachable = stepReachable(entry.id, templateId);
+            const done =
+              i < stepIndex && (entry.id !== "template" || templateId !== null);
             return (
               <button
                 key={entry.id}
@@ -568,8 +635,9 @@ export function BlueprintModal({
             <ol className="space-y-1">
               {STEPS.map((entry, i) => {
                 const active = entry.id === step;
-                const reachable = i === 0 || templateId !== null;
-                const done = i < stepIndex && templateId !== null;
+                const reachable = stepReachable(entry.id, templateId);
+                const done =
+                  i < stepIndex && (entry.id !== "template" || templateId !== null);
                 return (
                   <li key={entry.id}>
                     <button
@@ -603,95 +671,6 @@ export function BlueprintModal({
                 );
               })}
             </ol>
-
-            {/* Paper settings live in the rail: they apply to every step, and
-                putting them in one step would make the other two lie about
-                what they were configuring. */}
-            {templateId ? (
-              <div className="mt-5 space-y-3 border-t border-border pt-4">
-                <div className="space-y-1">
-                  <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Class
-                  </Label>
-                  <select
-                    value={academicClass}
-                    onChange={(e) => setAcademicClass(e.target.value)}
-                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
-                  >
-                    {CLASSES.map((c) => (
-                      <option key={c} value={c}>
-                        Class {c}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Subject
-                  </Label>
-                  <select
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
-                  >
-                    {SUBJECTS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Difficulty
-                  </Label>
-                  <select
-                    value={difficulty}
-                    onChange={(e) => setDifficulty(e.target.value)}
-                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs capitalize"
-                  >
-                    {DIFFICULTIES.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {/* Standard (041) and Basic (241) share the identical A–E
-                    skeleton and differ only in cognitive-band target, so this
-                    is a selection-time flag rather than a structural choice.
-                    Shown only where it means anything. */}
-                {subject === "Mathematics" ? (
-                  <div className="space-y-1">
-                    <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      Maths level
-                    </Label>
-                    <select
-                      value={mathLevel}
-                      onChange={(e) => setMathLevel(e.target.value)}
-                      className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
-                    >
-                      <option value="standard">Standard (041)</option>
-                      <option value="basic">Basic (241)</option>
-                    </select>
-                  </div>
-                ) : null}
-                <div className="space-y-1">
-                  <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Sets
-                  </Label>
-                  <select
-                    value={numberOfSets}
-                    onChange={(e) => setNumberOfSets(e.target.value)}
-                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs"
-                  >
-                    <option value="1">1 set (A)</option>
-                    <option value="2">2 sets (A, B)</option>
-                    <option value="3">3 sets (A, B, C)</option>
-                  </select>
-                </div>
-              </div>
-            ) : null}
           </nav>
 
           {/* Step content */}
@@ -718,7 +697,7 @@ export function BlueprintModal({
                         </span>
                       ))}
                       <span className="text-[11px] text-muted-foreground">
-                        — change any of it on the left.
+                        — you can change any of it.
                       </span>
                     </div>
                   </>
@@ -738,40 +717,15 @@ export function BlueprintModal({
               </div>
             ) : null}
 
+            <div key={resolving ? "resolving" : step} className="builder-step">
             {resolving ? (
               <Spinner size="page" label="Preparing the blueprint…" />
             ) : step === "template" ? (
-              <TemplatePickerGrid
-                builtin={builtin}
-                saved={saved}
-                selectedId={templateId}
-                onSelect={applyTemplate}
-                onDelete={handleDeleteTemplate}
-                loading={catalogLoading}
-                academicClass={academicClass}
-                subject={subject}
-              />
-            ) : step === "sources" ? (
-              <div className="space-y-5">
-                <SourcePanel
-                  uploadedDocs={uploadedDocs}
-                  uploadingDocs={uploadingDocs}
-                  hsatSources={hsatSources}
-                  savedCount={blueprint.savedCount}
-                  onFiles={onFiles}
-                  onRemoveDoc={onRemoveDoc}
-                  onDismissUpload={onDismissUpload}
-                  onRemoveHsat={onRemoveHsat}
-                  onOpenHsatPicker={onOpenHsatPicker}
-                  // The paper's own subject is the thing an uploaded chapter
-                  // has to agree with — cross-checking the uploads only
-                  // against each other lets a single wrong-subject PDF pass.
-                  expectedSubject={subject}
-                  onAcceptSubjectMismatch={onAcceptSubjectMismatch}
-                />
-
+              <div className="space-y-6">
+                {/* The brief for "Describe It Yourself" (or an adaptive saved
+                    template) lives with the template it drives. */}
                 {templateKind === "instructions" || instructions ? (
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 border border-border bg-card p-4">
                     <Label className="text-xs font-semibold">
                       Describe the paper
                     </Label>
@@ -795,6 +749,59 @@ export function BlueprintModal({
                     </Button>
                   </div>
                 ) : null}
+                <TemplatePickerGrid
+                  builtin={builtin}
+                  saved={saved}
+                  selectedId={templateId}
+                  onSelect={(id, kind, options) => void applyTemplate(id, kind, options)}
+                  onDelete={handleDeleteTemplate}
+                  loading={catalogLoading}
+                  academicClass={academicClass}
+                  subject={subject}
+                />
+              </div>
+            ) : step === "sources" ? (
+              <div className="space-y-5">
+                <PaperForPanel
+                  academicClass={academicClass}
+                  subject={subject}
+                  difficulty={difficulty}
+                  numberOfSets={numberOfSets}
+                  mathLevel={mathLevel}
+                  onClassChange={setAcademicClass}
+                  onSubjectChange={setSubject}
+                  onDifficultyChange={setDifficulty}
+                  onSetsChange={setNumberOfSets}
+                  onMathLevelChange={setMathLevel}
+                  hint={sourceHint}
+                  hintMatches={hintMatches}
+                  flashKey={flashKey}
+                  onApplyHint={() => {
+                    if (!sourceHint) return;
+                    setSubject(sourceHint.subject);
+                    if (CLASSES.includes(sourceHint.academicClass)) {
+                      setAcademicClass(sourceHint.academicClass);
+                    }
+                    setFlashKey((k) => k + 1);
+                  }}
+                />
+                <SourcePanel
+                  uploadedDocs={uploadedDocs}
+                  uploadingDocs={uploadingDocs}
+                  hsatSources={hsatSources}
+                  savedCount={blueprint.savedCount}
+                  onFiles={onFiles}
+                  onRemoveDoc={onRemoveDoc}
+                  onDismissUpload={onDismissUpload}
+                  onRemoveHsat={onRemoveHsat}
+                  onOpenHsatPicker={onOpenHsatPicker}
+                  // The paper's own subject is the thing an uploaded chapter
+                  // has to agree with — cross-checking the uploads only
+                  // against each other lets a single wrong-subject PDF pass.
+                  expectedSubject={subject}
+                  onAcceptSubjectMismatch={onAcceptSubjectMismatch}
+                />
+
               </div>
             ) : (
               <SlotEditor
@@ -805,6 +812,7 @@ export function BlueprintModal({
                 onChange={handleSlotsChange}
               />
             )}
+            </div>
           </div>
         </div>
 
@@ -869,7 +877,7 @@ export function BlueprintModal({
                 type="button"
                 size="sm"
                 className="h-8"
-                disabled={!templateId}
+                disabled={!stepReachable(STEPS[stepIndex + 1].id, templateId)}
                 onClick={() => setStep(STEPS[stepIndex + 1].id)}
               >
                 Next
@@ -899,5 +907,306 @@ export function BlueprintModal({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+
+const SUBJECT_ICONS: Record<string, LucideIcon> = {
+  Science: FlaskConical,
+  "Social Science": Globe,
+  Mathematics: Sigma,
+  English: Languages,
+  Hindi: Languages,
+  Telugu: Languages,
+  Sanskrit: Languages,
+  "Computer Science": Cpu,
+  ICT: Monitor,
+};
+
+const DIFFICULTY_DOTS: Record<string, string> = {
+  easy: "bg-success",
+  medium: "bg-warning",
+  hard: "bg-destructive",
+};
+
+const SET_OPTIONS = [
+  { value: "1", label: "A" },
+  { value: "2", label: "A · B" },
+  { value: "3", label: "A · B · C" },
+];
+
+/**
+ * The square chip the builder uses for every small choice — the same border,
+ * weight and filled-primary selected state as the template cards above it.
+ */
+const choiceChip = (active: boolean) =>
+  cn(
+    "flex items-center justify-center gap-1.5 border px-3.5 py-2 text-sm font-medium tabular-nums transition-all duration-200 ease-[var(--ease)]",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+    active
+      ? "border-primary bg-primary text-primary-foreground shadow-sm shadow-primary/25"
+      : "border-border bg-background hover:-translate-y-0.5 hover:border-primary/50 hover:text-primary",
+  );
+
+function ChoiceGroup({
+  label,
+  options,
+  value,
+  onChange,
+  chipClassName,
+}: {
+  label: string;
+  options: { value: string; label: React.ReactNode }[];
+  value: string;
+  onChange: (value: string) => void;
+  chipClassName?: string;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={option.value === value}
+            onClick={() => onChange(option.value)}
+            className={cn(choiceChip(option.value === value), chipClassName)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The paper's identity — class, subject, difficulty, sets — at the top of the
+ * Sources step. These used to be selects in the step rail as well, which left
+ * two controls for the same value a few hundred pixels apart; now this is the
+ * only place they are set, right beside the chapters they must agree with,
+ * and it fills itself in from those chapters when it can.
+ *
+ * The header reads back the whole choice as one line ("Class 10 · Science"),
+ * so a wrong default is impossible to miss before anything is generated. It
+ * borrows the template card's vocabulary — accent bar, filled icon tile — so
+ * the paper chosen on step 1 visibly carries on into step 2.
+ */
+function PaperForPanel({
+  academicClass,
+  subject,
+  difficulty,
+  numberOfSets,
+  mathLevel,
+  onClassChange,
+  onSubjectChange,
+  onDifficultyChange,
+  onSetsChange,
+  onMathLevelChange,
+  hint,
+  hintMatches,
+  flashKey,
+  onApplyHint,
+}: {
+  academicClass: string;
+  subject: string;
+  difficulty: string;
+  numberOfSets: string;
+  mathLevel: string;
+  onClassChange: (value: string) => void;
+  onSubjectChange: (value: string) => void;
+  onDifficultyChange: (value: string) => void;
+  onSetsChange: (value: string) => void;
+  onMathLevelChange: (value: string) => void;
+  hint: { subject: string; academicClass: string; from: string } | null;
+  hintMatches: boolean;
+  flashKey: number;
+  onApplyHint: () => void;
+}) {
+  const activeSubject = subjectEntry(subject);
+  const isMaths = activeSubject === "Mathematics";
+  const setsLabel =
+    SET_OPTIONS.find((o) => o.value === numberOfSets)?.label ?? numberOfSets;
+
+  return (
+    <section
+      key={flashKey}
+      className={cn(
+        "relative overflow-hidden border border-border bg-card",
+        flashKey > 0 && "builder-flash",
+      )}
+    >
+      <span aria-hidden className="absolute inset-y-0 left-0 w-1 bg-primary" />
+
+      {/* Header: the choice read back as one line */}
+      <div className="relative flex flex-wrap items-center gap-4 border-b border-border px-5 py-4">
+        <span
+          key={activeSubject ?? subject}
+          className="builder-step flex size-11 shrink-0 items-center justify-center bg-primary text-primary-foreground"
+        >
+          {React.createElement(
+            (activeSubject && SUBJECT_ICONS[activeSubject]) || BookOpen,
+            { className: "size-5" },
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            This paper is for
+          </p>
+          <h3 className="truncate text-base font-semibold leading-snug">
+            Class {academicClass} · {subject}
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            <span className="capitalize">{difficulty}</span> ·{" "}
+            {numberOfSets === "1" ? "1 set" : `${numberOfSets} sets`} ({setsLabel})
+            {isMaths ? ` · ${mathLevel === "basic" ? "Basic (241)" : "Standard (041)"}` : ""}
+          </p>
+        </div>
+        {hint && hintMatches ? (
+          <span className="flex max-w-full items-center gap-1.5 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+            <Sparkles className="size-3.5 shrink-0" />
+            <span className="truncate">Picked up from {hint.from}</span>
+          </span>
+        ) : null}
+      </div>
+
+      <div className="relative space-y-5 p-5">
+        {hint && !hintMatches ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border border-warning/40 bg-warning/5 px-3 py-2">
+            <p className="min-w-0 flex-1 text-xs leading-relaxed text-warning">
+              <strong>{hint.from}</strong> looks like{" "}
+              <strong>
+                {hint.academicClass ? `Class ${hint.academicClass} ` : ""}
+                {hint.subject}
+              </strong>
+              , but this paper is set to Class {academicClass} {subject}.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              onClick={onApplyHint}
+            >
+              Switch to {hint.subject}
+            </Button>
+          </div>
+        ) : !hint ? (
+          <p className="text-xs text-muted-foreground">
+            Attach a chapter below and we will fill these in for you — or pick
+            them now.
+          </p>
+        ) : null}
+
+        <div>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Subject
+          </p>
+          <div
+            className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4"
+            role="radiogroup"
+            aria-label="Subject"
+          >
+            {SUBJECTS.map((s) => {
+              const active = activeSubject === s;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  // Re-choosing the lit tile must not flatten a board
+                  // template's "English Language & Literature" to "English".
+                  onClick={() => !active && onSubjectChange(s)}
+                  className={cn(
+                    "group relative flex min-w-0 items-center gap-2.5 overflow-hidden border p-2 pl-2.5 text-left text-sm font-medium",
+                    "transition-[transform,box-shadow,border-color,background-color] duration-300 ease-[var(--ease)]",
+                    "hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-md hover:shadow-primary/10",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                    active
+                      ? "border-primary bg-primary/[0.06] text-primary"
+                      : "border-border bg-card",
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute inset-y-0 left-0 w-0.5 origin-top bg-primary transition-transform duration-300 ease-[var(--ease)]",
+                      active ? "scale-y-100" : "scale-y-0 group-hover:scale-y-100",
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "flex size-8 shrink-0 items-center justify-center transition-colors duration-300",
+                      active
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground group-hover:bg-primary group-hover:text-primary-foreground",
+                    )}
+                  >
+                    {React.createElement(SUBJECT_ICONS[s], { className: "size-4" })}
+                  </span>
+                  <span className="truncate">{s}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <ChoiceGroup
+          label="Class"
+          value={academicClass}
+          onChange={onClassChange}
+          options={CLASSES.map((c) => ({ value: c, label: c }))}
+          chipClassName="min-w-11"
+        />
+
+        <div className="flex flex-wrap gap-x-8 gap-y-5">
+          <ChoiceGroup
+            label="Difficulty"
+            value={difficulty}
+            onChange={onDifficultyChange}
+            options={DIFFICULTIES.map((d) => ({
+              value: d,
+              label: (
+                <>
+                  <span
+                    className={cn(
+                      "size-1.5 shrink-0 rounded-full",
+                      d === difficulty ? "bg-primary-foreground" : DIFFICULTY_DOTS[d],
+                    )}
+                  />
+                  <span className="capitalize">{d}</span>
+                </>
+              ),
+            }))}
+          />
+          <ChoiceGroup
+            label="Sets"
+            value={numberOfSets}
+            onChange={onSetsChange}
+            options={SET_OPTIONS}
+          />
+          {/* Standard (041) and Basic (241) share the identical A–E skeleton
+              and differ only in cognitive-band target, so this is a
+              selection-time flag rather than a structural choice. Shown only
+              where it means anything. */}
+          {isMaths ? (
+            <ChoiceGroup
+              label="Maths level"
+              value={mathLevel}
+              onChange={onMathLevelChange}
+              options={[
+                { value: "standard", label: "Standard" },
+                { value: "basic", label: "Basic" },
+              ]}
+            />
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
