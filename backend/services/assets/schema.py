@@ -25,6 +25,7 @@ from services.pool.schema import (
     normalize_blooms,
     normalize_difficulty,
 )
+from services.pool.options import normalize_options
 from utils.ids import generate_id
 
 #: Roman numerals for sub-question labelling, matching CBSE's own convention
@@ -84,7 +85,7 @@ class SubQuestion:
             marks = int(raw.get("marks") or 1)
         except (TypeError, ValueError):
             marks = 1
-        options = [_clean(o) for o in _as_list(raw.get("options")) if _clean(o)]
+        options = [_clean(o) for o in normalize_options(raw.get("options")) if _clean(o)]
         paragraph = raw.get("paragraph") or raw.get("paragraph_number")
         try:
             paragraph = int(paragraph) if paragraph not in (None, "") else None
@@ -267,7 +268,7 @@ class GrammarAsset:
             grammar_topic=topic,
             question=question,
             answer=_clean(raw.get("answer")),
-            options=[_clean(o) for o in _as_list(raw.get("options")) if _clean(o)],
+            options=[_clean(o) for o in normalize_options(raw.get("options")) if _clean(o)],
             explanation=_clean(raw.get("explanation")),
             difficulty=normalize_difficulty(raw.get("difficulty")) or "medium",
             context=_clean(raw.get("context")),

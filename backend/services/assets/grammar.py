@@ -27,6 +27,7 @@ from services.assets.schema import (
     build_pool_question,
 )
 from services.assets.validation import validate_asset
+from services.pool.options import normalize_options
 from services.pool.schema import PoolValidationError
 
 logger = logging.getLogger("[ASSETS]")
@@ -143,7 +144,9 @@ class GrammarAssetGenerator(AssetGenerator):
                 grammar_topic=str(payload.get("grammarTopic") or ""),
                 question=str(payload.get("question") or question.question),
                 answer=str(payload.get("answer") or question.answer),
-                options=list(payload.get("options") or question.options or []),
+                # Banked before options were normalised, some carry the
+                # stringified object ("{'A': 'many'}"); this repairs them.
+                options=normalize_options(payload.get("options") or question.options or []),
                 explanation=str(payload.get("explanation") or ""),
                 difficulty=str(payload.get("difficulty") or question.difficulty),
                 context=str(payload.get("context") or ""),

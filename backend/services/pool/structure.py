@@ -28,6 +28,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.content_filters import clean_question_text
+from services.pool.options import normalize_options
 
 
 class StructureError(ValueError):
@@ -142,7 +143,7 @@ def _parse_part(raw: Any, index: int) -> Part:
         marks = max(1, int(raw.get("marks") or 1))
     except (TypeError, ValueError):
         marks = 1
-    options = [_clean(option) for option in (raw.get("options") or []) if _clean(option)]
+    options = [_clean(option) for option in normalize_options(raw.get("options")) if _clean(option)]
     if len(options) == 1:
         raise StructureError(f"part {index + 1} offers a single option")
     answer = _clean(raw.get("answer"))

@@ -35,6 +35,7 @@ from services.question_types import (
     resolve,
     shape_of,
 )
+from services.pool.options import normalize_options
 from services.pool.structure import StructureError, parse_structure
 from utils.ids import generate_id
 
@@ -458,13 +459,9 @@ def normalize_pool_question(
     else:
         type_code = default_type_for_shape(qtype)
 
-    options_raw = raw.get("options")
-    options: List[str] = []
-    if isinstance(options_raw, list):
-        options = [str(o).strip() for o in options_raw if str(o or "").strip()]
-    elif isinstance(options_raw, dict):
-        # Some responses come back as {"A": "...", "B": "..."} despite the schema.
-        options = [str(v).strip() for _, v in sorted(options_raw.items()) if str(v or "").strip()]
+    # A list of strings by contract; objects and label maps are read too —
+    # see services/pool/options.py.
+    options: List[str] = normalize_options(raw.get("options"))
 
     rule = CATALOG[type_code].options if type_code in CATALOG else None
     if qtype == "ASSERTION_REASON":
