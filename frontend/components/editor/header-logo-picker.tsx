@@ -150,7 +150,11 @@ export function HeaderLogoPicker({
               paper you make after this.
             </p>
           ) : (
-            <div className="grid grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-0.5">
+            // Padded inside, pulled back out by the negative margin: the
+            // selected card's ring is drawn outside its border, and a
+            // scrolling box clips anything past its edge — which cut the
+            // ring off square at the sides.
+            <div className="-m-1.5 grid max-h-60 grid-cols-3 gap-2.5 overflow-y-auto p-1.5">
               {logos.map((logo) => {
                 const active = logo.url === selectedUrl;
                 const resolvedSrc = resolveFigureSrc(logo.url);
@@ -163,7 +167,7 @@ export function HeaderLogoPicker({
                     className={cn(
                       "group relative flex flex-col items-center justify-between h-24 rounded-xl border bg-muted/20 p-2 transition-all hover:bg-muted/40",
                       active
-                        ? "border-primary bg-primary/5 ring-2 ring-primary/30"
+                        ? "border-primary bg-primary/5 ring-2 ring-primary/25"
                         : "border-border hover:border-primary/40",
                     )}
                   >
