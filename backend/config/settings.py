@@ -618,8 +618,16 @@ AWS_S3_ADDRESSING_STYLE = os.environ.get("AWS_S3_ADDRESSING_STYLE", "auto")
 AWS_S3_USE_SSL = os.environ.get("AWS_S3_USE_SSL", "true").lower() == "true"
 AWS_QUERYSTRING_EXPIRE = int(os.environ.get("AWS_QUERYSTRING_EXPIRE", "3600"))
 
+# Django 5.1 removed DEFAULT_FILE_STORAGE; only STORAGES is read now. This
+# block used to set DEFAULT_FILE_STORAGE, so after the 5.2 upgrade S3 was
+# silently dropped: uploads went to MEDIA_ROOT on the instance's disk, and
+# /media/ URLs for objects already in S3 redirected to themselves forever.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
 if AWS_STORAGE_BUCKET_NAME:
-    DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+    STORAGES["default"] = {"BACKEND": "storages.backends.s3boto3.S3Boto3Storage"}
     # Allow overriding the public media base if using a CDN or custom domain
     # e.g. set AOS_PUBLIC_MEDIA_BASE_URL=https://cdn.example.com
     # The storage backend will still generate URLs via `default_storage.url()`

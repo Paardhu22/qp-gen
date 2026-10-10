@@ -31,5 +31,9 @@ def serve_media(request, path: str):
         signed = fresh_signed_media_url(path)
         if not signed:
             raise Http404("Object cannot be resolved.")
-        return HttpResponseRedirect(signed)
+        # A "signed" URL that is this same path would loop the browser until
+        # it gives up — what every image did after the Django 5.2 upgrade. If
+        # it ever happens again, serve the bytes instead of the redirect.
+        if signed.split("?", 1)[0] != request.path:
+            return HttpResponseRedirect(signed)
     return static_serve(request, path, document_root=settings.MEDIA_ROOT)

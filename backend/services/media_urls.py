@@ -35,8 +35,16 @@ FRESH_URL_EXPIRE_SECONDS = 900
 
 
 def is_remote_storage() -> bool:
-    """True when default_storage writes to S3/MinIO instead of MEDIA_ROOT."""
-    return bool(getattr(settings, "AWS_STORAGE_BUCKET_NAME", ""))
+    """True when default_storage writes to S3/MinIO instead of MEDIA_ROOT.
+
+    Read from the storage backend actually configured, not from whether a
+    bucket name is set. The two disagreed after the Django 5.2 upgrade dropped
+    DEFAULT_FILE_STORAGE: the bucket was set, the storage was the local disk,
+    and every /media/ request "redirected to S3" — which, from a filesystem
+    storage, meant redirecting to itself.
+    """
+    backend = str(getattr(settings, "STORAGES", {}).get("default", {}).get("BACKEND", ""))
+    return "s3" in backend.lower()
 
 
 def stable_media_url(storage_path: str) -> str:
