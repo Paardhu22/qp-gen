@@ -241,17 +241,21 @@ export default function EditorPage() {
 
   // ── Panel state ───────────────────────────────────────────────────────
   // Held here, not inside the panels: the editor remounts on every set-tab
-  // switch and would otherwise reset them. Both default open — the point of
-  // the layout is that the document's structure and the way to generate one
-  // are visible without hunting.
-  // Closed by default. Outline (240px) + A4 page (794px) + dock (320px) asks
-  // for 1354px, and the panels first appear at `lg` = 1024px; a 1366px laptop
-  // has around 1350px of usable width. Opening both meant the first view of
-  // the workspace was cramped and the teacher's first act was closing one.
-  // The dock earns the space -- it is how papers get made -- so the outline
-  // starts collapsed to its rail, one click from open.
+  // switch and would otherwise reset them. Both open by default — the point
+  // of the layout is that the document's tabs and outline, and the way to
+  // generate a paper, are visible without hunting.
+  //
+  // The document panel opens only where it is a column (`lg`, 1024px, and
+  // up). Below that it is a drawer over the page, and opening it on arrival
+  // would cover the paper the teacher came to see. It is opened after mount
+  // rather than in the initial state, so the server render and the first
+  // client render agree. (Outline 240px + page 794px + dock 320px is about
+  // 1354px; on a 1366px laptop the page centres with little to spare.)
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [dockOpen, setDockOpen] = useState(true);
+  useEffect(() => {
+    if (window.matchMedia("(min-width: 1024px)").matches) setOutlineOpen(true);
+  }, []);
 
   // A template picked on the Templates page. Held here so the Builder opens on
   // it already resolved instead of on the picker the teacher just used a
