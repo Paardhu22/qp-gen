@@ -1409,6 +1409,14 @@
           height: 0;
           font-style: italic;
         }
+        /* Ghost lines are an editing aid — an empty school-name line must
+           print as nothing, not as "Header line…". */
+        @media print {
+          .ProseMirror .is-empty[data-placeholder]::before,
+          .ProseMirror .is-editor-empty:first-child::before {
+            content: none;
+          }
+        }
 
         /* ===== Horizontal Rule ===== */
         .ProseMirror hr {

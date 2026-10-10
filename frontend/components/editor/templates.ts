@@ -4,14 +4,18 @@ export const defaultHeaderJSON = {
   type: "paperHeaderBlock",
   attrs: { details: HEADER_FIELDS.map(field => ({ ...field, value: "" })), hiddenFields: [] },
   content: [
-    { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "SCHOOL NAME" }] },
+    // The school name line starts empty — a placeholder like "SCHOOL NAME"
+    // ended up printed on papers whose teacher never replaced it. The brand
+    // kit fills it when the school has set a name (lib/brand-header.ts), and
+    // "Edit header" fills it otherwise.
+    { type: "heading", attrs: { level: 1 } },
   ],
 };
 
 export const templates = {
   cbse: `
     <div data-type="paper-header-block">
-      <h1>SCHOOL NAME</h1>
+      <h1></h1>
       <table>
         <thead>
           <tr>

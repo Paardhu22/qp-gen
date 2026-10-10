@@ -3,14 +3,14 @@
 /**
  * Building a paper's masthead from the school's brand kit.
  *
- * `defaultHeaderJSON` is a module constant reading "SCHOOL NAME",
+ * `defaultHeaderJSON` is a module constant with an empty school-name line,
  * inserted at four points in the editor. It has to stay a constant — those
  * call sites are synchronous, inside ProseMirror transactions, and cannot wait
  * on a fetch — so the kit is fetched once and cached here instead, and the
  * builder reads the cache.
  *
  * The consequence is deliberate: the very first header inserted in a cold tab
- * may use the fallback, because nothing has loaded yet. That is the right
+ * may have no school name, because nothing has loaded yet. That is the right
  * trade. Blocking a paper's first header on a network round trip would make
  * the editor feel broken for the sake of a masthead the teacher can fix by
  * typing, and `primeBrandHeader()` is called on editor mount so the window is
