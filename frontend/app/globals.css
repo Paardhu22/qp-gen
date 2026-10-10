@@ -922,3 +922,32 @@ html[data-auth-page] *.dark {
         animation: none !important;
     }
 }
+
+/* ── Review tray: "your questions are ready" ─────────────────────────────
+   A finished run scrolls the tray into view and bounces its header, with a
+   primary ring that fades as it settles. The delay lets the smooth scroll
+   arrive first, so the bounce is seen rather than happening off-screen. */
+@keyframes tray-bounce {
+    0%, 100% { transform: none; }
+    15% { transform: translateY(-10px); }
+    30% { transform: none; }
+    45% { transform: translateY(-6px); }
+    60% { transform: none; }
+    72% { transform: translateY(-3px); }
+    84% { transform: none; }
+}
+@keyframes tray-ring {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent); background-color: transparent; }
+    15% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 55%, transparent); background-color: color-mix(in srgb, var(--primary) 6%, transparent); }
+    100% { box-shadow: 0 0 0 2px transparent; background-color: transparent; }
+}
+.tray-attention {
+    animation:
+        tray-bounce 1100ms var(--ease) 350ms both,
+        tray-ring 2400ms ease-out 350ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+    .tray-attention {
+        animation: tray-ring 2400ms ease-out both;
+    }
+}

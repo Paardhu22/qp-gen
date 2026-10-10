@@ -21,8 +21,9 @@
  * The tray itself is part of the editor store, so it survives in-app
  * navigation and reloads alongside the paper (see Issue 1).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditorStore, TrayItem } from "@/store/editor-store";
+import { groupBySection, insertTrayItems } from "@/lib/tray-insert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -34,37 +35,17 @@ import {
   X,
 } from "lucide-react";
 
-function groupBySection(items: TrayItem[]) {
-  const map = new Map<string, TrayItem[]>();
-  for (const item of items) {
-    const list = map.get(item.sectionTitle) || [];
-    list.push(item);
-    map.set(item.sectionTitle, list);
-  }
-  // Generation is parallel, so items arrive in completion order. The
-  // backend stamps metadata.slotIndex with the blueprint position —
-  // sort by it so inserts respect the plan layout (e.g. Maths Section A
-  // must end with the two Assertion-Reason questions at Q19–Q20).
-  for (const list of map.values()) {
-    list.sort(
-      (a, b) =>
-        (Number(a.question.metadata?.slotIndex) || Number.MAX_SAFE_INTEGER) -
-        (Number(b.question.metadata?.slotIndex) || Number.MAX_SAFE_INTEGER),
-    );
-  }
-  return Array.from(map.entries());
-}
-
 export function ReviewTray() {
   const tray = useEditorStore((s) => s.generatedTray);
   const removeFromTray = useEditorStore((s) => s.removeFromTray);
-  const markTrayInserted = useEditorStore((s) => s.markTrayInserted);
   const markTrayUninserted = useEditorStore((s) => s.markTrayUninserted);
   const removeSectionFromEditor = useEditorStore(
     (s) => s.removeSectionFromEditor,
   );
   const clearTray = useEditorStore((s) => s.clearTray);
-  const appendSections = useEditorStore((s) => s.appendSections);
+  const trayAttentionAt = useEditorStore((s) => s.trayAttentionAt);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -75,6 +56,44 @@ export function ReviewTray() {
   // visible (greyed) so the tray is a complete record of the batch.
   const pending = useMemo(() => tray.filter((t) => !t.inserted), [tray]);
   const grouped = useMemo(() => groupBySection(tray), [tray]);
+
+  // ── "Your questions are ready" ──────────────────────────────────────
+  // The tray sits at the bottom of the Studio dock, usually below the fold,
+  // so a finished run scrolls it into view and bounces its header. Done on
+  // the DOM rather than through state: it is a one-shot effect, and a class
+  // swap restarts the animation even when two runs finish back to back.
+  //
+  // Only a request from the last few seconds counts — the editor remounts
+  // this on every set-tab switch, and an old finish must not replay. The
+  // window also covers the dock opening (and this mounting) just after the
+  // request. A copy that is not on screen (the dock vs the phone panel) has
+  // no offsetParent and does nothing.
+  const hasItems = tray.length > 0;
+  useEffect(() => {
+    if (!trayAttentionAt || Date.now() - trayAttentionAt > 4000) return;
+    const root = rootRef.current;
+    const header = headerRef.current;
+    if (!root || !header || root.offsetParent === null) return;
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    root.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    });
+    header.classList.remove("tray-attention");
+    void header.offsetWidth; // restart the animation
+    header.classList.add("tray-attention");
+    // Two animations run (bounce, then the longer ring); the class comes off
+    // when the ring — the last to finish — ends.
+    const done = (event: AnimationEvent) => {
+      if (event.animationName === "tray-ring") {
+        header.classList.remove("tray-attention");
+      }
+    };
+    header.addEventListener("animationend", done);
+    return () => header.removeEventListener("animationend", done);
+  }, [trayAttentionAt, hasItems]);
 
   if (tray.length === 0) return null;
 
@@ -88,41 +107,11 @@ export function ReviewTray() {
   };
 
   const insertIds = (ids: string[]) => {
-    if (ids.length === 0) return;
-    const itemsById = new Map(tray.map((t) => [t.id, t]));
-    // Group the chosen items by section so the editor inserts each as a
-    // coherent section block (the first item in a new section triggers a
-    // `sectionBlock`; subsequent items in the same section are plain
-    // question blocks).
-    const grouped = groupBySection(
-      ids
-        .map((id) => itemsById.get(id))
-        .filter((x): x is TrayItem => Boolean(x) && !x!.inserted),
-    );
-
-    // We must commit each section as ONE `appendSections` call to keep
-    // the section header + its questions atomic in the editor's insertion
-    // effect (queueMicrotask). Otherwise re-numbering races with inserts.
-    appendSections(
-      grouped.map(([title, items]) => ({
-        title,
-        questions: items.map((t) => ({
-          content: t.question.content,
-          type: t.question.type,
-          typeCode: t.question.typeCode,
-          options: t.question.options || [],
-          answer: t.question.answer,
-          marks: t.question.marks,
-          image_url: t.question.image_url,
-          metadata: t.question.metadata,
-        })),
-      })),
-    );
-
-    markTrayInserted(ids);
+    const inserted = insertTrayItems(ids);
+    if (inserted === 0) return;
     setSelected(new Set());
     toast.success(
-      `Inserted ${ids.length} question${ids.length === 1 ? "" : "s"} into the paper.`,
+      `Inserted ${inserted} question${inserted === 1 ? "" : "s"} into the paper.`,
     );
   };
 
@@ -170,7 +159,8 @@ export function ReviewTray() {
   };
 
   return (
-    <div className="mt-6 border-t border-border pt-6">
+    <div ref={rootRef} className="mt-6 scroll-mt-4 border-t border-border pt-6">
+      <div ref={headerRef} className="-mx-2 px-2 pt-1">
       <div className="flex items-center justify-between mb-3">
         <div>
           <h3 className="text-base font-bold text-foreground flex items-center gap-2">
@@ -226,6 +216,7 @@ export function ReviewTray() {
         >
           Clear tray
         </Button>
+      </div>
       </div>
 
       <div className="space-y-5">

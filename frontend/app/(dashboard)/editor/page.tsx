@@ -9,6 +9,7 @@ import { BuildFromBankDialog } from "@/components/editor/build-from-bank-dialog"
 import { HsatSourcePicker } from "@/components/hsat-source-picker";
 import { usePaperGeneration } from "@/lib/use-paper-generation";
 import { useSourceUploads } from "@/lib/use-source-uploads";
+import { insertTrayItems } from "@/lib/tray-insert";
 import { useHsatReadiness } from "@/lib/use-hsat-readiness";
 import { TiptapEditor, normalizeInitialContent } from "@/components/tiptap-editor";
 import { ComparisonWorkspace } from "@/components/comparison-workspace";
@@ -302,8 +303,46 @@ export default function EditorPage() {
   // still-indexing book turn ready.
   useHsatReadiness(hsatSources, setHsatSources);
 
+  // ── When a run finishes ───────────────────────────────────────────────
+  // A clean single-set run goes straight into the paper, through the same
+  // path as the tray's "Insert all", so the tray keeps it as a record and
+  // Undo still pulls any question back out. Every finish then points at the
+  // tray, which sits below the fold in the Studio dock.
+  //
+  // Left for the teacher to insert by hand: a run that ended in an error (a
+  // partial paper is theirs to judge), and a resumed run, whose replay is
+  // only the tail of the paper. Multi-set runs are reviewed in the Comparison
+  // Workspace instead.
+  const handleRunComplete = useCallback(
+    ({
+      ok,
+      multiSet,
+      resumed,
+      trayIds,
+    }: {
+      ok: boolean;
+      multiSet: boolean;
+      resumed: boolean;
+      trayIds: string[];
+    }) => {
+      if (multiSet || trayIds.length === 0) return;
+      const store = useEditorStore.getState();
+      if (ok && !resumed && store.insertionMode === "review") {
+        const inserted = insertTrayItems(trayIds);
+        if (inserted > 0) {
+          toast.success(
+            `All ${inserted} question${inserted === 1 ? " is" : "s are"} in the paper. Undo any of them from the review tray.`,
+          );
+        }
+      }
+      store.requestTrayAttention();
+    },
+    [],
+  );
+
   const generation = usePaperGeneration({
     onSourcesNotReady: uploads.reconcileNotReady,
+    onRunComplete: handleRunComplete,
   });
 
   // Streamed questions waiting on a decision. They render inside the Studio

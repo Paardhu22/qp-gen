@@ -204,6 +204,23 @@ export interface UsePaperGenerationOptions {
     drop: string[];
     requeue: { id: string; name: string }[];
   }) => void;
+  /**
+   * A run's stream has ended — successfully (`ok`) or with a server error.
+   * Not called when the connection itself failed: that run is still alive on
+   * the server and offered for resuming, so nothing about it is final.
+   *
+   * `trayIds` are the review-tray items this run staged, so the caller can act
+   * on them without touching anything left over from an earlier run. On a
+   * `resumed` run they are only the part replayed after the reload — the
+   * questions staged before it are already in the tray — so they are not the
+   * whole paper.
+   */
+  onRunComplete?: (outcome: {
+    ok: boolean;
+    multiSet: boolean;
+    resumed: boolean;
+    trayIds: string[];
+  }) => void;
 }
 
 /**
@@ -377,6 +394,26 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
   React.useEffect(() => {
     onSourcesNotReadyRef.current = options.onSourcesNotReady;
   }, [options.onSourcesNotReady]);
+  const onRunCompleteRef = React.useRef(options.onRunComplete);
+  React.useEffect(() => {
+    onRunCompleteRef.current = options.onRunComplete;
+  }, [options.onRunComplete]);
+
+  // The tray's ids when the current run began. Items are not tagged with the
+  // run that staged them, so "what this run produced" is everything new
+  // since this snapshot.
+  const trayAtStartRef = React.useRef<Set<string>>(new Set());
+  const reportComplete = React.useCallback(
+    (ok: boolean, multiSet: boolean, resumed: boolean) => {
+      const before = trayAtStartRef.current;
+      const trayIds = useEditorStore
+        .getState()
+        .generatedTray.filter((t) => !before.has(t.id))
+        .map((t) => t.id);
+      onRunCompleteRef.current?.({ ok, multiSet, resumed, trayIds });
+    },
+    [],
+  );
 
   const reset = React.useCallback(() => {
     insertedSectionsRef.current = new Set();
@@ -398,6 +435,9 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
   /** Common setup for both starting a generation and re-attaching to one. */
   const beginRun = React.useCallback((isMultiSet: boolean) => {
     insertedSectionsRef.current = new Set();
+    trayAtStartRef.current = new Set(
+      useEditorStore.getState().generatedTray.map((t) => t.id),
+    );
     useEditorStore.getState().clearComparisonSets();
     setState({ ...INITIAL, isGenerating: true, multiSetMode: isMultiSet });
   }, []);
@@ -452,6 +492,7 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
         // Finished one way or the other, so there is nothing to offer resuming.
         forgetRun();
         if (generationError) toast.error(generationError);
+        reportComplete(!generationError, isMultiSet, false);
         return { ok: !generationError };
       } catch (error: any) {
         console.error("Generation failed:", error);
@@ -467,7 +508,7 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
         setState((s) => ({ ...s, isGenerating: false }));
       }
     },
-    [beginRun, makeHandler],
+    [beginRun, makeHandler, reportComplete],
   );
 
   /**
@@ -494,6 +535,7 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
       forgetRun();
       setResumableRun(null);
       if (generationError) toast.error(generationError);
+      reportComplete(!generationError, false, true);
       return { ok: !generationError };
     } catch (error: any) {
       toast.error(error?.message || "That generation could not be reopened.");
@@ -501,7 +543,7 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
     } finally {
       setState((s) => ({ ...s, isGenerating: false }));
     }
-  }, [beginRun, makeHandler]);
+  }, [beginRun, makeHandler, reportComplete]);
 
   const dismissResumable = React.useCallback(() => {
     forgetRun();

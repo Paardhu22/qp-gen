@@ -267,6 +267,11 @@ interface EditorState {
   removeSectionFromEditor: (req: Omit<QuestionRemovalRequest, "token">) => void;
   consumeQuestionRemovals: () => void;
   clearTray: () => void;
+  /** Bumped when a generation finishes, so the review tray scrolls itself
+   *  into view and bounces. A timestamp, not a flag: every finish is a new
+   *  value, so back-to-back runs each get their bounce. Not persisted. */
+  trayAttentionAt: number;
+  requestTrayAttention: () => void;
 
   setComparisonSets: (sets: ComparisonSet[]) => void;
   clearComparisonSets: () => void;
@@ -493,6 +498,9 @@ export const useEditorStore = create<EditorState>()(
       consumeQuestionRemovals: () => set({ questionRemovals: [] }),
 
       clearTray: () => set({ generatedTray: [] }),
+
+      trayAttentionAt: 0,
+      requestTrayAttention: () => set({ trayAttentionAt: Date.now() }),
 
       setActiveEditorPaperId: (paperId) => set({ activeEditorPaperId: paperId }),
 
