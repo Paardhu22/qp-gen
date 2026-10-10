@@ -10,11 +10,8 @@
 !.yarn/releases
 !.yarn/versions
 /package-lock.json
-/.claude-flow/
-/.swarm/
 .claudeignore
 db.sqlite3
-ruvector.db
 
 # testing
 /coverage
@@ -76,7 +73,6 @@ backend/*.premigrate.bak
 /.cursorrules
 .vscode/
 /.trinker/
-/graphify-out/
 
 # Root level temp files
 /next-env.d.ts
