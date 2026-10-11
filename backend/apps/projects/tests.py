@@ -534,6 +534,116 @@ class AnswerScriptDualWriteTests(TestCase):
         self.assertIn("electrical resistance", _read_primary_set_content(self.paper))
 
 
+class AnswerScriptRegenerationTests(TestCase):
+    """Regenerating replaces a set's answer script and bins the old one.
+
+    The failure this pins: a teacher who cleared an answer script by mistake
+    had no way back, because once a set had an answer script the papers page
+    only offered to view it.
+    """
+
+    @staticmethod
+    def _content(text):
+        return json.dumps({"type": "doc", "content": [{
+            "type": "page",
+            "attrs": {"pageId": "page-1"},
+            "content": [{
+                "type": "questionBlock",
+                "attrs": {"marks": 2, "number": 1, "questionType": "SHORT_ANSWER"},
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}],
+            }],
+        }]})
+
+    @classmethod
+    def setUpTestData(cls):
+        from apps.documents.models import PdfSource
+
+        cls.user = _make_user("asregen00000000000000000000001a", "regen@test.local")
+        cls.project = Project.objects.create(name="Class 10 — Science", user=cls.user)
+        cls.paper, cls.set_a = _make_paper_with_set(
+            cls.user, cls.project, title="Science Paper",
+            content=cls._content("Define electrical resistance and state its SI unit."),
+        )
+        cls.set_b = PaperSet.objects.create(
+            paper=cls.paper, label="Set B", order=2,
+            content=cls._content("State Ohm's law."),
+        )
+        PdfSource.objects.create(name="src.pdf", size=10, user=cls.user, status="ready")
+
+    def _generate(self, set_id=None):
+        ASS = "services.answer_script_service"
+
+        def fake_llm_answer(client, question_number, question, source_chunks, user):
+            return question_number, {
+                "question_number": question_number,
+                "question_text": question["content"],
+                "question_type": "SHORT_ANSWER",
+                "marks": question.get("marks", 1),
+                "answer": "An answer.",
+                "or_choice_text": None,
+                "or_answer": None,
+            }
+
+        with patch(f"{ASS}.get_openai_client", return_value=MagicMock()), \
+             patch(f"{ASS}.generate_embeddings", return_value=[[0.0] * 1536]), \
+             patch(f"{ASS}.retrieve_relevant_chunks", return_value=[]), \
+             patch(f"{ASS}._generate_single_answer_llm_only", side_effect=fake_llm_answer), \
+             patch(f"{PCS}.is_configured", return_value=False):
+            from services.answer_script_service import generate_answer_script
+
+            return generate_answer_script(
+                paper_id=self.paper.id, user=self.user, set_id=set_id
+            )["answer_script_paper_id"]
+
+    def test_regenerating_bins_the_previous_answer_script(self):
+        first = self._generate()
+        second = self._generate()
+
+        self.assertNotEqual(first, second)
+        self.assertIsNotNone(Paper.objects.get(id=first).deleted_at)
+        self.assertIsNone(Paper.objects.get(id=second).deleted_at)
+        self.paper.refresh_from_db()
+        self.set_a.refresh_from_db()
+        self.assertEqual(self.paper.answer_script_id, second)
+        self.assertEqual(self.set_a.metadata["answer_script_id"], second)
+
+    def test_regenerating_a_paper_level_only_link_bins_it(self):
+        """A paper from before set links carries only the paper column."""
+        legacy = Paper.objects.create(
+            title="Science Paper - Answer Key", project=self.project, user=self.user
+        )
+        Paper.objects.filter(id=self.paper.id).update(answer_script_id=legacy.id)
+
+        self._generate()
+
+        self.assertIsNotNone(Paper.objects.get(id=legacy.id).deleted_at)
+
+    def test_regenerating_set_b_leaves_set_a_alone(self):
+        set_a_key = self._generate()
+        first_b = self._generate(set_id=self.set_b.id)
+        second_b = self._generate(set_id=self.set_b.id)
+
+        self.assertIsNone(Paper.objects.get(id=set_a_key).deleted_at)
+        self.assertIsNotNone(Paper.objects.get(id=first_b).deleted_at)
+        self.paper.refresh_from_db()
+        self.set_b.refresh_from_db()
+        self.assertEqual(self.paper.answer_script_id, set_a_key)
+        self.assertEqual(self.set_b.metadata["answer_script_id"], second_b)
+
+    def test_failed_regeneration_keeps_the_previous_answer_script(self):
+        first = self._generate()
+
+        with patch(
+            "services.answer_script_service._build_answer_paper_content",
+            side_effect=ValueError("boom"),
+        ), self.assertRaises(RuntimeError):
+            self._generate()
+
+        self.assertIsNone(Paper.objects.get(id=first).deleted_at)
+        self.paper.refresh_from_db()
+        self.assertEqual(self.paper.answer_script_id, first)
+
+
 class QuestionImagePersistenceTests(TestCase):
     """A diagram question must keep its diagram, in and out of the bank.
 

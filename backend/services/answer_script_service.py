@@ -848,6 +848,43 @@ def _read_primary_set_content(paper) -> str:
     return read_set_content(paper_set) if paper_set else ""
 
 
+def _linked_answer_script_ids(paper: Paper, target_set, is_primary: bool) -> Set[str]:
+    """The answer scripts the target set currently links to.
+
+    The set's metadata holds the link. Set A also carries the paper-level
+    column from before there were sets, and on an older paper only that
+    column is set, so Set A checks both.
+    """
+    ids = {(target_set.metadata or {}).get("answer_script_id")}
+    if is_primary:
+        ids.add(paper.answer_script_id)
+    return {i for i in ids if i}
+
+
+def _retire_answer_scripts(user, old_ids: Set[str], new_id: str) -> List[str]:
+    """Move the answer scripts a regeneration replaced to the recycle bin.
+
+    Not a hard delete: a teacher regenerates because the first key was wrong
+    or they cleared it by mistake, and any edits they made to it are still
+    theirs to recover from the bin. Best-effort: the new answer script is
+    already linked by now, so a failure here must not turn a successful
+    regeneration into an error.
+    """
+    from services.project_service import soft_delete_paper
+
+    retired: List[str] = []
+    for old_id in old_ids - {new_id}:
+        try:
+            soft_delete_paper(user, old_id)
+            retired.append(old_id)
+        except Paper.DoesNotExist:
+            # Already in the bin or gone: the link was dangling.
+            continue
+        except Exception as exc:
+            logger.warning("Could not retire old answer script %s: %s", old_id, exc)
+    return retired
+
+
 def _build_answer_paper_content(
     original_content: str,
     answer_doc: Dict[str, Any],
@@ -889,6 +926,11 @@ def generate_answer_script(paper_id: str, user, set_id: str = None) -> Dict[str,
     """
     Generate a complete CBSE-style answer script / marking scheme for
     the given paper.
+
+    Also regenerates: when the set already has an answer script, the new
+    one takes over the link and the old one moves to the recycle bin. That
+    happens only after the new one is saved, so a failed run leaves the old
+    one in place.
 
     Returns:
         { "answer_script_paper_id": "<id>", "editor_url": "/editor?paperId=<id>" }
@@ -1069,6 +1111,8 @@ def generate_answer_script(paper_id: str, user, set_id: str = None) -> Dict[str,
     answer_blocks = _build_answer_script_content(paper, valid_answers, paper_content)
 
     # Step 6: Create new paper for the answer script
+    is_primary = target_set == _primary_set(paper)
+    previous_ids = _linked_answer_script_ids(paper, target_set, is_primary)
     try:
         answer_doc = {"type": "doc", "content": answer_blocks}
         new_doc = _build_answer_paper_content(paper_content, answer_doc)
@@ -1112,24 +1156,33 @@ def generate_answer_script(paper_id: str, user, set_id: str = None) -> Dict[str,
             
         # Maintain backwards compatibility: only update paper-level answer_script_id
         # if no set_id was provided, or if the primary set was explicitly selected.
-        if not set_id or (target_set and target_set == _primary_set(paper)):
+        if is_primary:
             Paper.objects.filter(id=paper_id, user=user).update(
                 answer_script_id=new_paper.id
             )
-
-        # Bust the papers list cache so the next GET /api/projects/papers/
-        # returns the fresh answerScriptId immediately.
-        from django.core.cache import cache
-        cache.delete(f"user_papers:{user.id}")
 
     except Exception as e:
         logger.error(f"Failed to create answer script paper for {paper_id}: {e}")
         raise RuntimeError("Failed to create answer script paper.")
 
+    retired = _retire_answer_scripts(user, previous_ids, new_paper.id)
+
+    # Bust the papers list so the next GET returns the fresh answerScriptId,
+    # the source paper's detail so it returns the new set link, and the bin
+    # and the old answer scripts' details for what was just retired.
+    from django.core.cache import cache
+    cache.delete_many([
+        f"user_papers:{user.id}",
+        f"user_paper:{user.id}:{paper_id}",
+        f"user_papers_trash:{user.id}",
+        *(f"user_paper:{user.id}:{old_id}" for old_id in retired),
+    ])
+
     logger.info(
-        "Answer script created as new paper %s (%d answers)",
+        "Answer script created as new paper %s (%d answers)%s",
         new_paper.id,
         len(valid_answers),
+        f", replacing {', '.join(retired)}" if retired else "",
     )
 
     return {
