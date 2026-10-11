@@ -26,6 +26,7 @@ import {
   Undo2,
   ArrowLeft,
   MoreHorizontal,
+  Pencil,
   Eye,
   Key,
   RefreshCcw,
@@ -162,6 +163,17 @@ export default function QuestionBankPage() {
 
   // Answer script generation
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
+
+  // The answer script is read in this page's preview, beside the paper; the
+  // editor is only for changing it. Holds the id of the paper whose preview
+  // shows its answer script, so a generation that finishes after the teacher
+  // has moved to another paper does not flip that paper's preview.
+  const [answerPreviewFor, setAnswerPreviewFor] = useState<string | null>(null);
+  // Answer scripts fetched for the preview, by id. "error" when one could not
+  // be loaded: the request failed, or the answer script is in the bin.
+  const [answerDocs, setAnswerDocs] = useState<
+    Record<string, EditorPaper | "error">
+  >({});
 
   // Unsaved drafts, read straight from IndexedDB.
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
@@ -309,6 +321,42 @@ export default function QuestionBankPage() {
     [parsedPapers, selectedPaperId],
   );
 
+  // The active set's answer script. Each set links its own in its metadata;
+  // Set A also has the paper-level link from before there were sets.
+  const answerScriptId: string | null =
+    activeSet?.metadata?.answer_script_id ||
+    (activeSet?.id === detailPaper?.sets?.[0]?.id
+      ? selectedMeta?.answerScriptId
+      : null) ||
+    null;
+  const showingAnswer =
+    !!answerScriptId && answerPreviewFor === selectedPaperId;
+  const answerDoc = answerScriptId ? answerDocs[answerScriptId] : undefined;
+
+  useEffect(() => {
+    if (!showingAnswer || !answerScriptId || answerDoc) return;
+    let active = true;
+    getPaperAction(answerScriptId)
+      .then((doc) => {
+        if (active) setAnswerDocs((prev) => ({ ...prev, [answerScriptId]: doc }));
+      })
+      .catch(() => {
+        if (active)
+          setAnswerDocs((prev) => ({ ...prev, [answerScriptId]: "error" }));
+      });
+    return () => {
+      active = false;
+    };
+  }, [showingAnswer, answerScriptId, answerDoc]);
+
+  function retryAnswerDoc(id: string) {
+    setAnswerDocs((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+
   // ---- actions ----
   async function deletePaperById(id: string) {
     setDeletingIds((prev) => new Set(prev).add(id));
@@ -410,22 +458,26 @@ export default function QuestionBankPage() {
     }
   }
 
-  async function handleGenerateAnswerScript(paperId: string, setId?: string) {
+  // Also regenerates: the backend links the new answer script in place of the
+  // old one and moves the old one to the recycle bin.
+  async function handleGenerateAnswerScript(
+    paperId: string,
+    setId?: string,
+    { replacing = false }: { replacing?: boolean } = {},
+  ) {
     const trackingId = setId ? `${paperId}-${setId}` : paperId;
     setGeneratingIds((prev) => new Set(prev).add(trackingId));
     try {
       const result = await generateAnswerScript(paperId, setId);
-      
+
       // Update local state so UI updates
-      if (detailPaper && detailPaper.id === paperId) {
-        setDetailPaper((prev) => {
-          if (!prev) return prev;
-          const updatedSets = (prev.sets || []).map((s) => 
-            s.id === setId ? { ...s, metadata: { ...(s.metadata || {}), answer_script_id: result.answer_script_paper_id } } : s
-          );
-          return { ...prev, sets: updatedSets };
-        });
-      }
+      setDetailPaper((prev) => {
+        if (!prev || prev.id !== paperId) return prev;
+        const updatedSets = (prev.sets || []).map((s) =>
+          s.id === setId ? { ...s, metadata: { ...(s.metadata || {}), answer_script_id: result.answer_script_paper_id } } : s
+        );
+        return { ...prev, sets: updatedSets };
+      });
 
       setPapers((prev) =>
         prev.map((p) =>
@@ -434,7 +486,16 @@ export default function QuestionBankPage() {
             : p,
         ),
       );
-      toast.success("Answer script generated!");
+      // Show what was just made, in the preview beside the paper.
+      setAnswerPreviewFor(paperId);
+      if (replacing) {
+        void loadTrash();
+        toast.success("Answer script regenerated.", {
+          description: "The previous one is in the recycle bin.",
+        });
+      } else {
+        toast.success("Answer script generated!");
+      }
     } catch (err: any) {
       toast.error(err?.message || "Could not generate the answer script.");
     } finally {
@@ -638,24 +699,31 @@ export default function QuestionBankPage() {
                   Answer Script
                 </h3>
                 {(() => {
-                  const setAnswerScriptId = activeSet?.metadata?.answer_script_id || (activeSet?.id === detailPaper?.sets?.[0]?.id ? selectedMeta?.answerScriptId : null);
                   const isGenerating = generatingIds.has(activeSet?.id ? `${selectedPaperId}-${activeSet.id}` : selectedPaperId);
-                  
-                  if (setAnswerScriptId) {
+
+                  if (answerScriptId) {
                     // `exportType` files the download as an answer script,
                     // not as another question paper.
-                    const answerScriptUrl = `/editor?paperId=${setAnswerScriptId}&exportType=answer_script`;
+                    const answerScriptUrl = `/editor?paperId=${answerScriptId}&exportType=answer_script`;
+                    const actionClass =
+                      "inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50";
                     return (
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          Generated
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setAnswerPreviewFor(selectedPaperId)}
+                          className={cn(actionClass, showingAnswer && "bg-accent")}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          View answer script
+                        </button>
                         <button
                           type="button"
                           onClick={() => router.push(answerScriptUrl)}
-                          className="text-xs font-medium text-primary hover:underline"
+                          className={actionClass}
                         >
-                          View answer script
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit in editor
                         </button>
                         {(["pdf", "docx"] as const).map((format) => (
                           <button
@@ -664,12 +732,57 @@ export default function QuestionBankPage() {
                             onClick={() =>
                               router.push(`${answerScriptUrl}&action=export-${format}`)
                             }
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent transition-colors"
+                            className={actionClass}
                           >
                             <FileDown className="h-3.5 w-3.5" />
                             {format === "pdf" ? "PDF" : "Word"}
                           </button>
                         ))}
+                        {/* The way back from an answer script that came out
+                            wrong or was cleared by mistake. Without it, a set
+                            that had an answer script could never get another. */}
+                        <AlertDialog>
+                          <AlertDialogTrigger
+                            className={actionClass}
+                            disabled={isGenerating}
+                          >
+                            {isGenerating ? (
+                              <Spinner className="size-3.5" />
+                            ) : (
+                              <RefreshCcw className="h-3.5 w-3.5" />
+                            )}
+                            {isGenerating ? "Regenerating…" : "Regenerate"}
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Regenerate the answer script
+                                {activeSet ? ` for ${activeSet.label}` : ""}?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                A new answer script is generated from the
+                                paper as it is now. The current one, including
+                                any edits made to it, moves to the recycle bin
+                                and can be recovered for {trashRetentionDays}{" "}
+                                days.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() =>
+                                  handleGenerateAnswerScript(
+                                    selectedPaperId,
+                                    activeSet?.id,
+                                    { replacing: true },
+                                  )
+                                }
+                              >
+                                Regenerate
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     );
                   }
@@ -694,12 +807,71 @@ export default function QuestionBankPage() {
               </div>
             </div>
 
-            {/* ── Right panel: paper preview (~60%) ─────────────── */}
-            <div className="flex-1 min-w-0 overflow-hidden bg-muted/20">
-              <PaperPreview
-                content={activeSet?.content || detailPaper?.content}
-                subject={detailPaper?.subject}
-              />
+            {/* ── Right panel: paper or answer script preview (~60%) ── */}
+            <div className="flex flex-1 min-w-0 flex-col overflow-hidden bg-muted/20">
+              {answerScriptId && (
+                <div className="flex shrink-0 items-center gap-2 border-b border-border bg-background px-4 py-2">
+                  {(
+                    [
+                      ["paper", "Question paper"],
+                      ["answer", "Answer script"],
+                    ] as const
+                  ).map(([mode, label]) => {
+                    const active = (mode === "answer") === showingAnswer;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() =>
+                          setAnswerPreviewFor(
+                            mode === "answer" ? selectedPaperId : null,
+                          )
+                        }
+                        className={cn(
+                          "px-3 py-1.5 text-xs font-medium rounded-lg transition-colors",
+                          active
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="min-h-0 flex-1">
+                {!showingAnswer ? (
+                  <PaperPreview
+                    content={activeSet?.content || detailPaper?.content}
+                    subject={detailPaper?.subject}
+                  />
+                ) : answerDoc === "error" ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
+                    <p>
+                      Could not load this answer script. If it was deleted,
+                      use Regenerate to make a new one.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        answerScriptId && retryAnswerDoc(answerScriptId)
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent transition-colors"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                ) : answerDoc ? (
+                  <PaperPreview
+                    content={answerDoc.content}
+                    subject={detailPaper?.subject}
+                  />
+                ) : (
+                  <Spinner size="page" />
+                )}
+              </div>
             </div>
           </div>
         )}
