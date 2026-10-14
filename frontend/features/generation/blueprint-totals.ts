@@ -1,4 +1,4 @@
-import type { Blueprint, BlueprintSlot } from "@/lib/api/api-client";
+import type { Blueprint, BlueprintSlot } from "@/lib/api/templates";
 
 /**
  * Derive a blueprint's totals from its slots.

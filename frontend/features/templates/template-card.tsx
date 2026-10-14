@@ -39,11 +39,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import type {
-  BuiltinTemplate,
-  PaperTemplate,
-  TemplateFolder,
-} from "@/lib/api/api-client";
+import type { BuiltinTemplate, PaperTemplate, TemplateFolder } from "@/lib/api/templates";
 
 function relativeDay(iso: string | null): string | null {
   if (!iso) return null;

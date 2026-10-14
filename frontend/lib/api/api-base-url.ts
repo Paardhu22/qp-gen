@@ -1,7 +1,7 @@
 /**
  * The single definition of where the Django API lives.
  *
- * This used to be copy-pasted into three modules (`api-client`, `float-image`,
+ * This used to be copy-pasted into three modules (`lib/api/http`, `float-image`,
  * and a since-deleted `auth-refresh`) with a hard-coded EC2 IP as the fallback,
  * which was a trap in two directions:
  *

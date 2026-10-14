@@ -149,7 +149,7 @@ function asNumber(value: unknown): number | undefined {
  *
  * Never throws. A handler that throws inside an SSE callback used to be
  * reported to the teacher as "Failed to parse stream payload" regardless of
- * what actually went wrong (fixed at the root in `api-client.ts`), and the
+ * what actually went wrong (fixed at the root in `lib/api/http.ts`), and the
  * cheapest way to keep that class of bug from coming back is for the decoding
  * step to have no failure mode at all.
  */

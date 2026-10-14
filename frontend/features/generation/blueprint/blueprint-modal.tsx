@@ -76,7 +76,7 @@ import {
   type PaperTemplate,
   type DetectedSettings,
   type QuestionTypeOption,
-} from "@/lib/api/api-client";
+} from "@/lib/api/templates";
 import { recomputeTotals } from "@/features/generation/blueprint-totals";
 import type { AppliedHsatSource } from "@/features/sources/hsat-source";
 import { PAPER_CLASSES, PAPER_SUBJECTS, paperSubjectEntry } from "@/lib/subject";

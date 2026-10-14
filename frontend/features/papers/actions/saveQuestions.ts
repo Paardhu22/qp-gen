@@ -1,10 +1,10 @@
-import { saveQuestions, fetchProjectsWithQuestions } from "@/lib/api/api-client";
+import { saveQuestions, fetchProjectsWithQuestions } from "@/lib/api/papers";
 
 /**
  * Save questions to the Question Paper.
  *
  * Questions are grouped under a Project named "<class> — <subject> — <topic>".
- * Auth is handled by api-client (JWT Bearer token from localStorage), matching
+ * Auth is handled by lib/api/http (JWT Bearer token from localStorage), matching
  * the rest of the app — NOT better-auth, which is not used here.
  */
 export async function saveQuestionsToBank(data: {

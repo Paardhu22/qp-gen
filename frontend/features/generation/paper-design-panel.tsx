@@ -22,7 +22,7 @@
  * teacher's question ("what am I about to get?") is identical in both.
  */
 
-import type { DesignGap, PaperDesign } from "@/lib/api/api-client";
+import type { DesignGap, PaperDesign } from "@/lib/api/generation";
 import { questionTypeLabel } from "@/features/question-types/question-types";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, Check } from "lucide-react";

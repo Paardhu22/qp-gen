@@ -21,7 +21,7 @@
  *    copies quietly diverging.
  */
 
-import { fetchJson } from "@/lib/api/api-client";
+import { fetchJson } from "@/lib/api/http";
 import { basePaperId, splitPaperId } from "@/features/papers/paper-id";
 import {
   getLiveDocumentId,

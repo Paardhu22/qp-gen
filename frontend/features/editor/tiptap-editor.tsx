@@ -89,7 +89,7 @@ import {
 } from "@/features/papers/paper-id";
 import { useSession } from "@/features/auth/auth-client";
 import { updatePaperAction } from "@/features/papers/actions/savePaper";
-import { SyncCancelledError } from "@/lib/api/api-client";
+import { SyncCancelledError } from "@/lib/api/http";
 import { type AppliedHsatSource } from "@/features/sources/hsat-source";
 import { scrollIntoView } from "@/lib/scroll";
 

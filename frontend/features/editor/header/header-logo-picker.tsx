@@ -18,11 +18,7 @@ import { toast } from "sonner";
 import { Check, Image as ImageIcon, ImageUp, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  fetchBrandKit,
-  uploadBrandLogo,
-  type BrandAsset,
-} from "@/lib/api/api-client";
+import { fetchBrandKit, uploadBrandLogo, type BrandAsset } from "@/lib/api/brand";
 import { resolveFigureSrc } from "@/features/editor/extensions/float-image";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";

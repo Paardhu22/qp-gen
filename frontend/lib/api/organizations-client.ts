@@ -1,4 +1,4 @@
-import { fetchForm, fetchJson } from "@/lib/api/api-client";
+import { fetchForm, fetchJson } from "@/lib/api/http";
 
 export type PublicOrganization = {
   id: string;

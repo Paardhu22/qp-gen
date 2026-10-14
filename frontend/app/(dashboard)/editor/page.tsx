@@ -15,7 +15,8 @@ import { TiptapEditor, normalizeInitialContent } from "@/features/editor/tiptap-
 import { ComparisonWorkspace } from "@/features/editor/comparison-workspace";
 import { useEditorStore } from "@/features/editor/editor-store";
 import { type AppliedHsatSource } from "@/features/sources/hsat-source";
-import { fetchJson, fetchTemplateFolders, type TemplateFolder } from "@/lib/api/api-client";
+import { fetchJson } from "@/lib/api/http";
+import { fetchTemplateFolders, type TemplateFolder } from "@/lib/api/templates";
 import { TemplateEditorPanel } from "@/features/templates/template-editor-panel";
 import {
   Dialog,

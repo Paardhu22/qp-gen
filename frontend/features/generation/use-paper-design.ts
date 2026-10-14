@@ -27,7 +27,7 @@ import {
   type DesignGap,
   type DesignResponse,
   type PaperDesign,
-} from "@/lib/api/api-client";
+} from "@/lib/api/generation";
 
 export const DESIGN_DEBOUNCE_MS = 700;
 

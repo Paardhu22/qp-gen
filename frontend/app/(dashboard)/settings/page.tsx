@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ensureFreshTokens, useSession } from "@/features/auth/auth-client";
-import { fetchJson } from "@/lib/api/api-client";
+import { fetchJson } from "@/lib/api/http";
 import { getCognitoAccessToken } from "@/lib/api/token-storage";
 import { cognitoSignIn, cognitoChangePassword } from "@/features/auth/cognito-client";
 import {
@@ -113,7 +113,7 @@ function ChangePasswordModal({
     setIsSaving(true);
     try {
       // ChangePassword needs a live Cognito access token, and this call never
-      // passes through the 401-retry in api-client — renew it here or an idle
+      // passes through the 401-retry in lib/api/http — renew it here or an idle
       // hour turns into "Access Token has expired".
       await ensureFreshTokens();
       const accessToken = getCognitoAccessToken();

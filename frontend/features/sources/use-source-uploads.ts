@@ -20,7 +20,7 @@
 
 import * as React from "react";
 
-import { fetchForm, fetchJson } from "@/lib/api/api-client";
+import { fetchForm, fetchJson } from "@/lib/api/http";
 
 export interface UploadedDoc {
   id: string;

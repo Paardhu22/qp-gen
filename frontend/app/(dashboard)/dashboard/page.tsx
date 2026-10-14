@@ -61,18 +61,17 @@ import {
   fetchConversations,
   setConversationStatus,
   streamChatMessage,
-  streamSse,
-  fetchPapers,
-  fetchPaperTemplates,
-  fetchBankSummary,
-  uploadPdfSource,
-  waitForPdfSource,
   type ChatMessage,
   type Conversation,
   type ConversationStatus,
   type FollowUpPrompt,
   type PaperSpec,
-} from "@/lib/api/api-client";
+} from "@/lib/api/chat";
+import { fetchBankSummary } from "@/lib/api/generation";
+import { fetchPapers } from "@/lib/api/papers";
+import { uploadPdfSource, waitForPdfSource } from "@/lib/api/sources";
+import { streamSse } from "@/lib/api/sse";
+import { fetchPaperTemplates } from "@/lib/api/templates";
 import { asStatusText, planSummaryLine } from "@/features/generation/plan-summary";
 import {
   decodeGenerationEvent,
@@ -663,7 +662,7 @@ export default function DashboardPage() {
             setA = ev.result;
           } else if (ev.name === "error") {
             // Thrown to abort the stream. It reaches the `catch` below with
-            // its own message now — `api-client` used to wrap a throwing
+            // its own message now — `lib/api` used to wrap a throwing
             // handler as a parse failure, so every real reason a generation
             // failed on this path was replaced by "Failed to parse stream
             // payload" one frame after it arrived.

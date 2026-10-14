@@ -61,7 +61,7 @@ import {
   type BuiltinTemplate,
   type PaperTemplate,
   type TemplateFolder,
-} from "@/lib/api/api-client";
+} from "@/lib/api/templates";
 import { useEditorStore } from "@/features/editor/editor-store";
 import { cn } from "@/lib/utils";
 import { PAPER_CLASSES, PAPER_SUBJECTS, paperSubjectEntry } from "@/lib/subject";

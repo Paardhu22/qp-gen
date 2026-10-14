@@ -16,7 +16,7 @@
 
 import * as React from "react";
 
-import { renderQuestionFigure, type ChartSpec } from "@/lib/api/api-client";
+import { renderQuestionFigure, type ChartSpec } from "@/lib/api/figures";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";

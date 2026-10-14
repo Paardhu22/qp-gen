@@ -1,4 +1,4 @@
-import { savePaper, updatePaper, fetchPaper } from "@/lib/api/api-client";
+import { savePaper, updatePaper, fetchPaper } from "@/lib/api/papers";
 
 export type PaperSet = {
   id?: string;

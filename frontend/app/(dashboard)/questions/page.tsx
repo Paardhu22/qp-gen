@@ -2,12 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  fetchProjectsWithQuestions,
-  deleteQuestion,
-  fetchJson,
-  fetchQuestionTypes,
-} from "@/lib/api/api-client";
+import { fetchJson } from "@/lib/api/http";
+import { fetchProjectsWithQuestions, deleteQuestion, fetchQuestionTypes } from "@/lib/api/papers";
 import {
   ListChecks,
   Trash2,

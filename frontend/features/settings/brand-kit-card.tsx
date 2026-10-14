@@ -37,7 +37,7 @@ import {
   uploadBrandLogo,
   type BrandAsset,
   type BrandKit,
-} from "@/lib/api/api-client";
+} from "@/lib/api/brand";
 import { resolveFigureSrc } from "@/features/editor/extensions/float-image";
 
 export function BrandKitCard() {

@@ -33,7 +33,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { replaceQuestion, ApiError } from "@/lib/api/api-client";
+import { replaceQuestion } from "@/lib/api/generation";
+import { ApiError } from "@/lib/api/http";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Check,

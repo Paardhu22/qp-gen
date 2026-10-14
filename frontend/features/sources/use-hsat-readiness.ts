@@ -20,7 +20,7 @@
 
 import * as React from "react";
 
-import { fetchJson } from "@/lib/api/api-client";
+import { fetchJson } from "@/lib/api/http";
 import type { AppliedHsatSource } from "@/features/sources/hsat-source";
 
 /** Ingestion runs in minutes, so a slow poll is plenty. */

@@ -19,7 +19,7 @@ import { motion } from "framer-motion";
 import { Paperclip, SkipForward } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { FollowUpPrompt } from "@/lib/api/api-client";
+import type { FollowUpPrompt } from "@/lib/api/chat";
 
 export interface FollowUpCardProps {
   prompt: FollowUpPrompt;

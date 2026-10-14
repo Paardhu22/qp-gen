@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
 
-import { ApiError } from "@/lib/api/api-client";
+import { ApiError } from "@/lib/api/http";
 import {
   AUTH_EXPIRED_EVENT,
   isPending,

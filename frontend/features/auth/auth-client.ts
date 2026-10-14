@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, fetchJson } from "@/lib/api/api-client";
+import { ApiError, fetchJson } from "@/lib/api/http";
 import {
   clearTokens,
   getAccessToken,

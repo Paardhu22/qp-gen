@@ -2,15 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { fetchJson } from "@/lib/api/http";
 import {
   fetchPapers,
   fetchTrashedPapers,
   deletePaper,
   restorePaper,
   emptyPaperTrash,
-  fetchJson,
   generateAnswerScript,
-} from "@/lib/api/api-client";
+} from "@/lib/api/papers";
 import { getPaperAction, type EditorPaper } from "@/features/papers/actions/savePaper";
 import {
   computePaperBreakdown,

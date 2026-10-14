@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { fetchJson, ApiError } from "@/lib/api/api-client";
+import { fetchJson, ApiError } from "@/lib/api/http";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import type { AppliedHsatSource, HsatBookStatus } from "@/features/sources/hsat-source";

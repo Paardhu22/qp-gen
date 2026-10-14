@@ -29,7 +29,8 @@
 import * as React from "react";
 import { toast } from "sonner";
 
-import { resumeSseRun, streamSse, type SseRunPosition } from "@/lib/api/api-client";
+import { resumeSseRun } from "@/lib/api/generation";
+import { streamSse, type SseRunPosition } from "@/lib/api/sse";
 import {
   decodeGenerationEvent,
   handleAmbientEvent,

@@ -13,7 +13,7 @@
  */
 
 import * as React from "react";
-import type { Blueprint, BlueprintSlot, QuestionTypeOption } from "@/lib/api/api-client";
+import type { Blueprint, BlueprintSlot, QuestionTypeOption } from "@/lib/api/templates";
 import { questionTypeLabel } from "@/features/question-types/question-types";
 
 interface Props {

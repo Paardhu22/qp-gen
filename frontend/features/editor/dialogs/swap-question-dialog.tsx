@@ -43,7 +43,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
-import type { QuestionTypeOption } from "@/lib/api/api-client";
+import type { QuestionTypeOption } from "@/lib/api/templates";
 
 /** What a swap asks for: the new type as shape and catalogue code, and marks. */
 export interface SwapChoice {

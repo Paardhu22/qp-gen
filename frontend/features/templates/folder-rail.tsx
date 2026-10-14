@@ -37,7 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import type { TemplateFolder } from "@/lib/api/api-client";
+import type { TemplateFolder } from "@/lib/api/templates";
 
 /** Which bucket the list is showing. A folder id, or one of the fixed views. */
 export type FolderSelection =

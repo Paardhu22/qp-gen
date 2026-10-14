@@ -24,12 +24,11 @@ import {
   extractQuestionFigureSpec,
   generateQuestionImage,
   fetchQuestionImageStyles,
-  fetchQuestionTypeMenu,
   type ChartSpec,
   type QuestionImageStyle,
   type QuestionImageStyleOption,
-  type QuestionTypeOption,
-} from "@/lib/api/api-client";
+} from "@/lib/api/figures";
+import { fetchQuestionTypeMenu, type QuestionTypeOption } from "@/lib/api/templates";
 import {
   isOrBranchAt,
   replaceQuestionNode,

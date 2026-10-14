@@ -25,11 +25,7 @@ import { BookMarked, RefreshCcw, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SkeletonRows } from "@/components/ui/skeleton";
-import {
-  fetchBankSummary,
-  streamPaperFromBank,
-  type BankChapter,
-} from "@/lib/api/api-client";
+import { fetchBankSummary, streamPaperFromBank, type BankChapter } from "@/lib/api/generation";
 import { useEditorStore } from "@/features/editor/editor-store";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";

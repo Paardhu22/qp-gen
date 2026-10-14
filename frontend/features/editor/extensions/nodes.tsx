@@ -7,7 +7,8 @@ import {
 import React, { useState } from "react";
 import { GripVertical, Trash, Plus, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
-import { ApiError, replaceQuestion } from "@/lib/api/api-client";
+import { replaceQuestion } from "@/lib/api/generation";
+import { ApiError } from "@/lib/api/http";
 import {
   buildQuestionBlocks,
   compositeRunSize,

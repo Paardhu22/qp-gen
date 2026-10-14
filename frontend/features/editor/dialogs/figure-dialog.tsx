@@ -35,11 +35,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
-import type {
-  ChartSpec,
-  QuestionImageStyle,
-  QuestionImageStyleOption,
-} from "@/lib/api/api-client";
+import type { ChartSpec, QuestionImageStyle, QuestionImageStyleOption } from "@/lib/api/figures";
 import { ChartFigureEditor } from "./chart-figure-editor";
 
 interface Props {

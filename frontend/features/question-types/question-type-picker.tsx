@@ -25,7 +25,7 @@ import * as React from "react";
 import { Combobox } from "@base-ui/react/combobox";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 
-import type { QuestionTypeOption } from "@/lib/api/api-client";
+import type { QuestionTypeOption } from "@/lib/api/templates";
 import { questionTypeInfo } from "@/features/question-types/question-types";
 import { SHAPE_DEFAULT_TYPE } from "@/features/question-types/question-types.generated";
 import { cn } from "@/lib/utils";

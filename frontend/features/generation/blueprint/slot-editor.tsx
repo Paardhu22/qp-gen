@@ -39,12 +39,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { questionTypeInfo } from "@/features/question-types/question-types";
 import { cn } from "@/lib/utils";
-import type {
-  Blueprint,
-  BlueprintSlot,
-  QuestionTypeOption,
-  SlotSource,
-} from "@/lib/api/api-client";
+import type { Blueprint, BlueprintSlot, QuestionTypeOption, SlotSource } from "@/lib/api/templates";
 
 interface Props {
   slots: BlueprintSlot[];

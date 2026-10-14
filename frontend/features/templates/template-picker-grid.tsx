@@ -34,7 +34,7 @@ import {
 
 import { SkeletonCards } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import type { BuiltinTemplate, PaperTemplate } from "@/lib/api/api-client";
+import type { BuiltinTemplate, PaperTemplate } from "@/lib/api/templates";
 import { PAPER_CLASSES, PAPER_SUBJECTS, paperSubjectEntry } from "@/lib/subject";
 
 interface Props {

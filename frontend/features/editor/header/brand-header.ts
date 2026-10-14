@@ -20,7 +20,7 @@
  * here falls back to the hardcoded default rather than throwing.
  */
 
-import { fetchBrandKit, type BrandKit } from "@/lib/api/api-client";
+import { fetchBrandKit, type BrandKit } from "@/lib/api/brand";
 import { defaultHeaderJSON } from "@/features/editor/templates";
 import { isGenericPaperTitle } from "@/features/editor/header/header-details";
 

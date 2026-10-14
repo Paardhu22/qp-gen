@@ -38,7 +38,7 @@ import {
   type PaperTemplate,
   type QuestionTypeOption,
   type TemplateFolder,
-} from "@/lib/api/api-client";
+} from "@/lib/api/templates";
 
 /** Mirrors the Blueprint Builder's own lists (`blueprint-modal.tsx`) — kept
  *  local rather than shared, since neither is meant to be an API contract. */

@@ -1,4 +1,4 @@
-import { fetchJson } from "@/lib/api/api-client";
+import { fetchJson } from "@/lib/api/http";
 
 /**
  * A user as the platform admin table sees them — the account, plus which
