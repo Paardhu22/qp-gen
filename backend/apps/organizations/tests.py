@@ -783,8 +783,8 @@ class MultiOrganizationMembershipTests(TestCase):
         # that DOES touch the group sync, and that sync fails closed (D6) —
         # against a real pool with no such user it 500s and the membership
         # survives, which would hide what this test is about.
-        with patch("apps.organizations.views.add_user_to_group"), patch(
-            "apps.organizations.views.remove_user_from_group"
+        with patch("services.auth.cognito.add_user_to_group"), patch(
+            "services.auth.cognito.remove_user_from_group"
         ):
             self.client.delete(
                 f"/api/organizations/{self.north.id}/members/{self.teacher.id}"
@@ -801,8 +801,8 @@ class MultiOrganizationMembershipTests(TestCase):
         self._join(self.south)
         self.client.force_authenticate(user=self.north_admin)
 
-        with patch("apps.organizations.views.add_user_to_group") as add, patch(
-            "apps.organizations.views.remove_user_from_group"
+        with patch("services.auth.cognito.add_user_to_group") as add, patch(
+            "services.auth.cognito.remove_user_from_group"
         ) as remove:
             self.client.delete(
                 f"/api/organizations/{self.north.id}/members/{self.teacher.id}"
@@ -1034,8 +1034,8 @@ class MemberRoleChangeTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    @patch("apps.organizations.views.remove_user_from_group")
-    @patch("apps.organizations.views.add_user_to_group")
+    @patch("services.auth.cognito.remove_user_from_group")
+    @patch("services.auth.cognito.add_user_to_group")
     def test_removing_a_member_emails_them(self, _add, _remove):
         request = self.factory.delete(
             f"/api/organizations/{self.org.id}/members/{self.teacher.id}"
@@ -1050,8 +1050,8 @@ class MemberRoleChangeTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, [self.teacher.email])
 
-    @patch("apps.organizations.views.remove_user_from_group")
-    @patch("apps.organizations.views.add_user_to_group")
+    @patch("services.auth.cognito.remove_user_from_group")
+    @patch("services.auth.cognito.add_user_to_group")
     def test_the_last_admin_cannot_be_removed(self, _add, _remove):
         superadmin = User.objects.create(
             name="Root", email="root@qp.test", status="approved", is_superadmin=True
@@ -1219,10 +1219,10 @@ class MemberAssignTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
 
-@patch("apps.organizations.views.get_cognito_username", lambda user: user.email)
-@patch("apps.organizations.views.ensure_cognito_group")
-@patch("apps.organizations.views.remove_user_from_group")
-@patch("apps.organizations.views.add_user_to_group")
+@patch("apps.accounts.views.get_cognito_username", lambda user: user.email)
+@patch("services.auth.cognito.ensure_cognito_group")
+@patch("services.auth.cognito.remove_user_from_group")
+@patch("services.auth.cognito.add_user_to_group")
 class PlatformSuperadminTests(TestCase):
     """Granting and revoking platform superadmin.
 
@@ -1346,8 +1346,8 @@ class PlatformSuperadminTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
 
-@patch("apps.organizations.views.get_cognito_username", lambda user: user.email)
-@patch("apps.organizations.views.delete_cognito_user")
+@patch("apps.accounts.views.get_cognito_username", lambda user: user.email)
+@patch("services.auth.cognito.delete_cognito_user")
 class PlatformUserDeleteTests(TestCase):
     """Deleting an account outright, rather than removing it from a school."""
 
@@ -1440,8 +1440,8 @@ class PlatformUserDeleteTests(TestCase):
         self.assertTrue(User.objects.filter(id=target.id).exists())
 
 
-@patch("apps.organizations.views.remove_user_from_group")
-@patch("apps.organizations.views.add_user_to_group")
+@patch("services.auth.cognito.remove_user_from_group")
+@patch("services.auth.cognito.add_user_to_group")
 class OneEmailPerMembershipEventTests(TestCase):
     """Each membership event reaches its recipient exactly once.
 
