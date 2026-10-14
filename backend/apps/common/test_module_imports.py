@@ -4,7 +4,7 @@ This exists because of a specific, expensive failure. When paper content moved
 from ``Paper.content`` onto ``PaperSet.content``, three modules kept importing
 the paper-level helpers that had been deleted:
 
-    services/answer_script_service.py       -> answer-script generation, 500
+    services/papers/answer_script.py       -> answer-script generation, 500
     apps/projects/management/commands/...   -> the S3 backfill command
     apps/projects/tests.py                  -> the tests that covered all of it
 
@@ -33,9 +33,6 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 #: Packages whose every module must be importable.
 WATCHED_PACKAGES = ("services", "apps")
 
-#: Directories of one-off scripts, not application code.
-EXCLUDED_PREFIXES = ("scripts",)
-
 
 def _module_names() -> list[str]:
     names: list[str] = []
@@ -44,9 +41,6 @@ def _module_names() -> list[str]:
         for info in pkgutil.walk_packages(
             package.__path__, prefix=f"{package_name}."
         ):
-            short = info.name.split(".", 1)[1] if "." in info.name else ""
-            if short.startswith(EXCLUDED_PREFIXES):
-                continue
             # Migrations are exercised by the test DB build; importing them
             # here adds hundreds of modules for no extra coverage.
             if ".migrations." in info.name or info.name.endswith(".migrations"):
@@ -77,6 +71,6 @@ class ModuleImportSmokeTests(SimpleTestCase):
         sweep would pass forever while covering zero modules."""
         names = _module_names()
         self.assertGreater(len(names), 50, names[:10])
-        self.assertIn("services.answer_script_service", names)
-        self.assertIn("services.pool.pipeline", names)
+        self.assertIn("services.papers.answer_script", names)
+        self.assertIn("services.generation.pool.pipeline", names)
         self.assertIn("apps.storage.views", names)

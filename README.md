@@ -7,7 +7,7 @@
 > grounded in the source tree as of `main@d6e7a9d` (2026-09-15). Where
 > `backend/README.md` disagrees with the code,
 > **this document and the code win** — both predate the pool pipeline and still
-> describe `q_instructions/` as *the* engine and SQLite as the default database.
+> describe `services.generation.blueprint/` as *the* engine and SQLite as the default database.
 
 ---
 
@@ -44,19 +44,19 @@ commits have landed since. The large ones:
 
 | Change | Where | Section |
 |---|---|---|
-| **Templates replace "QP Type".** Every paper starts from a template (CBSE sample paper, class starter, saved, or "Describe It Yourself") and is edited slot-by-slot in the three-step **Blueprint Builder**. Template folders, fork, duplicate. | `services/templates.py`, `template_catalog.py`, `starter_templates.py`, `paper_design.py`, `components/blueprint/` | §9 |
+| **Templates replace "QP Type".** Every paper starts from a template (CBSE sample paper, class starter, saved, or "Describe It Yourself") and is edited slot-by-slot in the three-step **Blueprint Builder**. Template folders, fork, duplicate. | `services/templates/spec.py`, `template_catalog.py`, `starter_templates.py`, `paper_design.py`, `components/blueprint/` | §9 |
 | **Question type catalogue.** ~160 named types in families A–J, over 22 runtime shapes. The exact type is carried from slot to pool to bank to editor. HOTS and competency became slot attributes. | `services/question_types/` | §10 |
-| **English asset generators.** Reading, Grammar and Writing slots are written by generators that never see the textbook; only Literature goes through Model 1. | `services/assets/` | §11.2 |
+| **English asset generators.** Reading, Grammar and Writing slots are written by generators that never see the textbook; only Literature goes through Model 1. | `services/generation/assets/` | §11.2 |
 | **Pool is sized to the blueprint**, not ~2× it: one per slot, plus OR spares, plus set spares, plus a 15% margin. | `pipeline._exact_pool_target` | §11.1 |
-| **Structured questions.** Case studies, passages and data questions come back as `stimulus` + `parts` whose marks must add up. | `services/pool/structure.py` | §11.3 |
-| **Replace one question** from the bank first, then a one-slot generation. | `services/pool/replace.py` | §11.6 |
-| **Durable generation runs.** The stream is a reader of a recorded run; a dropped client re-attaches with a cursor. SSE keepalive pings stop proxies from killing quiet streams. | `services/generation_runs.py`, `pool/keepalive.py` | §12 |
-| **The speculative image stage is gone**, along with `image_model.py` and the VI (visually-impaired) alternative. Figures are now drawn **on demand** in the editor: deterministic SVG charts, or one `gpt-image-1` picture per click. | `services/figures/`, `services/question_image.py` | §13 |
-| **Dashboard assistant.** A chat that grows a paper spec and hands off to the real generation. | `apps/chat/`, `services/chat_service.py` | §14 |
+| **Structured questions.** Case studies, passages and data questions come back as `stimulus` + `parts` whose marks must add up. | `services/generation/pool/structure.py` | §11.3 |
+| **Replace one question** from the bank first, then a one-slot generation. | `services/generation/pool/replace.py` | §11.6 |
+| **Durable generation runs.** The stream is a reader of a recorded run; a dropped client re-attaches with a cursor. SSE keepalive pings stop proxies from killing quiet streams. | `services/generation/runs.py`, `pool/keepalive.py` | §12 |
+| **The speculative image stage is gone**, along with `image_model.py` and the VI (visually-impaired) alternative. Figures are now drawn **on demand** in the editor: deterministic SVG charts, or one `gpt-image-1` picture per click. | `services/generation/figures/`, `services/generation/question_image.py` | §13 |
+| **Dashboard assistant.** A chat that grows a paper spec and hands off to the real generation. | `apps/chat/`, `services/chat.py` | §14 |
 | **Organizations.** Schools, multi-school membership, active-school switcher, email-domain matching, teacher invites, superadmin onboarding, monthly token limits, spend reported in INR. | `apps/organizations/`, `services/usage_*.py` | §6 |
-| **Brand kit.** A school's identity and logo stored once and printed on the paper header. | `apps/accounts` (`BrandKit`, `BrandAsset`), `services/brand_kit.py` | §15 |
-| **Ingestion hardening.** Vision OCR for scanned PDFs, subject detection, multi-PDF analysis, duplicate detection, a global ingest concurrency cap, figure chunks off by default. | `services/ocr_service.py`, `subject_detection_service.py`, `pdf_analysis_service.py`, `ingest_concurrency.py` | §7 |
-| **Data safety.** 30-day recycle bin for papers, server-synced drafts, a daily retention sweep. | `apps/projects`, `services/draft_service.py`, `deployment/qp-gen-retention.*` | §5, §18 |
+| **Brand kit.** A school's identity and logo stored once and printed on the paper header. | `apps/accounts` (`BrandKit`, `BrandAsset`), `services/organizations/brand_kit.py` | §15 |
+| **Ingestion hardening.** Vision OCR for scanned PDFs, subject detection, multi-PDF analysis, duplicate detection, a global ingest concurrency cap, figure chunks off by default. | `services/sources/ocr.py`, `subject_detection_service.py`, `pdf_analysis_service.py`, `ingest_concurrency.py` | §7 |
+| **Data safety.** 30-day recycle bin for papers, server-synced drafts, a daily retention sweep. | `apps/projects`, `services/papers/drafts.py`, `deployment/qp-gen-retention.*` | §5, §18 |
 | **Frontend.** The generator sidebar was deleted; routes renamed (`/papers`, `/questions`, `/templates`, `/admin`, `/onboard`); one export path; UX and accessibility audit pass. | `frontend/` | §16 |
 
 ---
@@ -78,17 +78,17 @@ other decision in this codebase — is this:
 > bleed into each other.**
 
 The first layer is the **Blueprint Layer**. Its front door is a **template**
-(`services/templates.py`): a CBSE sample-paper card, a class starter, a saved
+(`services/templates/spec.py`): a CBSE sample-paper card, a class starter, a saved
 template, or a paper described in prose. The teacher sees and edits every slot
 in the Blueprint Builder *before* anything is generated. Under the templates,
-`services/generation_router.py` + `q_instructions/` encode the CBSE 2025-26
+`services/generation/planner.py` + `services.generation.blueprint/` encode the CBSE 2025-26
 Sample Question Paper (SQP) rules in pure Python. No LLM decides counts, marks,
 or sections. The one exception is turning free prose into a structure
-(`services/paper_design.py`), and there **a model designs and Python
+(`services/templates/design.py`), and there **a model designs and Python
 validates**.
 
-The second layer is the **Production Layer** (`services/pool/` and
-`services/assets/`). This is where the money and latency live. It replaced a
+The second layer is the **Production Layer** (`services/generation/pool/` and
+`services/generation/assets/`). This is where the money and latency live. It replaced a
 naive "one retrieval + one LLM call per question slot" design (38 calls for a
 board paper, each seeing only its own four retrieved chunks) with a **Question
 Pool** design: read the *whole chapter once*, write a pool sized to the
@@ -128,19 +128,19 @@ flowchart TB
     subgraph Gateway["Django Application Gateway"]
         AUTH["apps/common/authentication.py<br/>Cognito RS256 JWT"]
         VIEW["apps/generation/views.py<br/>QuestionGenerationStreamView"]
-        RUNS["services/generation_runs.py<br/>record() → follow()"]
+        RUNS["services/generation/runs.py<br/>record() → follow()"]
     end
 
     subgraph Blueprint["BLUEPRINT LAYER — decides WHAT (pure Python, cheap)"]
-        TPL["services/templates.py<br/>TemplateBlueprint → plan"]
-        ROUTER["services/generation_router.py<br/>build_question_plan()"]
-        QINST["q_instructions/*<br/>CBSE rules"]
+        TPL["services/templates/spec.py<br/>TemplateBlueprint → plan"]
+        ROUTER["services/generation/planner.py<br/>build_question_plan()"]
+        QINST["services.generation.blueprint/*<br/>CBSE rules"]
         QT["services/question_types/<br/>type catalogue"]
     end
 
     subgraph Production["PRODUCTION LAYER — decides HOW"]
         CH["chapter_markdown.py + pool/chapters.py<br/>reconstruct + detect chapters"]
-        AS["services/assets/<br/>reading · grammar · writing"]
+        AS["services/generation/assets/<br/>reading · grammar · writing"]
         M1["pool/model1.py — Model 1<br/>chapter → pool"]
         STORE["pool/store.py<br/>auto-save to bank"]
         M2["pool/model2.py — Model 2<br/>pool → assembled paper"]
@@ -190,8 +190,8 @@ only place the "what" and the "how" meet.
 ### 2.2 The request lifecycle
 
 This is the end-to-end sequence for a full generation
-(`stream_pool_questions` in `services/pool/pipeline.py`, driven by
-`services/generation_runs.py`). The pool is saved to the bank **before** the
+(`stream_pool_questions` in `services/generation/pool/pipeline.py`, driven by
+`services/generation/runs.py`). The pool is saved to the bank **before** the
 paper is assembled. The bank keeps the *whole* pool, not just the questions this
 paper used.
 
@@ -205,7 +205,7 @@ sequenceDiagram
     participant P as pool/pipeline.py
     participant GATE as usage_limits + source_readiness
     participant BP as templates / generation_router
-    participant AS as services/assets
+    participant AS as services/generation/assets
     participant M1 as Model 1
     participant ST as pool/store.py
     participant M2 as Model 2
@@ -261,7 +261,7 @@ sequenceDiagram
     autonumber
     participant P as pool/pipeline.py
     participant R as generation_router.py<br/>build_question_plan
-    participant O as SocialScienceOrchestratorV2<br/>(q_instructions)
+    participant O as SocialScienceOrchestratorV2<br/>(services.generation.blueprint)
     participant SLOT as _make_slot()
 
     P->>R: build_question_plan(subject="Social Science", class=10, count=-1)
@@ -281,7 +281,7 @@ sequenceDiagram
 ```
 
 The output of this layer is a list of **`QuestionGenerationSlot`** frozen
-dataclasses (`services/generation_router.py:63`). Each slot is *"a deterministic,
+dataclasses (`services/generation/planner.py:63`). Each slot is *"a deterministic,
 pre-LLM contract for exactly one generated question"*. It holds the index,
 section title, subject, stream, `question_type` (the runtime shape), `type_code`
 (the catalogue type, §10), coarse `legacy_type`, marks, difficulty,
@@ -369,8 +369,8 @@ qp-gen/
 │   │       ├── gim.py            ← legacy regex General Instructions parser
 │   │       └── rendering.py      ← printable content (OR-labels)
 │   │
-│   ├── q_instructions/          ← LIVE blueprint rules engine (used by generation_router)
-│   └── utils/ids.py             ← generate_id() (32-char ids, Prisma-compatible)
+│   ├── services.generation.blueprint/          ← LIVE blueprint rules engine (used by generation_router)
+│   └── apps/common/ids.py             ← generate_id() (32-char ids, Prisma-compatible)
 │
 └── frontend/                    ← Next.js 16 (App Router / Turbopack), React 19
     ├── next.config.ts           ← pins Turbopack root; old-route redirects; build-time API URL guard
@@ -533,7 +533,7 @@ erDiagram
 - **Drafts live in two places.** The editor writes every keystroke to IndexedDB;
   `Draft` is a debounced server copy, ordered **last-write-wins on the client's
   clock**, so work started on one device can be finished on another
-  (`services/draft_service.py`). Both copies expire after
+  (`services/papers/drafts.py`). Both copies expire after
   `DRAFT_RETENTION_DAYS` (10), and the frontend constant must match.
 - **`GenerationRun` / `GenerationEvent` are a delivery mechanism, not history.**
   They are kept for `GENERATION_RUN_RETENTION_DAYS` (7).
@@ -630,7 +630,7 @@ an unapproved member cannot bypass the cap. `check_monthly_token_limit` runs
 before every spending endpoint: the stream, replace-question, the designer, the
 assistant and answer scripts. When it trips, the endpoint returns
 `ORG_TOKEN_LIMIT_EXCEEDED` with the month's usage **in rupees**.
-`services/usage_pricing.py` converts tokens to INR from a built-in per-model
+`services/organizations/usage_pricing.py` converts tokens to INR from a built-in per-model
 table. `MODEL_PRICING_USD_JSON` and `USD_TO_INR` correct it without a deploy.
 Org admins see a usage summary, and the superadmin sees platform analytics
 (`components/admin/usage-analytics.tsx`).
@@ -778,7 +778,7 @@ There used to be two modes that behaved like different products. *Board mode*
 compiled a CBSE blueprint, and *General Instructions mode* asked a model to
 design one from prose. A teacher had to pick a box before saying what they
 wanted. Now both are templates, and every template is editable
-(`services/templates.py`).
+(`services/templates/spec.py`).
 
 ```mermaid
 flowchart LR
@@ -849,14 +849,14 @@ normalised first.
 
 There are **two** generation codebases:
 
-- `q_instructions/` (~14k lines) — **live**; `generation_router` imports its enums and
+- `services.generation.blueprint/` (~14k lines) — **live**; `generation_router` imports its enums and
   science / social-science orchestrators.
-- `services/pool/` (~9k lines) — **live**; the pipeline that writes papers.
+- `services/generation/pool/` (~9k lines) — **live**; the pipeline that writes papers.
 
 The refactored blueprint engine that used to live in `apps/question_generation/`
 (flag `QG_NEW_ENGINE_ENABLED`, runner `run_engine_slice`) was dormant and has been
 deleted. Only the pool pipeline's LLM seam survives there
-(`apps/question_generation/infrastructure/providers/openai_provider.py`,
+(`services/llm/openai_provider.py`,
 `OpenAIProvider` / `LLMRequest` / `LLMMessage`) and **is used unconditionally**.
 
 ---
@@ -889,7 +889,7 @@ holds. Old strings resolve forever through the alias index. **HOTS** and
   it, a slot is filled from the same shape and counted in `presetFallbacks`
   (sent on `done`, not yet shown in the UI).
 - **Structure.** Container types return a stimulus plus parts (§11.3), and
-  chart stimuli are drawn by `services/figures` (§13).
+  chart stimuli are drawn by `services/generation/figures` (§13).
 - **Picker.** `components/question-type-picker.tsx` shows a Suggested list per
   class and subject, ranked by subject weights, with search and browse across
   everything. Types that need a printed picture are listed but disabled, and a
@@ -907,7 +907,7 @@ applied one.
 
 ## 11. Subsystem: The Pool Pipeline
 
-This is the production layer — `services/pool/` plus `services/assets/`,
+This is the production layer — `services/generation/pool/` plus `services/generation/assets/`,
 orchestrated by `stream_pool_questions` (`pipeline.py`).
 
 ```mermaid
@@ -1041,12 +1041,12 @@ chapter-grounded pool produced Reading sections asking students to "Explain
 Hari Singh".
 
 The **section decides the generator**. English blueprints route Reading,
-Grammar and Writing slots to `services/assets/` (`reading.py`, `grammar.py`,
+Grammar and Writing slots to `services/generation/assets/` (`reading.py`, `grammar.py`,
 `writing.py`, run in parallel by `runner.py`). These generators are never handed
 chapter text, and only Literature reaches Model 1. Assets are banked with
 provenance, and with `ASSET_REUSE_ENABLED` earlier assets become extra
 candidates. `ASSET_MODEL` falls back to `POOL_MODEL`. The `plan` event carries a
-`routing` summary. See [`services/assets/README.md`](backend/services/assets/README.md).
+`routing` summary. See [`services/generation/assets/README.md`](backend/services/assets/README.md).
 
 ### 11.3 Structured questions
 
@@ -1056,7 +1056,7 @@ it into one string, so a 4-mark case study whose parts added up to 3 printed as
 a 4-mark case study. Model 1 now returns `stimulus` and `parts`, and
 `structure.py` checks that **the parts' marks add up** before printing them. Choice
 pools ("answer any 4 of 5") and table stimuli are supported. Chart stimuli are
-drawn from the generator's own data by `services/figures`. The DOCX export
+drawn from the generator's own data by `services/generation/figures`. The DOCX export
 prints whole structured questions.
 
 ### 11.4 Model 2 — pool → paper
@@ -1266,7 +1266,7 @@ Nothing is drawn during generation. A teacher reads the finished paper, decides
 *this* question needs a figure, and asks for it from the question hover menu
 (`editor/figure-dialog.tsx`). Cost tracks intent.
 
-**Charts are two calls, deterministic** (`services/figures/`):
+**Charts are two calls, deterministic** (`services/generation/figures/`):
 
 1. `POST /api/generation/question-figure-spec` → `extract_figure_spec()`. A
    small model (`FIGURE_SPEC_MODEL`) reads the question and says what figure it
@@ -1281,7 +1281,7 @@ photocopied onto answer booklets. Layout is computed from the text that has to
 fit. The previous single image-model call invented wedge values, because it was
 never told them, and no prompt fixes a model guessing at data.
 
-**Pictures** (`services/question_image.py`, `POST /api/generation/question-image`)
+**Pictures** (`services/generation/question_image.py`, `POST /api/generation/question-image`)
 draw one `gpt-image-1` image per click in `line_art`, `realistic` or `cartoon`
 style. Quality is `high` on purpose, because a low-tier render turns label "B"
 into a smudge. `OPENAI_IMAGE_CONCURRENCY` (1) caps bursts.
@@ -1296,7 +1296,7 @@ want is a paper, the conversation becomes a **session**: it grows a spec, asks
 its outstanding question as something you tap, and ends by running the **real**
 generation with a press check over it.
 
-- **It converses, it never generates** (`services/chat_service.py`,
+- **It converses, it never generates** (`services/chat.py`,
   `CHAT_MODEL`). Questions come from the pool pipeline on `POOL_MODEL`, so a
   chat-tuned model is never in charge of CBSE compliance.
 - **Spec extraction runs after the reply**, not as a tool call during it. That
@@ -1331,7 +1331,7 @@ at ingest time is stale by the time a teacher opens the paper (the infamous
 flowchart LR
     subgraph App
         DS["django-storages<br/>S3Boto3Storage (default_storage)"]
-        S3C["services/s3_client.py<br/>(raw boto3)"]
+        S3C["services/storage/s3.py<br/>(raw boto3)"]
     end
     UP[("uploads, question images,<br/>logos, paper-content mirror<br/>AWS_STORAGE_BUCKET_NAME")]
     HS[("read-only HSAT textbooks<br/>HSAT_S3_BUCKET")]
@@ -1346,8 +1346,8 @@ bucket, and an empty bucket name falls back to local `media/`.
 **Branding.** A school's identity is stored **once**, not per paper:
 
 - **`BrandKit`** (per teacher) holds the header layout, and **`BrandAsset`**
-  holds uploaded logos (`services/brand_kit.py`, `settings/brand-kit-card.tsx`).
-- **`Organization` crest** (`services/organization_logo.py`) — the school's
+  holds uploaded logos (`services/organizations/brand_kit.py`, `settings/brand-kit-card.tsx`).
+- **`Organization` crest** (`services/organizations/logo.py`) — the school's
   logo, managed by its admin.
 - The editor's **header node** prints the logo on the paper header
   (`header-logo-picker.tsx`). Both stores keep only the storage path and mint
@@ -1603,28 +1603,28 @@ Constraints baked into the code:
 
 Backend tests are Django `TestCase`s (**not** pytest) and need no DB setup. Settings
 auto-swap to in-memory SQLite. Tests live in app `tests.py`/`test_*.py` files and
-in `test_*.py` modules under `services/`, `services/pool/`, `services/assets/`,
-`services/figures/` and `services/question_types/`.
+in `test_*.py` modules under `services/`, `services/generation/pool/`, `services/generation/assets/`,
+`services/generation/figures/` and `services/question_types/`.
 
 ```bash
 cd backend && source venv/bin/activate      # venv is venv/, NOT .venv
 python manage.py test                        # everything
-python manage.py test services.pool          # the pool pipeline
+python manage.py test services.generation.pool          # the pool pipeline
 python manage.py test services.question_types
 python manage.py export_question_types --check   # frontend type module in sync?
-python manage.py test services.pool.test_model1.StreamExtractorTests.test_x  # one test
+python manage.py test services.generation.pool.test_model1.StreamExtractorTests.test_x  # one test
 ```
 
 Notable suites:
 
-- `services/pool/` — `test_model1` (stream extractor, normalisation),
+- `services/generation/pool/` — `test_model1` (stream extractor, normalisation),
   `test_model2` + `test_or_choice` (candidates, authoritative apply, OR
   reservation), `test_set_variants`, `test_chapters`, `test_structure`,
   `test_replace`, `test_keepalive`, `test_recipes`, `test_pipeline`,
   `test_english_pipeline`, `test_gim`.
 - `services/question_types/` — catalogue integrity, identity/aliases, export,
   subjects, generation briefs.
-- `services/assets/` — generators and routing. `services/figures/` — specs and
+- `services/generation/assets/` — generators and routing. `services/generation/figures/` — specs and
   deterministic SVG.
 - `services/test_*.py` — content filters, chapter Markdown, source readiness,
   OCR, ingest concurrency, PDF validation, paper design, templates, question
@@ -1632,7 +1632,7 @@ Notable suites:
 - `apps/generation/test_generation_runs.py`, `test_design_api.py`;
   `apps/accounts/test_brand_kit.py`; app `tests.py` for organizations, chat,
   projects, documents.
-- `q_instructions/tests/*` — blueprint invariants.
+- `services.generation.blueprint/tests/*` — blueprint invariants.
 
 **Frontend:** `tsc --noEmit`, `eslint`, and node self-check scripts in
 `frontend/scripts/` (`node scripts/test-question-nodes.mjs`, `test-drafts`,

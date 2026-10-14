@@ -25,8 +25,8 @@ from apps.generation.serializers import (
     PaperTemplateSerializer,
     TemplateFolderSerializer,
 )
-from utils.ids import generate_id
-from services.paper_design import (
+from apps.common.ids import generate_id
+from services.templates.design import (
     apply_assumed,
     design_paper,
     find_gaps,
@@ -34,7 +34,7 @@ from services.paper_design import (
     infer_settings,
     is_ready,
 )
-from services.usage_limits import UsageLimitExceeded, check_monthly_token_limit
+from services.organizations.usage_limits import UsageLimitExceeded, check_monthly_token_limit
 
 logger = logging.getLogger("[DESIGN]")
 
@@ -195,7 +195,7 @@ class PaperTemplateListView(APIView):
     """
 
     def get(self, request):
-        from services.template_catalog import list_templates
+        from services.templates.catalog import list_templates
 
         templates = PaperTemplate.objects.filter(user=request.user)
         saved = PaperTemplateSerializer(templates, many=True).data
@@ -222,7 +222,7 @@ class PaperTemplateListView(APIView):
         # paper. A blueprint edited in the Builder is now the other way, and
         # requiring prose alongside it would mean a teacher who dragged slots
         # around had to also write an essay about what they just did.
-        from services.templates import TemplateBlueprint
+        from services.templates.spec import TemplateBlueprint
 
         blueprint = TemplateBlueprint.from_dict(blueprint_in) if blueprint_in else None
         
@@ -437,7 +437,7 @@ class TemplateFolderDetailView(APIView):
 class TemplateResolveView(APIView):
     """Compile a template into an editable blueprint.
 
-    Listing the catalog is metadata only (see `services/template_catalog.py`),
+    Listing the catalog is metadata only (see `services/templates/catalog.py`),
     so this is where a blueprint is actually produced — when a teacher picks a
     card and the Builder needs slots to render.
 
@@ -447,8 +447,8 @@ class TemplateResolveView(APIView):
     """
 
     def post(self, request):
-        from services.template_catalog import resolve_detailed
-        from services.templates import TemplateBlueprint, apply_source_ratio
+        from services.templates.catalog import resolve_detailed
+        from services.templates.spec import TemplateBlueprint, apply_source_ratio
 
         payload = request.data or {}
         template_id = str(payload.get("templateId") or "").strip()
@@ -469,7 +469,7 @@ class TemplateResolveView(APIView):
 
         # A saved template resolves from its own stored blueprint when it has
         # one, and otherwise falls through to the built-in path — which is
-        # exactly the pinned/instruction-driven split in services/templates.py.
+        # exactly the pinned/instruction-driven split in services/templates/spec.py.
         saved = PaperTemplate.objects.filter(
             user=request.user, id=template_id
         ).first()
@@ -567,7 +567,7 @@ class QuestionTypeCatalogView(APIView):
     """
 
     def get(self, request):
-        from services.templates import question_types_for
+        from services.templates.spec import question_types_for
 
         return Response(
             {
@@ -597,12 +597,12 @@ class QuestionImageView(APIView):
     MAX_QUESTION_CHARS = 2000
 
     def get(self, request):
-        from services.question_image import STYLE_CHOICES
+        from services.generation.question_image import STYLE_CHOICES
 
         return Response({"styles": list(STYLE_CHOICES)})
 
     def post(self, request):
-        from services.question_image import (
+        from services.generation.question_image import (
             QuestionImageError,
             generate_question_image,
         )
@@ -648,7 +648,7 @@ class QuestionFigureSpecView(APIView):
     """
 
     def post(self, request):
-        from services.figures import MAX_QUESTION_CHARS, extract_figure_spec
+        from services.generation.figures import MAX_QUESTION_CHARS, extract_figure_spec
 
         question_text = str((request.data or {}).get("questionText") or "").strip()
         if not question_text:
@@ -683,7 +683,7 @@ class QuestionFigureRenderView(APIView):
     """
 
     def post(self, request):
-        from services.figures import SpecError, render_chart
+        from services.generation.figures import SpecError, render_chart
 
         spec = (request.data or {}).get("spec")
         if not isinstance(spec, dict):
@@ -770,7 +770,7 @@ class PaperTemplateDetailView(APIView):
             changed.append("instructions")
 
         if "blueprint" in payload:
-            from services.templates import TemplateBlueprint
+            from services.templates.spec import TemplateBlueprint
 
             raw = payload.get("blueprint")
             if raw in (None, {}, ""):
@@ -894,7 +894,7 @@ class PaperTemplateForkView(APIView):
     """Turn a built-in catalog entry into a row the teacher owns.
 
     Built-ins are generated from `_NEW_ENGINE_ELIGIBILITY` (see
-    `services/template_catalog.py`) — code, not rows — which is what keeps the
+    `services/templates/catalog.py`) — code, not rows — which is what keeps the
     picker in step with the engine for free. The cost is that a built-in has
     nothing to edit and nowhere to be filed. Forking resolves it once and
     writes the result down, and from that point it is an ordinary
@@ -906,7 +906,7 @@ class PaperTemplateForkView(APIView):
     """
 
     def post(self, request):
-        from services.template_catalog import get_entry, resolve_builtin
+        from services.templates.catalog import get_entry, resolve_builtin
 
         payload = request.data or {}
         template_id = str(payload.get("templateId") or "").strip()

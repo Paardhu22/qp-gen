@@ -1,4 +1,4 @@
-"""Durable generation runs. See services/generation_runs.py.
+"""Durable generation runs. See services/generation/runs.py.
 
 The point of these: a generation takes minutes, and before runs were recorded
 a dropped connection lost the paper outright. Every test here is about a client
@@ -15,7 +15,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.generation.models import GenerationEvent, GenerationRun
-from services.generation_runs import (
+from services.generation.runs import (
     HEARTBEAT_GRACE,
     follow,
     purge_expired_runs,
@@ -37,7 +37,7 @@ def _no_keepalive(stream, **_kwargs):
     pings while the generator is blocked. That is right in production and
     unusable here: the tests run on an in-memory SQLite database, and reads
     from a second thread hit `database table is locked`. The wrapper has its
-    own suite in services/pool/test_keepalive.py; these tests are about what
+    own suite in services/generation/pool/test_keepalive.py; these tests are about what
     the view puts on the wire.
     """
     return stream

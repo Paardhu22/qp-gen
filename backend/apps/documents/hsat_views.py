@@ -24,15 +24,15 @@ from rest_framework.views import APIView
 
 from apps.documents.models import HsatSource, PaperHsatSource
 from apps.projects.models import Paper
-from services import hsat_catalog
-from services.hsat_service import (
+from services.sources.hsat import catalog as hsat_catalog
+from services.sources.hsat.ingest import (
     book_chapters,
     book_status,
     get_or_create_source,
     get_source,
     ingest_hsat_book_async,
 )
-from services.s3_client import is_configured as s3_is_configured
+from services.storage.s3 import is_configured as s3_is_configured
 
 logger = logging.getLogger("[HSAT_VIEWS]")
 

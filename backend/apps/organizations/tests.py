@@ -20,8 +20,8 @@ from apps.organizations.views import (
     PlatformUserDeleteView,
 )
 from apps.projects.models import Paper, Project
-from services.usage_limits import UsageLimitExceeded, check_monthly_token_limit
-from services.usage_pricing import usd_to_inr_rate
+from services.organizations.usage_limits import UsageLimitExceeded, check_monthly_token_limit
+from services.organizations.usage_pricing import usd_to_inr_rate
 
 from .domains import domain_of_email, normalize_domains
 from .models import Membership, Organization, OrganizationInvite
@@ -134,7 +134,7 @@ class OrganizationPermissionTests(TestCase):
             total_tokens=10,
         )
 
-        from services.pool.pipeline import stream_pool_questions
+        from services.generation.pool.pipeline import stream_pool_questions
 
         stream = stream_pool_questions(
             user=self.approved,

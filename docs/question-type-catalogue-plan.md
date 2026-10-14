@@ -5,10 +5,10 @@
 The spec (*Question Type Catalogue — AOS, Draft 1*) replaces the single flat `type` string with a catalogue of named presets (A–J, ~160 unique codes) built on separate axes: format, task, stimulus, container, options, answer space and marking. It covers CBSE Classes 1–10, for both papers and worksheets.
 
 Today the type vocabulary lives in **five places that have drifted apart**:
-- `services/pool/schema.py::QUESTION_TYPES` (22 codes)
+- `services/generation/pool/schema.py::QUESTION_TYPES` (22 codes)
 - the DB `QuestionType` table (65 rows, migration 0012, a different code set)
-- the Builder menu in `services/templates.py::QUESTION_TYPE_CATALOG`
-- the designer vocabulary in `services/paper_design.py`
+- the Builder menu in `services/templates/spec.py::QUESTION_TYPE_CATALOG`
+- the designer vocabulary in `services/templates/design.py`
 - label maps in about six other files, backend and frontend
 
 Damage this causes today:
@@ -20,7 +20,7 @@ Damage this causes today:
 
 **Your decisions:**
 - **Scope:** core rebuild.
-- **Figures:** charts only, drawn by the deterministic `services/figures` renderer. Picture, map and cartoon types are listed but disabled, with the reason shown.
+- **Figures:** charts only, drawn by the deterministic `services/generation/figures` renderer. Picture, map and cartoon types are listed but disabled, with the reason shown.
 - **Multi-correct MCQs:** all-or-nothing marking.
 - **Classes 1–9:** my suggestion in §8.
 
@@ -99,7 +99,7 @@ New Django-free package **`backend/services/question_types/`**:
 
 ## 4. Generation
 
-**Model 1** (`services/pool/model1.py`, `recipes.py`):
+**Model 1** (`services/generation/pool/model1.py`, `recipes.py`):
 - **Recipes.** Recipes key on `(type_code, marks, asset_type, hots, competency)`, and `TypeQuota` carries those fields.
 - **Batch instruction.** `_batch_instruction` appends the preset's brief, example, option rule and any explicit rule override. That covers option count overriding rule 4, an attached chart or table overriding rule 7, and ORIGINAL overriding rules 1–2. It does this **only for non-default presets**.
 - **System prompt.** The system prompt is untouched, so prefix caching and the existing prompts stay identical.
@@ -127,11 +127,11 @@ New Django-free package **`backend/services/question_types/`**:
 
 ## 5. Containers and choice pools (J2/J3)
 
-- **One structure module.** New `services/pool/structure.py` defines `Stimulus`, `Part` (label, prompt, marks, type_code, options, answer, optional OR alternative for Maths Section E) and `ChoicePool(attempt, of)`.
+- **One structure module.** New `services/generation/pool/structure.py` defines `Stimulus`, `Part` (label, prompt, marks, type_code, options, answer, optional OR alternative for Maths Section E) and `ChoicePool(attempt, of)`.
   - `render_structured()` produces `content`, `answer` and `metadata.composite {preamble, body, subQuestions}`.
-  - It is generalised from `services/assets/schema.py::SubQuestion.render` and `ReadingAsset.composite_parts`, which are refactored to reuse it.
+  - It is generalised from `services/generation/assets/schema.py::SubQuestion.render` and `ReadingAsset.composite_parts`, which are refactored to reuse it.
   - The structure is stored in `Question.metadata["structure"]`, so no column migration is needed; provenance already uses the same precedent.
-- **Model 1 container contract.** Container presets return `stimulus` + `parts`. The normaliser validates using the existing rules in `services/assets/validation.py`: `sub_question_marks_sum`, `sub_question_count`, `option_completeness`, `answer_key_complete`, `stimulus_present`.
+- **Model 1 container contract.** Container presets return `stimulus` + `parts`. The normaliser validates using the existing rules in `services/generation/assets/validation.py`: `sub_question_marks_sum`, `sub_question_count`, `option_completeness`, `answer_key_complete`, `stimulus_present`.
   - Marks are auto-snapped only when the slot's `constraints.sub_question_marks` pattern matches the part count.
   - **The legacy flat case-study text is still accepted**, so no paper gets fewer case studies than today.
 - **Choice pools.** A choice pool prints "Attempt any K of the following N." and marks = K × marks per part. `choice_required` (OR group) is unchanged.
@@ -141,8 +141,8 @@ New Django-free package **`backend/services/question_types/`**:
 
 - **Presets.** Presets whose stimulus is `chart` are: MCQ_DATA (graph), DATA_INTERPRETATION, GRAPH_READ, ANALYTICAL_PARAGRAPH (chart variant), GRAPHICAL_SOLUTION (coordinate grid) and GRAPH_PLOT (blank grid + data table).
 - **Pipeline.**
-  - Model 1 emits a `figure` spec, validated with `services/figures/spec.parse_chart_spec`.
-  - After normalisation, the pipeline calls `services/figures.render_chart`, which returns a stable `/media/question_figures/*.svg` URL that goes into `PoolQuestion.image`.
+  - Model 1 emits a `figure` spec, validated with `services/generation/figures/spec.parse_chart_spec`.
+  - After normalisation, the pipeline calls `services/generation/figures.render_chart`, which returns a stable `/media/question_figures/*.svg` URL that goes into `PoolQuestion.image`.
   - The "never trust a model URL" invariant holds, because the URL is ours.
   - `show_values=False` whenever the question asks for the values.
   - A render failure drops the question.
@@ -162,7 +162,7 @@ New Django-free package **`backend/services/question_types/`**:
 
 **No silent change.** Today's cards, `_build_primary_progression` and every existing default stay exactly as they are.
 
-1. **Starter templates.** New built-in *starter* templates are added to `services/template_catalog.py` (kind `starter`). Each is a pinned slot list authored from catalogue presets, so it never touches the board engine. They appear first under **"Recommended for Class N"** in `template-picker-grid.tsx`, and the teacher reviews every slot in the Builder before generating.
+1. **Starter templates.** New built-in *starter* templates are added to `services/templates/catalog.py` (kind `starter`). Each is a pinned slot list authored from catalogue presets, so it never touches the board engine. They appear first under **"Recommended for Class N"** in `template-picker-grid.tsx`, and the teacher reviews every slot in the Builder before generating.
    - **Classes 1–2 worksheet** (EVS, English, Maths): circle-the-correct-answer (3 options), tick/cross, word-bank fill-ups, join-with-lines, name-the-following, count-and-write with ★ characters, opposites/rhymes, missing numbers.
    - **Classes 3–5 unit test** (EVS/Science, Social, English, Maths): MCQ + identify/odd-one-out, fill blanks, true/false-correct, match, give reasons, define, word problems/patterns, unseen passage + grammar + paragraph.
    - **Classes 6–8 periodic test:** correct/incorrect-statement and sequencing MCQs, AR from Class 8, VSA/SA/LA, differentiate, structured case study, experiment/observation, source-based/chronology, solve-equation/mensuration/statistics, notice/letter.
@@ -197,7 +197,7 @@ New Django-free package **`backend/services/question_types/`**:
 - Audio/visual stimulus.
 - Crossword generation, which is a constraint-solver problem.
 - Paired VI-alternative content (it stays a flag).
-- Retiring `q_instructions` or `apps/question_generation`.
+- Retiring `services.generation.blueprint` or `apps/question_generation`.
 
 ## Verification
 

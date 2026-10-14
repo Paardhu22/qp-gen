@@ -3,7 +3,7 @@ from rest_framework.authentication import BaseAuthentication, get_authorization_
 from rest_framework.exceptions import AuthenticationFailed
 
 from apps.accounts.models import User
-from services.cognito_service import CognitoTokenValidator, get_user_info_from_cognito
+from services.auth.cognito import CognitoTokenValidator, get_user_info_from_cognito
 
 logger = logging.getLogger("[COGNITO_AUTHENTICATION]")
 

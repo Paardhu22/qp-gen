@@ -4,7 +4,7 @@
 ("MCQ_SINGLE", "SA", "MCQ_ODD_ONE_OUT", …). Writers still arrive speaking older
 vocabularies:
 
-  * pool auto-save (`services.pool.schema.PoolQuestion.to_model_kwargs`) sends
+  * pool auto-save (`services.generation.pool.schema.PoolQuestion.to_model_kwargs`) sends
     runtime shapes such as "MCQ" and "SHORT_ANSWER";
   * manual "Save Questions" (`apps.projects.serializers.QuestionSerializer`)
     sends whatever the editor attribute holds — "SHORT", "MCQ", a catalogue code.

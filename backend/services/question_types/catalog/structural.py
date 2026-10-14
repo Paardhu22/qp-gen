@@ -6,7 +6,7 @@ offered as a slot type. The mechanisms themselves live elsewhere:
 
 * OR_GROUP — `choice_required` on a blueprint slot; `SlotAssignment.or_choice`.
 * CHOICE_POOL, SUB_QUESTION_SET, WORD_BANK_GROUP — the `container` axis on a
-  type (`SUB_PARTS`, with an attempt-any-K choice), see `services.pool.structure`.
+  type (`SUB_PARTS`, with an attempt-any-K choice), see `services.generation.pool.structure`.
 * VI_ALTERNATIVE — the per-paper `include_vi_alternatives` flag.
 * INSTRUCTION_BLOCK — the editor's `instructionBlock` node.
 

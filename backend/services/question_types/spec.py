@@ -139,7 +139,7 @@ class OptionRule:
 @dataclass(frozen=True)
 class Route:
     """The independent generator that writes this type when a slot does not
-    already name one — see `services.assets`."""
+    already name one — see `services.generation.assets`."""
 
     generator: str
     asset_type: str = ""

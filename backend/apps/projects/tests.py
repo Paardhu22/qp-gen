@@ -1,7 +1,7 @@
 """P2 statelessness-pass tests: PaperSet.content dual-write to S3, the
 flag-gated read accessor, and the backfill command.
 
-Design under test (services/paper_content_service.py):
+Design under test (services/papers/content.py):
   * DB column `PaperSet.content` stays the source of truth — every test
     asserts the DB row is fully populated regardless of S3 behaviour.
   * Saves dual-write a best-effort S3 mirror; S3 failure NEVER breaks a save.
@@ -13,10 +13,10 @@ Ported from the paper-level API when content moved from `Paper.content` onto
 `paper_content_s3_key` / `read_paper_content`, which no longer exist — so it
 failed to import and silently took every test in `apps.projects` with it.
 That is exactly how the same rename went unnoticed in
-`services/answer_script_service.py`, which shipped broken.
+`services/papers/answer_script.py`, which shipped broken.
 
 All S3 traffic is patched at the single choke point
-`services.paper_content_service.{is_configured,upload_bytes,download_to_buffer}`.
+`services.papers.content.{is_configured,upload_bytes,download_to_buffer}`.
 """
 
 import json
@@ -31,10 +31,10 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.projects.models import Draft, Paper, PaperSet, Project
-from services.paper_content_service import read_set_content, set_content_s3_key
-from services.project_service import save_paper_to_project
+from services.papers.content import read_set_content, set_content_s3_key
+from services.papers.projects import save_paper_to_project
 
-PCS = "services.paper_content_service"
+PCS = "services.papers.content"
 BACKFILL_CMD = "apps.projects.management.commands.backfill_set_content_to_s3"
 
 
@@ -191,7 +191,7 @@ class SetContentDualWriteTests(TestCase):
         paper_set = paper.sets.get()
         ts_after_save = paper_set.updated_at
 
-        from services.paper_content_service import dual_write_set_content
+        from services.papers.content import dual_write_set_content
 
         with patch(f"{PCS}.is_configured", return_value=True), \
              patch(f"{PCS}.upload_bytes"):
@@ -489,7 +489,7 @@ class AnswerScriptDualWriteTests(TestCase):
             name="src.pdf", size=10, user=self.user, status="ready"
         )
 
-        ASS = "services.answer_script_service"
+        ASS = "services.papers.answer_script"
 
         def fake_llm_answer(client, question_number, question, source_chunks, user):
             return question_number, {
@@ -508,7 +508,7 @@ class AnswerScriptDualWriteTests(TestCase):
              patch(f"{ASS}._generate_single_answer_llm_only", side_effect=fake_llm_answer), \
              patch(f"{PCS}.is_configured", return_value=True), \
              patch(f"{PCS}.upload_bytes") as mock_upload:
-            from services.answer_script_service import generate_answer_script
+            from services.papers.answer_script import generate_answer_script
 
             result = generate_answer_script(paper_id=self.paper.id, user=self.user)
 
@@ -529,7 +529,7 @@ class AnswerScriptDualWriteTests(TestCase):
     def test_answer_script_reads_set_a_not_a_paper_column(self):
         """Regression: the generator used to read `Paper.content`, a column
         that no longer exists. It must read the paper's first set."""
-        from services.answer_script_service import _read_primary_set_content
+        from services.papers.answer_script import _read_primary_set_content
 
         self.assertIn("electrical resistance", _read_primary_set_content(self.paper))
 
@@ -571,7 +571,7 @@ class AnswerScriptRegenerationTests(TestCase):
         PdfSource.objects.create(name="src.pdf", size=10, user=cls.user, status="ready")
 
     def _generate(self, set_id=None):
-        ASS = "services.answer_script_service"
+        ASS = "services.papers.answer_script"
 
         def fake_llm_answer(client, question_number, question, source_chunks, user):
             return question_number, {
@@ -589,7 +589,7 @@ class AnswerScriptRegenerationTests(TestCase):
              patch(f"{ASS}.retrieve_relevant_chunks", return_value=[]), \
              patch(f"{ASS}._generate_single_answer_llm_only", side_effect=fake_llm_answer), \
              patch(f"{PCS}.is_configured", return_value=False):
-            from services.answer_script_service import generate_answer_script
+            from services.papers.answer_script import generate_answer_script
 
             return generate_answer_script(
                 paper_id=self.paper.id, user=self.user, set_id=set_id
@@ -634,7 +634,7 @@ class AnswerScriptRegenerationTests(TestCase):
         first = self._generate()
 
         with patch(
-            "services.answer_script_service._build_answer_paper_content",
+            "services.papers.answer_script._build_answer_paper_content",
             side_effect=ValueError("boom"),
         ), self.assertRaises(RuntimeError):
             self._generate()
@@ -723,7 +723,7 @@ class QuestionImagePersistenceTests(TestCase):
 
     def test_saving_questions_by_hand_keeps_the_image(self):
         from apps.projects.models import Question
-        from services.project_service import save_questions_to_project
+        from services.papers.projects import save_questions_to_project
 
         save_questions_to_project(
             self.user,
@@ -751,7 +751,7 @@ class QuestionImagePersistenceTests(TestCase):
 
     def test_a_hand_saved_question_without_an_image_still_saves(self):
         from apps.projects.models import Question
-        from services.project_service import save_questions_to_project
+        from services.papers.projects import save_questions_to_project
 
         save_questions_to_project(
             self.user,
@@ -764,7 +764,7 @@ class QuestionImagePersistenceTests(TestCase):
     def test_the_image_survives_a_full_write_then_read(self):
         # The round trip that was broken end to end: save a diagram question,
         # read it back the way the editor does, and still have the figure.
-        from services.project_service import save_questions_to_project
+        from services.papers.projects import save_questions_to_project
 
         save_questions_to_project(
             self.user,
@@ -1003,7 +1003,7 @@ class PaperListPaginationTests(TestCase):
 
 
 class DraftServerSyncTests(TestCase):
-    """The server's copy of unsaved work. See services/draft_service.py."""
+    """The server's copy of unsaved work. See services/papers/drafts.py."""
 
     def setUp(self):
         cache.clear()

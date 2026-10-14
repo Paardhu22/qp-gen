@@ -8,7 +8,7 @@ for the ones who never open the bin again.
 
 from django.core.management.base import BaseCommand
 
-from services.project_service import purge_expired_papers, trash_retention_days
+from services.papers.projects import purge_expired_papers, trash_retention_days
 
 
 class Command(BaseCommand):

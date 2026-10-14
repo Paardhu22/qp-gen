@@ -12,7 +12,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from apps.accounts.models import BrandAsset, User
 from apps.accounts.serializers import UserSerializer
 from apps.common.permissions import IsAdmin, IsAdminOrSuperAdmin
-from services.brand_kit import (
+from services.organizations.brand_kit import (
     delete_logo,
     get_or_create_kit,
     serialize_asset,
@@ -20,8 +20,8 @@ from services.brand_kit import (
     store_logo,
     valid_accent_color,
 )
-from services.cognito_service import add_user_to_group, remove_user_from_group
-from services.email_service import (
+from services.auth.cognito import add_user_to_group, remove_user_from_group
+from services.auth.emails import (
     send_membership_approved_email,
     send_membership_rejected_email,
 )

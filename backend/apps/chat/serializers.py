@@ -31,7 +31,7 @@ class ConversationSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_ready(self, obj) -> bool:
-        from services.chat_service import spec_is_ready
+        from services.chat import spec_is_ready
 
         return spec_is_ready(obj.spec)
 
@@ -52,7 +52,7 @@ class ConversationDetailSerializer(ConversationSerializer):
         read_only_fields = fields
 
     def _sources(self, obj) -> list:
-        from services.chat_service import collect_source_ids
+        from services.chat import collect_source_ids
 
         if not hasattr(obj, "_cached_source_ids"):
             obj._cached_source_ids = collect_source_ids(obj.messages.all())
@@ -62,7 +62,7 @@ class ConversationDetailSerializer(ConversationSerializer):
         return self._sources(obj)
 
     def get_can_generate(self, obj) -> bool:
-        from services.chat_service import can_generate
+        from services.chat import can_generate
 
         return can_generate(obj.spec, len(self._sources(obj)))
 
@@ -73,7 +73,7 @@ class ConversationDetailSerializer(ConversationSerializer):
         the transcript but no way to answer the outstanding question until
         they typed something to provoke a fresh turn.
         """
-        from services.chat_service import next_prompt
+        from services.chat import next_prompt
 
         if obj.mode != Conversation.MODE_PAPER:
             return None

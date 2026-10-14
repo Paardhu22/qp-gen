@@ -20,7 +20,7 @@ from typing import Dict, Iterable, List
 from django.db.models import Count, Sum
 
 from apps.generation.models import ApiUsage
-from services.usage_pricing import inr_cost_by_group, inr_cost_of_usage
+from services.organizations.usage_pricing import inr_cost_by_group, inr_cost_of_usage
 
 #: Attribute names stamped onto the model instances. Prefixed because they are
 #: cached answers, not fields — nothing should mistake them for columns.

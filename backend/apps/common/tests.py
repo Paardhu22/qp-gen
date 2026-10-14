@@ -11,7 +11,7 @@ if not apps.ready:
     django.setup()
 
 import config.settings as project_settings
-from services.openai_service import _record_usage
+from services.llm.openai_client import _record_usage
 
 
 class CommonTests(SimpleTestCase):
@@ -78,7 +78,7 @@ class OpenAIUsageLoggingTests(SimpleTestCase):
         )
 
         with patch(
-            "services.openai_service.ApiUsage.objects.create",
+            "services.llm.openai_client.ApiUsage.objects.create",
             side_effect=RuntimeError("db unavailable"),
         ):
             with self.assertLogs("[OPENAI_SERVICE]", level="WARNING") as logs:

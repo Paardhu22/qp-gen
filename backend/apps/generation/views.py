@@ -10,17 +10,17 @@ from apps.generation.serializers import (
     QuestionGenerationSerializer,
     ReplaceQuestionSerializer,
 )
-from services.generation_runs import (
+from services.generation.runs import (
     follow,
     purge_expired_runs,
     resumable_runs,
     run_in_background,
     start_run,
 )
-from services.openai_service import generate_answer_key
-from services.pool.keepalive import keepalive
-from services.pool.pipeline import stream_pool_questions
-from services.usage_limits import UsageLimitExceeded, check_monthly_token_limit
+from services.llm.openai_client import generate_answer_key
+from services.generation.pool.keepalive import keepalive
+from services.generation.pool.pipeline import stream_pool_questions
+from services.organizations.usage_limits import UsageLimitExceeded, check_monthly_token_limit
 
 
 def _sse_response(stream):
@@ -29,7 +29,7 @@ def _sse_response(stream):
     `keepalive` is still here on the reading side: it converts an exception
     raised after the headers went out into a terminal `error` frame (the socket
     can no longer become an error response), and it keeps a proxy from closing
-    a connection that has been quiet. See services/pool/keepalive.py.
+    a connection that has been quiet. See services/generation/pool/keepalive.py.
     """
     response = StreamingHttpResponse(keepalive(stream), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
@@ -48,7 +48,7 @@ class QuestionGenerationStreamView(APIView):
 
     The run id arrives as the first frame, so the client has something to
     re-attach to before any real work has happened. See
-    services/generation_runs.py, including what this does and does not survive.
+    services/generation/runs.py, including what this does and does not survive.
     """
 
     def post(self, request):
@@ -136,7 +136,7 @@ class PaperFromBankView(APIView):
     """
 
     def post(self, request):
-        from services.pool.from_bank import stream_paper_from_bank
+        from services.generation.pool.from_bank import stream_paper_from_bank
 
         serializer = PaperFromBankSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -183,7 +183,7 @@ class ReplaceQuestionView(APIView):
     """
 
     def post(self, request):
-        from services.pool.replace import ReplacementError, replace_question
+        from services.generation.pool.replace import ReplacementError, replace_question
 
         serializer = ReplaceQuestionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -249,7 +249,7 @@ class QuestionBankSummaryView(APIView):
     """
 
     def get(self, request):
-        from services.pool.store import bank_summary
+        from services.generation.pool.store import bank_summary
 
         return Response({"chapters": bank_summary(user=request.user)})
 
@@ -287,7 +287,7 @@ class AnswerScriptGenerateView(APIView):
         { "answer_script_paper_id": "...", "editor_url": "/editor?paperId=..." }
     """
     def post(self, request, paper_id: str):
-        from services.answer_script_service import generate_answer_script
+        from services.papers.answer_script import generate_answer_script
 
         set_id = request.data.get("setId") if request.data else None
 

@@ -1,7 +1,7 @@
 """Prove the configured mail provider will actually accept our messages.
 
 Every notification in this codebase is best-effort by design — `_safe_send` in
-services/email_service.py logs a failure and lets the request succeed, because
+services/auth/emails.py logs a failure and lets the request succeed, because
 an SMTP outage must never leave a membership half-applied with the Cognito
 group already moved. The cost of that choice is that a misconfigured provider
 is invisible: approvals appear to work and no mail ever arrives.
@@ -14,7 +14,7 @@ from django.conf import settings
 from django.core.mail import get_connection
 from django.core.management.base import BaseCommand, CommandError
 
-from services.email_service import send_test_email
+from services.auth.emails import send_test_email
 
 #: Provider rejections that mean something specific and actionable. Brevo's
 #: wording is matched loosely because the code (525/530) is the reliable part.

@@ -21,7 +21,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.projects.models import ExportRecord, Paper, PaperSet
-from services.s3_client import (
+from services.storage.s3 import (
     S3NotConfigured,
     generate_presigned_get_url,
     is_configured,

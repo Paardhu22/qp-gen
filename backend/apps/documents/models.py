@@ -1,6 +1,6 @@
 from django.db import models
 from pgvector.django import VectorField
-from utils.ids import generate_id
+from apps.common.ids import generate_id
 
 from apps.accounts.models import User
 from apps.common.models import TimeStampedModel
@@ -104,7 +104,7 @@ class PdfSource(TimeStampedModel):
     # AV scan status: 'pending', 'passed', 'failed', or null if AV disabled
     av_status = models.CharField(max_length=20, null=True, blank=True)
     # What the ingest thought this chapter was about, from the first few pages
-    # (`services/subject_detection_service.py`). Advisory only: it lets the
+    # (`services/sources/subject_detection.py`). Advisory only: it lets the
     # Sources panel warn when a Physics chapter is attached to a Mathematics
     # paper, and it is deliberately not a constraint — detection is a model
     # call that is wrong often enough that blocking on it would strand valid

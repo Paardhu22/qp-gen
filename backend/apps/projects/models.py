@@ -3,7 +3,7 @@ from django.db import models
 from apps.accounts.models import User
 from apps.common.fields import PortableArrayField
 from apps.common.models import TimeStampedModel
-from utils.ids import generate_id
+from apps.common.ids import generate_id
 
 
 class Project(TimeStampedModel):

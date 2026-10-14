@@ -18,7 +18,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from apps.accounts.models import BrandAsset, BrandKit, User
-from services.brand_kit import _image_dimensions
+from services.organizations.brand_kit import _image_dimensions
 
 
 def a_png(width: int = 8, height: int = 4) -> bytes:
@@ -198,7 +198,7 @@ class BrandAssetApiTests(BrandKitTestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_an_oversized_image_is_refused(self):
-        from services.brand_kit import MAX_LOGO_BYTES
+        from services.organizations.brand_kit import MAX_LOGO_BYTES
 
         huge = a_png() + b"\x00" * MAX_LOGO_BYTES
         response = self.client.post(

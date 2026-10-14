@@ -1,0 +1,770 @@
+"""Tests for the free-form paper designer.
+
+Everything here exercises the deterministic half — `validate_design`,
+`find_gaps`, `infer_settings`, `normalize_question_type`. The model call
+(`design_paper`) is only touched through its fallback and its parsing of a
+canned response; what a model returns is not something a test can pin down,
+which is precisely why the validator exists.
+"""
+
+from django.test import TestCase
+
+from services.templates.design import (
+    DesignSection,
+    DetectedSettings,
+    Gap,
+    MAX_MARKS_PER_QUESTION,
+    MAX_QUESTIONS,
+    PaperDesign,
+    QuestionGroup,
+    apply_assumed,
+    design_to_slot_specs,
+    find_gaps,
+    header_lines,
+    infer_settings,
+    is_ready,
+    normalize_question_type,
+    validate_design,
+    _design_from_raw,
+    _detected_from_raw,
+    detected_from_prose,
+)
+from services.question_types import get as get_type
+
+
+def group(question_type="SHORT_ANSWER", marks=2, count=3, **kwargs):
+    return QuestionGroup(question_type=question_type, marks=marks, count=count, **kwargs)
+
+
+def design(*sections):
+    return PaperDesign(sections=list(sections))
+
+
+class QuestionTypeVocabularyTests(TestCase):
+    def test_canonical_types_pass_through(self):
+        for name in ("MCQ", "SHORT_ANSWER", "LONG_ANSWER", "CASE_STUDY"):
+            self.assertEqual(normalize_question_type(name), name)
+
+    def test_common_phrasings_map_onto_the_vocabulary(self):
+        cases = {
+            "multiple choice": "MCQ",
+            "Multiple-Choice": "MCQ",
+            "objective": "MCQ",
+            "short answer": "SHORT_ANSWER",
+            "long answer": "LONG_ANSWER",
+            "essay": "LONG_ANSWER",
+            "case study": "CASE_STUDY",
+            "assertion-reason": "ASSERTION_REASON",
+            "fill in the blanks": "FILL_BLANK",
+            "true/false": "TRUE_FALSE",
+            "match the following": "MATCH_FOLLOWING",
+        }
+        for raw, expected in cases.items():
+            self.assertEqual(normalize_question_type(raw), expected, raw)
+
+    def test_very_short_is_not_eaten_by_short(self):
+        # Longest-alias-first matching. "very short answer" contains "short
+        # answer"; a naive scan would still land on SHORT_ANSWER here, but the
+        # ordering is what stops "assertion and reason" resolving as "reason".
+        self.assertEqual(normalize_question_type("very short answer"), "SHORT_ANSWER")
+        self.assertEqual(
+            normalize_question_type("assertion and reason"), "ASSERTION_REASON"
+        )
+
+    def test_unknown_types_degrade_rather_than_fail(self):
+        # An unfillable slot type would strand the whole paper. A wrong-but-
+        # fillable one produces a question the teacher can replace.
+        self.assertEqual(normalize_question_type("interpretive dance"), "SHORT_ANSWER")
+        self.assertEqual(normalize_question_type(""), "SHORT_ANSWER")
+        self.assertEqual(normalize_question_type(None), "SHORT_ANSWER")
+
+    def test_a_named_kind_of_question_keeps_its_catalogue_type(self):
+        cases = {
+            "odd one out": "MCQ_ODD_ONE_OUT",
+            "MCQ_ODD_ONE_OUT": "MCQ_ODD_ONE_OUT",
+            "word bank": "FILL_BLANK_BANK",
+            "letter writing": "LETTER_WRITING",
+            "paragraph writing": "PARAGRAPH_WRITING",
+            "5 notice writing tasks": "NOTICE_WRITING",
+        }
+        for raw, expected in cases.items():
+            self.assertEqual(normalize_question_type(raw), expected, raw)
+
+    def test_a_general_type_under_its_catalogue_code_reads_as_general(self):
+        self.assertEqual(normalize_question_type("MCQ_SINGLE"), "MCQ")
+        self.assertEqual(normalize_question_type("DIAGRAM_DRAW"), "DIAGRAM")
+
+    def test_an_alias_is_matched_as_a_word_not_inside_one(self):
+        # "paragraph" contains "ar". Read as a substring, a writing task became
+        # an assertion-reason question.
+        self.assertNotEqual(
+            normalize_question_type("paragraph based questions"), "ASSERTION_REASON"
+        )
+
+    def test_a_type_that_cannot_be_generated_is_not_taken_by_name(self):
+        # Nothing draws a picture or a map yet, so those names keep the general
+        # vocabulary's reading.
+        self.assertEqual(normalize_question_type("PICTURE_BASED"), "DIAGRAM")
+        self.assertEqual(normalize_question_type("MAP_SKILL"), "DIAGRAM")
+
+    def test_a_catalogue_type_gets_its_own_default_mark(self):
+        d = validate_design(
+            design(DesignSection("A", [group(question_type="LETTER_WRITING", marks=0, count=1)]))
+        )
+        self.assertEqual(d.sections[0].groups[0].question_type, "LETTER_WRITING")
+        self.assertEqual(d.sections[0].groups[0].marks, get_type("LETTER_WRITING").marks)
+
+    def test_the_designer_is_offered_the_catalogue_by_name(self):
+        from services.templates.design import _DESIGN_SCHEMA
+
+        description = _DESIGN_SCHEMA["properties"]["sections"]["items"][
+            "properties"
+        ]["groups"]["items"]["properties"]["type"]["description"]
+        self.assertIn("MCQ_ODD_ONE_OUT", description)
+        self.assertIn("LETTER_WRITING", description)
+        # Not generated yet; offered as MCQ; read here as a short answer.
+        self.assertNotIn("MAP_SKILL", description)
+        self.assertNotIn("MCQ_SINGLE", description)
+        self.assertNotIn("VSA (", description)
+
+    def test_a_catalogue_type_reaches_the_builder_intact(self):
+        from services.templates.catalog import _blueprint_from_design_specs
+
+        specs = design_to_slot_specs(
+            validate_design(
+                design(
+                    DesignSection(
+                        "A",
+                        [group(question_type=normalize_question_type("odd one out"), marks=1, count=2)],
+                    )
+                )
+            )
+        )
+        slots = _blueprint_from_design_specs(specs).slots
+        self.assertEqual(
+            [(slot.type_code, slot.question_type) for slot in slots],
+            [("MCQ_ODD_ONE_OUT", "MCQ")] * 2,
+        )
+
+
+class ValidateDesignTests(TestCase):
+    def test_totals_are_recomputed_not_trusted(self):
+        d = validate_design(
+            design(DesignSection("Section A", [group(marks=2, count=5)]))
+        )
+        self.assertEqual(d.total_marks, 10)
+        self.assertEqual(d.total_questions, 5)
+
+    def test_zero_and_negative_counts_are_dropped(self):
+        d = validate_design(
+            design(
+                DesignSection("Section A", [group(count=0), group(count=3)]),
+            )
+        )
+        self.assertEqual(d.total_questions, 3)
+        self.assertTrue(any("count of 0" in c for c in d.corrections))
+
+    def test_missing_marks_get_the_type_default(self):
+        d = validate_design(
+            design(DesignSection("A", [group(question_type="MCQ", marks=0, count=4)]))
+        )
+        self.assertEqual(d.sections[0].groups[0].marks, 1)
+        self.assertEqual(d.total_marks, 4)
+        self.assertTrue(any("mark value" in c for c in d.corrections))
+
+    def test_absurd_per_question_marks_are_capped(self):
+        d = validate_design(design(DesignSection("A", [group(marks=500, count=1)])))
+        self.assertEqual(d.sections[0].groups[0].marks, MAX_MARKS_PER_QUESTION)
+        self.assertTrue(any("capped" in c for c in d.corrections))
+
+    def test_a_runaway_design_is_trimmed(self):
+        # The pool is sized off the slot count, so an unbounded design is an
+        # unbounded OpenAI bill as well as an unusable paper.
+        d = validate_design(design(DesignSection("A", [group(count=5000)])))
+        self.assertLessEqual(d.total_questions, MAX_QUESTIONS)
+        self.assertTrue(any("Trimmed" in c for c in d.corrections))
+
+    def test_sections_left_empty_are_removed(self):
+        d = validate_design(
+            design(
+                DesignSection("Section A", [group(count=0)]),
+                DesignSection("Section B", [group(count=2)]),
+            )
+        )
+        self.assertEqual([s.title for s in d.sections], ["Section B"])
+
+    def test_a_mark_mismatch_is_reported_not_silently_fixed(self):
+        # Which questions to drop to hit a number is a pedagogical choice.
+        # Guessing it would quietly hand back a paper nobody designed.
+        d = validate_design(
+            design(DesignSection("A", [group(marks=2, count=5)])), total_marks=20
+        )
+        self.assertEqual(d.total_marks, 10, "the structure must be left alone")
+        self.assertTrue(any("20 marks" in c and "10" in c for c in d.corrections))
+
+    def test_a_matching_total_produces_no_complaint(self):
+        d = validate_design(
+            design(DesignSection("A", [group(marks=2, count=10)])), total_marks=20
+        )
+        self.assertEqual(d.corrections, [])
+
+    def test_a_count_mismatch_is_reported(self):
+        d = validate_design(
+            design(DesignSection("A", [group(count=5)])), exact_count=8
+        )
+        self.assertTrue(any("8 questions" in c for c in d.corrections))
+
+    def test_validation_is_idempotent(self):
+        # The endpoint validates, then the pipeline validates again on the way
+        # to generation. A second pass must not re-report or re-cap anything.
+        once = validate_design(design(DesignSection("A", [group(marks=2, count=5)])))
+        twice = validate_design(once)
+        self.assertEqual(twice.corrections, once.corrections)
+        self.assertEqual(twice.total_marks, once.total_marks)
+
+    def test_an_empty_design_survives_validation(self):
+        d = validate_design(PaperDesign())
+        self.assertEqual(d.sections, [])
+        self.assertEqual(d.total_marks, 0)
+
+
+class DesignFromRawTests(TestCase):
+    def test_a_well_formed_response_is_read_faithfully(self):
+        d = _design_from_raw(
+            {
+                "title": "Weekly Test",
+                "duration": "45 minutes",
+                "generalInstructions": ["All questions are compulsory."],
+                "sections": [
+                    {
+                        "title": "Section A",
+                        "instruction": "Answer in one line.",
+                        "groups": [
+                            {
+                                "type": "mcq",
+                                "marks": 1,
+                                "count": 5,
+                                "topic": "Photosynthesis",
+                                "choice": False,
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        self.assertEqual(d.title, "Weekly Test")
+        self.assertEqual(d.duration, "45 minutes")
+        self.assertEqual(d.general_instructions, ["All questions are compulsory."])
+        self.assertEqual(d.sections[0].title, "Section A")
+        self.assertEqual(d.sections[0].instruction, "Answer in one line.")
+        self.assertEqual(d.sections[0].groups[0].question_type, "MCQ")
+        self.assertEqual(d.sections[0].groups[0].topic, "Photosynthesis")
+
+    def test_malformed_members_are_skipped_without_losing_the_rest(self):
+        d = _design_from_raw(
+            {
+                "sections": [
+                    "not a section",
+                    {"title": "A", "groups": [{"type": "mcq", "marks": "x", "count": 2}]},
+                    {"title": "B", "groups": [{"type": "mcq", "marks": 1, "count": 2}]},
+                ]
+            }
+        )
+        self.assertEqual([s.title for s in d.sections], ["B"])
+
+    def test_a_section_with_no_usable_groups_is_dropped(self):
+        d = _design_from_raw({"sections": [{"title": "A", "groups": []}]})
+        self.assertEqual(d.sections, [])
+
+    def test_non_dict_input_yields_an_empty_design(self):
+        for raw in (None, [], "text", 7):
+            self.assertEqual(_design_from_raw(raw).sections, [])
+
+
+class SlotSpecTests(TestCase):
+    def test_a_design_flattens_to_the_pipeline_slot_shape(self):
+        specs = design_to_slot_specs(
+            design(
+                DesignSection("Section A", [group(question_type="MCQ", marks=1, count=5)]),
+                DesignSection("Section B", [group(marks=3, count=2, topic="Light")]),
+            )
+        )
+        self.assertEqual(len(specs), 2)
+        self.assertEqual(specs[0]["section_title"], "Section A")
+        self.assertEqual(specs[0]["type"], "MCQ")
+        self.assertEqual(specs[0]["count"], 5)
+        self.assertEqual(specs[1]["topic"], "Light")
+        # The keys the pool pipeline's General Instructions branch reads.
+        for spec in specs:
+            self.assertLessEqual(
+                {"section_title", "type", "marks", "count"}, set(spec)
+            )
+
+    def test_section_order_is_preserved(self):
+        specs = design_to_slot_specs(
+            design(
+                DesignSection("Part 3", [group()]),
+                DesignSection("Part 1", [group()]),
+                DesignSection("Part 2", [group()]),
+            )
+        )
+        self.assertEqual(
+            [s["section_title"] for s in specs], ["Part 3", "Part 1", "Part 2"]
+        )
+
+
+class GapTests(TestCase):
+    def test_a_complete_setting_set_leaves_no_gaps(self):
+        gaps = find_gaps(
+            {
+                "subject": "Science",
+                "academicClass": "10",
+                "difficulty": "easy",
+                "numberOfSets": "1",
+                "marks": "20",
+            },
+            source_count=1,
+        )
+        self.assertEqual(gaps, [])
+        self.assertTrue(is_ready(gaps))
+
+    def test_subject_class_and_content_are_the_only_blockers(self):
+        gaps = find_gaps({}, source_count=0)
+        required = {g.field for g in gaps if g.kind == "required"}
+        self.assertEqual(required, {"subject", "academicClass", "sources"})
+
+    def test_a_forgotten_difficulty_is_assumed_not_demanded(self):
+        # The whole point of the flow: forgetting difficulty must not stop a
+        # teacher generating, but it must be visible that medium was chosen.
+        gaps = find_gaps(
+            {"subject": "Science", "academicClass": "10", "marks": "20"},
+            source_count=1,
+        )
+        self.assertTrue(is_ready(gaps), "an assumed gap must not block")
+        difficulty = next(g for g in gaps if g.field == "difficulty")
+        self.assertEqual(difficulty.kind, "assumed")
+        self.assertEqual(difficulty.value, "medium")
+        self.assertTrue(difficulty.note)
+        self.assertTrue(difficulty.options, "the teacher must be able to change it")
+
+    def test_marks_are_assumed_from_the_design_when_not_stated(self):
+        d = validate_design(design(DesignSection("A", [group(marks=2, count=10)])))
+        gaps = find_gaps(
+            {"subject": "Science", "academicClass": "10"}, d, source_count=1
+        )
+        marks = next(g for g in gaps if g.field == "marks")
+        self.assertEqual(marks.value, "20")
+        self.assertIn("20", marks.note)
+
+    def test_marks_fall_back_to_a_default_with_no_design(self):
+        gaps = find_gaps({"subject": "Science", "academicClass": "10"}, source_count=1)
+        marks = next(g for g in gaps if g.field == "marks")
+        self.assertEqual(marks.value, "20")
+
+    def test_every_required_gap_is_answerable(self):
+        # A blocking question with no options and no note is a dead end.
+        for gap in find_gaps({}, source_count=0):
+            if gap.kind == "required":
+                self.assertTrue(
+                    gap.options or gap.note, f"{gap.field} blocks with no way forward"
+                )
+
+    def test_blank_strings_count_as_missing(self):
+        gaps = find_gaps(
+            {"subject": "   ", "academicClass": "", "difficulty": "\t"},
+            source_count=1,
+        )
+        fields = {g.field for g in gaps}
+        self.assertIn("subject", fields)
+        self.assertIn("academicClass", fields)
+        self.assertIn("difficulty", fields)
+
+    def test_apply_assumed_fills_only_the_assumed_ones(self):
+        base = {"subject": "Science", "academicClass": "10"}
+        gaps = find_gaps(base, source_count=1)
+        resolved = apply_assumed(base, gaps)
+        self.assertEqual(resolved["difficulty"], "medium")
+        self.assertEqual(resolved["numberOfSets"], "1")
+        self.assertNotIn("sources", resolved, "a required gap is not invented")
+
+    def test_apply_assumed_never_overwrites_a_stated_value(self):
+        base = {"subject": "Science", "academicClass": "10", "difficulty": "hard"}
+        resolved = apply_assumed(base, find_gaps(base, source_count=1))
+        self.assertEqual(resolved["difficulty"], "hard")
+
+    def test_apply_assumed_does_not_mutate_its_input(self):
+        base = {"subject": "Science", "academicClass": "10"}
+        apply_assumed(base, find_gaps(base, source_count=1))
+        self.assertNotIn("difficulty", base)
+
+
+class InferSettingsTests(TestCase):
+    def test_a_full_sentence_yields_every_stated_setting(self):
+        found = infer_settings(
+            "Make a class 10 Science weekly test, 20 marks, easy, 2 sets"
+        )
+        self.assertEqual(found["academicClass"], "10")
+        self.assertEqual(found["subject"], "Science")
+        self.assertEqual(found["marks"], "20")
+        self.assertEqual(found["difficulty"], "easy")
+        self.assertEqual(found["numberOfSets"], "2")
+
+    def test_per_question_marks_are_not_read_as_the_paper_total(self):
+        # "5 short answers of 2 marks each" must not set the paper to 2 marks.
+        self.assertNotIn("marks", infer_settings("5 short answers of 2 marks each"))
+        self.assertEqual(infer_settings("total 40 marks")["marks"], "40")
+
+    def test_maths_and_sst_shorthand_resolve(self):
+        self.assertEqual(infer_settings("class 9 maths test")["subject"], "Mathematics")
+        self.assertEqual(infer_settings("sst revision")["subject"], "Social Science")
+
+    def test_social_science_is_not_read_as_science(self):
+        self.assertEqual(
+            infer_settings("class 8 social science test")["subject"], "Social Science"
+        )
+
+    def test_ict_resolves_by_acronym_or_name(self):
+        self.assertEqual(infer_settings("class 7 ICT unit test")["subject"], "ICT")
+        self.assertEqual(
+            infer_settings("information and communication technology, class 6")["subject"],
+            "ICT",
+        )
+        self.assertEqual(infer_settings("class 9 information technology")["subject"], "ICT")
+
+    def test_an_out_of_range_class_is_not_claimed(self):
+        self.assertNotIn("academicClass", infer_settings("class 12 physics"))
+
+    def test_word_numbers_for_sets(self):
+        self.assertEqual(infer_settings("three sets please")["numberOfSets"], "3")
+
+    def test_nothing_is_invented_from_empty_or_unrelated_text(self):
+        self.assertEqual(infer_settings(""), {})
+        self.assertEqual(infer_settings("   "), {})
+        self.assertEqual(infer_settings("hello there"), {})
+
+    def test_inference_and_gaps_agree(self):
+        # What was inferred must not then be asked for — that is the bug this
+        # whole flow exists to avoid.
+        text = "class 10 science test, 20 marks, hard, 1 set"
+        gaps = find_gaps(infer_settings(text), source_count=1)
+        self.assertEqual(
+            [g.field for g in gaps], [], f"re-asked for something stated: {gaps}"
+        )
+
+
+class DetectedSettingsTests(TestCase):
+    """The brief's own words about class, subject, marks and sets.
+
+    These are the fields that decide which generator runs and how many papers
+    come out, so a wrong value here is a wrong paper — not a badly shaped one.
+    The bar is therefore "claim nothing that was not said", and most of these
+    tests are about what is NOT claimed.
+    """
+
+    def test_a_full_brief_is_read_back_in_the_clients_casing(self):
+        detected = _detected_from_raw(
+            {
+                "subject": "Mathematics",
+                "academicClass": "9",
+                "totalMarks": 80,
+                "numberOfSets": 2,
+                "difficulty": "hard",
+            }
+        )
+        self.assertEqual(
+            detected.to_dict(),
+            {
+                "subject": "Mathematics",
+                "academicClass": "9",
+                "totalMarks": 80,
+                "numberOfSets": "2",
+                "difficulty": "hard",
+            },
+        )
+
+    def test_an_unstated_field_is_absent_not_blank(self):
+        # Absent means "leave the teacher's setting alone". A null or an empty
+        # string would read as "the brief said blank" and wipe it.
+        detected = _detected_from_raw(
+            {
+                "subject": None,
+                "academicClass": None,
+                "totalMarks": None,
+                "numberOfSets": None,
+                "difficulty": None,
+            }
+        )
+        self.assertEqual(detected.to_dict(), {})
+        self.assertTrue(detected.is_empty())
+
+    def test_a_subject_outside_the_vocabulary_is_dropped(self):
+        # It would render as a blank <select> on the rail, which is worse than
+        # leaving the teacher's own subject standing.
+        self.assertEqual(_detected_from_raw({"subject": "Sanskrit"}).subject, "")
+
+    def test_subject_matching_ignores_casing(self):
+        self.assertEqual(
+            _detected_from_raw({"subject": "social science"}).subject,
+            "Social Science",
+        )
+
+    def test_a_class_is_pulled_out_of_ordinal_phrasing(self):
+        self.assertEqual(_detected_from_raw({"academicClass": "9th"}).academic_class, "9")
+
+    def test_an_out_of_range_class_is_not_claimed(self):
+        self.assertEqual(_detected_from_raw({"academicClass": "47"}).academic_class, "")
+
+    def test_sets_are_capped_at_what_the_generator_offers(self):
+        self.assertIsNone(_detected_from_raw({"numberOfSets": 9}).number_of_sets)
+        self.assertEqual(_detected_from_raw({"numberOfSets": 3}).number_of_sets, 3)
+
+    def test_an_invented_difficulty_is_dropped(self):
+        self.assertEqual(_detected_from_raw({"difficulty": "brutal"}).difficulty, "")
+
+    def test_junk_yields_nothing_rather_than_raising(self):
+        self.assertTrue(_detected_from_raw(None).is_empty())
+        self.assertTrue(_detected_from_raw("nonsense").is_empty())
+        self.assertTrue(_detected_from_raw({"totalMarks": "eighty"}).is_empty())
+
+
+class DetectedFromProseTests(TestCase):
+    """The offline path — same fields, no model call."""
+
+    def test_the_dock_placeholder_reads_end_to_end(self):
+        # Literally the example the Studio dock shows as its placeholder. If
+        # this stops working, the interface is advertising an input it drops.
+        detected = detected_from_prose("Class 10 Science mid-term, 80 marks, one set")
+        self.assertEqual(detected.academic_class, "10")
+        self.assertEqual(detected.subject, "Science")
+        self.assertEqual(detected.total_marks, 80)
+        self.assertEqual(detected.number_of_sets, 1)
+
+    def test_the_dock_example_chip_reads_as_maths_not_science(self):
+        # "Class 9 Maths" resolving to Class 10 Science was the original bug.
+        detected = detected_from_prose("Class 9 Maths, mostly application questions")
+        self.assertEqual(detected.academic_class, "9")
+        self.assertEqual(detected.subject, "Mathematics")
+
+    def test_per_question_marks_are_not_read_as_the_paper_total(self):
+        self.assertIsNone(detected_from_prose("six questions of 5 marks each").total_marks)
+
+    def test_nothing_is_claimed_from_an_empty_brief(self):
+        self.assertTrue(detected_from_prose("").is_empty())
+
+
+class DesignDetectionWiringTests(TestCase):
+    def test_a_design_carries_its_detection_into_the_dict(self):
+        payload = design(DesignSection(title="Questions", groups=[group()]))
+        payload.detected = DetectedSettings(subject="Hindi", academic_class="7")
+        self.assertEqual(
+            payload.to_dict()["detected"],
+            {"subject": "Hindi", "academicClass": "7"},
+        )
+
+    def test_detection_survives_the_raw_read(self):
+        raw = {
+            "title": "Unit Test",
+            "duration": None,
+            "generalInstructions": None,
+            "detected": {"subject": "English", "academicClass": "6"},
+            "sections": [
+                {
+                    "title": "Questions",
+                    "instruction": None,
+                    "groups": [
+                        {
+                            "type": "MCQ",
+                            "marks": 1,
+                            "count": 4,
+                            "topic": None,
+                            "choice": None,
+                        }
+                    ],
+                }
+            ],
+        }
+        parsed = _design_from_raw(raw)
+        self.assertEqual(parsed.detected.subject, "English")
+        self.assertEqual(parsed.detected.academic_class, "6")
+
+    def test_a_response_with_no_detection_block_is_not_a_failure(self):
+        # Older/degraded responses simply say nothing about identity.
+        parsed = _design_from_raw(
+            {
+                "sections": [
+                    {
+                        "title": "Questions",
+                        "groups": [{"type": "MCQ", "marks": 1, "count": 2}],
+                    }
+                ]
+            }
+        )
+        self.assertTrue(parsed.detected.is_empty())
+
+
+class HeaderLineTests(TestCase):
+    def test_the_question_count_leads_the_rubric(self):
+        d = validate_design(design(DesignSection("A", [group(count=5)])))
+        lines = header_lines(d, {})
+        self.assertIn("5 questions", lines[0])
+
+    def test_a_single_question_is_not_pluralised(self):
+        d = validate_design(design(DesignSection("A", [group(count=1)])))
+        self.assertIn("1 question.", header_lines(d, {})[0])
+
+    def test_the_designs_own_instructions_follow(self):
+        d = PaperDesign(
+            sections=[DesignSection("A", [group(count=2)])],
+            general_instructions=["Draw diagrams where asked."],
+        )
+        self.assertIn("Draw diagrams where asked.", header_lines(d, {}))
+
+    def test_the_teachers_own_words_are_carried_through_once(self):
+        d = PaperDesign(
+            sections=[DesignSection("A", [group(count=2)])],
+            general_instructions=["Use a pencil."],
+        )
+        lines = header_lines(d, {"instructions": "Use a pencil."})
+        self.assertEqual(lines.count("Use a pencil."), 1)
+
+
+class FallbackTests(TestCase):
+    def test_the_offline_fallback_still_produces_a_usable_design(self):
+        from services.templates.design import _fallback_design
+
+        d = _fallback_design("Section A: 5 MCQs, Section B: 3 short answers", 0, None)
+        self.assertTrue(d.degraded)
+        self.assertTrue(d.corrections, "a degraded design must say so")
+        self.assertEqual(d.total_questions, 8)
+        self.assertEqual([s.title for s in d.sections], ["Section A", "Section B"])
+
+    def test_the_fallback_output_survives_validation(self):
+        from services.templates.design import _fallback_design
+
+        d = validate_design(_fallback_design("10 short answers of 2 marks", 0, None))
+        self.assertGreater(d.total_questions, 0)
+        self.assertTrue(d.degraded)
+
+
+class BloomTests(TestCase):
+    def test_no_part_of_a_design_carries_a_bloom_target(self):
+        # General Instructions Mode follows the teacher's template, not the
+        # board's cognitive distribution. Pool questions still get a `blooms`
+        # tag from Model 1; nothing here targets or selects on one.
+        d = validate_design(design(DesignSection("A", [group()])))
+        serialized = d.to_dict()
+        self.assertNotIn("bloom", str(serialized).lower())
+        for spec in design_to_slot_specs(d):
+            self.assertNotIn("bloom", str(spec).lower())
+
+
+class DiagramTypeTests(TestCase):
+    """"10 image based questions" must produce ten DIAGRAM questions.
+
+    The failure this pins: DIAGRAM was missing from `QUESTION_TYPES`, which is
+    the entire menu the designer is shown. A teacher who asked for image-based
+    questions got CASE_STUDY slots — the nearest thing on offer.
+
+    DIAGRAM no longer causes any figure to be drawn (the image stage was
+    removed from the pipeline); it now means the student draws or labels, which
+    is what it means on a printed CBSE paper. The type still has to survive the
+    designer intact, which is what these tests check.
+    """
+
+    def test_the_phrases_teachers_actually_type_resolve_to_diagram(self):
+        for phrase in (
+            "image based",
+            "images based",
+            "image-based",
+            "picture based",
+            "diagram based",
+            "figure based",
+            "map based",
+            "DIAGRAM",
+            "diagram",
+            "figure",
+            "picture",
+            "image",
+            "map",
+        ):
+            self.assertEqual(
+                normalize_question_type(phrase), "DIAGRAM", f"{phrase!r}"
+            )
+
+    def test_a_figure_ask_is_not_absorbed_by_case_study(self):
+        # The exact regression: CASE_STUDY was the closest available type, so
+        # every requested figure question became a passage question.
+        for phrase in ("image based", "picture based", "diagram based"):
+            self.assertNotEqual(normalize_question_type(phrase), "CASE_STUDY", phrase)
+
+    def test_case_study_phrasings_still_resolve_to_case_study(self):
+        # Adding DIAGRAM must not steal the passage types — "source based" and
+        # "case based" are genuinely CASE_STUDY.
+        for phrase in ("case study", "case based", "source based", "passage", "cbq"):
+            self.assertEqual(
+                normalize_question_type(phrase), "CASE_STUDY", f"{phrase!r}"
+            )
+
+    def test_diagram_survives_the_validator_with_a_default_mark(self):
+        d = validate_design(
+            design(DesignSection("A", [group(question_type="DIAGRAM", marks=0, count=10)]))
+        )
+        self.assertEqual(d.sections[0].groups[0].question_type, "DIAGRAM")
+        self.assertEqual(d.sections[0].groups[0].marks, 2, "type default applied")
+        self.assertEqual(d.total_questions, 10)
+
+    def test_diagram_slots_reach_the_pipeline_as_diagram(self):
+        # The type must survive `design_to_slot_specs` verbatim — Model 1's
+        # recipe is derived from these slots in General Instructions Mode, so a
+        # type that mutates here changes what gets written.
+        specs = design_to_slot_specs(
+            validate_design(
+                design(
+                    DesignSection(
+                        "Images Based Questions",
+                        [group(question_type="DIAGRAM", marks=1, count=10)],
+                    )
+                )
+            )
+        )
+        self.assertEqual(len(specs), 1)
+        self.assertEqual(specs[0]["type"], "DIAGRAM")
+        self.assertEqual(specs[0]["count"], 10)
+
+    def test_the_designer_is_offered_diagram_in_its_schema(self):
+        # The model can only choose from the list it is shown. This is the
+        # thing that was actually missing.
+        from services.templates.design import _DESIGN_SCHEMA
+
+        description = _DESIGN_SCHEMA["properties"]["sections"]["items"][
+            "properties"
+        ]["groups"]["items"]["properties"]["type"]["description"]
+        self.assertIn("DIAGRAM", description)
+
+    def test_a_full_image_paper_reaches_the_pipeline_intact(self):
+        # End to end on the reported instruction: ten one-mark figure
+        # questions, still ten DIAGRAM slots by the time the pipeline sees it.
+        d = validate_design(
+            design(
+                DesignSection(
+                    "Images Based Questions",
+                    [group(question_type=normalize_question_type("images based"),
+                           marks=1, count=10)],
+                )
+            )
+        )
+
+        class _Slot:
+            def __init__(self, question_type):
+                self.question_type = question_type
+
+        slots = [
+            _Slot(spec["type"])
+            for spec in design_to_slot_specs(d)
+            for _ in range(spec["count"])
+        ]
+        self.assertEqual(len(slots), 10)
+        self.assertEqual(
+            sum(1 for s in slots if s.question_type == "DIAGRAM"),
+            10,
+        )

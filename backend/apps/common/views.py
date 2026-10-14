@@ -5,7 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 
-from services.media_urls import fresh_signed_media_url, is_remote_storage
+from services.storage.media_urls import fresh_signed_media_url, is_remote_storage
 
 
 class HealthCheckView(APIView):

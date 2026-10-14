@@ -14,7 +14,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.chat.models import ChatMessage, Conversation
-from services.chat_service import (
+from services.chat import (
     Extraction,
     build_message_history,
     can_generate,
@@ -159,7 +159,7 @@ class FollowUpTests(TestCase):
 class ExtractionFailureTests(TestCase):
     def test_an_upstream_failure_keeps_the_previous_spec(self):
         previous = {"board": "CBSE", "marks": "80"}
-        with patch("services.chat_service.get_openai_client", side_effect=RuntimeError("down")):
+        with patch("services.chat.get_openai_client", side_effect=RuntimeError("down")):
             self.assertEqual(extract_spec([], previous=previous).spec, previous)
 
     def test_unparseable_json_keeps_the_previous_spec(self):
@@ -182,7 +182,7 @@ class ExtractionFailureTests(TestCase):
                     def create(**_kwargs):
                         return _Completion()
 
-        with patch("services.chat_service.get_openai_client", return_value=_Client()):
+        with patch("services.chat.get_openai_client", return_value=_Client()):
             self.assertEqual(extract_spec([], previous=previous).spec, previous)
 
 
@@ -248,7 +248,7 @@ def _no_keepalive(stream):
     while the generator is blocked. That is exactly right in production and
     unusable here: the tests run on an in-memory SQLite database, and the
     generator's writes from a second thread hit `database table is locked`.
-    The wrapper has its own suite in services/pool/test_keepalive.py; these
+    The wrapper has its own suite in services/generation/pool/test_keepalive.py; these
     tests are about what the view puts on the wire.
     """
     return stream

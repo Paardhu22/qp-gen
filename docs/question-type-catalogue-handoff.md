@@ -23,7 +23,7 @@
 | 3 | `1f0f41d` | The exact type carried end to end: pool, slots, wire, bank, editor. HOTS and COMPETENCY become attributes. |
 | 4 | `d3bd8f4` | Model 1 briefs for non-default types, option rules, the ±12 type preference, original-lane routing |
 | 5 | `c59c5ed` | Structured sub-parts, choice pools, table stimuli; the DOCX export prints whole questions |
-| 6 | `935a791` | Chart stimuli drawn by `services/figures` |
+| 6 | `935a791` | Chart stimuli drawn by `services/generation/figures` |
 | 7 | `579b140`, `fc2a83d` | Menu by class (backend); searchable picker, slot attributes menu, swap dialog, class-fit note (frontend) |
 | 8 | `579b140`, `fc2a83d`, `9cf3510` | Class starter templates, class-banded Bloom/difficulty targets, HOTS/competency preference |
 | 9 | the commit adding this file | Designer, General Instructions parser and answer keys read the catalogue; package README |
@@ -55,7 +55,7 @@
 
 - **GRAPH_PLOT and GRAPHICAL_SOLUTION print no figure.** The chart renderer cannot draw an empty coordinate grid, so their stimulus is a data table, or nothing.
 - **`presetFallbacks` is not shown in the UI.** It counts slots filled with a same-shape type because the pool lacked the exact one. It is sent on the `done` event, but nothing displays it yet.
-- **`generation_router._parse_instructions_for_slots` still maps onto the legacy `q_instructions` enum.** Retiring `q_instructions` was out of scope.
+- **`generation_router._parse_instructions_for_slots` still maps onto the legacy `services.generation.blueprint` enum.** Retiring `services.generation.blueprint` was out of scope.
 - **The designer's schema now lists the catalogue types by name.** That adds about 1k tokens to each design call.
 
 ---
@@ -89,7 +89,7 @@ These need local Postgres on :5433, the backend and the frontend, and they spend
 |---|---|
 | Catalogue and lookups | `backend/services/question_types/` |
 | Builder menu, by subject and class | `backend/services/templates.py::question_types_for` |
-| Class starters | `backend/services/starter_templates.py`, listed by `services/template_catalog.py` |
+| Class starters | `backend/services/starter_templates.py`, listed by `services/templates/catalog.py` |
 | Model 1 briefs and structure contract | `backend/services/pool/model1.py` |
 | Model 2 type/class/attribute scoring | `backend/services/pool/model2.py::_score_question` |
 | Structured questions | `backend/services/pool/structure.py` |

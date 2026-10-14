@@ -8,7 +8,7 @@ accumulate forever.
 
 from django.core.management.base import BaseCommand
 
-from services.draft_service import purge_expired_drafts, retention_days
+from services.papers.drafts import purge_expired_drafts, retention_days
 
 
 class Command(BaseCommand):

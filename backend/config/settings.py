@@ -39,7 +39,6 @@ INSTALLED_APPS = [
     "apps.organizations",
     "apps.projects",
     "apps.common",
-    "apps.question_generation",
     "apps.storage",
     "storages",
 ]
@@ -169,13 +168,13 @@ PDF_IMAGE_MIN_DIMENSION = _int_env("PDF_IMAGE_MIN_DIMENSION", 96, minimum=0)
 # Off by default because nothing in the live pipeline reads them any more.
 # Model 1 is handed the chapter as Markdown and its rule 7 forbids any
 # question that depends on a printed figure; pictures are drawn on demand
-# from the editor (services/question_image.py). What remains is the legacy
+# from the editor (services/generation/question_image.py). What remains is the legacy
 # retrieval path (services/retrieval_service.retrieve_relevant_chunks with
 # require_image=True), so turn this back on if figure-grounded retrieval
 # starts mattering again. Chunks ingested while it was on are untouched.
 INGEST_EXTRACT_FIGURES = _bool_env("INGEST_EXTRACT_FIGURES", False)
 
-# ─── Scanned-PDF OCR (services/ocr_service.py) ─────────────────────────────
+# ─── Scanned-PDF OCR (services/sources/ocr.py) ─────────────────────────────
 # Phone-scanned chapters have an empty text layer. Ingestion used to accept
 # them anyway and build a chapter out of nothing but a figure inventory, so
 # the generator wrote papers asking which figure sat on which page. OCR runs
@@ -193,7 +192,7 @@ PDF_OCR_MAX_PAGES = _int_env("PDF_OCR_MAX_PAGES", 60, minimum=1)
 # 512px, so rendering past legibility only buys tokens.
 PDF_OCR_MAX_PIXELS = _int_env("PDF_OCR_MAX_PIXELS", 1800, minimum=512)
 # Worker threads. Actual in-flight concurrency is still bounded by the global
-# vision semaphore (PDF_IMAGE_CAPTION_CONCURRENCY) in services.openai_service.
+# vision semaphore (PDF_IMAGE_CAPTION_CONCURRENCY) in services.llm.openai_client.
 PDF_OCR_CONCURRENCY = _int_env("PDF_OCR_CONCURRENCY", 4, minimum=1)
 
 # Chunks per embeddings request. Each batch is one OpenAI round trip inside
@@ -206,8 +205,8 @@ INGEST_EMBED_BATCH_SIZE = _int_env(
 )
 
 # Compute retrieval embeddings during ingestion at all. Embeddings are read
-# only by services/retrieval_service.py (answer-script generation) — the
-# pool pipeline that actually writes papers reads chunk *text* via services/chapter_markdown.py
+# only by services/sources/retrieval.py (answer-script generation) — the
+# pool pipeline that actually writes papers reads chunk *text* via services/sources/chapter_markdown.py
 # and never touches a vector. Setting this false makes ingestion purely
 # local work at the cost of degrading answer-script context for anything
 # ingested while it is off.
@@ -339,7 +338,7 @@ if not OPENAI_API_KEY:
 #   REVIEW_MODEL    — Model 2 (paper assembly review)
 #   ANSWER_MODEL    — answer-key + answer-script generation
 #   CHAT_MODEL      — the dashboard assistant (conversation only, never
-#                     generates questions; see services/chat_service.py)
+#                     generates questions; see services/chat.py)
 #   OPENAI_EMBEDDING_MODEL — retrieval embeddings (text-embedding-3-small)
 #   OPENAI_MODEL    — legacy/blueprint fallback ONLY; nothing above inherits it.
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
@@ -368,7 +367,7 @@ OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embeddin
 # OCR_MODEL. Ingestion is still GPT-free for text-bearing PDFs; the one
 # exception is a scanned page, which cannot be read any other way.
 OPENAI_VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4.1-mini")
-# Page OCR (services/ocr_service.py). Falls back to OPENAI_VISION_MODEL.
+# Page OCR (services/sources/ocr.py). Falls back to OPENAI_VISION_MODEL.
 OCR_MODEL = os.environ.get("OCR_MODEL", "").strip() or None
 
 # ─── Question Pool architecture ────────────────────────────────────────────
@@ -379,7 +378,7 @@ REVIEW_MODEL = os.environ.get("REVIEW_MODEL", "gpt-4.1-mini")
 ANSWER_MODEL = os.environ.get("ANSWER_MODEL", "gpt-4.1-mini")
 
 # Reads a question and decides what figure it wants — and, for a chart, with
-# what numbers (services/figures/extract.py). Its own setting for the same
+# what numbers (services/generation/figures/extract.py). Its own setting for the same
 # reason as every other stage: this one runs on EVERY "add a picture" click,
 # so a deployment that pointed it at a low-TPM model would rate-limit an
 # interactive action rather than a background batch.
@@ -394,7 +393,7 @@ FIGURE_SPEC_MODEL = os.environ.get("FIGURE_SPEC_MODEL", "gpt-4.1-mini")
 #     tokens) is split into semantic sections before generation. Keep it well
 #     under the smallest model's TPM so a single request always fits.
 #   POOL_MAX_CONCURRENCY — process-wide cap on concurrent Model 1 API requests
-#     (a semaphore in services.pool.model1). concurrency × threshold must stay
+#     (a semaphore in services.generation.pool.model1). concurrency × threshold must stay
 #     under TPM.
 #   POOL_CHAPTER_CONCURRENCY — how many chapters generate in parallel.
 #   POOL_MIN_QUESTIONS_PER_CHAPTER — floor so a chapter's slice of the pool is
@@ -410,7 +409,7 @@ POOL_MIN_QUESTIONS_PER_CHAPTER = _int_env(
     "POOL_MIN_QUESTIONS_PER_CHAPTER", 12, minimum=1, maximum=200
 )
 
-# ─── Independent asset generators (services.assets) ────────────────────────
+# ─── Independent asset generators (services.generation.assets) ────────────────────────
 # Reading passages, grammar tasks and writing prompts are produced by
 # generators that never see uploaded content. Only slots whose blueprint names
 # one of them are affected — today that is CBSE Class 10 English Sections A
@@ -450,7 +449,7 @@ POOL_EXACT_MARGIN_PERCENT = _int_env(
     "POOL_EXACT_MARGIN_PERCENT", 15, minimum=0, maximum=100
 )
 
-# ─── On-demand question images (services/question_image.py) ────────────────
+# ─── On-demand question images (services/generation/question_image.py) ────────────────
 # Nothing is drawn during generation. A teacher picks a question in the editor,
 # chooses a style, and pays for exactly that one image — so there is no
 # per-pool cap to configure and no strategy to pick. The speculative image
@@ -472,7 +471,7 @@ OPENAI_IMAGE_QUALITY = os.environ.get("OPENAI_IMAGE_QUALITY", "high").strip().lo
 OPENAI_IMAGE_CONCURRENCY = _int_env("OPENAI_IMAGE_CONCURRENCY", 1, minimum=1, maximum=4)
 
 # ---------------------------------------------------------------------------
-# Spend reporting — tokens converted to rupees (see services/usage_pricing.py).
+# Spend reporting — tokens converted to rupees (see services/organizations/usage_pricing.py).
 #
 # A school administrator reads an invoice in rupees, not in tokens, so every
 # usage panel reports both. Both knobs exist because both numbers go stale on
@@ -525,7 +524,7 @@ DRAFT_RETENTION_DAYS = _int_env("DRAFT_RETENTION_DAYS", 10, minimum=1, maximum=3
 # that dropped can re-attach. Runs are a delivery mechanism, not a record — the
 # questions themselves are already in the bank and the paper in the library —
 # so this only needs to outlive "my phone slept during the generation", not
-# serve as history. See services/generation_runs.py.
+# serve as history. See services/generation/runs.py.
 GENERATION_RUN_RETENTION_DAYS = _int_env(
     "GENERATION_RUN_RETENTION_DAYS", 7, minimum=1, maximum=90
 )
@@ -631,7 +630,7 @@ if AWS_STORAGE_BUCKET_NAME:
 
 # ---------------------------------------------------------------------------
 # HSAT shared-textbook bucket — read-only source PDFs consumed by
-# services/s3_client.py (NOT django-storages). This bucket can live in a
+# services/storage/s3.py (NOT django-storages). This bucket can live in a
 # DIFFERENT region than the uploads bucket above:
 #   uploads  → AWS_STORAGE_BUCKET_NAME @ AWS_S3_REGION_NAME  (e.g. qp-gen-pdfs / ap-southeast-2)
 #   HSAT     → HSAT_S3_BUCKET          @ HSAT_S3_REGION       (e.g. storagetank-hsat / ap-south-1)

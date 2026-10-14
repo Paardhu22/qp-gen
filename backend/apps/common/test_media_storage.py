@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
-from services.media_urls import is_remote_storage
+from services.storage.media_urls import is_remote_storage
 
 S3 = {"BACKEND": "storages.backends.s3boto3.S3Boto3Storage"}
 LOCAL = {"BACKEND": "django.core.files.storage.FileSystemStorage"}

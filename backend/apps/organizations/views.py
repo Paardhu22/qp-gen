@@ -23,13 +23,13 @@ from apps.common.permissions import (
 from apps.generation.models import ApiUsage
 from apps.accounts.models import User
 from apps.projects.models import Paper, Project, Question
-from services.cognito_service import (
+from services.auth.cognito import (
     add_user_to_group,
     delete_cognito_user,
     ensure_cognito_group,
     remove_user_from_group,
 )
-from services.email_service import (
+from services.auth.emails import (
     send_account_deleted_email,
     send_join_request_email,
     send_membership_approved_email,
@@ -41,11 +41,11 @@ from services.email_service import (
     send_superadmin_changed_email,
     send_teacher_invite_email,
 )
-from services.organization_logo import (
+from services.organizations.logo import (
     remove_organization_logo,
     store_organization_logo,
 )
-from services.usage_pricing import inr_cost_by_group, inr_cost_of_usage
+from services.organizations.usage_pricing import inr_cost_by_group, inr_cost_of_usage
 
 from .domains import domain_of_email
 from .models import Membership, Organization, OrganizationInvite
@@ -745,7 +745,7 @@ class OrganizationUsageSummaryView(APIView):
         return Response({
             "total_tokens": total_tokens,
             "unassigned_tokens": unassigned_tokens,
-            # Rupees alongside tokens throughout — see services/usage_pricing.py
+            # Rupees alongside tokens throughout — see services/organizations/usage_pricing.py
             # for why this is an estimate and must be labelled as one.
             "total_cost_inr": inr_cost_of_usage(ApiUsage.objects.all()),
             "unassigned_cost_inr": inr_cost_of_usage(unassigned),

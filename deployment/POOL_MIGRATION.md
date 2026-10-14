@@ -191,7 +191,7 @@ the UI after a revert — they are ordinary `Question` rows.
   genuinely cannot support is now reported as unfilled (a `notice` event) rather
   than filled from general knowledge. The `content_scope_policy` payload field
   is accepted and ignored.
-- **Language-subject validation** (`services/language_validation.py`) ran
+- **Language-subject validation** (`services/generation/rules/language_validation.py`) ran
   per-slot in the old engine and has no equivalent hook in the pool path.
   Grammar/composition/passage questions are generated but not re-validated.
 - Both are tracked as follow-ups; neither blocks Science/Social Science/Maths,

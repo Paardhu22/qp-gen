@@ -1,6 +1,6 @@
 from django.db import migrations, models
 import django.db.models.deletion
-import utils.ids
+import apps.common.ids
 
 
 class Migration(migrations.Migration):
@@ -37,7 +37,7 @@ class Migration(migrations.Migration):
                 ('created_at', models.DateTimeField(auto_now_add=True, db_column='createdAt')),
                 ('updated_at', models.DateTimeField(auto_now=True, db_column='updatedAt')),
                 ('id', models.CharField(
-                    default=utils.ids.generate_id,
+                    default=apps.common.ids.generate_id,
                     editable=False,
                     max_length=32,
                     primary_key=True,

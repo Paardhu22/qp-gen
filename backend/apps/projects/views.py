@@ -19,7 +19,7 @@ from apps.projects.serializers import (
 
 from apps.projects.models import QuestionType
 
-from services.draft_service import (
+from services.papers.drafts import (
     DraftRejected,
     delete_scope,
     get_scope,
@@ -27,7 +27,7 @@ from services.draft_service import (
     retention_days as draft_retention_days,
     upsert_draft,
 )
-from services.project_service import (
+from services.papers.projects import (
     get_paper_for_user,
     list_deleted_papers_for_user,
     list_papers_for_user,

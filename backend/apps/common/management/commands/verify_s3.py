@@ -24,8 +24,8 @@ from io import BytesIO
 from botocore.exceptions import ClientError, NoCredentialsError
 from django.core.management.base import BaseCommand
 
-from services import hsat_catalog
-from services.s3_client import S3NotConfigured, get_bucket, get_client, is_configured
+from services.sources.hsat import catalog as hsat_catalog
+from services.storage.s3 import S3NotConfigured, get_bucket, get_client, is_configured
 
 
 class Command(BaseCommand):

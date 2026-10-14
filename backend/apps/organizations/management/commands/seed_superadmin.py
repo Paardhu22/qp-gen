@@ -3,7 +3,7 @@ import os
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.accounts.models import User
-from services.cognito_service import (
+from services.auth.cognito import (
     add_user_to_group,
     create_cognito_user,
     ensure_cognito_group,

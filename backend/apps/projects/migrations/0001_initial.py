@@ -2,7 +2,7 @@
 
 import django.contrib.postgres.fields
 import django.db.models.deletion
-import utils.ids
+import apps.common.ids
 from django.db import migrations, models
 
 
@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('created_at', models.DateTimeField(auto_now_add=True, db_column='createdAt')),
                 ('updated_at', models.DateTimeField(auto_now=True, db_column='updatedAt')),
-                ('id', models.CharField(default=utils.ids.generate_id, editable=False, max_length=32, primary_key=True, serialize=False)),
+                ('id', models.CharField(default=apps.common.ids.generate_id, editable=False, max_length=32, primary_key=True, serialize=False)),
                 ('name', models.CharField(max_length=255)),
                 ('description', models.TextField(blank=True, null=True)),
                 ('user', models.ForeignKey(db_column='userId', on_delete=django.db.models.deletion.CASCADE, related_name='projects', to='accounts.user')),
@@ -34,7 +34,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('created_at', models.DateTimeField(auto_now_add=True, db_column='createdAt')),
                 ('updated_at', models.DateTimeField(auto_now=True, db_column='updatedAt')),
-                ('id', models.CharField(default=utils.ids.generate_id, editable=False, max_length=32, primary_key=True, serialize=False)),
+                ('id', models.CharField(default=apps.common.ids.generate_id, editable=False, max_length=32, primary_key=True, serialize=False)),
                 ('title', models.CharField(max_length=255)),
                 ('content', models.TextField()),
                 ('user', models.ForeignKey(db_column='userId', on_delete=django.db.models.deletion.CASCADE, related_name='papers', to='accounts.user')),
@@ -49,7 +49,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('created_at', models.DateTimeField(auto_now_add=True, db_column='createdAt')),
                 ('updated_at', models.DateTimeField(auto_now=True, db_column='updatedAt')),
-                ('id', models.CharField(default=utils.ids.generate_id, editable=False, max_length=32, primary_key=True, serialize=False)),
+                ('id', models.CharField(default=apps.common.ids.generate_id, editable=False, max_length=32, primary_key=True, serialize=False)),
                 ('type', models.CharField(max_length=50)),
                 ('content', models.TextField()),
                 ('answer', models.TextField(blank=True, null=True)),

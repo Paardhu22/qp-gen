@@ -16,7 +16,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.generation.models import PaperTemplate, TemplateFolder
-from services.paper_design import DesignSection, PaperDesign, QuestionGroup
+from services.templates.design import DesignSection, PaperDesign, QuestionGroup
 
 
 def a_design(*, marks=2, count=10, title="Section A"):
@@ -748,7 +748,7 @@ class PaperTemplateForkTests(DesignApiTestCase):
     URL = "/api/generation/templates/fork"
 
     def _blueprint(self):
-        from services.templates import SlotSpec, TemplateBlueprint
+        from services.templates.spec import SlotSpec, TemplateBlueprint
 
         return TemplateBlueprint(
             slots=[
@@ -763,7 +763,7 @@ class PaperTemplateForkTests(DesignApiTestCase):
 
     def test_forking_a_builtin_writes_an_owned_pinned_row(self):
         with patch(
-            "services.template_catalog.resolve_builtin",
+            "services.templates.catalog.resolve_builtin",
             return_value=self._blueprint(),
         ):
             response = self.client.post(
@@ -781,7 +781,7 @@ class PaperTemplateForkTests(DesignApiTestCase):
         """The unique-name constraint is right for a deliberate save and wrong
         here: the teacher never typed this name."""
         with patch(
-            "services.template_catalog.resolve_builtin",
+            "services.templates.catalog.resolve_builtin",
             return_value=self._blueprint(),
         ):
             first = self.client.post(
@@ -801,7 +801,7 @@ class PaperTemplateForkTests(DesignApiTestCase):
     def test_forking_into_a_folder(self):
         folder = TemplateFolder.objects.create(user=self.user, name="Term 1")
         with patch(
-            "services.template_catalog.resolve_builtin",
+            "services.templates.catalog.resolve_builtin",
             return_value=self._blueprint(),
         ):
             response = self.client.post(
@@ -822,10 +822,10 @@ class PaperTemplateForkTests(DesignApiTestCase):
     def test_forking_describe_it_yourself_with_nothing_said_is_refused(self):
         """It resolves to no slots until the teacher describes something, and a
         row with neither slots nor prose cannot rebuild a paper."""
-        from services.templates import TemplateBlueprint
+        from services.templates.spec import TemplateBlueprint
 
         with patch(
-            "services.template_catalog.resolve_builtin",
+            "services.templates.catalog.resolve_builtin",
             return_value=TemplateBlueprint(slots=[]),
         ):
             response = self.client.post(

@@ -2,7 +2,7 @@ from django.db import models
 
 from apps.accounts.models import User
 from apps.common.models import TimeStampedModel
-from utils.ids import generate_id
+from apps.common.ids import generate_id
 
 
 class GenerationHistory(TimeStampedModel):
@@ -120,7 +120,7 @@ class PaperTemplate(TimeStampedModel):
     # copy rather than a translation — the same contract `Conversation.spec`
     # keeps with the dashboard assistant.
     settings = models.JSONField(default=dict, blank=True)
-    # The edited slot list, when there is one. See services/templates.py for
+    # The edited slot list, when there is one. See services/templates/spec.py for
     # why a template has two kinds:
     #
     #   empty    — instruction-driven. Re-resolved from `instructions` +

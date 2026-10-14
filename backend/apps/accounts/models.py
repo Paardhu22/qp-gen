@@ -1,7 +1,7 @@
 from django.db import models
 
 from apps.common.models import TimeStampedModel
-from utils.ids import generate_id
+from apps.common.ids import generate_id
 
 
 class User(TimeStampedModel):
@@ -214,7 +214,7 @@ class BrandAsset(TimeStampedModel):
     papers, and a single `logo` column would have forced a choice between them.
 
     Only the storage path is persisted. URLs are minted on read through
-    `services/media_urls.py`, which is a hard rule in this codebase: a stored
+    `services/storage/media_urls.py`, which is a hard rule in this codebase: a stored
     URL is either a hardcoded `/media/...` that breaks when storage moves, or a
     presigned S3 link that expires and leaves a broken image on a saved paper.
     """

@@ -24,7 +24,7 @@ from __future__ import annotations
 from django.core.management.base import BaseCommand
 
 from apps.projects.models import PaperSet
-from services.paper_content_service import (
+from services.papers.content import (
     dual_write_set_content,
     is_configured,
     set_content_s3_key,

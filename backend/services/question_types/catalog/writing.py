@@ -3,7 +3,7 @@
 All writing is original generation — never retrieved from a textbook and
 never reused from the bank, because a reused writing prompt is a leak. Formats
 the independent writing generator already writes (`WRITING_FORMAT_GLOSS` in
-`services/assets/writing.py`) carry a `route` to it.
+`services/generation/assets/writing.py`) carry a `route` to it.
 """
 
 from __future__ import annotations

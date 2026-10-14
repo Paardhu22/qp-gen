@@ -3,7 +3,7 @@ from django.utils.text import slugify
 
 from apps.accounts.models import User
 from apps.common.models import TimeStampedModel
-from utils.ids import generate_id
+from apps.common.ids import generate_id
 
 
 class Organization(TimeStampedModel):
@@ -43,7 +43,7 @@ class Organization(TimeStampedModel):
     #: `default_storage` path for the crest — never a URL. URLs are minted on
     #: read through services/media_urls, because a stored `/media/...` breaks
     #: when storage moves to S3 and a stored presigned link expires. See
-    #: services/organization_logo.py.
+    #: services/organizations/logo.py.
     logo_storage_path = models.CharField(max_length=500, blank=True, default="")
     #: Recorded at upload so a consumer can reserve the right box without
     #: waiting for the image to load.

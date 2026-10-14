@@ -4,7 +4,7 @@ Two halves that matter a great deal here:
 
 * the STUDENT draws — the paper prints only words, so these work today;
 * the PAPER prints a figure — blocked, except charts and grids, which the
-  deterministic renderer in `services.figures` can draw from data.
+  deterministic renderer in `services.generation.figures` can draw from data.
 """
 
 from __future__ import annotations

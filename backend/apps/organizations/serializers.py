@@ -2,8 +2,8 @@ from django.db.models import Sum
 from rest_framework import serializers
 
 from apps.generation.models import ApiUsage
-from services.organization_logo import normalize_gstin, organization_logo_url
-from services.usage_pricing import inr_cost_of_usage
+from services.organizations.logo import normalize_gstin, organization_logo_url
+from services.organizations.usage_pricing import inr_cost_of_usage
 
 from .domains import domain_list, normalize_domains
 from .models import Membership, Organization, OrganizationInvite
@@ -140,7 +140,7 @@ class OrganizationListSerializer(serializers.ModelSerializer):
         return result["total"] or 0
 
     def get_total_cost_inr(self, obj):
-        """Estimated rupee spend, all time. See services/usage_pricing.py.
+        """Estimated rupee spend, all time. See services/organizations/usage_pricing.py.
 
         An estimate, and the UI must say so: our token counts cannot see
         cached-input discounts or the separate image-token tiers.
@@ -236,7 +236,7 @@ class OrganizationDetailSerializer(OrganizationListSerializer):
         ).data
 
     def get_logo_url(self, obj):
-        # Minted per read, never stored — see services/organization_logo.py.
+        # Minted per read, never stored — see services/organizations/logo.py.
         return organization_logo_url(obj)
 
 

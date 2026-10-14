@@ -1,6 +1,6 @@
 from django.db import migrations, models
 import django.db.models.deletion
-import utils.ids
+import apps.common.ids
 
 
 class Migration(migrations.Migration):
@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
                     models.CharField(
                         primary_key=True,
                         max_length=32,
-                        default=utils.ids.generate_id,
+                        default=apps.common.ids.generate_id,
                         editable=False,
                         serialize=False,
                     ),

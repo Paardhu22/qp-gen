@@ -1,8 +1,8 @@
 from django.test import TestCase
 
 from apps.generation.serializers import QuestionGenerationSerializer
-from services import hsat_catalog
-from services.generation_router import (
+from services.sources.hsat import catalog as hsat_catalog
+from services.generation.planner import (
     build_blueprint_instructions,
     build_question_plan,
     build_slot_blueprint_instructions,
@@ -10,7 +10,7 @@ from services.generation_router import (
     normalize_subject,
     resolve_maths_basic,
 )
-from services.syllabus_scope import (
+from services.generation.rules.syllabus_scope import (
     chunk_source_is_excluded,
     excluded_source_substrings,
 )

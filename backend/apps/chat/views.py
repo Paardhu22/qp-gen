@@ -15,7 +15,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from services.chat_service import (
+from services.chat import (
     build_message_history,
     can_generate,
     collect_source_ids,
@@ -25,8 +25,8 @@ from services.chat_service import (
     stream_reply,
     suggest_title,
 )
-from services.pool.keepalive import keepalive
-from services.usage_limits import UsageLimitExceeded, check_monthly_token_limit
+from services.generation.pool.keepalive import keepalive
+from services.organizations.usage_limits import UsageLimitExceeded, check_monthly_token_limit
 
 from .models import ChatMessage, Conversation
 from .serializers import (
@@ -261,7 +261,7 @@ class ChatMessageStreamView(APIView):
         # The extraction call after the last token is a full round trip with
         # nothing on the wire behind it, and a slow first token does the same
         # at the front. Both are long enough for a proxy's idle read timeout;
-        # see services/pool/keepalive.py.
+        # see services/generation/pool/keepalive.py.
         response = StreamingHttpResponse(
             keepalive(event_stream()), content_type="text/event-stream"
         )

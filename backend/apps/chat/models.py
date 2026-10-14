@@ -1,6 +1,6 @@
 """Persistence for the dashboard assistant.
 
-The assistant is a plain conversational model (see `services/chat_service.py`)
+The assistant is a plain conversational model (see `services/chat.py`)
 and is deliberately NOT the paper generator. It talks to a teacher, asks the
 follow-up questions a half-specified request leaves open, and accumulates the
 answers into a paper spec. Producing the paper is still the pool pipeline's
@@ -14,7 +14,7 @@ from django.db import models
 
 from apps.accounts.models import User
 from apps.common.models import TimeStampedModel
-from utils.ids import generate_id
+from apps.common.ids import generate_id
 
 
 class Conversation(TimeStampedModel):

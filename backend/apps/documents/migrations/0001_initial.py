@@ -13,7 +13,7 @@
 
 import django.db.models.deletion
 import pgvector.django
-import utils.ids
+import apps.common.ids
 from django.db import migrations, models
 
 
@@ -120,7 +120,7 @@ class Migration(migrations.Migration):
                         (
                             "id",
                             models.CharField(
-                                default=utils.ids.generate_id,
+                                default=apps.common.ids.generate_id,
                                 editable=False,
                                 max_length=255,
                                 primary_key=True,
@@ -156,7 +156,7 @@ class Migration(migrations.Migration):
                         (
                             "id",
                             models.CharField(
-                                default=utils.ids.generate_id,
+                                default=apps.common.ids.generate_id,
                                 editable=False,
                                 max_length=255,
                                 primary_key=True,

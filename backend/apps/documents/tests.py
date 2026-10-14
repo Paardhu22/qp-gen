@@ -2,7 +2,7 @@
 
 Cluster B: PDF source upload was failing in production with
 ``NotNullViolation: null value in column "content_type"``. The fix:
-``services.document_service.process_pdf_upload`` now captures
+``services.sources.documents.process_pdf_upload`` now captures
 ``file.content_type`` (defaulting to ``"application/pdf"``) and passes it
 to ``PdfSource.objects.create``, and ``PdfSource`` carries a matching
 field with a safe default so the column is always populated even when
@@ -45,7 +45,7 @@ class PdfSourceContentTypeRegressionTests(TestCase):
         )
 
     #: Enough extracted text to read as a real page (see the gate in
-    #: services.document_service.extract_and_persist_chunks).
+    #: services.sources.documents.extract_and_persist_chunks).
     _PAGE_TEXT = "Trigonometric ratios of an acute angle in a right triangle. " * 6
 
     def _patch_pipeline(self):
@@ -53,12 +53,12 @@ class PdfSourceContentTypeRegressionTests(TestCase):
         the test exercises the wiring without external services."""
         patchers = [
             patch(
-                "services.document_service.extract_text_from_pdf",
+                "services.sources.documents.extract_text_from_pdf",
                 # A page's worth of prose, not "hello world": ingestion now
                 # OCRs pages whose text layer looks empty and rejects a
                 # document that still has none, so an unrealistically thin
                 # stub trips the scanned-PDF gate instead of the wiring this
-                # test is about. See services/ocr_service.py.
+                # test is about. See services/sources/ocr.py.
                 return_value={
                     "text": self._PAGE_TEXT,
                     "pages": [{"pageNumber": 1, "content": self._PAGE_TEXT}],
@@ -67,15 +67,15 @@ class PdfSourceContentTypeRegressionTests(TestCase):
                 },
             ),
             patch(
-                "services.document_service.process_semantic_pipeline",
+                "services.sources.documents.process_semantic_pipeline",
                 return_value=[],
             ),
             patch(
-                "services.document_service.chunk_text",
+                "services.sources.documents.chunk_text",
                 return_value=[type("C", (), {"content": "hello", "page": 1, "chunk_index": 0, "metadata": {}})()],
             ),
             patch(
-                "services.document_service.generate_embeddings",
+                "services.sources.documents.generate_embeddings",
                 return_value=[[0.0] * 1536],
             ),
         ]
@@ -85,7 +85,7 @@ class PdfSourceContentTypeRegressionTests(TestCase):
 
     def test_upload_with_explicit_content_type_persists_it(self) -> None:
         self._patch_pipeline()
-        from services.document_service import process_pdf_upload
+        from services.sources.documents import process_pdf_upload
 
         fake_file = _FakeUploadedFile(
             name="trignometry.pdf",
@@ -103,7 +103,7 @@ class PdfSourceContentTypeRegressionTests(TestCase):
         invocations do), the upload must still succeed — the NOT NULL
         constraint is satisfied by the application/pdf default."""
         self._patch_pipeline()
-        from services.document_service import process_pdf_upload
+        from services.sources.documents import process_pdf_upload
 
         fake_file = _FakeUploadedFile(
             name="surfaceareavol.pdf",
@@ -235,11 +235,11 @@ class HsatReingestTests(TestCase):
 
     def setUp(self) -> None:
         patchers = [
-            patch("services.hsat_catalog.get_book_keys", return_value=self.KEYS),
-            patch("services.hsat_service.is_configured", return_value=True),
-            patch("services.hsat_service.download_to_buffer", return_value=b"pdf"),
+            patch("services.sources.hsat.catalog.get_book_keys", return_value=self.KEYS),
+            patch("services.sources.hsat.ingest.is_configured", return_value=True),
+            patch("services.sources.hsat.ingest.download_to_buffer", return_value=b"pdf"),
             patch(
-                "services.hsat_service.extract_and_persist_chunks",
+                "services.sources.hsat.ingest.extract_and_persist_chunks",
                 side_effect=self._fake_extract,
             ),
         ]
@@ -251,7 +251,7 @@ class HsatReingestTests(TestCase):
 
     def _own_and_ingest(self, chapter_keys):
         """Reproduce what the async helper does before spawning its worker."""
-        from services.hsat_service import get_or_create_source, ingest_hsat_book
+        from services.sources.hsat.ingest import get_or_create_source, ingest_hsat_book
 
         source = get_or_create_source("10", "Science", "Science")
         if source.status != "processing":
@@ -293,7 +293,7 @@ class HsatReingestTests(TestCase):
     def test_async_helper_leaves_a_fully_ingested_book_ready(self) -> None:
         """A re-apply must not park a readable book in "processing" — that
         row is what blocks generation and shows "Preparing this book…"."""
-        from services.hsat_service import ingest_hsat_book_async
+        from services.sources.hsat.ingest import ingest_hsat_book_async
 
         self._own_and_ingest(self.KEYS)
         source = ingest_hsat_book_async(
@@ -326,11 +326,11 @@ class SubjectDetectionOnIngestTests(TestCase):
         )
 
     def test_confident_detection_is_stored(self) -> None:
-        from services.document_service import _detect_and_store_subject
+        from services.sources.documents import _detect_and_store_subject
 
         source = self._source()
         with patch(
-            "services.subject_detection_service.detect_subject_from_pdf_buffer",
+            "services.sources.subject_detection.detect_subject_from_pdf_buffer",
             return_value={"detected": True, "subject": "Physics", "confidence": 0.97},
         ):
             _detect_and_store_subject(b"%PDF-x", "application/pdf", source)
@@ -342,11 +342,11 @@ class SubjectDetectionOnIngestTests(TestCase):
     def test_low_confidence_stores_nothing(self) -> None:
         """`detected: False` must leave the columns null. A half-guess shown
         as a mismatch warning is worse than no warning at all."""
-        from services.document_service import _detect_and_store_subject
+        from services.sources.documents import _detect_and_store_subject
 
         source = self._source()
         with patch(
-            "services.subject_detection_service.detect_subject_from_pdf_buffer",
+            "services.sources.subject_detection.detect_subject_from_pdf_buffer",
             return_value={"detected": False, "subject": None, "confidence": 0.3},
         ):
             _detect_and_store_subject(b"%PDF-x", "application/pdf", source)
@@ -355,11 +355,11 @@ class SubjectDetectionOnIngestTests(TestCase):
         self.assertIsNone(source.detected_subject)
 
     def test_detector_failure_never_breaks_the_ingest(self) -> None:
-        from services.document_service import _detect_and_store_subject
+        from services.sources.documents import _detect_and_store_subject
 
         source = self._source()
         with patch(
-            "services.subject_detection_service.detect_subject_from_pdf_buffer",
+            "services.sources.subject_detection.detect_subject_from_pdf_buffer",
             side_effect=RuntimeError("openai down"),
         ):
             _detect_and_store_subject(b"%PDF-x", "application/pdf", source)
@@ -370,11 +370,11 @@ class SubjectDetectionOnIngestTests(TestCase):
     def test_non_pdf_uploads_are_not_classified(self) -> None:
         """The detector samples PDF pages; a DOCX has none to read, so it must
         not be sent to the model at all."""
-        from services.document_service import _detect_and_store_subject
+        from services.sources.documents import _detect_and_store_subject
 
         source = self._source()
         with patch(
-            "services.subject_detection_service.detect_subject_from_pdf_buffer"
+            "services.sources.subject_detection.detect_subject_from_pdf_buffer"
         ) as detect:
             _detect_and_store_subject(
                 b"PK\x03\x04",

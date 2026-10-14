@@ -2,7 +2,7 @@ import logging
 
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from services.document_service import process_pdf_upload, process_pdf_from_storage
+from services.sources.documents import process_pdf_upload, process_pdf_from_storage
 
 from apps.documents.serializers import DocumentUploadSerializer
 
@@ -177,7 +177,7 @@ class DetectSubjectView(APIView):
             "error": str | None
           }
         """
-        from services.subject_detection_service import detect_subject_from_pdf_buffer
+        from services.sources.subject_detection import detect_subject_from_pdf_buffer
         from apps.documents.models import PdfSource
 
         uploaded_file = request.FILES.get("file")
@@ -213,7 +213,7 @@ class AnalyzePdfView(APIView):
 
         Request: multipart upload with 'file' or JSON with 'pdfSourceId'.
         """
-        from services.pdf_analysis_service import analyze_pdf_buffer
+        from services.sources.pdf_analysis import analyze_pdf_buffer
         from apps.documents.models import PdfSource
 
         uploaded_file = request.FILES.get("file")
@@ -258,7 +258,7 @@ class ValidateMetadataView(APIView):
         Without `expectedSubject` this can only cross-check the uploads
         against each other; see `validate_pdf_metadata_list`.
         """
-        from services.pdf_validation_service import validate_pdf_metadata_list
+        from services.sources.pdf_validation import validate_pdf_metadata_list
 
         documents = request.data.get("documents") or []
         report = validate_pdf_metadata_list(

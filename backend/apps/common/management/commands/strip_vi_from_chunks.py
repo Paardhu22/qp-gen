@@ -20,7 +20,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import Q
 
 from apps.documents.models import DocumentChunk
-from services.content_filters import strip_vi_blocks
+from services.generation.rules.content_filters import strip_vi_blocks
 
 
 class Command(BaseCommand):

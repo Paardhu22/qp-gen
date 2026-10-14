@@ -10,7 +10,7 @@ The list endpoint purges lazily too, so this is for the accounts nobody opens.
 
 from django.core.management.base import BaseCommand
 
-from services.generation_runs import purge_expired_runs, retention_days
+from services.generation.runs import purge_expired_runs, retention_days
 
 
 class Command(BaseCommand):

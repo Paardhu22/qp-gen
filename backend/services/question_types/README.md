@@ -58,9 +58,9 @@ The package is Django-free, so the pool, the blueprint engine, migrations and te
 - **Assembly.**
   - Model 2 prefers the exact type (±12). When the pool lacks it, a slot is still filled from the same shape, and the pipeline reports how often that happened (`presetFallbacks`).
   - HOTS and competency slots prefer questions written for them.
-- **Structure.** Container types return a stimulus plus parts (`services/pool/structure.py`). Chart stimuli are drawn by `services/figures`.
+- **Structure.** Container types return a stimulus plus parts (`services/generation/pool/structure.py`). Chart stimuli are drawn by `services/generation/figures`.
 - **Picker.**
   - A type whose availability isn't `available` is listed but disabled, with its reason.
   - `classes` ranks a type for the paper's class, and drives the class-fit note on a slot.
-- **Prose.** The designer (`services/paper_design.py`) and the General Instructions parser (`services/pool/gim.py`) keep a type the teacher names instead of flattening it.
+- **Prose.** The designer (`services/templates/design.py`) and the General Instructions parser (`services/generation/pool/gim.py`) keep a type the teacher names instead of flattening it.
 - **Answer keys.** `answer_script_service._answer_format` picks the marking-scheme format a type needs.
