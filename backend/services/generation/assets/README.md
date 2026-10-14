@@ -34,7 +34,7 @@ Blueprint → choose generator → generate/retrieve assets → assemble paper
 | `services/generation/pool/model1.py::_build_request` | Every batch is prefixed with `# CHAPTER SOURCE MATERIAL`. There is no batch that does not see the textbook. |
 | `services/generation/pool/recipes.py` | Recipes are keyed on `(type, marks)` only. A `GRAMMAR 1m` quota and an `MCQ 1m` quota are produced identically, from the same chapter. |
 | `services/generation/pool/schema.py::slot_accepts` | Matches on type + marks only. A textbook-derived question is therefore a *legal* fill for a Reading slot. |
-| `services/generation/planner.py` | `QuestionGenerationSlot.generation_mode` (`PASSAGE`/`GRAMMAR`/`COMPOSITION`) already existed and is honoured by `_slot_instruction`… but only by the retired per-slot engine. The pool pipeline reads `question_type` and `marks` off a slot and discards the rest. |
+| `services/generation/planner/` | `QuestionGenerationSlot.generation_mode` (`PASSAGE`/`GRAMMAR`/`COMPOSITION`) already existed and is honoured by `_slot_instruction`… but only by the retired per-slot engine. The pool pipeline reads `question_type` and `marks` off a slot and discards the rest. |
 | `services/generation/pool/store.py`, `from_bank.py` | Bank rows are grouped and filtered by chapter, so a non-textbook question has no coherent home and no way to be selected for the slot it belongs to. |
 | `services/generation/pool/set_variants.py` | Parallel-replacement matching had no provenance term. |
 

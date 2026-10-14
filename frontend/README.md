@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontend
 
-## Getting Started
-
-First, run the development server:
+Next.js 16 (App Router) + React 19. Start at the [root README](../README.md)
+for the repo map and quickstart.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev          # http://localhost:3000
+npm run typecheck    # tsc --noEmit
+npm run lint
+npm test             # node self-checks in scripts/
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Environment (`.env`): `NEXT_PUBLIC_API_BASE_URL` (baked in at build time),
+`NEXT_PUBLIC_AWS_COGNITO_APP_CLIENT_ID` (must match the backend),
+`NEXT_PUBLIC_AWS_COGNITO_REGION`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Layout
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+app/          routes only — each page composes feature components
+features/     one folder per product area (below)
+components/
+  ui/           shared primitives (shadcn)
+  layout/       navbar, protected layout, providers, school switcher
+lib/
+  api/          every backend call, one module per resource:
+                http.ts (fetch + token refresh) · sse.ts · papers · generation ·
+                chat · sources · templates · figures · brand · organizations/users
+  *.ts          small shared helpers (utils, toasts, subject, scroll, site)
+styles/       editor + design-system CSS
+scripts/      node self-checks (test-*.mjs); `npm test` runs them all
+```
 
-## Learn More
+## Features
 
-To learn more about Next.js, take a look at the following resources:
+| Folder | Owns |
+|---|---|
+| `editor/` | The paper editor: TipTap editor, toolbar, outline, review tray, store. `extensions/` are TipTap nodes (page, pagination engine, header, math); `dialogs/` and `header/` group the rest |
+| `generation/` | Generating a paper: the dock, the run hook, SSE reading, paper-design panel; `blueprint/` is the Blueprint Builder |
+| `papers/` | Paper preview, ids, drafts (IndexedDB + server sync), save actions |
+| `templates/` | Template manager and picker grid |
+| `sources/` | HSAT picker, source readiness, PDF upload hooks |
+| `question-types/` | The type picker and the generated catalogue module (**generated — do not edit**) |
+| `export/` | The single export path to PDF and DOCX, plus S3 upload |
+| `auth/` | Login/register/reset forms, auth and Cognito clients |
+| `admin/` | Members, invites, domains, roster, usage analytics |
+| `dashboard/` | Assistant backdrop, follow-up card, press check |
+| `settings/` | Brand kit card |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+A feature may import another feature; shared code that several features need
+goes in `lib/` or `components/`. Don't add a new top-level folder for something
+that belongs to a feature.

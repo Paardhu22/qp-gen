@@ -71,7 +71,7 @@ New Django-free package **`backend/services/question_types/`**:
 - `apps/projects/question_types.py` maps
 - `templates.QUESTION_TYPE_CATALOG / _LEGACY_TYPE_MAP / GENERATOR_QUESTION_TYPES`
 - `pipeline._legacy_type_for`, `replace._legacy_type_for`
-- `generation_router._legacy_question_type / _type_label`
+- `planner.slots._legacy_question_type` / `_type_label`
 - `recipes._TOKENS_PER_QUESTION`
 - the `paper_design` vocabulary and aliases, and the `gim.type_map`
 - `answer_script_service._classify_question_type`
@@ -84,7 +84,7 @@ New Django-free package **`backend/services/question_types/`**:
 - **Builder JSON.** `questionType` holds the catalogue code, with optional `hots` and `competency`. `SlotSpec.from_dict` resolves legacy codes on read, and an unknown code still falls back safely.
 - **Wire.** `pipeline._question_to_wire` adds `typeCode`, `typeLabel` and `metadata.typeCode`; `type` is unchanged.
 - **Bank.** `to_model_kwargs` writes the exact code, and `from_model` reads it back, so the round trip is lossless. The attributes ride in `metadata`.
-- **Editor.** `questionBlock` gains a `typeCode` attribute (`data-type-code` in `extensions/nodes.tsx`), and `buildSlotMeta` carries it. Labels in `paper-breakdown.ts`, `paper-design-panel.tsx`, `generate-dock.tsx` and the papers page come from the generated `frontend/lib/question-types.generated.ts`.
+- **Editor.** `questionBlock` gains a `typeCode` attribute (`data-type-code` in `extensions/nodes.tsx`), and `buildSlotMeta` carries it. Labels in `paper-breakdown.ts`, `paper-design-panel.tsx`, `generate-dock.tsx` and the papers page come from the generated `frontend/features/question-types/question-types.generated.ts`.
 - **Swap.** The dialog sends the code, and `replace.build_slot` resolves it. `set_variants._matches` also requires the same `type_code` when both questions have one, and MCQ-shaped presets stay fixed across sets.
 
 ## 3. Database
@@ -150,13 +150,13 @@ New Django-free package **`backend/services/question_types/`**:
 
 ## 7. UI
 
-- **Picker.** New `frontend/components/question-type-picker.tsx`, a Base UI Combobox inside a Popover (both ship in `@base-ui/react` 1.4.1).
+- **Picker.** New `frontend/features/question-types/question-type-picker.tsx`, a Base UI Combobox inside a Popover (both ship in `@base-ui/react` 1.4.1).
   - Search runs across labels and aliases, with results grouped by family.
   - Each row shows label, default marks, class range and a one-line "tests".
   - Disabled rows show their reason, and presets in the current class sort first.
   - It replaces the native select in `blueprint/slot-editor.tsx` and the button grid in `editor/swap-question-dialog.tsx`.
 - **Slot row.** Adds HOTS and Competency toggles, plus a non-blocking class-fit chip, e.g. "Assertion–Reason is usually set from Class 8".
-- **API.** `QuestionTypeOption` in `lib/api-client.ts` gains `family`, `classes`, `availability`, `reason`, `tests`, `example`, `marksRange`; the old fields stay. `fetchQuestionTypeMenu(subject, generator, class)` and `QuestionTypeCatalogView` accept `class`.
+- **API.** `QuestionTypeOption` in `lib/api/api-client.ts` gains `family`, `classes`, `availability`, `reason`, `tests`, `example`, `marksRange`; the old fields stay. `fetchQuestionTypeMenu(subject, generator, class)` and `QuestionTypeCatalogView` accept `class`.
 
 ## 8. Classes 1–9 — suggested: class starter templates + class-fit guidance
 
@@ -173,10 +173,10 @@ New Django-free package **`backend/services/question_types/`**:
 
 ## 9. Exports, answer keys, prose parsers
 
-- **DOCX.** `lib/export-docx.ts::buildQuestionBlock` exports every paragraph and table in a question block, not just the first `<p>`.
+- **DOCX.** `features/export/export-docx.ts::buildQuestionBlock` exports every paragraph and table in a question block, not just the first `<p>`.
 - **Options.** In `question-nodes.ts`, `OPTION_LINE_RE` and `OPTION_SEQUENCES` accept a 5th option (E).
 - **Answer keys.** `answer_script_service` classifies types via the catalogue; container keys list per-part answers with marks.
-- **Prose parsers.** The designer (`paper_design.py`), the GIM parser (`gim.py`) and `generation_router._parse_instructions_for_slots` take their vocabulary and phrases from the catalogue. This fixes the FILL_BLANK/MATCH_FOLLOWING → SHORT_ANSWER loss.
+- **Prose parsers.** The designer (`templates/design.py`), the GIM parser (`gim.py`) and `planner.plan._parse_instructions_for_slots` take their vocabulary and phrases from the catalogue. This fixes the FILL_BLANK/MATCH_FOLLOWING → SHORT_ANSWER loss.
 
 ## Order of work (one commit each; full suite green after every step)
 
@@ -197,7 +197,7 @@ New Django-free package **`backend/services/question_types/`**:
 - Audio/visual stimulus.
 - Crossword generation, which is a constraint-solver problem.
 - Paired VI-alternative content (it stays a flag).
-- Retiring `services.generation.blueprint` or `apps/question_generation`.
+- Retiring the blueprint engine (`services/generation/blueprint`, formerly `q_instructions`). The dormant `apps/question_generation` engine has since been deleted.
 
 ## Verification
 

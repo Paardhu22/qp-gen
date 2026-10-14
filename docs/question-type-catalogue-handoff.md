@@ -55,7 +55,7 @@
 
 - **GRAPH_PLOT and GRAPHICAL_SOLUTION print no figure.** The chart renderer cannot draw an empty coordinate grid, so their stimulus is a data table, or nothing.
 - **`presetFallbacks` is not shown in the UI.** It counts slots filled with a same-shape type because the pool lacked the exact one. It is sent on the `done` event, but nothing displays it yet.
-- **`generation_router._parse_instructions_for_slots` still maps onto the legacy `services.generation.blueprint` enum.** Retiring `services.generation.blueprint` was out of scope.
+- **`planner.plan._parse_instructions_for_slots` still maps onto the legacy blueprint-engine enum (`services/generation/blueprint/core/enums.py`, formerly `q_instructions`).** Retiring that engine was out of scope.
 - **The designer's schema now lists the catalogue types by name.** That adds about 1k tokens to each design call.
 
 ---
@@ -88,16 +88,16 @@ These need local Postgres on :5433, the backend and the frontend, and they spend
 | Concern | File |
 |---|---|
 | Catalogue and lookups | `backend/services/question_types/` |
-| Builder menu, by subject and class | `backend/services/templates.py::question_types_for` |
-| Class starters | `backend/services/starter_templates.py`, listed by `services/templates/catalog.py` |
-| Model 1 briefs and structure contract | `backend/services/pool/model1.py` |
-| Model 2 type/class/attribute scoring | `backend/services/pool/model2.py::_score_question` |
-| Structured questions | `backend/services/pool/structure.py` |
-| Designer and General Instructions parser | `backend/services/paper_design.py`, `backend/services/pool/gim.py` |
-| Answer formats | `backend/services/answer_script_service.py::_answer_format` |
-| Picker | `frontend/components/question-type-picker.tsx` |
-| Slot rows | `frontend/components/blueprint/slot-editor.tsx` |
-| Generated type data | `frontend/lib/question-types.generated.ts`. Don't edit it by hand. |
+| Builder menu, by subject and class | `backend/services/templates/spec.py::question_types_for` |
+| Class starters | `backend/services/templates/starters.py`, listed by `services/templates/catalog.py` |
+| Model 1 briefs and structure contract | `backend/services/generation/pool/model1.py` |
+| Model 2 type/class/attribute scoring | `backend/services/generation/pool/model2.py::_score_question` |
+| Structured questions | `backend/services/generation/pool/structure.py` |
+| Designer and General Instructions parser | `backend/services/templates/design.py`, `backend/services/generation/pool/gim.py` |
+| Answer formats | `backend/services/papers/answer_script.py::_answer_format` |
+| Picker | `frontend/features/question-types/question-type-picker.tsx` |
+| Slot rows | `frontend/features/generation/blueprint/slot-editor.tsx` |
+| Generated type data | `frontend/features/question-types/question-types.generated.ts`. Don't edit it by hand. |
 
 ## Commands
 

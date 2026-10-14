@@ -77,3 +77,6 @@ backend/*.premigrate.bak
 # Root level temp files
 /next-env.d.ts
 /pyrightconfig.json
+
+# Agent tool telemetry
+**/.claude-flow/
