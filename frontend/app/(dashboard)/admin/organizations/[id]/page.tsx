@@ -8,17 +8,17 @@ import { errorWithRetry } from "@/lib/toasts";
 import { ArrowLeft } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 
-import { useSession, isSuperAdmin } from "@/lib/auth-client";
+import { useSession, isSuperAdmin } from "@/features/auth/auth-client";
 import {
   formatInr,
   getOrganization,
   type OrganizationDetail,
-} from "@/lib/organizations-client";
+} from "@/lib/api/organizations-client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { PageTitle } from "@/components/ui/page-title";
-import { MembersTable } from "@/components/admin/members-table";
-import { TeacherInvites } from "@/components/admin/teacher-invites";
-import { SchoolDomains } from "@/components/admin/school-domains";
+import { MembersTable } from "@/features/admin/members-table";
+import { TeacherInvites } from "@/features/admin/teacher-invites";
+import { SchoolDomains } from "@/features/admin/school-domains";
 
 export default function OrganizationDetailPage() {
   const params = useParams<{ id: string }>();

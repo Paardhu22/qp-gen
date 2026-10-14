@@ -2,7 +2,7 @@
 // The Word export, end to end in Node — run from frontend/:
 //   node scripts/test-docx-paper.mjs
 //
-// `lib/docx-paper.ts` builds the .docx from the editor's document. The old
+// `features/export/docx-paper.ts` builds the .docx from the editor's document. The old
 // exporter scraped the live DOM instead and silently printed questions with
 // no numbers or marks, options run into the stem, and no OR questions at all.
 // These checks hold the pieces a teacher would notice missing.
@@ -20,7 +20,7 @@ const jiti = createJiti(here, {
   alias: { "@": path.resolve(here, "..") },
 });
 
-const { buildPaperDocx } = await jiti.import(path.resolve(here, "../lib/docx-paper.ts"));
+const { buildPaperDocx } = await jiti.import(path.resolve(here, "../features/export/docx-paper.ts"));
 const { Packer } = await import("docx");
 
 let failures = 0;

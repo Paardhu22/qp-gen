@@ -1,22 +1,22 @@
 "use client";
 
-import { BlueprintModal, type BlueprintSubmission } from "@/components/blueprint/blueprint-modal";
-import { ReviewTray } from "@/components/review-tray";
-import { DocumentOutline } from "@/components/editor/document-outline";
-import { GenerateDock } from "@/components/editor/generate-dock";
-import { EditorBlankState } from "@/components/editor/blank-state";
-import { BuildFromBankDialog } from "@/components/editor/build-from-bank-dialog";
-import { HsatSourcePicker } from "@/components/hsat-source-picker";
-import { usePaperGeneration } from "@/lib/use-paper-generation";
-import { useSourceUploads } from "@/lib/use-source-uploads";
-import { insertTrayItems } from "@/lib/tray-insert";
-import { useHsatReadiness } from "@/lib/use-hsat-readiness";
-import { TiptapEditor, normalizeInitialContent } from "@/components/tiptap-editor";
-import { ComparisonWorkspace } from "@/components/comparison-workspace";
-import { useEditorStore } from "@/store/editor-store";
-import { type AppliedHsatSource } from "@/lib/hsat-source";
-import { fetchJson, fetchTemplateFolders, type TemplateFolder } from "@/lib/api-client";
-import { TemplateEditorPanel } from "@/components/templates/template-editor-panel";
+import { BlueprintModal, type BlueprintSubmission } from "@/features/generation/blueprint/blueprint-modal";
+import { ReviewTray } from "@/features/editor/review-tray";
+import { DocumentOutline } from "@/features/editor/document-outline";
+import { GenerateDock } from "@/features/generation/generate-dock";
+import { EditorBlankState } from "@/features/editor/blank-state";
+import { BuildFromBankDialog } from "@/features/editor/dialogs/build-from-bank-dialog";
+import { HsatSourcePicker } from "@/features/sources/hsat-source-picker";
+import { usePaperGeneration } from "@/features/generation/use-paper-generation";
+import { useSourceUploads } from "@/features/sources/use-source-uploads";
+import { insertTrayItems } from "@/features/editor/tray-insert";
+import { useHsatReadiness } from "@/features/sources/use-hsat-readiness";
+import { TiptapEditor, normalizeInitialContent } from "@/features/editor/tiptap-editor";
+import { ComparisonWorkspace } from "@/features/editor/comparison-workspace";
+import { useEditorStore } from "@/features/editor/editor-store";
+import { type AppliedHsatSource } from "@/features/sources/hsat-source";
+import { fetchJson, fetchTemplateFolders, type TemplateFolder } from "@/lib/api/api-client";
+import { TemplateEditorPanel } from "@/features/templates/template-editor-panel";
 import {
   Dialog,
   DialogContent,
@@ -37,12 +37,12 @@ import {
   savePaperAction,
   updatePaperAction,
   getPaperAction,
-} from "@/actions/savePaper";
+} from "@/features/papers/actions/savePaper";
 import {
   saveQuestionsToBank,
   getQuestionsFromBank,
-} from "@/actions/saveQuestions";
-import { useSession } from "@/lib/auth-client";
+} from "@/features/papers/actions/saveQuestions";
+import { useSession } from "@/features/auth/auth-client";
 import {
   deleteLiveDocument,
   deleteLiveDocumentsForPaper,
@@ -50,8 +50,8 @@ import {
   getLatestLiveDocumentForUser,
   getLiveDocument,
   patchLiveDocument,
-} from "@/lib/live-document-db";
-import { deleteServerDraft, pullDrafts, pushDraft } from "@/lib/drafts-sync";
+} from "@/features/papers/live-document-db";
+import { deleteServerDraft, pullDrafts, pushDraft } from "@/features/papers/drafts-sync";
 import {
   basePaperId,
   withSetSuffix,
@@ -59,10 +59,10 @@ import {
   newLocalDraftId,
   persistablePaperId,
   DRAFT_PAPER_ID,
-} from "@/lib/paper-id";
-import { exportPaper } from "@/lib/export-paper";
-import { draftScopeOfDocument } from "@/lib/drafts";
-import { resolveTabContent } from "@/lib/set-content";
+} from "@/features/papers/paper-id";
+import { exportPaper } from "@/features/export/export-paper";
+import { draftScopeOfDocument } from "@/features/papers/drafts";
+import { resolveTabContent } from "@/features/papers/set-content";
 
 export default function EditorPage() {
   const router = useRouter();
@@ -512,7 +512,7 @@ export default function EditorPage() {
   // IndexedDB and redirects. During that window nothing has decided which
   // document this tab shows, and the editor must be told exactly that.
   //
-  // The distinction is load-bearing and documented in `lib/set-content.ts`:
+  // The distinction is load-bearing and documented in `features/papers/set-content.ts`:
   // `undefined` means "no content decided here", so `TiptapEditor` bails out
   // of its load effect and leaves `documentLoadedRef` false; `""` means "an
   // empty document", which it will happily load. The `!paperId` branch of the
@@ -1249,7 +1249,7 @@ export default function EditorPage() {
           // remounts the editor. Without it the tab keeps the previous
           // paper's document and the approval appears to do nothing.
           key={`${editorInstanceKey}-${activeSetTab}-${approvedAt}`}
-          // Precedence lives in `lib/set-content.ts` — see the note there on
+          // Precedence lives in `features/papers/set-content.ts` — see the note there on
           // why an approved set is the only source that carries Set A.
           //
           // `undefined` while the document target is undecided: it holds the

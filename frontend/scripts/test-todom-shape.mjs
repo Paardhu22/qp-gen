@@ -20,7 +20,7 @@ const jiti = createJiti(here, {
   jsx: true,
   extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
   // Mirror the `@/*` path alias from tsconfig. nodes.tsx started importing
-  // `@/lib/api-client` when the per-question Replace button was added, and
+  // `@/lib/api/api-client` when the per-question Replace button was added, and
   // without this the whole script died with MODULE_NOT_FOUND — silently
   // leaving the content-hole invariant unguarded.
   alias: {
@@ -34,7 +34,7 @@ const jiti = createJiti(here, {
 });
 
 const nodes = await jiti.import(
-  path.resolve(here, "../components/editor/extensions/nodes.tsx"),
+  path.resolve(here, "../features/editor/extensions/nodes.tsx"),
 );
 
 function validateSpec(spec, path = "$") {

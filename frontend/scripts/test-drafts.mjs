@@ -21,18 +21,18 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "drafts-"));
 const root = fileURLToPath(new URL("..", import.meta.url));
 
-// `lib/drafts.ts` owns the retention policy and depends only on `paper-id`,
+// `features/papers/drafts.ts` owns the retention policy and depends only on `paper-id`,
 // which is pure — no IndexedDB in the graph. Copy both flat and rewrite the
 // `@/` specifier; tsc only honours `--paths` from a tsconfig.
 const DAY = 24 * 60 * 60 * 1000;
 writeFileSync(
   join(dir, "paper-id.ts"),
-  readFileSync(join(root, "lib/paper-id.ts"), "utf8"),
+  readFileSync(join(root, "features/papers/paper-id.ts"), "utf8"),
 );
 writeFileSync(
   join(dir, "drafts.ts"),
-  readFileSync(join(root, "lib/drafts.ts"), "utf8")
-    .replace(/from ["']@\/lib\/paper-id["']/, 'from "./paper-id"'),
+  readFileSync(join(root, "features/papers/drafts.ts"), "utf8")
+    .replace(/from ["']@\/features\/papers\/paper-id["']/, 'from "./paper-id"'),
 );
 
 execFileSync(

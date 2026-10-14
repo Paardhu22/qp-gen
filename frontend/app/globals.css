@@ -926,7 +926,7 @@ html[data-auth-page] *.dark {
 /* ── "Your questions are ready" ──────────────────────────────────────────
    A finished run scrolls the review tray into view and bounces it, with a primary ring that fades as
    it settles. The delay lets the smooth scroll arrive first, so the bounce is
-   seen rather than happening off-screen. See lib/use-attention-bounce.ts. */
+   seen rather than happening off-screen. See features/editor/use-attention-bounce.ts. */
 @keyframes attention-bounce {
     0%, 100% { transform: none; }
     15% { transform: translateY(-10px); }

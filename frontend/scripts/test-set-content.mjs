@@ -25,7 +25,7 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "setc-"));
 const root = fileURLToPath(new URL("..", import.meta.url));
 
-// `lib/set-content.ts` pulls `normalizeSetLabel` from the editor store, which
+// `features/papers/set-content.ts` pulls `normalizeSetLabel` from the editor store, which
 // drags in zustand + persist + localStorage. Copy the source next to a stub of
 // just that one export and rewrite the `@/` specifier — tsc takes `--paths`
 // only from a tsconfig, and the store's own shape is not what is under test.
@@ -33,7 +33,7 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const STUB = `export function normalizeSetLabel(label: string): string {
   return label.replace(/^Set\\s+/i, "").trim() || label;
 }\n`;
-const real = readFileSync(join(root, "store/editor-store.ts"), "utf8");
+const real = readFileSync(join(root, "features/editor/editor-store.ts"), "utf8");
 const realBody = real.slice(
   real.indexOf("export function normalizeSetLabel"),
   real.indexOf("}", real.indexOf("export function normalizeSetLabel")) + 2,
@@ -46,8 +46,8 @@ if (realBody.replace(/\s+/g, "") !== STUB.replace(/\s+/g, "")) {
 writeFileSync(join(dir, "editor-store.ts"), STUB);
 writeFileSync(
   join(dir, "set-content.ts"),
-  readFileSync(join(root, "lib/set-content.ts"), "utf8").replace(
-    /from ["']@\/store\/editor-store["']/,
+  readFileSync(join(root, "features/papers/set-content.ts"), "utf8").replace(
+    /from ["']@\/features\/editor\/editor-store["']/,
     'from "./editor-store"',
   ),
 );

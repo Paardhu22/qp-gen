@@ -4,7 +4,7 @@ import "../styles/editor.css";
 import "../styles/press-check.css";
 import "../styles/grainient.css";
 import "katex/dist/katex.min.css";
-import { Providers } from "@/components/providers";
+import { Providers } from "@/components/layout/providers";
 import { Toaster } from "sonner";
 import localFont from "next/font/local";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";

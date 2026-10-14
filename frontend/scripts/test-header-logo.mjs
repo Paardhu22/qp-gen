@@ -32,10 +32,10 @@ const jiti = createJiti(here, {
 });
 
 const { PaperHeaderBlock } = await jiti.import(
-  path.resolve(here, "../components/editor/extensions/header-node.tsx"),
+  path.resolve(here, "../features/editor/extensions/header-node.tsx"),
 );
 const { fitLogo, resolveLogoSide } = await jiti.import(
-  path.resolve(here, "../components/editor/masthead.ts"),
+  path.resolve(here, "../features/editor/header/masthead.ts"),
 );
 
 if (!PaperHeaderBlock?.config?.renderHTML) {
@@ -267,7 +267,7 @@ function validateHole(spec, at = "$") {
 
 // New papers use supplied information rather than fixed sample values.
 {
-  const { headerJSONFromBrand, clearBrandHeaderCache } = await jiti.import(path.resolve(here, "../lib/brand-header.ts"));
+  const { headerJSONFromBrand, clearBrandHeaderCache } = await jiti.import(path.resolve(here, "../features/editor/header/brand-header.ts"));
   clearBrandHeaderCache();
   check("new headers omit the generic subtitle", !headerJSONFromBrand().content.some(node => node.type === "heading" && node.attrs.level === 2));
   check("generic exam metadata cannot reinsert the subtitle", !headerJSONFromBrand({ examName: "CBSE - Question Paper" }).content.some(node => node.type === "heading" && node.attrs.level === 2));

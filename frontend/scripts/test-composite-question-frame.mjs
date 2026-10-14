@@ -9,7 +9,7 @@ import { EditorState } from "@tiptap/pm/state";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const jiti = createJiti(here, { alias: { "@": path.resolve(here, "..") } });
-const { CompositeQuestionFrame } = await jiti.import(path.resolve(here, "../components/editor/extensions/composite-question-frame.ts"));
+const { CompositeQuestionFrame } = await jiti.import(path.resolve(here, "../features/editor/extensions/composite-question-frame.ts"));
 const schema = new Schema({ nodes: {
   doc: { content: "page+" },
   page: { content: "block+" },

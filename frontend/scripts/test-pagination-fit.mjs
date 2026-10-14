@@ -21,7 +21,7 @@ import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "pfit-"));
 const sourcePath = fileURLToPath(
-  new URL("../components/editor/extensions/pagination-fit.ts", import.meta.url),
+  new URL("../features/editor/extensions/pagination-fit.ts", import.meta.url),
 );
 execFileSync(
   fileURLToPath(new URL("../node_modules/.bin/tsc", import.meta.url)),

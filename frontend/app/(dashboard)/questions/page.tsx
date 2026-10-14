@@ -7,7 +7,7 @@ import {
   deleteQuestion,
   fetchJson,
   fetchQuestionTypes,
-} from "@/lib/api-client";
+} from "@/lib/api/api-client";
 import {
   ListChecks,
   Trash2,
@@ -40,7 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useEditorStore } from "@/store/editor-store";
+import { useEditorStore } from "@/features/editor/editor-store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { errorWithRetry } from "@/lib/toasts";

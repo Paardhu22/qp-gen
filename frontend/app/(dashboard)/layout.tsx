@@ -1,7 +1,7 @@
 "use client";
 
-import { TopNavbar } from "@/components/top-navbar";
-import { ProtectedLayout } from "@/components/protected-layout";
+import { TopNavbar } from "@/components/layout/top-navbar";
+import { ProtectedLayout } from "@/components/layout/protected-layout";
 
 export default function DashboardLayout({
   children,

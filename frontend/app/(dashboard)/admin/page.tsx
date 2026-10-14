@@ -5,7 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { errorWithRetry } from "@/lib/toasts";
 
-import { useSession, isSuperAdmin, approvedAdminMemberships } from "@/lib/auth-client";
+import { useSession, isSuperAdmin, approvedAdminMemberships } from "@/features/auth/auth-client";
 import {
   formatInr,
   listOrganizations,
@@ -16,11 +16,11 @@ import {
   type OrganizationSummary,
   type OrganizationDetail,
   type SuperAdminAnalytics,
-} from "@/lib/organizations-client";
-import { UsageAnalytics } from "@/components/admin/usage-analytics";
-import { RosterPanel } from "@/components/admin/roster-panel";
-import { TeacherInvites } from "@/components/admin/teacher-invites";
-import { SchoolDomains } from "@/components/admin/school-domains";
+} from "@/lib/api/organizations-client";
+import { UsageAnalytics } from "@/features/admin/usage-analytics";
+import { RosterPanel } from "@/features/admin/roster-panel";
+import { TeacherInvites } from "@/features/admin/teacher-invites";
+import { SchoolDomains } from "@/features/admin/school-domains";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageTitle } from "@/components/ui/page-title";
@@ -36,9 +36,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { MembersTable } from "@/components/admin/members-table";
-import { resolveFigureSrc } from "@/components/editor/extensions/float-image";
-import { UsersPanel } from "@/components/admin/users-panel";
+import { MembersTable } from "@/features/admin/members-table";
+import { resolveFigureSrc } from "@/features/editor/extensions/float-image";
+import { UsersPanel } from "@/features/admin/users-panel";
 import { Mail } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 

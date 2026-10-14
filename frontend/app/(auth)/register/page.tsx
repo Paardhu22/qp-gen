@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
 import { Spinner } from "@/components/ui/spinner";
-import { RegisterForm } from "@/components/register-form";
+import { RegisterForm } from "@/features/auth/register-form";
 
 export default function RegisterPage() {
   // The form reads `?invite=` via useSearchParams(), which Next.js 16 requires

@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
 import { Spinner } from "@/components/ui/spinner";
-import { ResetPasswordForm } from "@/components/reset-password-form";
+import { ResetPasswordForm } from "@/features/auth/reset-password-form";
 
 export default function ResetPasswordPage() {
   // Next.js 16 requires a Suspense boundary around any component that

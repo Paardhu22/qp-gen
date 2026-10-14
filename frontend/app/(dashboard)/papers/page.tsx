@@ -10,14 +10,14 @@ import {
   emptyPaperTrash,
   fetchJson,
   generateAnswerScript,
-} from "@/lib/api-client";
-import { getPaperAction, type EditorPaper } from "@/actions/savePaper";
+} from "@/lib/api/api-client";
+import { getPaperAction, type EditorPaper } from "@/features/papers/actions/savePaper";
 import {
   computePaperBreakdown,
   questionTypeLabel,
   type PaperBreakdown,
-} from "@/lib/paper-breakdown";
-import { PaperPreview } from "@/components/paper-preview";
+} from "@/features/papers/paper-breakdown";
+import { PaperPreview } from "@/features/papers/paper-preview";
 import {
   BookOpen,
   FileText,
@@ -57,20 +57,20 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { errorWithRetry } from "@/lib/toasts";
 import { cn } from "@/lib/utils";
-import { useSession } from "@/lib/auth-client";
-import { deleteServerDraft, pullDrafts } from "@/lib/drafts-sync";
+import { useSession } from "@/features/auth/auth-client";
+import { deleteServerDraft, pullDrafts } from "@/features/papers/drafts-sync";
 import {
   deleteLiveDocument,
   clearLiveDocumentsForUser,
   getLiveDocumentId,
   purgeExpiredDrafts,
-} from "@/lib/live-document-db";
+} from "@/features/papers/live-document-db";
 import {
   summarizeDrafts,
   daysUntilExpiry,
   DRAFT_RETENTION_DAYS,
   type DraftSummary,
-} from "@/lib/drafts";
+} from "@/features/papers/drafts";
 
 // ---------------------------------------------------------------------------
 // Types

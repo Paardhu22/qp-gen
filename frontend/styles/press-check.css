@@ -1,5 +1,5 @@
 /* Press check — the generation animation.
-   Component: components/dashboard/press-check.tsx
+   Component: features/dashboard/press-check.tsx
 
    Kept out of Tailwind utilities because most of this is container-relative
    typography (`cqw`) on the sheet: the paper must look like a paper at any
@@ -32,7 +32,7 @@
 /* In a light theme the room becomes a light table rather than an inversion:
    the sheet is still the lit object, the surround is just daylight.
    Keyed on `.dark` on <html>, which is what actually toggles this app's theme
-   (see components/providers.tsx). These rules used to test
+   (see components/layout/providers.tsx). These rules used to test
    `[data-theme="dark"]`, an attribute nothing ever sets — so the `:not()` arm
    matched unconditionally and the light table was the only room that ever
    rendered, dark theme included. */

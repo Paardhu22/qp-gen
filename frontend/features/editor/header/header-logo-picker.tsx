@@ -1,0 +1,326 @@
+"use client";
+
+/**
+ * Choosing the logo that goes on a paper's masthead.
+ *
+ * The point of this dialog is the *order* of what it offers. A school uses one
+ * crest on every paper it prints, so the saved brand logos come first and
+ * uploading is the fallback — not the other way round. That is the whole
+ * difference between "attach a file to this document" and "use our logo", and
+ * it is why the brand kit exists at all.
+ *
+ * An upload made here is saved to the brand kit rather than to this one
+ * document, so the second paper never asks again.
+ */
+
+import * as React from "react";
+import { toast } from "sonner";
+import { Check, Image as ImageIcon, ImageUp, X } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import {
+  fetchBrandKit,
+  uploadBrandLogo,
+  type BrandAsset,
+} from "@/lib/api/api-client";
+import { resolveFigureSrc } from "@/features/editor/extensions/float-image";
+import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/utils";
+import { LOGO_HEIGHTS, type LogoAlign } from "@/features/editor/header/masthead";
+
+/** Printed heights; the width follows from the logo's shape. */
+const SIZES: { label: string; height: number }[] = [
+  { label: "Small", height: LOGO_HEIGHTS.small },
+  { label: "Medium", height: LOGO_HEIGHTS.medium },
+  { label: "Large", height: LOGO_HEIGHTS.large },
+];
+
+const POSITIONS: { value: LogoAlign; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "left", label: "Left" },
+  { value: "top", label: "Top" },
+  { value: "right", label: "Right" },
+];
+
+interface Props {
+  currentUrl: string;
+  height: number;
+  align: LogoAlign;
+  onClose: () => void;
+  onApply: (attrs: {
+    logoUrl: string;
+    logoHeight: number;
+    logoAlign: LogoAlign;
+  }) => void;
+}
+
+export function HeaderLogoPicker({
+  currentUrl,
+  height,
+  align,
+  onClose,
+  onApply,
+}: Props) {
+  const [logos, setLogos] = React.useState<BrandAsset[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [isUploading, setIsUploading] = React.useState(false);
+  const [selectedUrl, setSelectedUrl] = React.useState(currentUrl);
+  const [selectedHeight, setSelectedHeight] = React.useState(height);
+  const [selectedAlign, setSelectedAlign] = React.useState(align);
+  const [failedImages, setFailedImages] = React.useState<Set<string>>(new Set());
+  const fileRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetchBrandKit()
+      .then((kit) => {
+        if (!cancelled) setLogos(kit.logos);
+      })
+      .catch(() => {
+        // An unreachable brand kit still leaves upload working, which is the
+        // path that mattered before any of this existed. Not worth a toast on
+        // top of a dialog the teacher just opened.
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleUpload = async (file: File) => {
+    setIsUploading(true);
+    try {
+      const asset = await uploadBrandLogo(file);
+      // Saved to the brand kit, not to this document — so the next paper
+      // already has it.
+      setLogos((prev) => [...prev, asset]);
+      setSelectedUrl(asset.url);
+      toast.success("Saved to your brand kit.");
+    } catch (error: any) {
+      toast.error(error?.message || "Could not upload that image.");
+    } finally {
+      setIsUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  // The picker lives inside the TipTap node view, so it sits under
+  // `.document-editor` in the DOM and inherits the *paper's* typography —
+  // Times New Roman at 12pt in black. Right for the sheet, wrong for a dialog,
+  // so the root re-asserts the app's UI font and text colour.
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 font-sans text-sm text-foreground"
+      contentEditable={false}
+    >
+      <div
+        className="absolute inset-0 app-scrim"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-background p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Institute logo</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Pick one you have saved, or upload a new one.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-4">
+          {isLoading ? (
+            <div className="flex h-24 items-center justify-center">
+              <Spinner className="text-muted-foreground" />
+            </div>
+          ) : logos.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-xs leading-relaxed text-muted-foreground">
+              No logos saved yet. Upload one and it will be here for every
+              paper you make after this.
+            </p>
+          ) : (
+            // Padded inside, pulled back out by the negative margin: the
+            // selected card's ring is drawn outside its border, and a
+            // scrolling box clips anything past its edge — which cut the
+            // ring off square at the sides.
+            <div className="-m-1.5 grid max-h-60 grid-cols-3 gap-2.5 overflow-y-auto p-1.5">
+              {logos.map((logo) => {
+                const active = logo.url === selectedUrl;
+                const resolvedSrc = resolveFigureSrc(logo.url);
+                const isFailed = failedImages.has(logo.id);
+                return (
+                  <button
+                    key={logo.id}
+                    type="button"
+                    onClick={() => setSelectedUrl(logo.url)}
+                    className={cn(
+                      "group relative flex flex-col items-center justify-between h-24 rounded-xl border bg-muted/20 p-2 transition-all hover:bg-muted/40",
+                      active
+                        ? "border-primary bg-primary/5 ring-2 ring-primary/25"
+                        : "border-border hover:border-primary/40",
+                    )}
+                  >
+                    <div className="flex flex-1 w-full items-center justify-center overflow-hidden">
+                      {isFailed ? (
+                        <ImageIcon className="h-7 w-7 text-muted-foreground/50" />
+                      ) : (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={resolvedSrc}
+                          alt=""
+                          onError={() =>
+                            setFailedImages((prev) => new Set(prev).add(logo.id))
+                          }
+                          className="max-h-14 max-w-full object-contain transition-transform group-hover:scale-105"
+                        />
+                      )}
+                    </div>
+                    <span className="mt-1 w-full truncate text-center text-[10px] text-muted-foreground">
+                      {logo.name || "Logo"}
+                    </span>
+                    {active ? (
+                      <span className="absolute right-1.5 top-1.5 rounded-full bg-primary p-0.5 text-primary-foreground shadow-xs">
+                        <Check className="h-3 w-3" />
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleUpload(file);
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-3 w-full gap-1.5"
+          disabled={isUploading}
+          onClick={() => fileRef.current?.click()}
+        >
+          {isUploading ? (
+            <Spinner />
+          ) : (
+            <ImageUp className="h-3.5 w-3.5" />
+          )}
+          {isUploading ? "Uploading…" : "Upload a logo"}
+        </Button>
+
+        {selectedUrl ? (
+          <div className="mt-4 space-y-3 border-t border-border pt-4">
+            <div className="flex items-center gap-2">
+              <span className="w-12 text-xs text-muted-foreground">Size</span>
+              <div className="flex gap-1.5">
+                {SIZES.map((size) => (
+                  <button
+                    key={size.label}
+                    type="button"
+                    onClick={() => setSelectedHeight(size.height)}
+                    className={cn(
+                      "rounded-md px-2 py-1 text-xs transition-colors",
+                      selectedHeight === size.height
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {size.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2">
+              <span className="w-12 pt-1 text-xs text-muted-foreground">Place</span>
+              <div>
+                <div className="flex gap-1.5">
+                  {POSITIONS.map((position) => (
+                    <button
+                      key={position.value}
+                      type="button"
+                      onClick={() => setSelectedAlign(position.value)}
+                      className={cn(
+                        "rounded-md px-2 py-1 text-xs transition-colors",
+                        selectedAlign === position.value
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {position.label}
+                    </button>
+                  ))}
+                </div>
+                {selectedAlign === "auto" ? (
+                  <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                    A wide logo goes above the school name; a crest goes beside it.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-5 flex items-center justify-between gap-2">
+          {currentUrl ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="destructive-action"
+              onClick={() =>
+                onApply({
+                  logoUrl: "",
+                  logoHeight: selectedHeight,
+                  logoAlign: selectedAlign,
+                })
+              }
+            >
+              Remove from paper
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!selectedUrl}
+              onClick={() =>
+                onApply({
+                  logoUrl: selectedUrl,
+                  logoHeight: selectedHeight,
+                  logoAlign: selectedAlign,
+                })
+              }
+            >
+              Use this
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

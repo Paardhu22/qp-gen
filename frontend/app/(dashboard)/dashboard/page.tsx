@@ -14,7 +14,7 @@
  * The generation itself is untouched — this calls the same
  * `/api/generation/questions/stream` the editor does, and hands the result to
  * the editor through the same store. The two clients read that stream through
- * one shared contract (`lib/generation-stream.ts`); what they do with an event
+ * one shared contract (`features/generation/generation-stream.ts`); what they do with an event
  * differs, what an event *means* does not.
  */
 
@@ -38,22 +38,22 @@ import {
   PromptTooltipProvider,
   type PromptAttachment,
 } from "@/components/ui/ai-prompt-box";
-import { FollowUpCard } from "@/components/dashboard/follow-up-card";
+import { FollowUpCard } from "@/features/dashboard/follow-up-card";
 import {
   PressCheck,
   type PressRow,
   type PressStageId,
-} from "@/components/dashboard/press-check";
-import { ChatBackdrop } from "@/components/dashboard/chat-backdrop";
+} from "@/features/dashboard/press-check";
+import { ChatBackdrop } from "@/features/dashboard/chat-backdrop";
 import {
   pickSuggestions,
   type TeacherInventory,
-} from "@/lib/dashboard-suggestions";
-import { PaperDesignPanel } from "@/components/paper-design-panel";
-import { usePaperDesign } from "@/lib/use-paper-design";
+} from "@/features/dashboard/dashboard-suggestions";
+import { PaperDesignPanel } from "@/features/generation/paper-design-panel";
+import { usePaperDesign } from "@/features/generation/use-paper-design";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useEditorStore } from "@/store/editor-store";
+import { useEditorStore } from "@/features/editor/editor-store";
 import {
   createConversation,
   deleteConversation,
@@ -72,12 +72,12 @@ import {
   type ConversationStatus,
   type FollowUpPrompt,
   type PaperSpec,
-} from "@/lib/api-client";
-import { asStatusText, planSummaryLine } from "@/lib/plan-summary";
+} from "@/lib/api/api-client";
+import { asStatusText, planSummaryLine } from "@/features/generation/plan-summary";
 import {
   decodeGenerationEvent,
   handleAmbientEvent,
-} from "@/lib/generation-stream";
+} from "@/features/generation/generation-stream";
 
 
 

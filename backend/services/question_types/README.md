@@ -27,7 +27,7 @@ The package is Django-free, so the pool, the blueprint engine, migrations and te
 | `families.py` | Families A–J |
 | `catalog/` | The entries, one module per family |
 | `registry.py` | `CATALOG`, the alias index and every lookup |
-| `export.py` | The projections: the DB seed snapshot and `frontend/lib/question-types.generated.ts` |
+| `export.py` | The projections: the DB seed snapshot and `frontend/features/question-types/question-types.generated.ts` |
 
 ## Which lookup to use
 

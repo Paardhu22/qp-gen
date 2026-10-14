@@ -51,7 +51,7 @@
 
              Both are stripped for print AND for the PDF export (html2canvas
              renders screen styles, so the export clone neutralises them
-             explicitly — see lib/export-pdf.ts). */
+             explicitly — see features/export/export-pdf.ts). */
           border: 1px solid rgb(0 0 0 / 0.08);
           overflow: hidden;
           box-sizing: border-box;

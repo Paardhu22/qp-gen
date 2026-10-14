@@ -19,8 +19,8 @@ import { Suspense, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { EditorContent, useEditor } from "@tiptap/react";
 
-import { getTiptapExtensions } from "@/components/tiptap-editor";
-import { buildQuestionBlocks } from "@/components/editor/question-nodes";
+import { getTiptapExtensions } from "@/features/editor/tiptap-editor";
+import { buildQuestionBlocks } from "@/features/editor/question-nodes";
 
 const svg = (width: number, height: number, body: string) =>
   "data:image/svg+xml;base64," +
@@ -219,11 +219,11 @@ function ExportHarness() {
     (window as any).__exportHarness = {
       json: () => editor.getJSON(),
       docx: async () => {
-        const { exportToDocx } = await import("@/lib/export-docx");
+        const { exportToDocx } = await import("@/features/export/export-docx");
         return asBase64(await exportToDocx(editor.view.dom as HTMLElement, "harness.docx"));
       },
       pdf: async () => {
-        const { exportToPDF } = await import("@/lib/export-pdf");
+        const { exportToPDF } = await import("@/features/export/export-pdf");
         return asBase64(await exportToPDF("tiptap-paper-container", "harness.pdf"));
       },
     };

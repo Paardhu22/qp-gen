@@ -41,13 +41,13 @@ import {
 import {
   FolderRail,
   type FolderSelection,
-} from "@/components/templates/folder-rail";
+} from "@/features/templates/folder-rail";
 import {
   BuiltinTemplateCard,
   SavedTemplateCard,
-} from "@/components/templates/template-card";
-import { TemplateEditorPanel } from "@/components/templates/template-editor-panel";
-import { fitsClass } from "@/components/blueprint/template-picker-grid";
+} from "@/features/templates/template-card";
+import { TemplateEditorPanel } from "@/features/templates/template-editor-panel";
+import { fitsClass } from "@/features/templates/template-picker-grid";
 import {
   createTemplateFolder,
   deletePaperTemplate,
@@ -61,8 +61,8 @@ import {
   type BuiltinTemplate,
   type PaperTemplate,
   type TemplateFolder,
-} from "@/lib/api-client";
-import { useEditorStore } from "@/store/editor-store";
+} from "@/lib/api/api-client";
+import { useEditorStore } from "@/features/editor/editor-store";
 import { cn } from "@/lib/utils";
 import { PAPER_CLASSES, PAPER_SUBJECTS, paperSubjectEntry } from "@/lib/subject";
 

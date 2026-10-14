@@ -514,7 +514,7 @@ CHAT_HISTORY_MAX_CHARS = _int_env("CHAT_HISTORY_MAX_CHARS", 24000, minimum=2000,
 PAPER_TRASH_RETENTION_DAYS = _int_env("PAPER_TRASH_RETENTION_DAYS", 30, minimum=1, maximum=365)
 
 # How long an unsaved draft is kept on the server. Must stay in step with
-# DRAFT_RETENTION_DAYS in frontend/lib/drafts.ts, which governs the local
+# DRAFT_RETENTION_DAYS in frontend/features/papers/drafts.ts, which governs the local
 # IndexedDB copy — a server copy that outlives the local one would resurrect
 # drafts the teacher watched expire, and the reverse would delete work the UI
 # said was still there.

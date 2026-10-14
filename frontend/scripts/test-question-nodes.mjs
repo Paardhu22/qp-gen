@@ -18,7 +18,7 @@ import { join } from "node:path";
 // the test must run exactly what ships.
 const dir = mkdtempSync(join(tmpdir(), "qn-"));
 const sourcePath = fileURLToPath(
-  new URL("../components/editor/question-nodes.ts", import.meta.url),
+  new URL("../features/editor/question-nodes.ts", import.meta.url),
 );
 execFileSync(
   fileURLToPath(new URL("../node_modules/.bin/tsc", import.meta.url)),

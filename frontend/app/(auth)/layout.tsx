@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { AuthThemeScope } from "@/components/auth-theme-scope";
+import { AuthThemeScope } from "@/features/auth/auth-theme-scope";
 
 // Login/register/reset pages carry the homepage title, so keep them out of search results.
 export const metadata: Metadata = { robots: { index: false, follow: true } };

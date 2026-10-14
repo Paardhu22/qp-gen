@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getAccessToken } from "@/lib/token-storage";
+import { getAccessToken } from "@/lib/api/token-storage";
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);

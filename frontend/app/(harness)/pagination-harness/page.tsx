@@ -26,17 +26,17 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { useEffect } from "react";
 
-import { PaginatedDocument } from "@/components/editor/extensions/document-node";
-import { PageNode } from "@/components/editor/extensions/page-node";
+import { PaginatedDocument } from "@/features/editor/extensions/document-node";
+import { PageNode } from "@/features/editor/extensions/page-node";
 import {
   QuestionBlock,
   SectionBlock,
   InstructionBlock,
   PageBreak,
-} from "@/components/editor/extensions/nodes";
-import { FloatImage } from "@/components/editor/extensions/float-image";
-import { MathBlock, InlineMath } from "@/components/editor/extensions/math-nodes";
-import { PaginationEngine } from "@/components/editor/extensions/pagination-engine";
+} from "@/features/editor/extensions/nodes";
+import { FloatImage } from "@/features/editor/extensions/float-image";
+import { MathBlock, InlineMath } from "@/features/editor/extensions/math-nodes";
+import { PaginationEngine } from "@/features/editor/extensions/pagination-engine";
 
 /** A real 600x400 PNG, inlined so the load is genuine but needs no backend. */
 const FIGURE =

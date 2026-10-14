@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ensureFreshTokens, useSession } from "@/lib/auth-client";
-import { fetchJson } from "@/lib/api-client";
-import { getCognitoAccessToken } from "@/lib/token-storage";
-import { cognitoSignIn, cognitoChangePassword } from "@/lib/cognito-client";
+import { ensureFreshTokens, useSession } from "@/features/auth/auth-client";
+import { fetchJson } from "@/lib/api/api-client";
+import { getCognitoAccessToken } from "@/lib/api/token-storage";
+import { cognitoSignIn, cognitoChangePassword } from "@/features/auth/cognito-client";
 import {
   Card,
   CardContent,
@@ -30,7 +30,7 @@ import {
   Paintbrush,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ui/curtain-theme-toggle";
-import { BrandKitCard } from "@/components/settings/brand-kit-card";
+import { BrandKitCard } from "@/features/settings/brand-kit-card";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 

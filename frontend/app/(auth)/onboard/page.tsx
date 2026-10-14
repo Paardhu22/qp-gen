@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
 import { Spinner } from "@/components/ui/spinner";
-import { OnboardOrganizationForm } from "@/components/onboard-organization-form";
+import { OnboardOrganizationForm } from "@/features/auth/onboard-organization-form";
 
 export default function OnboardPage() {
   // Next.js 16 requires a Suspense boundary around any component that calls

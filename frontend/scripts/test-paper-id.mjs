@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "pid-"));
-const sourcePath = fileURLToPath(new URL("../lib/paper-id.ts", import.meta.url));
+const sourcePath = fileURLToPath(new URL("../features/papers/paper-id.ts", import.meta.url));
 execFileSync(
   fileURLToPath(new URL("../node_modules/.bin/tsc", import.meta.url)),
   [

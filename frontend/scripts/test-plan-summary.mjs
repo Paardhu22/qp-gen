@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "plan-"));
-const sourcePath = fileURLToPath(new URL("../lib/plan-summary.ts", import.meta.url));
+const sourcePath = fileURLToPath(new URL("../features/generation/plan-summary.ts", import.meta.url));
 execFileSync(
   fileURLToPath(new URL("../node_modules/.bin/tsc", import.meta.url)),
   [

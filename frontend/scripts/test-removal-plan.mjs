@@ -15,7 +15,7 @@ const dir = mkdtempSync(join(tmpdir(), "rp-"));
 execFileSync(
   fileURLToPath(new URL("../node_modules/.bin/tsc", import.meta.url)),
   [
-    fileURLToPath(new URL("../components/editor/removal-plan.ts", import.meta.url)),
+    fileURLToPath(new URL("../features/editor/removal-plan.ts", import.meta.url)),
     "--outDir", dir,
     "--module", "esnext",
     "--target", "es2022",
