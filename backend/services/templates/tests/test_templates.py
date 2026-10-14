@@ -271,12 +271,12 @@ class CatalogTests(TestCase):
         self.assertIsInstance(resolve_builtin("cbse-science-10"), TemplateBlueprint)
 
     def test_every_board_year_card_is_listed(self):
-        # The catalog is derived from _NEW_ENGINE_ELIGIBILITY precisely so a
+        # The catalog is derived from BLUEPRINT_SUPPORT precisely so a
         # supported subject can never be missing from the picker.
-        from services.generation.planner import _NEW_ENGINE_ELIGIBILITY
+        from services.generation.planner.subjects import BLUEPRINT_SUPPORT
 
         ids = {entry["id"] for entry in list_templates()}
-        for subject_norm, classes in _NEW_ENGINE_ELIGIBILITY.items():
+        for subject_norm, classes in BLUEPRINT_SUPPORT.items():
             if 10 in classes:
                 expected = f"cbse-{subject_norm.replace(' ', '-')}-10"
                 self.assertIn(expected, ids, f"{expected} missing from the picker")
@@ -285,10 +285,10 @@ class CatalogTests(TestCase):
         # Below Class 10 the engine has no real pattern — "Class 1 Science —
         # Sample Paper" was ten one-mark questions — so the starters cover
         # those classes. The ids still resolve for anything that saved one.
-        from services.generation.planner import _NEW_ENGINE_ELIGIBILITY
+        from services.generation.planner.subjects import BLUEPRINT_SUPPORT
 
         ids = {entry["id"] for entry in list_templates()}
-        for subject_norm, classes in _NEW_ENGINE_ELIGIBILITY.items():
+        for subject_norm, classes in BLUEPRINT_SUPPORT.items():
             for class_num in classes:
                 if class_num == 10:
                     continue
@@ -394,7 +394,7 @@ class StarterTemplateTests(TestCase):
 
     def test_a_starter_never_runs_the_blueprint_engine(self):
         with patch(
-            "services.generation.planner.build_question_plan",
+            "services.generation.planner.plan.build_question_plan",
             side_effect=AssertionError("the engine ran for a starter"),
         ):
             self.assertGreater(resolve_builtin("starter-mathematics-3-5").total_questions, 0)

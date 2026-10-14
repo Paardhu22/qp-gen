@@ -2,27 +2,19 @@
 Tests for the four new CBSE Class 10 subject plugins:
 Mathematics Standard (041), English (184), Hindi Course B (085), Telugu Telangana (089).
 
-Run with:  python -m unittest services.generation.blueprint.tests.test_new_subjects -v
+Run with:  python manage.py test services.generation.blueprint.tests.test_new_subjects -v 2
 """
 import unittest
-import sys
-import os
 
+from services.generation.planner import (
+    class10, factory, instructions, plan, slot_prompts, slots, subjects,
+)
 
-
-def _load_router():
-    """Load the planner module via exec, stubbing out Django."""
-    router_path = os.path.join(
-        os.path.dirname(__file__), '..', '..', 'planner.py'
-    )
-    src = open(router_path, encoding="utf-8").read()
-    src = src.replace('from django.conf import settings', '')
-    globs = {'__builtins__': __builtins__, 'logging': __import__('logging')}
-    exec(compile(src, router_path, 'exec'), globs)
-    return globs
-
-
-_router = _load_router()
+# The planner's public + private helpers in one namespace, so the tests can
+# reach `_exact_class10_blueprint_entries_*` and friends by name.
+_router = {}
+for _module in (subjects, slots, slot_prompts, factory, class10, instructions, plan):
+    _router.update(vars(_module))
 
 
 class TestBlueprintMarksAndCount(unittest.TestCase):
@@ -53,12 +45,12 @@ class TestEligibility(unittest.TestCase):
 
     def test_new_subjects_eligible_class10(self):
         for subj in ("mathematics", "english", "hindi", "telugu"):
-            self.assertTrue(_router["is_eligible_for_new_engine"](subj, 10),
+            self.assertTrue(_router["blueprint_supported"](subj, 10),
                             f"{subj} should be eligible at class 10")
 
     def test_new_subjects_ineligible_class9(self):
         for subj in ("mathematics", "english", "hindi", "telugu"):
-            self.assertFalse(_router["is_eligible_for_new_engine"](subj, 9),
+            self.assertFalse(_router["blueprint_supported"](subj, 9),
                              f"{subj} should NOT be eligible at class 9")
 
 

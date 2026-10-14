@@ -658,17 +658,18 @@ def stream_pool_questions(
     hsat_source_ids: Optional[List[str]] = None,
 ) -> Iterable[str]:
     """Generate a pool from the uploaded chapter, then assemble a paper from it."""
-    from services.generation.planner import (
+    from services.generation.planner.instructions import (
         build_blueprint_instructions,
         build_general_instructions,
-        build_question_plan,
         build_realized_general_instructions,
+    )
+    from services.generation.planner.plan import build_question_plan, paper_plan_section_order
+    from services.generation.planner.slots import summarize_question_plan
+    from services.generation.planner.subjects import (
         extract_class_number,
         normalize_subject,
-        paper_plan_section_order,
         resolve_maths_basic,
-        should_use_new_engine,
-        summarize_question_plan,
+        payload_has_blueprint,
     )
     from services.generation.pool.gim import _parse_gim_instructions
 
@@ -874,7 +875,7 @@ def stream_pool_questions(
             yield _sse({"message": correction}, event="notice")
         subject_label = subject_raw
     else:
-        if not should_use_new_engine(payload):
+        if not payload_has_blueprint(payload):
             yield _sse(
                 {
                     "error": "This CBSE subject/class is not configured. Supported: "

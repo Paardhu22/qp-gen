@@ -36,11 +36,11 @@ load_dotenv(
 )
 django.setup()
 
-from services.generation.planner import (  # noqa: E402
+from services.generation.planner.instructions import build_realized_general_instructions
+from services.generation.planner.plan import (
     _is_explicit_section_breakdown,
     _parse_instructions_for_slots,
     build_question_plan,
-    build_realized_general_instructions,
     paper_plan_section_order,
 )
 

@@ -7,28 +7,20 @@ Tests for the ISSUE A / ISSUE C fixes:
   - The PyMuPDF import shim in services.sources.pdf falls back gracefully when
     PyMuPDF is missing and labels its output as `degraded`.
 
-Run:  python -m unittest services.generation.blueprint.tests.test_content_scope -v
+Run:  python manage.py test services.generation.blueprint.tests.test_content_scope -v 2
 """
 import os
-import sys
 import unittest
 
+from services.generation.planner import (
+    class10, factory, instructions, plan, slot_prompts, slots, subjects,
+)
 
-
-def _load_router():
-    """Load the planner module via exec, stubbing out Django (mirrors the
-    pattern used by test_new_subjects)."""
-    router_path = os.path.join(
-        os.path.dirname(__file__), '..', '..', 'planner.py'
-    )
-    src = open(router_path, encoding="utf-8").read()
-    src = src.replace('from django.conf import settings', '')
-    globs = {'__builtins__': __builtins__, 'logging': __import__('logging')}
-    exec(compile(src, router_path, 'exec'), globs)
-    return globs
-
-
-_router = _load_router()
+# The planner's public + private helpers in one namespace, so the tests can
+# reach `_exact_class10_blueprint_entries_*` and friends by name.
+_router = {}
+for _module in (subjects, slots, slot_prompts, factory, class10, instructions, plan):
+    _router.update(vars(_module))
 
 
 def _realized_paper(*sections):

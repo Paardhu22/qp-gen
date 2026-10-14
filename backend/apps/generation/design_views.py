@@ -893,7 +893,7 @@ def _available_name(user, wanted: str) -> str:
 class PaperTemplateForkView(APIView):
     """Turn a built-in catalog entry into a row the teacher owns.
 
-    Built-ins are generated from `_NEW_ENGINE_ELIGIBILITY` (see
+    Built-ins are generated from `BLUEPRINT_SUPPORT` (see
     `services/templates/catalog.py`) — code, not rows — which is what keeps the
     picker in step with the engine for free. The cost is that a built-in has
     nothing to edit and nowhere to be filed. Forking resolves it once and

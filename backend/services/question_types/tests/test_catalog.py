@@ -238,7 +238,7 @@ class DerivedListParityTests(SimpleTestCase):
         self.assertEqual(_TOKENS_PER_QUESTION, _OLD_TOKENS)
 
     def test_legacy_buckets(self):
-        from services.generation.planner import _legacy_question_type
+        from services.generation.planner.slots import _legacy_question_type
         from services.generation.pool.pipeline import _legacy_type_for as pipeline_bucket
         from services.generation.pool.replace import _legacy_type_for as replace_bucket
         from services.templates.spec import legacy_type_for

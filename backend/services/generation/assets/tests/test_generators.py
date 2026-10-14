@@ -25,7 +25,7 @@ from services.generation.assets.schema import (
 )
 from services.generation.assets.validation import validate_asset
 from services.generation.assets.writing import WritingAssetGenerator
-from services.generation.planner import build_question_plan
+from services.generation.planner.plan import build_question_plan
 from services.generation.pool.schema import PoolValidationError
 
 

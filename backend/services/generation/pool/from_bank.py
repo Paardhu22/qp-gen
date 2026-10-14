@@ -64,16 +64,14 @@ def stream_paper_from_bank(
     payload: Optional[dict] = None,
 ) -> Iterable[str]:
     """Assemble a paper from saved questions. Model 1 never runs."""
-    from services.generation.planner import (
+    from services.generation.planner.instructions import (
         build_blueprint_instructions,
         build_general_instructions,
-        build_question_plan,
         build_realized_general_instructions,
-        normalize_subject,
-        paper_plan_section_order,
-        resolve_maths_basic,
-        summarize_question_plan,
     )
+    from services.generation.planner.plan import build_question_plan, paper_plan_section_order
+    from services.generation.planner.slots import summarize_question_plan
+    from services.generation.planner.subjects import normalize_subject, resolve_maths_basic
     from services.generation.pool.gim import _parse_gim_instructions
 
     payload = payload or {}

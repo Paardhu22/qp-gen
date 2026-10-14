@@ -2,14 +2,13 @@ from django.test import TestCase
 
 from apps.generation.serializers import QuestionGenerationSerializer
 from services.sources.hsat import catalog as hsat_catalog
-from services.generation.planner import (
+from services.generation.planner.instructions import (
     build_blueprint_instructions,
-    build_question_plan,
     build_slot_blueprint_instructions,
     build_social_science_blueprint_instructions,
-    normalize_subject,
-    resolve_maths_basic,
 )
+from services.generation.planner.plan import build_question_plan
+from services.generation.planner.subjects import normalize_subject, resolve_maths_basic
 from services.generation.rules.syllabus_scope import (
     chunk_source_is_excluded,
     excluded_source_substrings,

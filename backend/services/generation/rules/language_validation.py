@@ -21,7 +21,8 @@ left exactly as they were.
 import re
 from typing import Tuple
 
-from services.generation.planner import normalize_subject, TELUGU_METRE_GANA
+from services.generation.planner.slot_prompts import TELUGU_METRE_GANA
+from services.generation.planner.subjects import normalize_subject
 
 DEVANAGARI_LO, DEVANAGARI_HI = 0x0900, 0x097F
 TELUGU_LO, TELUGU_HI = 0x0C00, 0x0C7F

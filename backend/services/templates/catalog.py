@@ -13,7 +13,7 @@ and change whatever they like.
 ## Board cards are generated, but only Class 10 is listed
 
 The supported (subject, class) matrix already exists in one place:
-`services.generation.planner._NEW_ENGINE_ELIGIBILITY`, so the board cards are derived
+`services.generation.planner.subjects.BLUEPRINT_SUPPORT`, so the board cards are derived
 from it rather than typed out beside it.
 
 Only the Class 10 cards are *listed*. CBSE publishes sample papers for the
@@ -132,10 +132,10 @@ def _cbse_entries() -> List[CatalogEntry]:
     # Imported here rather than at module scope: the planner pulls in the
     # whole blueprint engine, and the catalog is imported by the API layer on
     # every request.
-    from services.generation.planner import _NEW_ENGINE_ELIGIBILITY
+    from services.generation.planner.subjects import BLUEPRINT_SUPPORT
 
     entries: List[CatalogEntry] = []
-    for subject_norm, classes in _NEW_ENGINE_ELIGIBILITY.items():
+    for subject_norm, classes in BLUEPRINT_SUPPORT.items():
         label = _SUBJECT_LABELS.get(subject_norm, subject_norm.title())
         blurb = _SUBJECT_BLURBS.get(subject_norm, "")
         for class_num in classes:
@@ -220,7 +220,7 @@ def list_templates(
     valid choice for a subject that has no board blueprint at all. Board cards
     narrow to their one class, and starters to the band they suit.
     """
-    from services.generation.planner import normalize_subject
+    from services.generation.planner.subjects import normalize_subject
 
     entries = _all_entries()
 
@@ -354,7 +354,8 @@ def resolve_detailed(
         )
 
     # KIND_CBSE — the blueprint engine is the authority.
-    from services.generation.planner import build_question_plan, extract_class_number
+    from services.generation.planner.plan import build_question_plan
+    from services.generation.planner.subjects import extract_class_number
 
     plan = list(
         build_question_plan(

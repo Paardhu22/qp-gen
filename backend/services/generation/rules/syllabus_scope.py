@@ -47,7 +47,7 @@ class ScopeLimit:
 
 # ---------------------------------------------------------------------------
 # Class 10 exclusion registry (subject_norm → topics). subject_norm matches
-# services.generation.planner.normalize_subject output.
+# services.generation.planner.subjects.normalize_subject output.
 # ---------------------------------------------------------------------------
 
 _CLASS10_EXCLUSIONS: Dict[str, List[ExcludedTopic]] = {

@@ -14,13 +14,13 @@ import types
 import unittest
 
 
-from services.generation.planner import (  # noqa: E402
-    build_question_plan,
+from services.generation.planner.plan import build_question_plan
+from services.generation.planner.slot_prompts import (
     build_retrieval_query,
-    default_cbse_question_count,
     _GRAMMAR_TASK_PLAN,
     TELUGU_METRE_GANA,
 )
+from services.generation.planner.subjects import default_cbse_question_count
 from services.generation.rules import language_validation as lv  # noqa: E402
 
 

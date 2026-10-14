@@ -20,7 +20,7 @@ from services.generation.assets.registry import (
     registered_generators,
     routing_summary,
 )
-from services.generation.planner import build_question_plan
+from services.generation.planner.plan import build_question_plan
 
 
 @dataclass

@@ -95,7 +95,7 @@ def _subject_key(subject: str) -> str:
     when the router does not recognise the whole name, the first word is the
     subject.
     """
-    from services.generation.planner import SUPPORTED_SUBJECTS, normalize_subject
+    from services.generation.planner.subjects import SUPPORTED_SUBJECTS, normalize_subject
 
     text = str(subject or "").strip()
     if not text:

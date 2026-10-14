@@ -171,7 +171,7 @@ class BuilderSlotTests(SimpleTestCase):
         self.assertEqual(plan[0].legacy_type, "MCQ")
 
     def test_engine_slots_default_to_their_shape_type(self):
-        from services.generation.planner import QuestionGenerationSlot
+        from services.generation.planner.slots import QuestionGenerationSlot
 
         slot = QuestionGenerationSlot(
             index=1, section_title="Section E", subject="Science", stream="INTEGRATED",

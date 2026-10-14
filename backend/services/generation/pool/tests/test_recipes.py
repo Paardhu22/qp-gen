@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from django.test import TestCase
 
 from services.generation.assets import DEFAULT_GENERATOR, partition_plan
-from services.generation.planner import build_question_plan
+from services.generation.planner.plan import build_question_plan
 from services.generation.pool.model2 import assemble_paper
 from services.generation.pool.recipes import batches_for_subject, batches_from_plan
 from services.generation.pool.schema import PoolQuestion, compute_content_hash
