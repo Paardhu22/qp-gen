@@ -160,9 +160,8 @@ def caption_image_for_embedding(
 
     Uses ``OPENAI_VISION_MODEL`` (default ``gpt-4o``), NOT the heavier
     ``OPENAI_MODEL`` reasoning model — captioning a textbook visual for
-    retrieval only needs the multimodal head, not chain-of-thought. The
-    profile in scratch/profile_ingestion.py shows a ~7× per-call latency
-    cut from this switch.
+    retrieval only needs the multimodal head, not chain-of-thought. Profiling
+    showed a ~7× per-call latency cut from this switch.
     """
     # max_retries=0: this loop owns retry timing. The SDK's generic
     # exponential backoff neither parses the 'try again in Xs' hint nor

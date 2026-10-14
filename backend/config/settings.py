@@ -206,9 +206,8 @@ INGEST_EMBED_BATCH_SIZE = _int_env(
 )
 
 # Compute retrieval embeddings during ingestion at all. Embeddings are read
-# only by services/retrieval_service.py (answer-script generation) and the
-# flag-gated apps/question_generation/ engine — the pool pipeline that
-# actually writes papers reads chunk *text* via services/chapter_markdown.py
+# only by services/retrieval_service.py (answer-script generation) — the
+# pool pipeline that actually writes papers reads chunk *text* via services/chapter_markdown.py
 # and never touches a vector. Setting this false makes ingestion purely
 # local work at the cost of degrading answer-script context for anything
 # ingested while it is off.
@@ -356,8 +355,6 @@ CHAT_MODEL = os.environ.get("CHAT_MODEL", "gpt-4.1-mini")
 # killed mid-stream rather than failing cleanly. Keep this comfortably BELOW
 # the gunicorn --timeout in deployment/qp-gen-backend.service.
 OPENAI_TIMEOUT_SECONDS = float(os.environ.get("OPENAI_TIMEOUT_SECONDS", "120"))
-
-QG_NEW_ENGINE_ENABLED = os.environ.get("QG_NEW_ENGINE_ENABLED", "false").lower() == "true"
 
 # ENABLE_TEST_ENDPOINTS was removed. It gated exactly one thing —
 # /api/generation/test-science-engine — and that is now the management command

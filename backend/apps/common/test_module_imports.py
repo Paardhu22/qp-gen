@@ -33,8 +33,8 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 #: Packages whose every module must be importable.
 WATCHED_PACKAGES = ("services", "apps")
 
-#: Directories of throwaway scripts, not application code.
-EXCLUDED_PREFIXES = ("scratch", "scripts")
+#: Directories of one-off scripts, not application code.
+EXCLUDED_PREFIXES = ("scripts",)
 
 
 def _module_names() -> list[str]:

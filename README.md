@@ -5,7 +5,7 @@
 > monorepo. It is written to be read top-to-bottom as a thesis on *why* the
 > system is shaped the way it is, not merely *what* it does. Every claim here is
 > grounded in the source tree as of `main@d6e7a9d` (2026-09-15). Where
-> `backend/README.md` or `backend/API_ENDPOINTS.md` disagree with the code,
+> `backend/README.md` disagrees with the code,
 > **this document and the code win** — both predate the pool pipeline and still
 > describe `q_instructions/` as *the* engine and SQLite as the default database.
 
@@ -299,8 +299,7 @@ hope about the model.
 qp-gen/
 ├── README.md                    ← this document
 ├── CLAUDE.md                    ← agent working notes
-├── SECURITY_AUDIT.md
-├── docs/                        ← audits, work queue, handoffs, manual test checklist
+├── docs/                        ← question-type catalogue plan + handoff
 ├── deployment/                  ← nginx, gunicorn + retention systemd units, migration runbook
 │
 ├── backend/                     ← Django 5 + DRF API
@@ -318,7 +317,7 @@ qp-gen/
 │   │   ├── organizations/       ← Organization, Membership, OrganizationInvite; usage + analytics
 │   │   ├── projects/            ← Project, Paper (soft delete), PaperSet, Draft, Question,
 │   │   │                          QuestionType/Family/Alias, ExportRecord
-│   │   ├── question_generation/ ← DORMANT refactored blueprint engine (flag off) + OpenAIProvider
+│   │   ├── question_generation/ ← OpenAIProvider LLM seam only (the dormant engine was removed)
 │   │   └── storage/             ← export upload / download-URL endpoints
 │   │
 │   ├── services/                ← the actual business logic (fat services, thin apps)
@@ -703,7 +702,7 @@ other.
 
 **Embeddings are optional for generation.** The pool pipeline reads chunk
 *text* and never touches a vector. Embeddings serve only answer-script retrieval
-and the dormant engine. `INGEST_EMBEDDINGS_ENABLED=false` makes ingestion purely
+(the dormant engine that also read them was removed). `INGEST_EMBEDDINGS_ENABLED=false` makes ingestion purely
 local.
 
 Upload routes:
@@ -846,24 +845,19 @@ Eligibility (`_NEW_ENGINE_ELIGIBILITY`): Science & Social Science for **classes
 (`maths`→`mathematics`, `sst`→`social science`, codes 041/241, etc.) are
 normalised first.
 
-### 9.3 The engine question (open)
+### 9.3 The engine question (resolved)
 
-There are **three** generation codebases:
+There are **two** generation codebases:
 
-- `q_instructions/` (~14k lines) — **live**; `generation_router` imports its
-  facade.
+- `q_instructions/` (~14k lines) — **live**; `generation_router` imports its enums and
+  science / social-science orchestrators.
 - `services/pool/` (~9k lines) — **live**; the pipeline that writes papers.
-- `apps/question_generation/` (~3.7k lines) — **dormant**. It is a refactored
-  blueprint engine behind `QG_NEW_ENGINE_ENABLED` (default `false`), has no
-  production caller, and ships a parity test against `q_instructions`. Its only
-  runner is the management command `run_engine_slice` (formerly a test HTTP
-  endpoint).
 
-The pool pipeline's LLM seam
+The refactored blueprint engine that used to live in `apps/question_generation/`
+(flag `QG_NEW_ENGINE_ENABLED`, runner `run_engine_slice`) was dormant and has been
+deleted. Only the pool pipeline's LLM seam survives there
 (`apps/question_generation/infrastructure/providers/openai_provider.py`,
-`OpenAIProvider` / `LLMRequest` / `LLMMessage`) lives inside the dormant app but
-**is used unconditionally**. Finishing the migration or deleting the dormant
-engine is an open decision (`docs/feature-audit.md`).
+`OpenAIProvider` / `LLMRequest` / `LLMMessage`) and **is used unconditionally**.
 
 ---
 
@@ -1453,7 +1447,7 @@ URL-param copy used to send the composed tab id (`{base}_A`) and silently 404
 its backup. `export-pdf.ts` rasterises with html2canvas + jsPDF, and
 `export-docx.ts` uses the `docx` package (SVG figures rasterised at 2×).
 
-**UX/a11y pass** (late August, `docs/`): every empty state has a way out,
+**UX/a11y pass** (late August): every empty state has a way out,
 failed loads offer retry, primary buttons meet contrast in dark mode,
 `prefers-reduced-motion` is honoured, there is a first-run primitive, one scrim
 recipe and a documented z-index scale, and all page titles share one scale and
@@ -1496,7 +1490,6 @@ and settings raise if they are missing. Tests swap to in-memory SQLite when
 
 | Var | Effect | Default |
 |---|---|---|
-| `QG_NEW_ENGINE_ENABLED` | route blueprint through the dormant `apps/question_generation/` | `false` |
 | `POOL_EXACT_MARGIN_PERCENT` | spare margin on the exact pool size (0 = literally exact) | `15` |
 | `POOL_MAX_CONCURRENCY` | process-wide cap on concurrent Model 1 requests (TPM) | `4` |
 | `POOL_CHAPTER_CONCURRENCY` | chapters generated in parallel | `3` |
@@ -1520,8 +1513,7 @@ and settings raise if they are missing. Tests swap to in-memory SQLite when
 
 **Removed:** `IMAGE_QUESTION_STRATEGY`, `IMAGE_QUESTIONS_PER_POOL`,
 `IMAGE_COST_USD_PER_IMAGE` (the image stage is gone; they are ignored if still
-set) and `ENABLE_TEST_ENDPOINTS` (its endpoint is now the `run_engine_slice`
-command).
+set) and `ENABLE_TEST_ENDPOINTS` (its endpoint is gone).
 
 ---
 
@@ -1640,14 +1632,12 @@ Notable suites:
 - `apps/generation/test_generation_runs.py`, `test_design_api.py`;
   `apps/accounts/test_brand_kit.py`; app `tests.py` for organizations, chat,
   projects, documents.
-- `apps/question_generation/tests/test_parity.py` and `q_instructions/tests/*` —
-  dual-engine parity + blueprint invariants.
+- `q_instructions/tests/*` — blueprint invariants.
 
 **Frontend:** `tsc --noEmit`, `eslint`, and node self-check scripts in
 `frontend/scripts/` (`node scripts/test-question-nodes.mjs`, `test-drafts`,
 `test-paper-id`, `test-pagination-fit`, `test-plan-summary`, `test-set-content`,
 …). `/pagination-harness` exercises the pagination engine in a browser.
-What still needs a human is listed in `docs/manual-test-checklist.md`.
 
 ---
 
@@ -1734,7 +1724,7 @@ See §17 for behaviour flags. Additional required/notable vars:
 
 Management commands: `seed_superadmin`, `export_question_types`,
 `purge_deleted_papers`, `purge_expired_drafts`, `purge_generation_runs`,
-`backfill_set_content_to_s3`, `run_engine_slice`, `verify_s3`,
+`backfill_set_content_to_s3`, `verify_s3`,
 `strip_vi_from_chunks`.
 
 ---

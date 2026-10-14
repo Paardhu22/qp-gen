@@ -4,9 +4,6 @@ import dataclasses
 from collections import Counter
 from typing import List, Dict, Any, Iterable, Optional, Sequence, Set, Tuple
 
-from django.conf import settings
-
-from q_instructions.master.facade import AcademicGenerationFacade, GeneratePaperRequest
 from services.pool.schema import DEFAULT_GENERATOR as POOL_GENERATOR
 from services.syllabus_scope import (
     excluded_topics_prose_block,
@@ -195,9 +192,6 @@ def should_use_new_engine(payload: dict) -> bool:
     """
     logger.info(f"[GEN_ROUTER] RAW PAYLOAD:\n{payload}")
     
-    if not settings.QG_NEW_ENGINE_ENABLED:
-        logger.info("[ROUTE_DECISION] QG_NEW_ENGINE_ENABLED is false; q_instructions routing remains enforced.")
-
     if not payload:
         logger.info("[ROUTE_DECISION] Missing payload entirely")
         return False
@@ -267,15 +261,6 @@ def extract_mcq_options(content_text: str) -> tuple:
         options = [m[1].strip() for m in matches]
         return main_question, options
     return content_text, []
-
-
-def adapt_response_to_legacy(new_response) -> dict:
-    """
-    Adapts a GeneratedPaperResponse from the new engine to the legacy JSON format.
-    """
-    from apps.question_generation.adapters.legacy_response import adapt_questions_to_legacy
-
-    return adapt_questions_to_legacy(new_response)
 
 
 def _type_label(question_type: str, marks: int) -> str:
@@ -3133,33 +3118,3 @@ def build_question_plan(
             )
 
     return slots[:total_questions]
-
-
-def route_and_execute_new_engine(
-    topic: str,
-    difficulty: str,
-    count: int,
-    class_num: int = 10,
-    subject: str = "Science",
-) -> dict:
-    """
-    Compatibility wrapper used by older integration tests and debug tooling.
-    The streaming generation path now uses build_question_plan instead.
-    """
-    request = GeneratePaperRequest(
-        board="CBSE",
-        academic_class=f"CLASS_{class_num}",
-        exam_type="FINAL",
-        chapters=[topic] if topic else [],
-        difficulty=difficulty,
-        count=count if count and count > 0 else None,
-        institution_id="CBSE_OFFICIAL",
-        seed=42,
-    )
-    response = AcademicGenerationFacade().generate_paper(request)
-    adapted = adapt_response_to_legacy(response)
-    subject_label = "Social Science" if normalize_subject(subject) == "social science" else "Science"
-    for section in adapted.get("sections", []):
-        for question in section.get("questions", []):
-            question.setdefault("metadata", {})["subject"] = subject_label
-    return adapted
