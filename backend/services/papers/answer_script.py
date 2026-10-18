@@ -489,8 +489,13 @@ def _generate_single_answer_llm_only(
     question: Dict[str, Any],
     source_chunks: List[dict],
     user,
+    subject: str = "",
 ) -> tuple[int, Dict[str, Any]]:
-    """Generate answer for a single question using provided chunks + LLM."""
+    """Generate answer for a single question using provided chunks + LLM.
+
+    ``subject`` decides how far ``x1`` is trusted to be an index when the
+    answer's maths is normalised (see ``rules/subscripts.py``).
+    """
 
     primary_content = question["content"]
     or_choice_text = question.get("or_choice")
@@ -636,9 +641,9 @@ def _generate_single_answer_llm_only(
         or_answer_text = "[Answer generation failed]" if or_choice_text else None
 
     # One contract for the saved document: \( … \) inline, \[ … \] display.
-    answer_text = normalize_math_text(answer_text)
+    answer_text = normalize_math_text(answer_text, subject=subject)
     if or_answer_text:
-        or_answer_text = normalize_math_text(or_answer_text)
+        or_answer_text = normalize_math_text(or_answer_text, subject=subject)
 
     return question_number, {
         "question_number": question_number,
@@ -1105,6 +1110,7 @@ def generate_answer_script(paper_id: str, user, set_id: str = None) -> Dict[str,
                     question=question,
                     source_chunks=source_chunks,
                     user=user,
+                    subject=paper.subject or "",
                 )
             )
             

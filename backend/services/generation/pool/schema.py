@@ -36,6 +36,7 @@ from services.question_types import (
     shape_of,
 )
 from services.generation.pool.options import normalize_answer, normalize_options
+from services.generation.rules.typesetting import normalize_math_text, restore_eaten_escapes_deep
 from services.generation.pool.structure import StructureError, parse_structure
 from apps.common.ids import generate_id
 
@@ -425,6 +426,11 @@ def normalize_pool_question(
     if not isinstance(raw, dict):
         raise PoolValidationError(f"Expected an object, got {type(raw).__name__}")
 
+    # A JSON parse turns \frac, \theta, \neq into control characters, and the
+    # first .strip() below would delete the form feed for good: put the
+    # backslashes back on the whole object before anything reads a string.
+    raw = restore_eaten_escapes_deep(raw)
+
     # The spec field is `question`; accept `content`/`stem` too since the model
     # drifts toward them when the surrounding prompt mentions "content".
     text = str(
@@ -552,9 +558,14 @@ def normalize_pool_question(
         difficulty=normalize_difficulty(raw.get("difficulty")) or default_difficulty,
         marks=marks,
         question=text,
-        options=options,
-        answer=answer,
-        explanation=str(raw.get("explanation") or "").strip(),
+        # The stem is scrubbed by the caller (leakage, ORs, bare LaTeX). The
+        # rest of what the paper prints had no scrub at all: a bare x^2 in an
+        # option, or x1 in an answer, reached the reader as it was written.
+        options=[normalize_math_text(option, subject=subject) for option in options],
+        answer=normalize_math_text(answer, subject=subject),
+        explanation=normalize_math_text(
+            str(raw.get("explanation") or "").strip(), subject=subject
+        ),
         image=image,
         generator=generator or DEFAULT_GENERATOR,
         asset_type=asset_type,

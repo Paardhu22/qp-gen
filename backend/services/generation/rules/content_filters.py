@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from typing import Iterable, List, Sequence
 
+from services.generation.rules.subscripts import typeset_indices
+
 # ── VI (visually impaired) alternate blocks ──────────────────────────────
 #
 # CBSE sample papers and HSAT textbook PDFs embed VI alternates as:
@@ -287,16 +289,21 @@ def _collapse_blank_lines(text: str) -> str:
 
 
 def clean_question_text(
-    text: str, *, or_labels: Sequence[str] = DEFAULT_OR_LABELS
+    text: str,
+    *,
+    or_labels: Sequence[str] = DEFAULT_OR_LABELS,
+    subject: str | None = None,
 ) -> str:
     """Full scrub for LLM-emitted question/or-choice content.
 
     Order matters: leakage and VI blocks are removed first (they can leave
-    dangling OR lines behind), then orphan ORs, then bare-LaTeX rescue.
+    dangling OR lines behind), then orphan ORs, then bare-LaTeX rescue, then
+    indexed variables (x1 → x_{1}), which depend on the subject to know how far
+    a "letter and a digit" can be trusted to be an index.
     """
     if not text:
         return text
     text = strip_blueprint_leakage(text)
     text = strip_vi_blocks(text)
     text = remove_orphan_or_tokens(text, or_labels)
-    return wrap_bare_latex_tokens(text)
+    return typeset_indices(wrap_bare_latex_tokens(text), subject=subject)

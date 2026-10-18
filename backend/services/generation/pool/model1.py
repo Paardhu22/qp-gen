@@ -45,6 +45,8 @@ from services.llm.openai_provider import (
 )
 from services.sources.chapter_markdown import ChapterMarkdown
 from services.generation.rules.content_filters import clean_question_text
+from services.generation.rules.subscripts import OFF, policy_for
+from services.generation.rules.typesetting import INDEX_PROMPT_RULE
 from services.generation.figures import SpecError, parse_chart_spec, render_chart
 from services.generation.pool.recipes import (
     _LANGUAGE_SUBJECTS,
@@ -113,6 +115,24 @@ class PoolGenerationResult:
         return len(self.questions)
 
 
+def _notation_paragraph(subject: str) -> str:
+    """How to write maths, for the subjects that have any.
+
+    A language or Social Science paper has no variables, so its prompt stays as
+    it was. Everywhere else the reply is JSON that carries LaTeX, so the model
+    is told both how to write an index and to double its backslashes.
+    """
+    if policy_for(subject) is OFF:
+        return ""
+    return (
+        "Mathematical notation, wherever a question needs it: write the "
+        "expression in LaTeX between \\( and \\), never as plain text. "
+        + INDEX_PROMPT_RULE
+        + " Your reply is JSON, so double every backslash inside a string: "
+        'write "\\\\( x_{1} \\\\)" for \\( x_{1} \\).\n\n'
+    )
+
+
 def _system_prompt(subject: str, class_num: int, difficulty: str) -> str:
     return (
         "You are a senior CBSE examiner writing questions for a Class "
@@ -147,7 +167,8 @@ def _system_prompt(subject: str, class_num: int, difficulty: str) -> str:
         "9. `answer` is what a marking scheme accepts. `explanation` is why it "
         "is correct. Both are required for every question.\n"
         "10. Write in the language of the chapter.\n\n"
-        "Return ONLY a JSON array. No prose, no markdown fence, no wrapper "
+        + _notation_paragraph(subject)
+        + "Return ONLY a JSON array. No prose, no markdown fence, no wrapper "
         "object. Each element:\n"
         "{\n"
         '  "topic": "<specific concept within the chapter>",\n'
@@ -423,7 +444,7 @@ def _normalise_batch(
 
         # Route the stem through the same scrubber the legacy path used, so
         # figure-label residue and blueprint leakage never reach the bank.
-        cleaned = clean_question_text(question.question)
+        cleaned = clean_question_text(question.question, subject=subject)
         if not cleaned.strip():
             invalid += 1
             continue

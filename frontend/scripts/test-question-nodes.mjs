@@ -8,7 +8,7 @@
  * and a grammar set's twelve items must NOT be mistaken for options.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, renameSync } from "node:fs";
+import { mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -35,6 +35,10 @@ execFileSync(
 );
 const file = join(dir, "question-nodes.mjs");
 renameSync(join(dir, "question-nodes.js"), file);
+// The module imports its sibling `subscripts.ts`; tsc emitted it beside it, but
+// Node's ESM resolver wants the extension spelled out.
+renameSync(join(dir, "subscripts.js"), join(dir, "subscripts.mjs"));
+writeFileSync(file, readFileSync(file, "utf8").replace('from "./subscripts"', 'from "./subscripts.mjs"'));
 
 const {
   splitStemAndOptions,

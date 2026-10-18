@@ -14,7 +14,26 @@ fence or a sentence of preamble is harmless.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+from services.generation.rules.typesetting import repair_json_backslashes
+
+
+def _loads_object(raw: str) -> Optional[Dict[str, Any]]:
+    """One question object from JSON text, tolerating LaTeX's backslashes.
+
+    A model that writes ``\\( x_{1} \\)`` with a single backslash produces an
+    illegal JSON escape, and the whole question used to be dropped for it.
+    Doubling the backslashes JSON rejects recovers it; only ``None`` means the
+    object really is malformed.
+    """
+    for candidate in (raw, repair_json_backslashes(raw)):
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        return parsed if isinstance(parsed, dict) else None
+    return None
 
 
 class JsonObjectStreamExtractor:
@@ -67,12 +86,11 @@ class JsonObjectStreamExtractor:
                 if self._depth == 0:
                     raw = "".join(self._buffer)
                     self._reset()
-                    try:
-                        completed.append(json.loads(raw))
-                    except json.JSONDecodeError:
-                        # A single malformed object must not abort the batch —
-                        # 79 good questions are worth more than a clean failure.
-                        continue
+                    # A single malformed object must not abort the batch —
+                    # 79 good questions are worth more than a clean failure.
+                    parsed = _loads_object(raw)
+                    if parsed is not None:
+                        completed.append(parsed)
 
         return completed
 
@@ -101,9 +119,14 @@ def parse_question_payload(buffer: str) -> List[Dict[str, Any]]:
             text = text[4:]
         text = text.strip()
 
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
+    parsed = None
+    for candidate in (text, repair_json_backslashes(text)):
+        try:
+            parsed = json.loads(candidate)
+            break
+        except json.JSONDecodeError:
+            continue
+    if parsed is None:
         # Salvage whatever complete objects exist in a truncated response.
         extractor = JsonObjectStreamExtractor()
         return extractor.feed(text)

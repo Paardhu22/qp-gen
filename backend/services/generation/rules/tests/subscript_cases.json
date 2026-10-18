@@ -1,0 +1,416 @@
+[
+ {
+  "group": "coordinates",
+  "subject": "Mathematics",
+  "text": "Find the distance between (x1, y1) and (x2, y2).",
+  "expected": "Find the distance between \\((x_{1}, y_{1})\\) and \\((x_{2}, y_{2})\\)."
+ },
+ {
+  "group": "coordinates",
+  "subject": "Mathematics",
+  "text": "Show that the points (x1, x2) and (y1, y2) are collinear.",
+  "expected": "Show that the points \\((x_{1}, x_{2})\\) and \\((y_{1}, y_{2})\\) are collinear."
+ },
+ {
+  "group": "coordinates",
+  "subject": "Mathematics",
+  "text": "The vertices are A(x1, y1), B(x2, y2) and C(x3, y3).",
+  "expected": "The vertices are A\\((x_{1}, y_{1})\\), B\\((x_{2}, y_{2})\\) and C\\((x_{3}, y_{3})\\)."
+ },
+ {
+  "group": "coordinates",
+  "subject": "Mathematics",
+  "text": "The slope is m = (y2 - y1)/(x2 - x1).",
+  "expected": "The slope is m = (\\(y_{2}\\) - \\(y_{1}\\))/(\\(x_{2}\\) - \\(x_{1}\\))."
+ },
+ {
+  "group": "coordinates",
+  "subject": "Mathematics",
+  "text": "The point (x1, y1) lies on the line with slope m1.",
+  "expected": "The point \\((x_{1}, y_{1})\\) lies on the line with slope \\(m_{1}\\)."
+ },
+ {
+  "group": "coordinates",
+  "subject": "Mathematics",
+  "text": "Find ((m1x2 + m2x1)/(m1 + m2), (m1y2 + m2y1)/(m1 + m2)).",
+  "expected": "Find ((\\(m_{1}x_{2}\\) + \\(m_{2}x_{1}\\))/(\\(m_{1}\\) + \\(m_{2}\\)), (\\(m_{1}y_{2}\\) + \\(m_{2}y_{1}\\))/(\\(m_{1}\\) + \\(m_{2}\\)))."
+ },
+ {
+  "group": "indexed",
+  "subject": "Mathematics",
+  "text": "If x1 and x2 are the roots, then x1 + x2 = -b/a and x1x2 = c/a.",
+  "expected": "If \\(x_{1}\\) and \\(x_{2}\\) are the roots, then \\(x_{1}\\) + \\(x_{2}\\) = -b/a and \\(x_{1}x_{2}\\) = c/a."
+ },
+ {
+  "group": "indexed",
+  "subject": "Mathematics",
+  "text": "Let a1, a2, a3 be in AP.",
+  "expected": "Let \\(a_{1}\\), \\(a_{2}\\), \\(a_{3}\\) be in AP."
+ },
+ {
+  "group": "indexed",
+  "subject": "Mathematics",
+  "text": "The points P1 and P2 divide AB; find the length of P1P2.",
+  "expected": "The points \\(P_{1}\\) and \\(P_{2}\\) divide AB; find the length of \\(P_{1}P_{2}\\)."
+ },
+ {
+  "group": "indexed",
+  "subject": "Mathematics",
+  "text": "Take x1, x2, ..., x10 as the observations.",
+  "expected": "Take \\(x_{1}\\), \\(x_{2}\\), ..., \\(x_{10}\\) as the observations."
+ },
+ {
+  "group": "indexed",
+  "subject": "Mathematics",
+  "text": "Find the value of m1.",
+  "expected": "Find the value of \\(m_{1}\\)."
+ },
+ {
+  "group": "indexed",
+  "subject": "Mathematics",
+  "text": "The coefficients a0 and a1 are given.",
+  "expected": "The coefficients \\(a_{0}\\) and \\(a_{1}\\) are given."
+ },
+ {
+  "group": "indexed",
+  "subject": "Mathematics",
+  "text": "x1\nx2",
+  "expected": "\\(x_{1}\\)\n\\(x_{2}\\)"
+ },
+ {
+  "group": "statistics",
+  "subject": "Mathematics",
+  "text": "The class marks are x1, x2, x3 and the frequencies are f1, f2, f3.",
+  "expected": "The class marks are \\(x_{1}\\), \\(x_{2}\\), \\(x_{3}\\) and the frequencies are \\(f_{1}\\), \\(f_{2}\\), \\(f_{3}\\)."
+ },
+ {
+  "group": "statistics",
+  "subject": "Mathematics",
+  "text": "Mean = (f1x1 + f2x2 + f3x3)/(f1 + f2 + f3)",
+  "expected": "Mean = (\\(f_{1}x_{1}\\) + \\(f_{2}x_{2}\\) + \\(f_{3}x_{3}\\))/(\\(f_{1}\\) + \\(f_{2}\\) + \\(f_{3}\\))"
+ },
+ {
+  "group": "algebra",
+  "subject": "Mathematics",
+  "text": "(x1 + x2)/2",
+  "expected": "(\\(x_{1}\\) + \\(x_{2}\\))/2"
+ },
+ {
+  "group": "algebra",
+  "subject": "Mathematics",
+  "text": "f(x1, x2) = x1 + x2",
+  "expected": "f\\((x_{1}, x_{2})\\) = \\(x_{1}\\) + \\(x_{2}\\)"
+ },
+ {
+  "group": "explicit",
+  "subject": "Mathematics",
+  "text": "Write x_1 and x_{12}.",
+  "expected": "Write \\(x_{1}\\) and \\(x_{12}\\)."
+ },
+ {
+  "group": "explicit",
+  "subject": "English",
+  "text": "Let a_n be the nth term and y_i the ith value.",
+  "expected": "Let \\(a_{n}\\) be the nth term and \\(y_{i}\\) the ith value."
+ },
+ {
+  "group": "explicit",
+  "subject": "Science",
+  "text": "Mass m_1 and m_2.",
+  "expected": "Mass \\(m_{1}\\) and \\(m_{2}\\)."
+ },
+ {
+  "group": "explicit",
+  "subject": "Mathematics",
+  "text": "(x_1, y_1)",
+  "expected": "\\((x_{1}, y_{1})\\)"
+ },
+ {
+  "group": "typeset",
+  "subject": "Mathematics",
+  "text": "Already \\(x_{1}\\) and x2.",
+  "expected": "Already \\(x_{1}\\) and \\(x_{2}\\)."
+ },
+ {
+  "group": "typeset",
+  "subject": "Mathematics",
+  "text": "Find \\((x_{1}, y_{1})\\).",
+  "expected": "Find \\((x_{1}, y_{1})\\)."
+ },
+ {
+  "group": "typeset",
+  "subject": "Mathematics",
+  "text": "Find \\(x_1 + x_2\\) given x1 = 2.",
+  "expected": "Find \\(x_1 + x_2\\) given \\(x_{1}\\) = 2."
+ },
+ {
+  "group": "typeset",
+  "subject": "Mathematics",
+  "text": "Display: \\[ \\frac{x1}{2} \\] and x1, x2.",
+  "expected": "Display: \\[ \\frac{x1}{2} \\] and \\(x_{1}\\), \\(x_{2}\\)."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "Solve x3 - 6x2 + 11x - 6 = 0.",
+  "expected": "Solve x3 - 6x2 + 11x - 6 = 0."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "Solve x3 + x2 + x + 1 = 0.",
+  "expected": "Solve x3 + x2 + x + 1 = 0."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "Factorise 3x2 - 5x - 2.",
+  "expected": "Factorise 3x2 - 5x - 2."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "The area is 20 m2 and the volume 5 cm3.",
+  "expected": "The area is 20 m2 and the volume 5 cm3."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "A circle x2 + y2 = r2 and a parabola y2 = 4ax.",
+  "expected": "A circle x2 + y2 = r2 and a parabola y2 = 4ax."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "A lone x2 is ambiguous, so it stays.",
+  "expected": "A lone x2 is ambiguous, so it stays."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "Run it on an x86 machine at v1.5 from x1.txt.",
+  "expected": "Run it on an x86 machine at v1.5 from x1.txt."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "Use H2O, CO2, the mp3 and Class 10 Q1 and the A4 sheet.",
+  "expected": "Use H2O, CO2, the mp3 and Class 10 Q1 and the A4 sheet."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "Pay Rs50 for item2b.",
+  "expected": "Pay Rs50 for item2b."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "Chapter 2, Section 1 and Figure 3.",
+  "expected": "Chapter 2, Section 1 and Figure 3."
+ },
+ {
+  "group": "subject",
+  "subject": "Science",
+  "text": "Resistors R1 = 2 ohm and R2 = 4 ohm are in series.",
+  "expected": "Resistors \\(R_{1}\\) = 2 ohm and \\(R_{2}\\) = 4 ohm are in series."
+ },
+ {
+  "group": "subject",
+  "subject": "Science",
+  "text": "Currents I1 and I2 meet at a node.",
+  "expected": "Currents \\(I_{1}\\) and \\(I_{2}\\) meet at a node."
+ },
+ {
+  "group": "subject",
+  "subject": "Science",
+  "text": "A body has speeds v1 = 2 m/s and v2 = 4 m/s.",
+  "expected": "A body has speeds \\(v_{1}\\) = 2 m/s and \\(v_{2}\\) = 4 m/s."
+ },
+ {
+  "group": "subject",
+  "subject": "Science",
+  "text": "Oxygen O2 and ozone O3 are allotropes.",
+  "expected": "Oxygen O2 and ozone O3 are allotropes."
+ },
+ {
+  "group": "subject",
+  "subject": "Science",
+  "text": "N2 and H2 react to form ammonia, NH3.",
+  "expected": "N2 and H2 react to form ammonia, NH3."
+ },
+ {
+  "group": "subject",
+  "subject": "Science",
+  "text": "The speed v1 was measured.",
+  "expected": "The speed v1 was measured."
+ },
+ {
+  "group": "subject",
+  "subject": "Science",
+  "text": "In the F1 and F2 generations, the ratio changes.",
+  "expected": "In the \\(F_{1}\\) and \\(F_{2}\\) generations, the ratio changes."
+ },
+ {
+  "group": "subject",
+  "subject": "Physics",
+  "text": "Take P1 and P2 as the pressures.",
+  "expected": "Take \\(P_{1}\\) and \\(P_{2}\\) as the pressures."
+ },
+ {
+  "group": "subject",
+  "subject": "ICT",
+  "text": "Enter =SUM(A1, B2) in cell C1, then copy A1 and A2.",
+  "expected": "Enter =SUM(A1, B2) in cell C1, then copy A1 and A2."
+ },
+ {
+  "group": "subject",
+  "subject": "ICT",
+  "text": "Variables x1 and x2 hold the values.",
+  "expected": "Variables x1 and x2 hold the values."
+ },
+ {
+  "group": "subject",
+  "subject": "Computer Science",
+  "text": "Set h1 and h2 in the page.",
+  "expected": "Set h1 and h2 in the page."
+ },
+ {
+  "group": "subject",
+  "subject": "Social Science",
+  "text": "Take x1 and x2.",
+  "expected": "Take x1 and x2."
+ },
+ {
+  "group": "subject",
+  "subject": "English",
+  "text": "Read x1 and x2.",
+  "expected": "Read x1 and x2."
+ },
+ {
+  "group": "subject",
+  "subject": "Hindi",
+  "text": "x1 और x2",
+  "expected": "x1 और x2"
+ },
+ {
+  "group": "subject",
+  "subject": "",
+  "text": "The points (x1, y1) and (x2, y2).",
+  "expected": "The points \\((x_{1}, y_{1})\\) and \\((x_{2}, y_{2})\\)."
+ },
+ {
+  "group": "subject",
+  "subject": "",
+  "text": "Let x1 and x2 be the roots.",
+  "expected": "Let \\(x_{1}\\) and \\(x_{2}\\) be the roots."
+ },
+ {
+  "group": "subject",
+  "subject": "",
+  "text": "Points P1 and P2.",
+  "expected": "Points P1 and P2."
+ },
+ {
+  "group": "subject",
+  "subject": "",
+  "text": "Find m1.",
+  "expected": "Find m1."
+ },
+ {
+  "group": "subject",
+  "subject": "Applied Mathematics",
+  "text": "Find m1.",
+  "expected": "Find \\(m_{1}\\)."
+ },
+ {
+  "group": "subject",
+  "subject": "Statistics",
+  "text": "Take x1, x2.",
+  "expected": "Take \\(x_{1}\\), \\(x_{2}\\)."
+ },
+ {
+  "group": "edge",
+  "subject": "Mathematics",
+  "text": "",
+  "expected": ""
+ },
+ {
+  "group": "edge",
+  "subject": "Mathematics",
+  "text": "No indices here at all.",
+  "expected": "No indices here at all."
+ },
+ {
+  "group": "edge",
+  "subject": "Mathematics",
+  "text": "\\frac{1}{2} and \\theta stay put with x1, x2.",
+  "expected": "\\frac{1}{2} and \\theta stay put with \\(x_{1}\\), \\(x_{2}\\)."
+ },
+ {
+  "group": "coefficient",
+  "subject": "Mathematics",
+  "text": "The pair a1x + b1y + c1 = 0 and a2x + b2y + c2 = 0 is consistent if a1/a2 = b1/b2.",
+  "expected": "The pair \\(a_{1}x\\) + \\(b_{1}y\\) + \\(c_{1}\\) = 0 and \\(a_{2}x\\) + \\(b_{2}y\\) + \\(c_{2}\\) = 0 is consistent if \\(a_{1}\\)/\\(a_{2}\\) = \\(b_{1}\\)/\\(b_{2}\\)."
+ },
+ {
+  "group": "coefficient",
+  "subject": "Mathematics",
+  "text": "Solve a1x + b1y = c1.",
+  "expected": "Solve \\(a_{1}x\\) + \\(b_{1}y\\) = \\(c_{1}\\)."
+ },
+ {
+  "group": "coefficient",
+  "subject": "Mathematics",
+  "text": "Given 3 x1 + 2 x2 = 7.",
+  "expected": "Given 3 \\(x_{1}\\) + 2 \\(x_{2}\\) = 7."
+ },
+ {
+  "group": "coefficient",
+  "subject": "Mathematics",
+  "text": "Given 3x1 + 2x2 = 7.",
+  "expected": "Given 3\\(x_{1}\\) + 2\\(x_{2}\\) = 7."
+ },
+ {
+  "group": "coefficient",
+  "subject": "Science",
+  "text": "Plot a1x for the line.",
+  "expected": "Plot a1x for the line."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "Solve x2 + 5x + 6 = 0 and 2x3 - x2.",
+  "expected": "Solve x2 + 5x + 6 = 0 and 2x3 - x2."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "Attempt Ex1 and Ex2 of the exercise.",
+  "expected": "Attempt Ex1 and Ex2 of the exercise."
+ },
+ {
+  "group": "not-an-index",
+  "subject": "Mathematics",
+  "text": "See Fig1 and Fig2 on this page.",
+  "expected": "See Fig1 and Fig2 on this page."
+ },
+ {
+  "group": "subject",
+  "subject": "Science",
+  "text": "For a fixed mass of gas, P1V1 = P2V2.",
+  "expected": "For a fixed mass of gas, \\(P_{1}V_{1}\\) = \\(P_{2}V_{2}\\)."
+ },
+ {
+  "group": "subject",
+  "subject": "Science",
+  "text": "Burn the mixture (H2, O2) to form water, an oxide.",
+  "expected": "Burn the mixture (H2, O2) to form water, an oxide."
+ },
+ {
+  "group": "subject",
+  "subject": "Science",
+  "text": "Connect the resistors (R1, R2) in parallel.",
+  "expected": "Connect the resistors \\((R_{1}, R_{2})\\) in parallel."
+ }
+]

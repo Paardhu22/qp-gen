@@ -21,9 +21,14 @@ Everything here is pure string work: no Django, no I/O.
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from services.generation.rules.content_filters import wrap_bare_latex_tokens
+from services.generation.rules.subscripts import typeset_indices
+
+#: The one rule about indexed variables, for any prompt whose reply carries
+#: maths. Raw: the backslashes and braces are the content.
+INDEX_PROMPT_RULE = r"""A variable with an index is maths too, written with a LaTeX subscript, never as plain text: \( x_{1} \), \( y_{2} \), \( P_{1} \), \( a_{n} \), a point \( (x_{1}, y_{1}) \), a product \( x_{1}x_{2} \). Do not write x1, x_1 or x₁ in the text. A digit that is not an index stays an ordinary digit: "Class 10", "Q1", "A4", "20 m", the cell A1 of a spreadsheet, the formulae H2O and CO2."""
 
 #: The rules a prompt must carry for the model to write maths this module can
 #: place. A raw string on purpose: the backslashes are the content.
@@ -32,11 +37,14 @@ Mathematics and formulas (apply to every subject):
 - Write every mathematical expression and physics formula in LaTeX. Inline: \( ... \). A standalone equation on its own line: \[ ... \].
 - Never write maths as $...$ or $$...$$, as plain text (x^2, sqrt(3), 1/2, 3x2), or with unicode shortcuts for roots and fractions (√, ½). Put units and plain words outside the maths: "Area = \( 25\pi \) cm".
 - Use the real LaTeX commands: fractions \frac{a}{b}, powers x^{2}, roots \sqrt{x} and \sqrt[3]{x}, trigonometry \sin\theta, Greek \alpha \beta \pi, integrals \int_{a}^{b} f(x)\,dx, sums \sum_{i=1}^{n}, limits \lim_{x \to 0}, matrices \begin{pmatrix} a & b \\ c & d \end{pmatrix}, degrees ^\circ, and \times \div \le \ge \ne \approx.
+- @@INDEX_RULE@@
 - Mix words and maths freely in one line: "Substituting \( x = 2 \), we get \( y = 7 \)."
 - Show working step by step, one step per line, each step's equation in LaTeX.
 - The questions below carry their maths in this same notation: copy it exactly. If the source material has maths as plain or garbled text, rewrite it in LaTeX.
 - Your reply is JSON, so every backslash inside a JSON string must be doubled. Write "\\frac{1}{2}" and "\\( x^{2} \\)" in the JSON; a single backslash corrupts the maths.
 """
+MATH_PROMPT_RULES = MATH_PROMPT_RULES.replace("@@INDEX_RULE@@", INDEX_PROMPT_RULE)
+
 
 # ── Reading: a TipTap node as text ──────────────────────────────────────
 
@@ -121,6 +129,23 @@ def restore_eaten_escapes(text: str) -> str:
     return _MATH_SPAN.sub(_inside, text)
 
 
+def restore_eaten_escapes_deep(value: Any) -> Any:
+    """``restore_eaten_escapes`` over every string in a parsed JSON value.
+
+    It has to run on the whole object before anything strips a string: a bare
+    ``\\frac{1}{2}`` option parses to a form feed + ``rac{1}{2}``, and
+    ``str.strip`` treats a form feed as whitespace, so the command is gone for
+    good by the time a per-field step sees it.
+    """
+    if isinstance(value, str):
+        return restore_eaten_escapes(value)
+    if isinstance(value, list):
+        return [restore_eaten_escapes_deep(item) for item in value]
+    if isinstance(value, dict):
+        return {key: restore_eaten_escapes_deep(item) for key, item in value.items()}
+    return value
+
+
 # ── Normalising: model text → the delimiter contract ────────────────────
 
 _DOLLAR_DISPLAY = re.compile(r"(?<!\\)\$\$(.+?)(?<!\\)\$\$", re.DOTALL)
@@ -149,8 +174,12 @@ def _wrap_environments(segment: str) -> str:
     return _ENVIRONMENT.sub(lambda m: f"\\[{m.group(0)}\\]", segment)
 
 
-def normalize_math_text(text: str) -> str:
-    """Bring model text onto the ``\\( … \\)`` / ``\\[ … \\]`` contract."""
+def normalize_math_text(text: str, *, subject: Optional[str] = None) -> str:
+    """Bring model text onto the ``\\( … \\)`` / ``\\[ … \\]`` contract.
+
+    ``subject`` says how far ``x1`` can be trusted to be an index (see
+    ``subscripts.policy_for``); without it only the unambiguous cases convert.
+    """
     if not text:
         return text
     text = restore_eaten_escapes(text)
@@ -159,7 +188,7 @@ def normalize_math_text(text: str) -> str:
     text = _outside_math(text, _wrap_environments)
     # An escaped dollar outside maths is just a dollar.
     text = _outside_math(text, lambda seg: seg.replace("\\$", "$"))
-    return wrap_bare_latex_tokens(text)
+    return typeset_indices(wrap_bare_latex_tokens(text), subject=subject)
 
 
 # ── Writing: contract text → TipTap nodes ───────────────────────────────

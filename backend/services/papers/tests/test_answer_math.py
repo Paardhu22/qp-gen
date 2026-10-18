@@ -167,6 +167,41 @@ class ReplyHandlingTests(SimpleTestCase):
         self.assertEqual(result["answer"], "[Answer generation failed]")
 
 
+class IndexedVariableTests(SimpleTestCase):
+    """x1 in a model's answer must reach the document as maths, per subject."""
+
+    def _answer_for(self, subject, answer):
+        client, _ = _stub_client(json.dumps({"answer": answer, "or_answer": None}))
+        q = {"content": "Find the distance.", "marks": 3, "type": "SHORT_ANSWER", "typeCode": "", "options": []}
+        with override_settings(ANSWER_MODEL="gpt-4o"), patch.object(ans, "_record_usage"):
+            _, result = ans._generate_single_answer_llm_only(client, 1, q, [], user=None, subject=subject)
+        return result["answer"]
+
+    def test_a_maths_answer_gets_subscripts(self):
+        got = self._answer_for("Mathematics", "d = sqrt((x2 - x1)^2 + (y2 - y1)^2) where (x1, y1) is A.")
+        self.assertIn("\\((x_{1}, y_{1})\\)", got)
+        self.assertIn("\\(x_{2}\\)", got)
+
+    def test_an_ict_answer_keeps_its_cell_references(self):
+        text = "Enter =SUM(A1:A5) in cell B1."
+        self.assertEqual(self._answer_for("ICT", text), text)
+
+    def test_the_subscripted_answer_becomes_math_nodes(self):
+        got = self._answer_for("Mathematics", "Hence x1 + x2 = 5.")
+        doc = []
+        ans._append_answers(doc, [{"question_number": 1, "marks": 2, "answer": got, "question_type": "SHORT_ANSWER"}])
+        latex = [
+            n["attrs"]["latex"]
+            for n in doc[0]["content"][0]["content"]
+            if n["type"] == "inlineMath"
+        ]
+        self.assertEqual(latex, ["x_{1}", "x_{2}"])
+
+    def test_the_system_prompt_asks_for_latex_subscripts(self):
+        self.assertIn("x_{1}", ans.SYSTEM_PROMPT)
+        self.assertIn("Do not write x1", ans.SYSTEM_PROMPT)
+
+
 class DocumentTests(SimpleTestCase):
     def _blocks(self, answers):
         doc = []

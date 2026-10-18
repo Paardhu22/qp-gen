@@ -17,6 +17,8 @@
  * pulls them back out so both sources produce the same block.
  */
 
+import { typesetIndices } from "./subscripts";
+
 // LaTeX delimiter contract (matches the LLM prompt directive in
 // generation_router.py): inline math = \( ... \), display math = \[ ... \].
 // $...$ is also accepted as a tolerant fallback because the editor's existing
@@ -208,8 +210,22 @@ function pushTextBlocks(chunk: string, blocks: any[]) {
   flushTable();
 }
 
-export function buildQuestionContentNodes(content: string) {
-  const raw = String(content || "");
+/**
+ * What subject a question belongs to, which decides how far "x1" is trusted to
+ * be an index (see `subscripts.ts`). The pipeline stamps it on every question.
+ */
+function subjectOf(question: { metadata?: Record<string, any> | null }): string {
+  return String(question.metadata?.subject ?? "");
+}
+
+/**
+ * A question's text as editor blocks. Indexed variables are typeset first, on
+ * the whole text, so a `(x1, y1)` in one line vouches for an `x1` in the next;
+ * the backend scrubs what it generates, and this catches what it did not (a
+ * question banked earlier, or one that came by another route).
+ */
+export function buildQuestionContentNodes(content: string, subject?: string) {
+  const raw = typesetIndices(String(content || ""), subject);
   if (!raw.trim()) {
     return [{ type: "paragraph" }];
   }
@@ -392,7 +408,8 @@ export interface InsertableQuestion {
  */
 export function buildQuestionBlock(question: InsertableQuestion): any {
   const { stem, options } = resolveStemAndOptions(question);
-  const content: any[] = buildQuestionContentNodes(stem);
+  const subject = subjectOf(question);
+  const content: any[] = buildQuestionContentNodes(stem, subject);
 
   const figureNode = buildFigureNode(question.image_url);
   if (figureNode) content.push(figureNode);
@@ -405,7 +422,9 @@ export function buildQuestionBlock(question: InsertableQuestion): any {
       type: "orderedList",
       content: options.map((opt: string) => ({
         type: "listItem",
-        content: [{ type: "paragraph", content: buildInlineRun(opt) }],
+        content: [
+          { type: "paragraph", content: buildInlineRun(typesetIndices(opt, subject)) },
+        ],
       })),
     });
   }
@@ -507,11 +526,12 @@ export function buildQuestionBlocks(question: InsertableQuestion): any[] {
     content: parts.preamble,
     options: [],
   });
+  const subject = subjectOf(question);
   return [
     head,
-    ...parts.body.flatMap((chunk) => buildQuestionContentNodes(chunk)),
+    ...parts.body.flatMap((chunk) => buildQuestionContentNodes(chunk, subject)),
     ...parts.subQuestions.flatMap((chunk) =>
-      buildQuestionContentNodes(compactSubQuestionOptions(chunk)),
+      buildQuestionContentNodes(compactSubQuestionOptions(chunk), subject),
     ),
   ];
 }
