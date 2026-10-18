@@ -8,8 +8,8 @@
  * a pie chart, a bar graph, a histogram — is drawn exactly by the server from
  * numbers read out of the question, and the only thing worth a teacher's
  * attention is whether those numbers are right. A question about a beaker or
- * a ray diagram is drawn by an image model, and the only choice is how it
- * should look.
+ * a ray diagram is drawn by an image model. Teachers can also describe the
+ * figure themselves, then choose how it should look.
  *
  * Offering "line art / realistic / cartoon" for a bar graph was the old bug in
  * miniature: three adjectives that mean nothing for a chart, attached to a
@@ -33,6 +33,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 import type { ChartSpec, QuestionImageStyle, QuestionImageStyleOption } from "@/lib/api/figures";
@@ -45,7 +47,7 @@ interface Props {
   /** The question the image is for, shown so the teacher can confirm the target. */
   questionText: string;
   generating: boolean;
-  onGenerate: (style: QuestionImageStyle) => void;
+  onGenerate: (style: QuestionImageStyle, imageDescription?: string) => void;
   /** True while the backend is working out what kind of figure this is. */
   loadingSpec: boolean;
   /** Non-null when this question wants a chart rather than an illustration. */
@@ -128,6 +130,9 @@ export function FigureDialog({
 }: Props) {
   const [selected, setSelected] = React.useState<QuestionImageStyle>("line_art");
   const [chartUrl, setChartUrl] = React.useState<string | null>(null);
+  const [source, setSource] = React.useState<"question" | "description">("question");
+  const [imageDescription, setImageDescription] = React.useState("");
+  const descriptionId = React.useId();
 
   // Line art every time the dialog opens, not whatever was picked last. The
   // right style depends on the question, and a remembered choice quietly
@@ -136,11 +141,14 @@ export function FigureDialog({
     if (open) {
       setSelected("line_art");
       setChartUrl(null);
+      setSource("question");
+      setImageDescription("");
     }
   }, [open]);
 
   const preview = questionText.trim().replace(/\s+/g, " ");
-  const isChart = Boolean(chartSpec);
+  const manual = source === "description";
+  const isChart = !manual && Boolean(chartSpec);
 
   return (
     <Dialog open={open} onOpenChange={generating ? () => {} : onOpenChange}>
@@ -150,7 +158,9 @@ export function FigureDialog({
           <DialogDescription>
             {isChart
               ? "Check the numbers we read from your question, then insert the chart."
-              : "We will draw something that fits what the question is about."}
+              : manual
+                ? "Describe what to draw, then choose how it should look."
+                : "We will draw something that fits what the question is about."}
           </DialogDescription>
         </DialogHeader>
 
@@ -160,12 +170,55 @@ export function FigureDialog({
           </p>
         ) : null}
 
-        {loadingSpec ? (
+        <div role="group" aria-label="Image source" className="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={manual ? "outline" : "default"}
+            aria-pressed={!manual}
+            disabled={generating}
+            onClick={() => setSource("question")}
+          >
+            From question
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={manual ? "default" : "outline"}
+            aria-pressed={manual}
+            disabled={generating}
+            onClick={() => setSource("description")}
+          >
+            Describe image
+          </Button>
+        </div>
+
+        {manual ? (
+          <div className="grid gap-2">
+            <Label htmlFor={descriptionId}>Describe the image</Label>
+            <Textarea
+              id={descriptionId}
+              value={imageDescription}
+              onChange={(event) => setImageDescription(event.target.value)}
+              placeholder="e.g. A circle with centre O, a point P outside it, and two tangents PA and PB. Label the points without showing the answer."
+              maxLength={2000}
+              rows={4}
+              disabled={generating}
+              autoFocus
+              aria-describedby={`${descriptionId}-hint`}
+            />
+            <p id={`${descriptionId}-hint`} className="text-xs text-muted-foreground">
+              Include the objects, layout and labels you want. {imageDescription.length}/2000
+            </p>
+          </div>
+        ) : null}
+
+        {!manual && loadingSpec ? (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             Reading the question…
           </div>
-        ) : chartSpec ? (
+        ) : !manual && chartSpec ? (
           <ChartFigureEditor
             spec={chartSpec}
             onSpecChange={onChartSpecChange}
@@ -233,8 +286,11 @@ export function FigureDialog({
               <Button
                 type="button"
                 size="sm"
-                disabled={generating || loadingSpec || styles.length === 0}
-                onClick={() => onGenerate(selected)}
+                disabled={
+                  generating || (!manual && loadingSpec) || styles.length === 0 ||
+                  (manual && !imageDescription.trim())
+                }
+                onClick={() => onGenerate(selected, manual ? imageDescription.trim() : undefined)}
               >
                 {generating ? (
                   <>

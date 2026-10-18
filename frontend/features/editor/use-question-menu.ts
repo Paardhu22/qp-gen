@@ -401,7 +401,7 @@ export function useQuestionMenu(editor: any) {
   );
 
   const handleGenerateImage = React.useCallback(
-    async (style: QuestionImageStyle) => {
+    async (style: QuestionImageStyle, imageDescription?: string) => {
       const target = pendingRef.current;
       if (!editor || !target) return;
 
@@ -410,6 +410,7 @@ export function useQuestionMenu(editor: any) {
         const { imageUrl, cached } = await generateQuestionImage({
           questionText: target.text,
           style,
+          imageDescription,
         });
 
         const node = editor.state.doc.nodeAt(target.pos);

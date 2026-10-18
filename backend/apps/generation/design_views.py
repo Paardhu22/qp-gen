@@ -595,6 +595,7 @@ class QuestionImageView(APIView):
     #: Long enough for a real question, short enough that the prompt cannot be
     #: used as a free text channel to the image model.
     MAX_QUESTION_CHARS = 2000
+    MAX_DESCRIPTION_CHARS = 2000
 
     def get(self, request):
         from services.generation.question_image import STYLE_CHOICES
@@ -617,11 +618,22 @@ class QuestionImageView(APIView):
         if len(question_text) > self.MAX_QUESTION_CHARS:
             question_text = question_text[: self.MAX_QUESTION_CHARS]
 
+        image_description = payload.get("imageDescription", "")
+        if (
+            not isinstance(image_description, str)
+            or len(image_description) > self.MAX_DESCRIPTION_CHARS
+        ):
+            return Response(
+                {"error": "Describe the image using up to 2000 characters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             check_monthly_token_limit(request.user)
             result = generate_question_image(
                 question_text=question_text,
                 style=payload.get("style"),
+                image_description=image_description.strip(),
                 user=request.user,
             )
         except UsageLimitExceeded as exc:

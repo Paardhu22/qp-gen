@@ -7,7 +7,7 @@ asked for. It was removed.
 
 What replaced it inverts the control. Nothing is drawn during generation. A
 teacher reads the finished paper, decides *this* question would be clearer with
-a figure, picks a style, and pays for exactly that one image. Cost tracks
+a figure, optionally describes it, picks a style, and pays for that one image. Cost tracks
 intent, and the teacher sees the question before deciding — which is the only
 moment anyone can actually judge whether a picture helps.
 
@@ -178,7 +178,7 @@ def _image_gate() -> threading.BoundedSemaphore:
         return _gate
 
 
-def build_prompt(question_text: str, style: str) -> str:
+def build_prompt(question_text: str, style: str, image_description: str = "") -> str:
     """Turn a question into a drawing instruction.
 
     Deliberately NOT a model call. The question already describes what it is
@@ -195,6 +195,20 @@ def build_prompt(question_text: str, style: str) -> str:
     # and an over-long prompt drifts. The opening sentences carry the subject.
     if len(subject) > 600:
         subject = subject[:600].rsplit(" ", 1)[0] + "…"
+
+    description = " ".join(image_description.split())
+    if description:
+        return (
+            f"{_STYLE_DIRECTIONS[style]}"
+            f"{_EXAM_CONSTRAINTS}"
+            "\nThe teacher's description of the figure to draw:\n"
+            f"{description}\n"
+            "Draw the objects, layout and neutral labels specified in this description. "
+            "Use the exam question below only as context; do not add objects from it "
+            "that the description does not request. Do not draw the question text "
+            "or reveal its answer.\n"
+            f"Exam question for context:\n{subject}"
+        )
 
     return (
         f"{_STYLE_DIRECTIONS[style]}"
@@ -251,7 +265,11 @@ class QuestionImageError(RuntimeError):
 
 
 def generate_question_image(
-    *, question_text: str, style: Any = STYLE_LINE_ART, user=None
+    *,
+    question_text: str,
+    style: Any = STYLE_LINE_ART,
+    image_description: str = "",
+    user=None,
 ) -> Dict[str, Any]:
     """Draw one figure for one question.
 
@@ -267,7 +285,7 @@ def generate_question_image(
         )
 
     resolved_style = normalize_style(style)
-    prompt = build_prompt(text, resolved_style)
+    prompt = build_prompt(text, resolved_style, image_description)
     path = _storage_path(prompt)
 
     # An identical request — same question, same style, same settings — reuses

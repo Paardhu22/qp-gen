@@ -32,6 +32,7 @@ export async function fetchQuestionImageStyles(): Promise<
 export async function generateQuestionImage(body: {
   questionText: string;
   style: QuestionImageStyle;
+  imageDescription?: string;
 }): Promise<{ imageUrl: string; style: QuestionImageStyle; cached: boolean }> {
   return fetchJson<{
     imageUrl: string;

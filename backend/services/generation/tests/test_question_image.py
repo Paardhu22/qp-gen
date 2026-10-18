@@ -86,6 +86,21 @@ class PromptTests(TestCase):
         prompt = build_prompt("a\n\n  b\t\tc", STYLE_LINE_ART)
         self.assertIn("a b c", prompt)
 
+    def test_manual_description_is_used_with_the_question_as_context(self):
+        prompt = build_prompt(self.QUESTION, STYLE_LINE_ART, "Circle O\nwith two tangents PA and PB.")
+        self.assertIn("Circle O with two tangents PA and PB.", prompt)
+        self.assertIn("Exam question for context:\n" + self.QUESTION, prompt)
+        self.assertIn("do not add objects from it", prompt)
+
+    def test_manual_description_preserves_exam_constraints_in_all_styles(self):
+        for style in (STYLE_LINE_ART, STYLE_REALISTIC, STYLE_CARTOON):
+            prompt = build_prompt(self.QUESTION, style, "A neutral diagram with points A and B.")
+            self.assertIn("NEVER contain the answer", prompt)
+            self.assertIn("Do not include captions that solve the question", prompt)
+
+    def test_blank_description_preserves_the_automatic_prompt(self):
+        self.assertEqual(build_prompt(self.QUESTION, STYLE_LINE_ART), build_prompt(self.QUESTION, STYLE_LINE_ART, " \n "))
+
 
 def _ok_response(payload=b"PNG-BYTES"):
     import base64
@@ -163,6 +178,24 @@ class GenerateTests(TestCase):
         with override_settings(OPENAI_IMAGE_QUALITY="high"):
             high = _storage_path(build_prompt(self.QUESTION, STYLE_LINE_ART))
         self.assertNotEqual(low, high)
+
+    def test_manual_descriptions_cannot_reuse_a_different_cached_image(self):
+        from services.generation.question_image import _storage_path
+
+        paths = {
+            _storage_path(build_prompt(self.QUESTION, STYLE_LINE_ART, description))
+            for description in ("", "A circle with a tangent.", "A triangle with a perpendicular.")
+        }
+        self.assertEqual(len(paths), 3)
+
+    def test_manual_description_reaches_the_image_model(self):
+        client = self._client()
+        with patch("services.generation.question_image.get_openai_client", return_value=client), \
+             patch("services.generation.question_image.default_storage") as storage:
+            storage.exists.return_value = False
+            storage.save.side_effect = lambda path, _content: path
+            generate_question_image(question_text=self.QUESTION, image_description="Two tangent lines from P.")
+        self.assertIn("Two tangent lines from P.", client.images.generate.call_args.kwargs["prompt"])
 
     def test_a_model_failure_raises_something_a_teacher_can_act_on(self):
         client = self._client(side_effect=RuntimeError("rate limited"))
