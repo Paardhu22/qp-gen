@@ -28,6 +28,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.generation.rules.content_filters import clean_question_text
+from services.generation.rules.tables import ParsedTable, clean_cell, escape_cell
 from services.generation.pool.options import normalize_options
 
 
@@ -91,8 +92,11 @@ class Stimulus:
             if paragraph.strip()
         ]
         if self.rows:
-            # Pipe rows: the editor turns a run of these lines into a table.
-            blocks.append("\n".join("| " + " | ".join(row) + " |" for row in self.rows))
+            # Pipe rows with a separator under the header: the editor turns a
+            # run of these lines into a table, and reads the separator as "the
+            # first row is the header" (the prompt puts the header row first).
+            rows = [[escape_cell(clean_cell(str(cell))) for cell in row] for row in self.rows]
+            blocks.append("\n".join(ParsedTable(rows, header=True).render()))
         if self.words:
             blocks.append("[ " + "   ·   ".join(self.words) + " ]")
         return blocks

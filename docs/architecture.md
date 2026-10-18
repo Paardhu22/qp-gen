@@ -909,6 +909,24 @@ holds. Old strings resolve forever through the alias index. **HOTS** and
   `services/papers/tests/test_answer_math.py` and
   `frontend/scripts/test-answer-script-math.mjs`.
 
+- **Tables.** Data in rows and columns (a frequency distribution, class intervals
+  and frequencies, a cumulative-frequency or observation table) is a real table,
+  never prose. One convention end to end, owned by
+  `services/generation/rules/tables.py`: pipe rows, header row first, then a
+  `| --- |` separator row. The question writer is told to print tables this way
+  (Model 1 rule 11, plus the Statistics type's own example); `clean_question_text`
+  repairs what comes back (rows without the outer pipes, a missing or misplaced
+  separator, ragged rows, a fenced block, a bar inside an equation) and leaves prose
+  alone. `question-nodes.ts` turns the rows into `tableHeader` / `tableCell` nodes
+  (equations in cells typeset; headings and figures centred), the editor lets you
+  add or delete rows and columns and toggle the heading row, and the PDF and Word
+  exports print the table. In the answer script a table node is read into the
+  prompt as pipe rows (so the model sees rows and columns, not a run of numbers),
+  and a table in the model's working is written back as a real `table` node.
+  Guarded by `rules/tests/test_tables.py`, `papers/tests/test_answer_tables.py` and
+  `frontend/scripts/test-table-questions.mjs`; `/export-harness` carries a
+  Statistics question for a visual check.
+
 **Adding a type:** edit its family module under `catalog/` → run
 `python manage.py export_question_types` to regenerate
 `frontend/features/question-types/question-types.generated.ts`. A test fails while it is stale. For

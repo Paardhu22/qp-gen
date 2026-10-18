@@ -1053,6 +1053,26 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
               <RowsIcon className="h-3.5 w-3.5" />
             </ToolbarBtn>
             <ToolbarBtn
+              onClick={() => editor.chain().focus().deleteRow().run()}
+              disabled={!editor.can().deleteRow()}
+              title="Delete Row"
+            >
+              <span className="text-[10px] font-semibold leading-none">Row−</span>
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().deleteColumn().run()}
+              disabled={!editor.can().deleteColumn()}
+              title="Delete Column"
+            >
+              <span className="text-[10px] font-semibold leading-none">Col−</span>
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleHeaderRow().run()}
+              title="Toggle Header Row (the heading row of the table)"
+            >
+              <span className="text-[10px] font-semibold leading-none">Hdr</span>
+            </ToolbarBtn>
+            <ToolbarBtn
               onClick={() => editor.chain().focus().mergeCells().run()}
               title="Merge Cells"
             >

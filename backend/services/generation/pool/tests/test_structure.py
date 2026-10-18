@@ -67,8 +67,16 @@ class ParseStructureTests(SimpleTestCase):
         raw = _case_study(stimulus={"rows": [["City", "Rainfall (cm)"], ["Delhi", "79"]]})
         structure = parse_structure(raw, marks=4, stimulus_kind="TABLE")
         content, _, composite = structure.render("Study the table.")
-        self.assertIn("| City | Rainfall (cm) |\n| Delhi | 79 |", content)
-        self.assertIn("| Delhi | 79 |", composite["body"][0])
+        # The header row comes first, and a separator row under it says so —
+        # without one the editor reads every row as data and prints no heading.
+        self.assertIn("| City | Rainfall (cm) |\n| --- | --- |\n| Delhi | 79 |", content)
+        self.assertIn("| --- | --- |\n| Delhi | 79 |", composite["body"][0])
+
+    def test_a_pipe_inside_a_table_cell_cannot_split_the_row(self):
+        raw = _case_study(stimulus={"rows": [["Set", "Members"], ["A | B", "3"]]})
+        structure = parse_structure(raw, marks=4, stimulus_kind="TABLE")
+        content, _, _ = structure.render("Study the table.")
+        self.assertIn("| A \\| B | 3 |", content)
 
     def test_a_choice_pool_totals_only_the_attempted_parts(self):
         parts = [{"question": f"Question {n}?", "marks": 3, "answer": "An answer."} for n in range(5)]

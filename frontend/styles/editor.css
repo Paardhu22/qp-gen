@@ -1404,6 +1404,13 @@
           background: #ffffff;
         }
 
+        /* A paragraph's bottom margin is for running text. Inside a cell it
+           pads every row unevenly (and shows in the PDF), so cells sit flush. */
+        .ProseMirror table td > p,
+        .ProseMirror table th > p {
+          margin: 0;
+        }
+
         .ProseMirror table tr td:first-child,
         .ProseMirror table tr th:first-child {
           border-left: 1px solid #000000;

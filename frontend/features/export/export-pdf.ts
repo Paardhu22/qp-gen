@@ -84,6 +84,12 @@ const PAGE_CHROME_RESET = `
   .paper-header-date-display {
     border-bottom: none !important;
   }
+  /* The dotted underline on an equation is the editor's "click to edit" cue.
+     Captured, it read as a strike-through across every fraction. */
+  .inline-math-display,
+  .math-block-display {
+    border-bottom: none !important;
+  }
 `;
 
 // html2canvas measures font baselines in the ORIGINAL document with a hidden

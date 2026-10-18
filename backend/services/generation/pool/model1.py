@@ -47,6 +47,7 @@ from services.sources.chapter_markdown import ChapterMarkdown
 from services.generation.rules.content_filters import clean_question_text
 from services.generation.rules.subscripts import OFF, policy_for
 from services.generation.rules.typesetting import INDEX_PROMPT_RULE
+from services.generation.rules.tables import QUESTION_TABLE_RULES
 from services.generation.figures import SpecError, parse_chart_spec, render_chart
 from services.generation.pool.recipes import (
     _LANGUAGE_SUBJECTS,
@@ -166,7 +167,8 @@ def _system_prompt(subject: str, class_num: int, difficulty: str) -> str:
         "spread — a paper of uniformly identical difficulty is not usable.\n"
         "9. `answer` is what a marking scheme accepts. `explanation` is why it "
         "is correct. Both are required for every question.\n"
-        "10. Write in the language of the chapter.\n\n"
+        "10. Write in the language of the chapter.\n"
+        "11. " + QUESTION_TABLE_RULES.strip() + "\n\n"
         + _notation_paragraph(subject)
         + "Return ONLY a JSON array. No prose, no markdown fence, no wrapper "
         "object. Each element:\n"
@@ -236,9 +238,9 @@ def _type_brief_lines(quota) -> List[str]:
         )
     if spec.stimulus in _INLINE_STIMULI:
         lines.append(
-            "      – Print the stimulus inside the question text (a table as rows of "
-            "cells separated by |), so the question may refer to it. This overrides "
-            "rule 2 for these questions."
+            "      – Print the stimulus inside the question text (a table as pipe rows, "
+            "header row first and then a | --- | separator row, as rule 11 describes), "
+            "so the question may refer to it. This overrides rule 2 for these questions."
         )
     if spec.stimulus == "GRAPH":
         lines.append(

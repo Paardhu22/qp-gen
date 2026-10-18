@@ -15,6 +15,7 @@ import re
 from typing import Iterable, List, Sequence
 
 from services.generation.rules.subscripts import typeset_indices
+from services.generation.rules.tables import normalize_tables
 
 # ── VI (visually impaired) alternate blocks ──────────────────────────────
 #
@@ -306,4 +307,7 @@ def clean_question_text(
     text = strip_blueprint_leakage(text)
     text = strip_vi_blocks(text)
     text = remove_orphan_or_tokens(text, or_labels)
+    # Tables before the LaTeX rescue: the rescue tokenises on whitespace and
+    # must see rows in their final shape.
+    text = normalize_tables(text)
     return typeset_indices(wrap_bare_latex_tokens(text), subject=subject)
