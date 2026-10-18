@@ -1433,6 +1433,32 @@ state that offers a starting point, and a generate dock.
 `app/(harness)/pagination-harness` is a browser harness for the pagination engine
 (production builds serve it only with `ENABLE_TEST_HARNESS=1`).
 
+**Undo / redo.** ProseMirror's history records every transaction as something the
+user did, so the editor's own bookkeeping has to be kept out of it
+(`features/editor/history.ts`):
+
+- *Derived work is not history.* Renumbering, section summaries
+  (`derived-updates.ts`), page rebalancing (`pagination-engine.ts`) and a broken
+  image removing itself are dispatched through `markDerived`
+  (`addToHistory: false`). History still maps older steps over them, so an
+  edit stays undoable after the page breaks moved. Recorded, each was a hidden
+  undo step and Ctrl+Z reverted the bookkeeping instead of the user's action.
+- *Opening a paper is not an edit.* `loadDocument` keeps the first load of a
+  fresh editor out of history (else Ctrl+Z blanks the paper), makes a reload into
+  an editor that already has history one ordinary undoable step, and skips a
+  reload that changes nothing.
+- *Ctrl+Z works wherever focus is.* `useGlobalUndoRedo` handles the keystroke
+  when focus is on the body or a button (where it lands after clicking a delete
+  control) and stays out of text fields, dialogs and the paper itself.
+- *Node views render from the document.* The equation views used to cache
+  `latex` in `useState`, so an undo changed the document but not the screen.
+- *One action, one step.* Appending questions plus the brand header is a single
+  chain, so a single Ctrl+Z takes back the whole append.
+
+Guarded by `frontend/scripts/test-editor-undo.mjs` (real history plugin, real
+schema, controls that reproduce the old behaviour). Switching set tabs remounts the
+editor, which starts a fresh history for that tab.
+
 **Insertion modes.** The store models `review` vs `auto` insertion. In review
 mode, each streamed question lands in the review tray, badged by `sourceType`.
 `SectionToAppend.setLabel` lets multiple sets coexist ("Set B · Section A").
