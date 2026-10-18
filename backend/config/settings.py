@@ -369,6 +369,10 @@ OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embeddin
 OPENAI_VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4.1-mini")
 # Page OCR (services/sources/ocr.py). Falls back to OPENAI_VISION_MODEL.
 OCR_MODEL = os.environ.get("OCR_MODEL", "").strip() or None
+# Questions written from a teacher's own image, and edit suggestions for it
+# (services/generation/image_question.py). Needs a vision-capable model; falls
+# back to OPENAI_VISION_MODEL.
+IMAGE_QUESTION_MODEL = os.environ.get("IMAGE_QUESTION_MODEL", "").strip() or None
 
 # ─── Question Pool architecture ────────────────────────────────────────────
 # Model 1 (pool generation). Explicit default, independent of OPENAI_MODEL.

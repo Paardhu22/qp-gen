@@ -29,7 +29,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { ImagePlus, RefreshCw, Replace, Trash } from "lucide-react";
+import { ImagePlus, ImageUp, RefreshCw, Replace, Trash } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
@@ -46,6 +46,8 @@ export interface QuestionMenuTarget {
   onChangeType: () => void;
   onDelete: () => void;
   onGenerateImage: () => void;
+  /** Add the teacher's own picture, with a description and optional edits. */
+  onUseOwnImage: () => void;
   replacing?: boolean;
   generatingImage?: boolean;
 }
@@ -193,6 +195,11 @@ export function QuestionHoverMenu({ target, onMenuEnter, onMenuLeave }: Props) {
         label="Generate image"
         onClick={target.onGenerateImage}
         busy={target.generatingImage}
+      />
+      <MenuButton
+        icon={ImageUp}
+        label="Use my own image"
+        onClick={target.onUseOwnImage}
       />
       {/* Two swaps, because they answer two different complaints. "Another
           one of these" is one click and needs no dialog — it is the common
