@@ -6,6 +6,7 @@ and the bank path producing a paper without ever invoking Model 1.
 """
 
 import json
+from collections import Counter
 from dataclasses import dataclass
 from unittest.mock import patch
 
@@ -367,12 +368,14 @@ class PipelineStreamTests(TestCase):
                 pdf_source=self.source,
             )
 
-    def _run(self, *, pool_size=60):
+    def _run(self, *, pool_size=60, difficulty="medium", payload_extra=None, model1_calls=None):
         from services.generation.pool.pipeline import stream_pool_questions
 
         pool = _realistic_pool(pool_size)
 
         def fake_model1(**kwargs):
+            if model1_calls is not None:
+                model1_calls.append(kwargs)
             on_question = kwargs.get("on_question")
             for question in pool:
                 if on_question:
@@ -387,13 +390,63 @@ class PipelineStreamTests(TestCase):
                     pdf_source_ids=[self.source.id],
                     topic="Electricity",
                     count=-1,
-                    difficulty="medium",
+                    difficulty=difficulty,
                     instructions="",
                     payload={"subject": "Science", "class": 10, "board": "CBSE",
-                             "qp_type": "board", "countVariation": "cbse"},
+                             "qp_type": "board", "countVariation": "cbse",
+                             **(payload_extra or {})},
                 )
             )
         return _parse_sse(chunks)
+
+    def test_the_slider_level_is_dealt_to_the_plan_and_reported(self):
+        events = self._run(difficulty="medium", payload_extra={"difficultyLevel": 80})
+        profile = next(d for n, d in events if n == "plan")["difficulty"]
+        self.assertEqual((profile["level"], profile["label"]), (80, "hard"))
+        self.assertAlmostEqual(sum(profile["shares"].values()), 1.0, places=4)
+        total = next(d for n, d in events if n == "plan")["total"]
+        self.assertEqual(sum(profile["counts"].values()), total)
+
+    def test_the_slider_beats_the_label_it_travels_with(self):
+        events = self._run(difficulty="easy", payload_extra={"difficultyLevel": 100})
+        self.assertEqual(next(d for n, d in events if n == "plan")["difficulty"]["level"], 100)
+
+    def test_an_old_client_that_sends_only_a_label_still_gets_a_profile(self):
+        for label, level in (("easy", 15), ("medium", 50), ("hard", 85)):
+            events = self._run(difficulty=label)
+            self.assertEqual(next(d for n, d in events if n == "plan")["difficulty"]["level"], level)
+
+    def test_a_higher_level_deals_more_challenging_slots(self):
+        def hard(level):
+            events = self._run(payload_extra={"difficultyLevel": level})
+            return next(d for n, d in events if n == "plan")["difficulty"]["counts"]["hard"]
+
+        self.assertGreater(hard(100), hard(50))
+        self.assertGreater(hard(50), hard(0))
+
+    def test_model_1_is_given_the_level_and_the_tiered_plan(self):
+        calls = []
+        events = self._run(payload_extra={"difficultyLevel": 90}, model1_calls=calls)
+        self.assertTrue(calls)
+        counts = next(d for n, d in events if n == "plan")["difficulty"]["counts"]
+        for call in calls:
+            self.assertEqual(call["difficulty_level"], 90)
+            tiered = Counter(slot.tier for slot in call["mix_plan"])
+            self.assertEqual(sum(tiered.values()), len(call["mix_plan"]))
+            self.assertTrue(set(tiered) <= {"easy", "medium", "hard"})
+        # All textbook slots are generated here, so Model 1 sees the whole plan's mix.
+        seen = Counter(slot.tier for slot in calls[0]["mix_plan"])
+        self.assertEqual(dict(seen), {k: v for k, v in counts.items() if v})
+
+    def test_the_finished_paper_reports_what_was_asked_and_what_it_holds(self):
+        events = self._run(payload_extra={"difficultyLevel": 70})
+        result_meta = next(d for n, d in events if n == "done")["result"]["meta"]
+        meta = result_meta["difficulty"]
+        self.assertEqual(meta["level"], 70)
+        self.assertEqual(meta["target"], meta["counts"])  # what was dealt is what is reported
+        self.assertEqual(set(meta["achieved"]), {"easy", "medium", "hard"})
+        # Every question on the paper is accounted for in the achieved mix.
+        self.assertEqual(sum(meta["achieved"].values()), result_meta["totalQuestions"])
 
     def test_emits_the_sse_contract_the_frontend_expects(self):
         events = self._run()

@@ -383,3 +383,84 @@ class GeneratePoolTests(TestCase):
         operations = {r.operation for r in provider.requests}
         self.assertTrue(all(op.startswith("pool_model1_") for op in operations))
         self.assertEqual(len(operations), 4, "Each batch costs separately.")
+
+
+class DifficultyReachesModel1Tests(TestCase):
+    """The slider's level must arrive in the text Model 1 actually receives."""
+
+    def _requests(self, level, *, with_plan=True):
+        from services.generation import difficulty as D
+        from services.generation.planner.plan import build_question_plan
+
+        plan = list(build_question_plan(
+            topic="", difficulty="medium", count=-1, class_num=10,
+            subject="Science", instructions="", count_variation="cbse",
+        ))
+        stamped = D.apply_profile(plan, level, 10) if with_plan else plan
+        provider = _FakeProvider(_same_for_every_batch([_mcq(1)]))
+        with patch("services.generation.pool.model1.OpenAIProvider", return_value=provider):
+            generate_question_pool(
+                chapter=CHAPTER, subject="Science", subject_norm="science",
+                chapter_name="Electricity", class_num=10, difficulty=D.label_for_level(level),
+                difficulty_level=level, mix_plan=stamped,
+            )
+        return provider.requests
+
+    @staticmethod
+    def _system(request):
+        return str(request.messages[0].content)
+
+    @staticmethod
+    def _batch(request):
+        return str(request.messages[2].content)
+
+    def test_the_system_prompt_defines_the_tiers_instead_of_a_bare_word(self):
+        system = self._system(self._requests(80)[0])
+        self.assertNotIn("Calibrate overall difficulty", system)
+        for needle in ("easy (basic)", "medium (moderate)", "hard (challenging)", "Class 10 syllabus"):
+            self.assertIn(needle, system)
+
+    def test_the_system_prompt_states_the_papers_mix_for_the_level(self):
+        from services.generation import difficulty as D
+
+        self.assertIn(D.describe_mix(10, 10), self._system(self._requests(10)[0]))
+        self.assertIn(D.describe_mix(95, 10), self._system(self._requests(95)[0]))
+        self.assertNotEqual(self._system(self._requests(10)[0]), self._system(self._requests(95)[0]))
+
+    def test_every_batch_says_how_many_of_each_level_to_write(self):
+        for request in self._requests(60):
+            instruction = self._batch(request)
+            self.assertIn("Difficulty mix for these:", instruction)
+            self.assertIn("(see rule 8)", instruction)
+
+    def test_the_mix_in_the_batches_adds_up_to_the_batch(self):
+        import re
+
+        for request in self._requests(100):
+            instruction = self._batch(request)
+            declared = int(re.search(r"Write exactly (\d+) questions", instruction).group(1))
+            counts = [int(n) for n in re.findall(r"(\d+) (?:basic|moderate|challenging)", instruction)]
+            self.assertEqual(sum(counts), declared, instruction)
+
+    def test_a_higher_level_asks_for_more_challenging_questions(self):
+        import re
+
+        def challenging(level):
+            return sum(
+                int(n)
+                for r in self._requests(level)
+                for n in re.findall(r"(\d+) challenging", self._batch(r))
+            )
+
+        self.assertGreater(challenging(100), challenging(50))
+        self.assertGreater(challenging(50), challenging(0))
+
+    def test_without_tiers_the_batch_instruction_is_what_it_always_was(self):
+        for request in self._requests(80, with_plan=False):
+            self.assertNotIn("Difficulty mix", self._batch(request))
+
+    def test_the_level_defaults_from_the_old_label(self):
+        from services.generation.pool.model1 import _system_prompt
+
+        self.assertEqual(_system_prompt("Science", 10, "hard"), _system_prompt("Science", 10, "ignored", 85))
+        self.assertEqual(_system_prompt("Science", 10, "easy"), _system_prompt("Science", 10, "x", 15))

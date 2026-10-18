@@ -67,6 +67,14 @@ class QuestionGenerationSlot:
     hots: bool = False
     competency: bool = False
 
+    # ── Difficulty ──────────────────────────────────────────────────────
+    #: The tier this slot is written and selected at ("easy" | "medium" |
+    #: "hard"), dealt by `services.generation.difficulty.apply_profile` from the
+    #: paper's difficulty level. Empty on a plan that carries only an overall
+    #: `difficulty` label. Model 1 is told how many of each tier to write and
+    #: Model 2 prefers the question whose difficulty matches.
+    tier: str = ""
+
     def __post_init__(self) -> None:
         if not self.type_code:
             from services.question_types import default_type_for_shape

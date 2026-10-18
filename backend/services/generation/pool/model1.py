@@ -44,6 +44,7 @@ from services.llm.openai_provider import (
     OpenAIProvider,
 )
 from services.sources.chapter_markdown import ChapterMarkdown
+from services.generation.difficulty import LABEL_LEVELS, mix_instruction, rule_text
 from services.generation.rules.content_filters import clean_question_text
 from services.generation.figures import SpecError, parse_chart_spec, render_chart
 from services.generation.pool.recipes import (
@@ -51,6 +52,7 @@ from services.generation.pool.recipes import (
     Batch,
     batches_for_subject,
     batches_from_plan,
+    with_difficulty_mix,
 )
 from services.generation.pool.schema import (
     PoolQuestion,
@@ -113,7 +115,12 @@ class PoolGenerationResult:
         return len(self.questions)
 
 
-def _system_prompt(subject: str, class_num: int, difficulty: str) -> str:
+def _system_prompt(
+    subject: str, class_num: int, difficulty: str, level: Optional[int] = None
+) -> str:
+    # The slider's level when the caller has one; else what the old label means.
+    if level is None:
+        level = LABEL_LEVELS.get(str(difficulty or "").strip().lower(), 50)
     return (
         "You are a senior CBSE examiner writing questions for a Class "
         f"{class_num} {subject} question paper.\n\n"
@@ -142,8 +149,7 @@ def _system_prompt(subject: str, class_num: int, difficulty: str) -> str:
         "given figure', 'in the diagram shown', 'observe the map above' or "
         "anything else that points at a picture. If a concept can only be "
         "assessed by supplying a picture, write a different question.\n"
-        f"8. Calibrate overall difficulty to '{difficulty}', but still include a "
-        "spread — a paper of uniformly identical difficulty is not usable.\n"
+        f"8. {rule_text(level, class_num, subject)}\n"
         "9. `answer` is what a marking scheme accepts. `explanation` is why it "
         "is correct. Both are required for every question.\n"
         "10. Write in the language of the chapter.\n\n"
@@ -278,6 +284,11 @@ def _batch_instruction(batch: Batch, *, language_subject: bool = False) -> str:
             f"  • {quota.count} × {quota.type} worth {quota.marks} mark"
             f"{'s' if quota.marks != 1 else ''} each"
         )
+        # How many of this shape to write at each difficulty. Absent when the
+        # plan carries no tiers, so those prompts are unchanged.
+        mix = mix_instruction(quota.tiers)
+        if mix:
+            lines.append(f"      – {mix}")
         # The blueprint's own structural notes for this shape. Absent for the
         # fixed per-subject recipes, so those prompts are unchanged.
         for hint in quota.hints:
@@ -303,6 +314,7 @@ def _build_request(
     difficulty: str,
     model: str,
     user=None,
+    difficulty_level: Optional[int] = None,
 ) -> LLMRequest:
     """Chapter first, batch instruction last.
 
@@ -312,7 +324,10 @@ def _build_request(
     hit on batches 2-4.
     """
     messages = [
-        LLMMessage(role="system", content=_system_prompt(subject, class_num, difficulty)),
+        LLMMessage(
+            role="system",
+            content=_system_prompt(subject, class_num, difficulty, difficulty_level),
+        ),
         LLMMessage(
             role="user",
             content=f"# CHAPTER SOURCE MATERIAL\n\n{chapter.markdown}",
@@ -470,6 +485,7 @@ def _run_batch(
     user=None,
     question_metadata: Optional[Dict[str, Any]] = None,
     on_question: Optional[Callable[[PoolQuestion], None]] = None,
+    difficulty_level: Optional[int] = None,
 ) -> tuple[List[PoolQuestion], int, Optional[str]]:
     """Execute one batch. Returns (questions, invalid_count, failure_reason)."""
     request = _build_request(
@@ -480,6 +496,7 @@ def _run_batch(
         difficulty=difficulty,
         model=model,
         user=user,
+        difficulty_level=difficulty_level,
     )
 
     last_error: Optional[str] = None
@@ -568,6 +585,8 @@ def generate_question_pool(
     on_question: Optional[Callable[[PoolQuestion], None]] = None,
     pool_id: Optional[str] = None,
     plan: Optional[Sequence[Any]] = None,
+    difficulty_level: Optional[int] = None,
+    mix_plan: Optional[Sequence[Any]] = None,
 ) -> PoolGenerationResult:
     """Read a chapter, return a deduplicated Question Pool.
 
@@ -580,6 +599,12 @@ def generate_question_pool(
     a composite-question paper (the CBSE language papers) gets a pool that can
     fill its 6/10/12-mark slots. Falls back to the subject recipe when the plan
     yields no usable shapes.
+
+    `difficulty_level` is the slider's level; `mix_plan` is the plan whose
+    slots carry the difficulty tiers (`services.generation.difficulty`). Each
+    quota is given the mix of the slots with its shape, so Model 1 writes the
+    right number of basic, moderate and challenging questions per shape. With
+    no tiers the prompts read exactly as before.
     """
     pool_id = pool_id or generate_id()
     result = PoolGenerationResult(
@@ -600,6 +625,7 @@ def generate_question_pool(
     batches = batches_from_plan(plan, target_total=target_total) if plan else []
     if not batches:
         batches = batches_for_subject(subject_norm, target_total=target_total)
+    batches = with_difficulty_mix(batches, mix_plan)
     provider = OpenAIProvider()
 
     logger.info(
@@ -636,6 +662,7 @@ def generate_question_pool(
             user=user,
             question_metadata=question_metadata,
             on_question=None,  # emitted below, after the dedup gate
+            difficulty_level=difficulty_level,
         )
 
     started = time.monotonic()

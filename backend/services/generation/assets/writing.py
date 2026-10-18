@@ -16,7 +16,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Sequence
 
-from services.generation.assets.base import AssetBatchResult, AssetGenerator, AssetRequest
+from services.generation.assets.base import (
+    AssetBatchResult,
+    AssetGenerator,
+    AssetRequest,
+    request_difficulty_brief,
+)
 from services.generation.assets.llm import AssetLLMError, request_objects
 from services.generation.assets.registry import register
 from services.generation.assets.schema import WritingAsset, build_pool_question
@@ -221,8 +226,8 @@ class WritingAssetGenerator(AssetGenerator):
             word_limit_text = str(word_limit)
 
         lines = [
-            f"Subject: {request.subject} | Class: {request.class_num} | "
-            f"Overall difficulty: {request.difficulty}",
+            f"Subject: {request.subject} | Class: {request.class_num}",
+            request_difficulty_brief(request),
             f"Write {len(formats)} DIFFERENT writing tasks, each worth {marks} marks.",
             f"Word limit for every task: about {word_limit_text} words — state it in the scenario.",
             "Formats, in this exact order:",

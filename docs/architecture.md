@@ -1127,6 +1127,51 @@ shares.
 `assemble_paper(use_review=False)` is fully deterministic for a given `(pool,
 plan, seed)`.
 
+### 11.4a Difficulty: a slider that sets the mix
+
+Difficulty is a level from 0 (gentle) to 100 (demanding), not a word. It used to
+be `easy | medium | hard` stamped on every question; Model 1 was told to
+"calibrate overall difficulty" (not something a model can act on) and Model 2
+treated it as a faint nudge beside much louder terms, so easy and hard papers
+read alike. `services/generation/difficulty.py` makes it real control:
+
+- **Level → mix.** `shares_for(level, class)` interpolates the share of basic,
+  moderate and challenging questions between three anchors per class band
+  (low / mid / high). A younger class's top setting leans easier, and even the
+  top of the board-year scale is at most 45% challenging with no fewer than ~12%
+  basic. A small move of the slider is a small move of the mix.
+- **Mix → slots.** `apply_profile` deals a tier to every slot of the plan. Slots
+  are ranked by a small tilt (more marks, higher-order thinking, case and
+  numerical shapes lean harder) plus a golden-ratio spread, so any stretch of the
+  paper carries the mix instead of one section taking all the hard questions.
+  The ranking does not depend on the level, so raising the slider only ever
+  upgrades slots: none gets easier. The tier lives on `slot.tier` (and
+  `slot.difficulty`).
+- **Model 1** is told what the tiers *mean* (rule 8: basic is one concept, one
+  step but never a bare lookup; moderate needs two or three steps or a routine
+  new situation; challenging combines concepts or needs a multi-step, involved
+  but board-level solution; a harder question must demand more *thinking*, never
+  just different numbers, and stay inside the class's syllabus) and, per batch,
+  how many of each to write (`recipes.with_difficulty_mix` maps the plan's tiers
+  onto the fixed per-subject recipes and the plan-derived ones alike).
+- **Model 2** gives a slot a strong preference (+8, on a par with the type and
+  source preferences) for the question written at its tier, one step over is
+  neutral, the far end is penalised. A plan without tiers keeps the old
+  paper-wide nudge. The English asset generators are told the paper's mix in
+  words (they write whole items and cannot be handed per-tier counts).
+- **Wire.** `difficultyLevel` (0–100) travels beside the old `difficulty` label;
+  a client that sends only the label gets its anchor (15 / 50 / 85). The plan
+  event carries the profile and the final `meta.difficulty` reports what was
+  asked, what was dealt and what the paper holds, so a thin pool shows as a
+  shortfall instead of passing silently.
+
+The browser previews the same curve under the slider
+(`features/generation/difficulty-profile.ts`, which `test_difficulty` keeps in
+step with the backend table). Guarded by
+`services/generation/tests/test_difficulty.py`,
+`pool/tests/test_model1.py::DifficultyReachesModel1Tests`,
+`pool/tests/test_pipeline.py` and `frontend/scripts/test-difficulty-profile.mjs`.
+
 ### 11.5 Multiple sets
 
 `set_variants.py` derives Sets B and C from the master (Set A) and the *same*

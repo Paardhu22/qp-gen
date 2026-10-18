@@ -405,6 +405,7 @@ export default function EditorPage() {
         academicClass: submission.settings.academicClass,
         board: submission.settings.board,
         difficulty: submission.settings.difficulty,
+        difficultyLevel: submission.settings.difficultyLevel,
         numberOfSets: submission.settings.numberOfSets,
         mathLevel: submission.settings.mathLevel,
         instructions: submission.instructions,

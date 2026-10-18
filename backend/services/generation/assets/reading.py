@@ -16,7 +16,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Sequence
 
-from services.generation.assets.base import AssetBatchResult, AssetGenerator, AssetRequest
+from services.generation.assets.base import (
+    AssetBatchResult,
+    AssetGenerator,
+    AssetRequest,
+    request_difficulty_brief,
+)
 from services.generation.assets.llm import AssetLLMError, request_objects
 from services.generation.assets.registry import register
 from services.generation.assets.schema import ReadingAsset, build_pool_question
@@ -193,8 +198,8 @@ class ReadingAssetGenerator(AssetGenerator):
         low, high = (words if isinstance(words, (list, tuple)) else (words, words))
 
         lines = [
-            f"Subject: {request.subject} | Class: {request.class_num} | "
-            f"Overall difficulty: {request.difficulty}",
+            f"Subject: {request.subject} | Class: {request.class_num}",
+            request_difficulty_brief(request),
             f"Write {wanted} DIFFERENT reading assets, each worth {marks} marks in total.",
             f"Passage style: {style}. Length: {low}–{high} words.",
             f"Reading level: {constraints.get('reading_level') or f'class_{request.class_num}'}.",

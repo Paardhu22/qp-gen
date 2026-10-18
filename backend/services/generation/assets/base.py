@@ -19,6 +19,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
+from services.generation.difficulty import normalize_level, paper_brief
 from services.generation.pool.schema import PoolQuestion
 
 logger = logging.getLogger("[ASSETS]")
@@ -39,6 +40,8 @@ class AssetRequest:
     subject_norm: str
     class_num: int
     difficulty: str = "medium"
+    #: The paper's difficulty slider (0–100); None means "the label only".
+    difficulty_level: Optional[int] = None
     pool_id: str = ""
     user: Any = None
     #: Multiplier on the per-slot output. 2 means "write two candidates for
@@ -153,3 +156,17 @@ class AssetGenerator(ABC):
     def reusable(self, request: AssetRequest) -> List[PoolQuestion]:
         """Bank questions this generator produced on an earlier run."""
         return [q for q in (request.existing or []) if q.generator == self.name]
+
+
+def request_difficulty_brief(request: "AssetRequest") -> str:
+    """The difficulty line for an asset prompt: the slider's mix, not just a word.
+
+    These generators write a few whole items at a time, so they cannot be given
+    a count per tier the way Model 1 is; they are told the overall mix instead.
+    """
+    level = (
+        request.difficulty_level
+        if request.difficulty_level is not None
+        else normalize_level(request.difficulty)
+    )
+    return paper_brief(level, request.class_num)
