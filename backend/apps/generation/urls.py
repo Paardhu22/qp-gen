@@ -14,6 +14,7 @@ from .design_views import (
     TemplateFolderListView,
     TemplateResolveView,
 )
+from .image_views import ImageEditPlanView, ImageQuestionView, ImageUploadView
 from .views import (
     AnswerKeyView,
     AnswerScriptGenerateView,
@@ -82,6 +83,11 @@ urlpatterns = [
     # The illustration path: apparatus, diagrams, word-problem scenes. Slow and
     # billable, and no longer where charts end up.
     path("question-image", QuestionImageView.as_view(), name="question-image"),
+    # A teacher's own picture: write a question about it, suggest edits to it,
+    # or just store it for an existing question. The original is always kept.
+    path("image-question", ImageQuestionView.as_view(), name="image-question"),
+    path("image-edit-plan", ImageEditPlanView.as_view(), name="image-edit-plan"),
+    path("image-upload", ImageUploadView.as_view(), name="image-upload"),
     # Must stay below `templates/resolve` and `templates/fork`: this pattern
     # would otherwise swallow them as template ids.
     path(

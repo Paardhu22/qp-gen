@@ -103,6 +103,7 @@ export function useQuestionMenu(editor: any) {
   const [styles, setStyles] = React.useState<QuestionImageStyleOption[]>([]);
   const [loadingSpec, setLoadingSpec] = React.useState(false);
   const [chartSpec, setChartSpec] = React.useState<ChartSpec | null>(null);
+  const [ownImageDialogOpen, setOwnImageDialogOpen] = React.useState(false);
   const [swapDialogOpen, setSwapDialogOpen] = React.useState(false);
   const [swapContext, setSwapContext] = React.useState<SwapContext | null>(null);
   const [typeOptions, setTypeOptions] = React.useState<QuestionTypeOption[]>([]);
@@ -484,9 +485,51 @@ export function useQuestionMenu(editor: any) {
     [editor],
   );
 
+  /** Open the dialog for adding the teacher's own picture to the question they pointed at. */
+  const openOwnImageDialog = React.useCallback(() => {
+    if (!active) return;
+    pendingRef.current = active;
+    setOwnImageDialogOpen(true);
+  }, [active]);
+
+  /**
+   * Put a picture the teacher supplied (and possibly edited) into the question.
+   *
+   * Same placement as any figure: after the stem, above the options. The
+   * description they gave becomes the picture's alt text. The original upload
+   * is already stored beside the edited copy by the server.
+   */
+  const handleAttachImage = React.useCallback(
+    (image: { url: string; alt?: string }) => {
+      const target = pendingRef.current;
+      if (!editor || !target) return;
+
+      const node = editor.state.doc.nodeAt(target.pos);
+      if (!node) {
+        toast.error("That question is no longer in the paper.");
+        return;
+      }
+
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(figureInsertPos(node, target.pos), {
+          type: "floatImage",
+          attrs: { src: image.url, alt: image.alt || "", width: SIZE_HALF, align: "center" },
+        })
+        .run();
+      toast.success("Picture added to the question.");
+    },
+    [editor],
+  );
+
   return {
     active,
     replacing,
+    ownImageDialogOpen,
+    setOwnImageDialogOpen,
+    openOwnImageDialog,
+    handleAttachImage,
     generatingImage,
     loadingSpec,
     chartSpec,

@@ -5,7 +5,7 @@ rule in it lives here, in one package per domain.
 
 | Package | What it does |
 |---|---|
-| `generation/` | Turning a request into a paper. `planner/` builds the slot list, `pool/` generates and selects questions (the production path), `assets/` writes English reading/grammar/writing, `figures/` draws charts, `blueprint/` holds the CBSE rules engine, `rules/` the syllabus/language/content checks, `runs.py` makes generation durable |
+| `generation/` | Turning a request into a paper. `planner/` builds the slot list, `pool/` generates and selects questions (the production path), `assets/` writes English reading/grammar/writing, `figures/` draws charts, `image_question.py` writes a question from a teacher's own picture, `blueprint/` holds the CBSE rules engine, `rules/` the syllabus/language/content checks, `runs.py` makes generation durable |
 | `sources/` | Everything about source material: PDF upload, OCR, chunking, embeddings, retrieval, readiness checks, and the shared HSAT textbook library (`hsat/`) |
 | `papers/` | Projects, papers, drafts, the S3 copy of paper content, answer scripts |
 | `templates/` | Paper templates: the spec, the built-in catalogue, class starters, and prose → paper design |

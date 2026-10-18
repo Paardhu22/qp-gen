@@ -443,7 +443,7 @@ export function resolveStemAndOptions(question: {
 // rejected) produces an empty src that renders as a broken-image icon — in
 // that case we skip the floatImage entirely and let the question stem speak
 // for itself, matching the backend's "text-self-contained on retry" contract.
-export function buildFigureNode(imageUrl: string | undefined | null) {
+export function buildFigureNode(imageUrl: string | undefined | null, alt?: string | null) {
   const src = String(imageUrl || "").trim();
   if (!src) return null;
   const lower = src.toLowerCase();
@@ -456,7 +456,8 @@ export function buildFigureNode(imageUrl: string | undefined | null) {
   if (!isUsable) return null;
   return {
     type: "floatImage",
-    attrs: { src, align: "center", width: 320 },
+    // `alt` is the teacher's own description of the picture when they gave one.
+    attrs: { src, alt: String(alt || ""), align: "center", width: 320 },
   };
 }
 
@@ -472,6 +473,8 @@ export interface InsertableQuestion {
   answer?: string;
   marks?: number;
   image_url?: string;
+  /** What the picture shows, for a screen reader. */
+  image_alt?: string;
   metadata?: Record<string, any> | null;
 }
 
@@ -489,7 +492,7 @@ export function buildQuestionBlock(question: InsertableQuestion): any {
   const subject = subjectOf(question);
   const content: any[] = buildQuestionContentNodes(stem, subject);
 
-  const figureNode = buildFigureNode(question.image_url);
+  const figureNode = buildFigureNode(question.image_url, question.image_alt);
   if (figureNode) content.push(figureNode);
 
   const declaredType = normalizeType(question.type);

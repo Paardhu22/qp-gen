@@ -1361,6 +1361,46 @@ draw one `gpt-image-1` image per click in `line_art`, `realistic` or `cartoon`
 style. Quality is `high` on purpose, because a low-tier render turns label "B"
 into a smudge. `OPENAI_IMAGE_CONCURRENCY` (1) caps bursts.
 
+### 13.1 A question from the teacher's own image
+
+The teacher can bring their own picture instead: **Question from image** in the
+editor toolbar (writes a new question about it) or **Use my own image** in a
+question's hover menu (adds it to a question that exists). Both open
+`editor/dialogs/image-question-dialog.tsx`; the logic is in
+`services/generation/image_question.py`, behind three endpoints in
+`apps/generation/image_views.py`:
+
+| Endpoint | Does |
+|---|---|
+| `POST /api/generation/image-question` | vision model reads the picture and writes the question; `GET` lists the types |
+| `POST /api/generation/image-edit-plan` | turns "crop to the circuit and highlight R2" into edits **for the teacher to review** |
+| `POST /api/generation/image-upload` | stores a picture for an existing question; no model |
+
+The rules the module holds to, each with a test:
+
+- **The teacher's words win.** `description` ("what does this show?") and
+  `instructions` ("what should it ask?") go to the model as authoritative and
+  override its own reading. Leave both empty and the model decides, exactly as
+  before. The reply echoes what it understood so a wrong reading is visible.
+- **The original is never modified.** Edits are *instructions*
+  (`crop · highlight · box · arrow · label · cover`), coordinates as fractions of
+  the **original**, drawn on a copy in the browser (`render-edits.ts`). When any
+  exist the server stores the original unchanged beside the edited copy. A
+  *cover* tells the model not to ask about what was there. There is no
+  image-model repainting; the AI only *proposes* edits, it never applies them.
+- **Bad input is cheap to reject.** Type is sniffed from magic bytes (PNG, JPEG,
+  WebP, GIF; SVG refused), ≤ 8 MB, 24–8000 px, checked before any model call.
+- **It is an ordinary question afterwards.** The same normaliser as every other
+  generated question; `image_url` puts the picture above the options, and the
+  description becomes its alt text. Image questions carry no blueprint slot, so
+  they cannot be "swapped" (there is nothing to regenerate against).
+
+Frontend: `features/editor/image-edits.ts` (pure: sanitising mirrors the backend,
+geometry, hit-testing), `image-editor.tsx` (the drawing surface),
+`insert-image-question.ts` (placement), `lib/api/image-questions.ts`. Self-check:
+`npm test` → `scripts/test-image-question.mjs`. `IMAGE_QUESTION_MODEL` overrides
+the model (default `OPENAI_VISION_MODEL`).
+
 ---
 
 ## 14. Subsystem: The Dashboard Assistant

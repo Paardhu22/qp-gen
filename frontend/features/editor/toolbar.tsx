@@ -41,6 +41,7 @@ import {
   Outdent,
   Sigma,
   Image as ImageIcon,
+  ImageUp,
   Eraser,
   Type,
   Palette,
@@ -672,6 +673,8 @@ const HEADING_LEVELS = [
 interface ToolbarProps {
   editor: Editor;
   onFindReplace?: () => void;
+  /** Opens the "Question from an image" dialog. */
+  onQuestionFromImage?: () => void;
   paperId?: string | null;
   exportType?: ExportType;
 }
@@ -679,6 +682,7 @@ interface ToolbarProps {
 export const EditorToolbar: React.FC<ToolbarProps> = ({
   editor,
   onFindReplace,
+  onQuestionFromImage,
   paperId,
   exportType = "question_paper",
 }) => {
@@ -1125,6 +1129,15 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             <ImageIcon className="h-3.5 w-3.5" />
           </div>
         </label>
+        {/* A question written about the teacher's own picture. */}
+        {onQuestionFromImage ? (
+          <ToolbarBtn
+            onClick={onQuestionFromImage}
+            title="Question from an image — describe a picture and what to ask"
+          >
+            <ImageUp className="h-3.5 w-3.5" />
+          </ToolbarBtn>
+        ) : null}
 
         {/* Horizontal Rule.
 

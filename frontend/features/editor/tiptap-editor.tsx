@@ -34,6 +34,9 @@ import {
 import { PaperHeaderBlock as PaperHeaderBlockExt } from "./extensions/header-node";
 import { QuestionHoverMenu } from "./question-hover-menu";
 import { FigureDialog } from "./dialogs/figure-dialog";
+import { ImageQuestionDialog } from "./dialogs/image-question-dialog";
+import { toast } from "sonner";
+import { getLastPageInsertPos, insertImageQuestion } from "./insert-image-question";
 import { SwapQuestionDialog } from "./dialogs/swap-question-dialog";
 import { useQuestionMenu } from "@/features/editor/use-question-menu";
 import { OrGroupInvariant } from "./extensions/or-group-invariant";
@@ -298,20 +301,6 @@ function buildPersistedPaperContent(params: {
     },
     updatedAt: params.updatedAt,
   };
-}
-
-function getLastPageInsertPos(editor: any) {
-  const { doc } = editor.state;
-  let lastPage: any = null;
-
-  doc.descendants((node: any, pos: number) => {
-    if (node.type.name === "page") {
-      lastPage = { node, pos };
-    }
-  });
-
-  if (!lastPage) return doc.content.size;
-  return lastPage.pos + lastPage.node.nodeSize - 1;
 }
 
 function scrollToDocumentPosition(editor: any, position: number) {
@@ -1008,6 +997,7 @@ export const TiptapEditor = ({
   // delegation over the editor rather than callbacks threaded through every
   // NodeView — see features/editor/use-question-menu.ts.
   const questionMenu = useQuestionMenu(editor);
+  const [imageQuestionOpen, setImageQuestionOpen] = useState(false);
 
   const lastLoadedContentRef = useRef<string | null>(null);
   // documentLoadedRef / documentLoadedSignal: guard for deferred insertions
@@ -1390,6 +1380,7 @@ export const TiptapEditor = ({
         <EditorToolbar
           editor={editor}
           onFindReplace={() => setShowFindReplace((v) => !v)}
+          onQuestionFromImage={() => setImageQuestionOpen(true)}
           paperId={paperIdRef.current}
           exportType={exportType}
         />
@@ -1435,6 +1426,7 @@ export const TiptapEditor = ({
                 onChangeType: questionMenu.openSwapDialog,
                 onDelete: questionMenu.handleDelete,
                 onGenerateImage: questionMenu.openImageDialog,
+                onUseOwnImage: questionMenu.openOwnImageDialog,
                 replacing: questionMenu.replacing,
                 generatingImage: questionMenu.generatingImage,
               }
@@ -1442,6 +1434,25 @@ export const TiptapEditor = ({
         }
         onMenuEnter={questionMenu.onMenuEnter}
         onMenuLeave={questionMenu.onMenuLeave}
+      />
+      <ImageQuestionDialog
+        open={imageQuestionOpen}
+        onOpenChange={setImageQuestionOpen}
+        mode="create"
+        subject={paperMetadata?.subject || ""}
+        classNum={String(paperMetadata?.className || "").replace(/\D/g, "") || "10"}
+        onInsertQuestion={(question) => {
+          if (insertImageQuestion(editor, question) !== null) {
+            toast.success("Question added — check it before using the paper.");
+          }
+        }}
+      />
+      <ImageQuestionDialog
+        open={questionMenu.ownImageDialogOpen}
+        onOpenChange={questionMenu.setOwnImageDialogOpen}
+        mode="attach"
+        questionText={questionMenu.active?.text ?? ""}
+        onAttachImage={questionMenu.handleAttachImage}
       />
       <FigureDialog
         open={questionMenu.styleDialogOpen}
