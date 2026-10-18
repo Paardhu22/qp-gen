@@ -18,7 +18,12 @@ import logging
 import random
 from typing import Any, Dict, List, Sequence
 
-from services.generation.assets.base import AssetBatchResult, AssetGenerator, AssetRequest
+from services.generation.assets.base import (
+    AssetBatchResult,
+    AssetGenerator,
+    AssetRequest,
+    request_difficulty_brief,
+)
 from services.generation.assets.llm import AssetLLMError, request_objects
 from services.generation.assets.registry import register
 from services.generation.assets.schema import (
@@ -245,8 +250,8 @@ class GrammarAssetGenerator(AssetGenerator):
     ) -> List[GrammarAsset]:
         total = sum(deficit.values())
         lines = [
-            f"Subject: {request.subject} | Class: {request.class_num} | "
-            f"Overall difficulty: {request.difficulty}",
+            f"Subject: {request.subject} | Class: {request.class_num}",
+            request_difficulty_brief(request),
             f"Write EXACTLY {total} one-mark grammar tasks, distributed like this:",
         ]
         for topic, count in deficit.items():

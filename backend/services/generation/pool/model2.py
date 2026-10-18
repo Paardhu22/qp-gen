@@ -94,6 +94,14 @@ _DIFFICULTY_TARGETS_BY_BAND: Dict[str, Dict[str, Dict[str, float]]] = {
 _BLOOM_TARGET_WEIGHTS = _BLOOM_TARGETS_BY_BAND["9-10"]
 _DIFFICULTY_TARGET_WEIGHTS = _DIFFICULTY_TARGETS_BY_BAND["9-10"]
 
+_TIER_RANK = {"easy": 0, "medium": 1, "hard": 2}
+
+#: What matching the slot's difficulty tier is worth. Louder than the spread
+#: terms and on a par with the other per-slot preferences (type, source), so a
+#: paper built at a given level actually contains the mix it was dealt. Still a
+#: preference, not a gate: a thin pool fills the slot with the nearest tier.
+_TIER_MATCH = 8.0
+
 #: Bloom levels a higher-order-thinking slot prefers.
 _HIGHER_ORDER = frozenset({"ANALYZE", "EVALUATE", "CREATE"})
 
@@ -224,6 +232,7 @@ def _score_question(
     class_num: Optional[int] = None,
     hots: bool = False,
     competency: bool = False,
+    slot_tier: str = "",
 ) -> float:
     """Higher is better. Every term pushes toward a well-spread paper."""
     score = 0.0
@@ -290,15 +299,23 @@ def _score_question(
     else:
         score -= 1.0 * (bloom_used - bloom_target)
 
-    # Difficulty spread against the requested overall level.
-    difficulty_targets = _DIFFICULTY_TARGETS_BY_BAND[band]
-    weights = difficulty_targets.get(difficulty_target, difficulty_targets["medium"])
-    difficulty_target_count = weights.get(question.difficulty, 0.1) * total_slots
-    difficulty_used = used_difficulty.get(question.difficulty, 0)
-    if difficulty_used < difficulty_target_count:
-        score += 1.5
+    # Difficulty. A slot that was dealt a tier (the paper's difficulty level,
+    # `services.generation.difficulty`) wants the question written at that
+    # tier: full marks for a match, nothing for the next tier over, a penalty
+    # for the far end. The paper-wide mix is then already in the slots, so the
+    # old global spread below applies only to a plan that carries no tiers.
+    if slot_tier in _TIER_RANK and question.difficulty in _TIER_RANK:
+        distance = abs(_TIER_RANK[question.difficulty] - _TIER_RANK[slot_tier])
+        score += _TIER_MATCH * (1 - distance)
     else:
-        score -= 0.75 * (difficulty_used - difficulty_target_count)
+        difficulty_targets = _DIFFICULTY_TARGETS_BY_BAND[band]
+        weights = difficulty_targets.get(difficulty_target, difficulty_targets["medium"])
+        difficulty_target_count = weights.get(question.difficulty, 0.1) * total_slots
+        difficulty_used = used_difficulty.get(question.difficulty, 0)
+        if difficulty_used < difficulty_target_count:
+            score += 1.5
+        else:
+            score -= 0.75 * (difficulty_used - difficulty_target_count)
 
     # Chapter weighting — with several chapters uploaded, spread across them
     # instead of drawing the whole paper from whichever one is longest.
@@ -393,6 +410,7 @@ def build_candidates(
         type_code = str(getattr(slot, "type_code", "") or "")
         hots = bool(getattr(slot, "hots", False))
         competency = bool(getattr(slot, "competency", False))
+        slot_tier = str(getattr(slot, "tier", "") or "")
         return sorted(
             candidates,
             key=lambda q: _score_question(
@@ -411,6 +429,7 @@ def build_candidates(
                 class_num=class_num,
                 hots=hots,
                 competency=competency,
+                slot_tier=slot_tier,
             ),
             reverse=True,
         )

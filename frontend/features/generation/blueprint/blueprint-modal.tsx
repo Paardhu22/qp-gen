@@ -83,6 +83,13 @@ import { PAPER_CLASSES, PAPER_SUBJECTS, paperSubjectEntry } from "@/lib/subject"
 
 import { TemplatePickerGrid } from "../../templates/template-picker-grid";
 import { SlotEditor } from "./slot-editor";
+import { DifficultySlider } from "../difficulty-slider";
+import {
+  DEFAULT_LEVEL,
+  describeLevel,
+  labelForLevel,
+  normalizeLevel,
+} from "../difficulty-profile";
 import { SourcePanel, type UploadedDoc, type UploadingDoc } from "./source-panel";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -94,7 +101,10 @@ export interface BlueprintSubmission {
     subject: string;
     academicClass: string;
     board: string;
+    /** The label older code reads: easy / medium / hard, derived from the level. */
     difficulty: string;
+    /** The difficulty slider, 0 (gentle) to 100 (demanding). */
+    difficultyLevel: number;
     numberOfSets: string;
     /** Mathematics only: Standard (041) vs Basic (241). Ignored elsewhere. */
     mathLevel: string;
@@ -161,7 +171,6 @@ const STEPS: { id: Step; label: string }[] = [
 const CLASSES = PAPER_CLASSES;
 const SUBJECTS = PAPER_SUBJECTS;
 const subjectEntry = paperSubjectEntry;
-const DIFFICULTIES = ["easy", "medium", "hard"];
 
 /** Questions is the one step that needs a template; the rest are always open. */
 function stepReachable(step: Step, templateId: string | null) {
@@ -200,7 +209,10 @@ export function BlueprintModal({
 
   const [subject, setSubject] = React.useState(detectedSubject || "Science");
   const [academicClass, setAcademicClass] = React.useState("10");
-  const [difficulty, setDifficulty] = React.useState("medium");
+  // The slider is the source of truth; the easy/medium/hard label that older
+  // code and stored papers use is derived from it.
+  const [difficultyLevel, setDifficultyLevel] = React.useState(DEFAULT_LEVEL);
+  const difficulty = labelForLevel(difficultyLevel);
   const [numberOfSets, setNumberOfSets] = React.useState("1");
   const [mathLevel, setMathLevel] = React.useState("standard");
   const [instructions, setInstructions] = React.useState("");
@@ -238,7 +250,7 @@ export function BlueprintModal({
     if (detected.subject) setSubject(detected.subject);
     if (detected.academicClass) setAcademicClass(detected.academicClass);
     if (detected.numberOfSets) setNumberOfSets(detected.numberOfSets);
-    if (detected.difficulty) setDifficulty(detected.difficulty);
+    if (detected.difficulty) setDifficultyLevel(normalizeLevel(detected.difficulty));
   }, []);
 
   // A detected subject should fill the field, never fight the teacher who has
@@ -495,7 +507,15 @@ export function BlueprintModal({
       const template = await savePaperTemplate({
         name,
         instructions,
-        settings: { subject, academicClass, difficulty, numberOfSets, mathLevel },
+        // Template settings are stored as strings, so the level travels as one.
+        settings: {
+          subject,
+          academicClass,
+          difficulty,
+          difficultyLevel: String(difficultyLevel),
+          numberOfSets,
+          mathLevel,
+        },
         blueprint: { slots: blueprint.slots },
         baseTemplateId: templateId ?? "",
         sourceConfig: {
@@ -530,6 +550,7 @@ export function BlueprintModal({
         academicClass,
         board: "CBSE",
         difficulty,
+        difficultyLevel,
         numberOfSets,
         mathLevel,
       },
@@ -769,12 +790,12 @@ export function BlueprintModal({
                 <PaperForPanel
                   academicClass={academicClass}
                   subject={subject}
-                  difficulty={difficulty}
+                  difficultyLevel={difficultyLevel}
                   numberOfSets={numberOfSets}
                   mathLevel={mathLevel}
                   onClassChange={setAcademicClass}
                   onSubjectChange={setSubject}
-                  onDifficultyChange={setDifficulty}
+                  onDifficultyChange={setDifficultyLevel}
                   onSetsChange={setNumberOfSets}
                   onMathLevelChange={setMathLevel}
                   hint={sourceHint}
@@ -927,12 +948,6 @@ const SUBJECT_ICONS: Record<string, LucideIcon> = {
   ICT: Monitor,
 };
 
-const DIFFICULTY_DOTS: Record<string, string> = {
-  easy: "bg-success",
-  medium: "bg-warning",
-  hard: "bg-destructive",
-};
-
 const SET_OPTIONS = [
   { value: "1", label: "A" },
   { value: "2", label: "A · B" },
@@ -1003,7 +1018,7 @@ function ChoiceGroup({
 function PaperForPanel({
   academicClass,
   subject,
-  difficulty,
+  difficultyLevel,
   numberOfSets,
   mathLevel,
   onClassChange,
@@ -1018,12 +1033,12 @@ function PaperForPanel({
 }: {
   academicClass: string;
   subject: string;
-  difficulty: string;
+  difficultyLevel: number;
   numberOfSets: string;
   mathLevel: string;
   onClassChange: (value: string) => void;
   onSubjectChange: (value: string) => void;
-  onDifficultyChange: (value: string) => void;
+  onDifficultyChange: (value: number) => void;
   onSetsChange: (value: string) => void;
   onMathLevelChange: (value: string) => void;
   hint: { subject: string; academicClass: string; from: string } | null;
@@ -1065,7 +1080,7 @@ function PaperForPanel({
             Class {academicClass} · {subject}
           </h3>
           <p className="text-xs text-muted-foreground">
-            <span className="capitalize">{difficulty}</span> ·{" "}
+            {describeLevel(difficultyLevel)} ·{" "}
             {numberOfSets === "1" ? "1 set" : `${numberOfSets} sets`} ({setsLabel})
             {isMaths ? ` · ${mathLevel === "basic" ? "Basic (241)" : "Standard (041)"}` : ""}
           </p>
@@ -1168,26 +1183,15 @@ function PaperForPanel({
           chipClassName="min-w-11"
         />
 
+        <DifficultySlider
+          id="blueprint-difficulty"
+          value={difficultyLevel}
+          onChange={onDifficultyChange}
+          classNum={academicClass}
+          className="max-w-md"
+        />
+
         <div className="flex flex-wrap gap-x-8 gap-y-5">
-          <ChoiceGroup
-            label="Difficulty"
-            value={difficulty}
-            onChange={onDifficultyChange}
-            options={DIFFICULTIES.map((d) => ({
-              value: d,
-              label: (
-                <>
-                  <span
-                    className={cn(
-                      "size-1.5 shrink-0 rounded-full",
-                      d === difficulty ? "bg-primary-foreground" : DIFFICULTY_DOTS[d],
-                    )}
-                  />
-                  <span className="capitalize">{d}</span>
-                </>
-              ),
-            }))}
-          />
           <ChoiceGroup
             label="Sets"
             value={numberOfSets}

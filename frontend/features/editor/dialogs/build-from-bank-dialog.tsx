@@ -29,10 +29,11 @@ import { fetchBankSummary, streamPaperFromBank, type BankChapter } from "@/lib/a
 import { useEditorStore } from "@/features/editor/editor-store";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { DifficultySlider } from "@/features/generation/difficulty-slider";
+import { DEFAULT_LEVEL, labelForLevel } from "@/features/generation/difficulty-profile";
 
 const chapterKey = (row: BankChapter) => row.chapter || row.projectName;
 
-const DIFFICULTIES = ["easy", "medium", "hard"];
 
 interface Props {
   open: boolean;
@@ -47,7 +48,7 @@ export function BuildFromBankDialog({ open, onOpenChange, onBuilt }: Props) {
   const [isLoading, setIsLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
-  const [difficulty, setDifficulty] = React.useState("medium");
+  const [difficultyLevel, setDifficultyLevel] = React.useState(DEFAULT_LEVEL);
   const [numSets, setNumSets] = React.useState(1);
   const [isBuilding, setIsBuilding] = React.useState(false);
   const [status, setStatus] = React.useState("");
@@ -139,7 +140,8 @@ export function BuildFromBankDialog({ open, onOpenChange, onBuilt }: Props) {
           subject: first.subject || "",
           class: classNumber,
           chapters: selectedRows.map((r) => r.chapter).filter(Boolean),
-          difficulty,
+          difficulty: labelForLevel(difficultyLevel),
+          difficultyLevel,
           count: -1,
           countVariation: "cbse",
           qp_type: "board",
@@ -327,22 +329,15 @@ export function BuildFromBankDialog({ open, onOpenChange, onBuilt }: Props) {
             </p>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-4">
-            <label className="flex items-center gap-2 text-xs">
-              <span className="text-muted-foreground">Difficulty</span>
-              <select
-                value={difficulty}
-                onChange={(e) => setDifficulty(e.target.value)}
-                className="h-8 rounded-lg border border-input bg-transparent px-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              >
-                {DIFFICULTIES.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <DifficultySlider
+            id="bank-difficulty"
+            value={difficultyLevel}
+            onChange={setDifficultyLevel}
+            classNum={selectedRows[0]?.gradeClass || null}
+            className="max-w-sm"
+          />
 
+          <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2 text-xs">
               <span className="text-muted-foreground">Sets</span>
               <select

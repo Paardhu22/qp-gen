@@ -29,6 +29,13 @@ class QuestionGenerationSerializer(serializers.Serializer):
     difficulty = serializers.CharField(
         required=False, allow_blank=True, default="medium"
     )
+    #: The difficulty slider, 0 (gentle) to 100 (demanding). When it is sent it
+    #: decides the paper's mix of basic, moderate and challenging questions
+    #: (`services.generation.difficulty`); `difficulty` stays as the label older
+    #: clients send and the one stored on the paper.
+    difficultyLevel = serializers.IntegerField(
+        min_value=0, max_value=100, required=False
+    )
     instructions = serializers.CharField(required=False, allow_blank=True, default="")
     board = serializers.CharField(required=False, allow_blank=True, default="")
     subject = serializers.CharField(required=False, allow_blank=True, default="")
@@ -85,6 +92,13 @@ class ReplacementSlotSerializer(serializers.Serializer):
     difficulty = serializers.CharField(
         required=False, allow_blank=True, default="medium"
     )
+    #: The difficulty slider, 0 (gentle) to 100 (demanding). When it is sent it
+    #: decides the paper's mix of basic, moderate and challenging questions
+    #: (`services.generation.difficulty`); `difficulty` stays as the label older
+    #: clients send and the one stored on the paper.
+    difficultyLevel = serializers.IntegerField(
+        min_value=0, max_value=100, required=False
+    )
     subject = serializers.CharField(required=False, allow_blank=True, default="")
     classNum = serializers.IntegerField(required=False, default=10)
     poolId = serializers.CharField(required=False, allow_blank=True, default="")
@@ -135,6 +149,7 @@ class PaperFromBankSerializer(serializers.Serializer):
     )
     topic = serializers.CharField(required=False, allow_blank=True, default="")
     difficulty = serializers.CharField(required=False, allow_blank=True, default="medium")
+    difficultyLevel = serializers.IntegerField(min_value=0, max_value=100, required=False)
     instructions = serializers.CharField(required=False, allow_blank=True, default="")
     count = serializers.IntegerField(min_value=-1, max_value=50, required=False, default=-1)
     countVariation = serializers.CharField(required=False, allow_blank=True, default="cbse")

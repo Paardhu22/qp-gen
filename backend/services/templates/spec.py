@@ -537,6 +537,10 @@ class ResolvedSlot:
     type_code: str = ""
     hots: bool = False
     competency: bool = False
+    #: The overall difficulty label, and the tier dealt to this slot from the
+    #: paper's difficulty level (see `services.generation.difficulty`).
+    difficulty: str = ""
+    tier: str = ""
 
 
 def legacy_type_for(question_type: str) -> str:

@@ -50,6 +50,10 @@ class TypeQuota:
     type_code: str = ""
     hots: bool = False
     competency: bool = False
+    #: How many of `count` to write at each difficulty, as (easy, medium, hard);
+    #: (0, 0, 0) means no mix was asked for and Model 1's prompt is unchanged.
+    #: Set by `with_difficulty_mix` from the tiers the plan's slots carry.
+    tiers: Tuple[int, int, int] = (0, 0, 0)
 
 
 @dataclass(frozen=True)
@@ -351,6 +355,92 @@ def batches_from_plan(plan: Sequence[Any], *, target_total: int = 0) -> List[Bat
             batch = Batch(batch.name, [replace(quota, count=counts[key] + 1)])
         spared.append(batch)
     return spared
+
+
+def _split_count(count: int, tiers: Sequence[str]) -> Tuple[int, int, int]:
+    """`count` divided across the tiers in proportion to `tiers`, as (easy,
+    medium, hard) summing to `count` (largest remainder; ties go to the middle)."""
+    from services.generation.difficulty import TIERS
+
+    seen = {tier: 0 for tier in TIERS}
+    for tier in tiers:
+        if tier in seen:
+            seen[tier] += 1
+    total = sum(seen.values())
+    if total <= 0 or count <= 0:
+        return (0, 0, 0)
+    exact = {tier: count * seen[tier] / total for tier in TIERS}
+    given = {tier: int(exact[tier]) for tier in TIERS}
+    spare = count - sum(given.values())
+    # Largest fractional part first; the middle tier wins a tie.
+    for tier in sorted(TIERS, key=lambda t: (-(exact[t] - given[t]), t != "medium"))[:spare]:
+        given[tier] += 1
+    return (given["easy"], given["medium"], given["hard"])
+
+
+def with_difficulty_mix(batches: Sequence[Batch], plan: Sequence[Any] | None) -> List[Batch]:
+    """Give every quota the difficulty mix its slots were dealt.
+
+    The slots of a plan carry a `tier` once a difficulty level has been applied
+    (`services.generation.difficulty.apply_profile`). A quota takes the mix of
+    the slots that have its shape — the exact shape when it names one (the
+    recipe derived from the plan), else every slot of that type and marks (the
+    fixed per-subject recipes) — and spreads its own, possibly scaled-up,
+    `count` over that mix, so the spares Model 1 is asked for carry it too.
+    A shape the plan has no slot for takes the mix of the whole paper.
+
+    A plan with no tiers leaves the batches exactly as they were.
+    """
+    from services.generation.difficulty import TIERS
+    from services.generation.pool.schema import normalize_type
+    from services.question_types import default_type_for_shape, resolve_slot_type
+
+    tiered = [s for s in (plan or []) if str(getattr(s, "tier", "") or "") in TIERS]
+    if not tiered:
+        return list(batches)
+
+    exact: Dict[Tuple[str, int, str, str, bool, bool], List[str]] = {}
+    by_shape: Dict[Tuple[str, int], List[str]] = {}
+    for slot in tiered:
+        raw_type = getattr(slot, "question_type", "") or ""
+        raw_code = getattr(slot, "type_code", "") or ""
+        if not (normalize_type(raw_type) or raw_code):
+            continue
+        slot_type = resolve_slot_type(
+            raw_code,
+            raw_type,
+            hots=bool(getattr(slot, "hots", False)),
+            competency=bool(getattr(slot, "competency", False)),
+        )
+        try:
+            marks = int(getattr(slot, "marks", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        type_code = "" if slot_type.code == default_type_for_shape(slot_type.shape) else slot_type.code
+        key = (
+            slot_type.shape,
+            marks,
+            str(getattr(slot, "asset_type", "") or ""),
+            type_code,
+            slot_type.hots,
+            slot_type.competency,
+        )
+        exact.setdefault(key, []).append(slot.tier)
+        by_shape.setdefault((slot_type.shape, marks), []).append(slot.tier)
+    whole_paper = [s.tier for s in tiered]
+
+    mixed: List[Batch] = []
+    for batch in batches:
+        quotas = []
+        for quota in batch.quotas:
+            source = (
+                exact.get((quota.type, quota.marks, quota.asset_type, quota.type_code, quota.hots, quota.competency))
+                or by_shape.get((quota.type, quota.marks))
+                or whole_paper
+            )
+            quotas.append(replace(quota, tiers=_split_count(quota.count, source)))
+        mixed.append(Batch(batch.name, quotas))
+    return mixed
 
 
 #: What each slot attribute adds to Model 1's instruction for its quota.

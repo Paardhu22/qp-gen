@@ -108,6 +108,9 @@ class _GimSlot:
     legacy_type: str
     section_title: str
     type_code: str = ""
+    #: The tier dealt from the paper's difficulty level (see `services.generation.difficulty`).
+    difficulty: str = ""
+    tier: str = ""
 
     def __post_init__(self) -> None:
         # The designer names types in its own vocabulary ("FILL_BLANK"); the
@@ -361,6 +364,8 @@ def _build_pool_streaming(
     pool_id: str,
     user,
     plan: Optional[Sequence[Any]] = None,
+    difficulty_level: Optional[int] = None,
+    mix_plan: Optional[Sequence[Any]] = None,
 ) -> Iterable[Any]:
     """Run per-chapter Model 1 on workers, yielding progress.
 
@@ -398,6 +403,8 @@ def _build_pool_streaming(
             question_metadata=metadata,
             on_question=progress.put,
             plan=plan,
+            difficulty_level=difficulty_level,
+            mix_plan=mix_plan,
         )
 
         # Model 1 records API usage, so this thread has opened its own
@@ -672,6 +679,12 @@ def stream_pool_questions(
         payload_has_blueprint,
     )
     from services.generation.pool.gim import _parse_gim_instructions
+    from services.generation.difficulty import (
+        apply_profile,
+        mix_of,
+        profile_summary,
+        resolve_level,
+    )
 
     payload = payload or {}
     hsat_source_ids = list(hsat_source_ids or [])
@@ -935,6 +948,16 @@ def stream_pool_questions(
         )
         summary = summarize_question_plan(plan)
 
+    # ── Difficulty ──────────────────────────────────────────────────────
+    # The slider's level becomes a mix, and the mix is dealt to the slots: each
+    # carries the tier it is written and selected at. Done once, here, so
+    # everything below — Model 1's quotas, Model 2's selection, replacement of
+    # a single question — reads the same per-slot target.
+    difficulty_level = resolve_level(payload, difficulty)
+    plan = apply_profile(plan, difficulty_level, class_num)
+    difficulty_profile = profile_summary(plan, difficulty_level, class_num)
+    logger.info("Difficulty profile: %s", difficulty_profile)
+
     # ── Route the blueprint ─────────────────────────────────────────────
     # The single decision this whole file turns on. `routed` says which
     # generator owns which slots; `textbook_slots` is the subset that may see
@@ -1019,6 +1042,8 @@ def stream_pool_questions(
             "sets": num_sets,
             # Additive: which generator owns which part of the paper.
             "routing": routing,
+            # Additive: the difficulty level asked for and the mix dealt to the plan.
+            "difficulty": difficulty_profile,
         },
         event="plan",
     )
@@ -1087,6 +1112,7 @@ def stream_pool_questions(
                         subject_norm=subject_norm,
                         class_num=class_num,
                         difficulty=difficulty,
+                        difficulty_level=difficulty_level,
                         pool_id=pool_id,
                         user=user,
                     )
@@ -1151,6 +1177,8 @@ def stream_pool_questions(
             pool_id=pool_id,
             user=user,
             plan=recipe_plan,
+            difficulty_level=difficulty_level,
+            mix_plan=generate_slots,
         ):
             if isinstance(item, PoolQuestion):
                 pool_questions.append(item)
@@ -1357,6 +1385,14 @@ def stream_pool_questions(
         "generalInstructions": general_instructions,
         "meta": {},
     }
+    # What the slider asked for beside what the paper actually holds, so a
+    # shortfall (a thin pool) is visible rather than silent.
+    achieved = {"easy": 0, "medium": 0, "hard": 0}
+    for assignment in paper.assignments:
+        label = str(getattr(assignment.question, "difficulty", "") or "")
+        if label in achieved:
+            achieved[label] += 1
+    difficulty_meta = {**difficulty_profile, "target": mix_of(plan), "achieved": achieved}
 
     ordered = sorted(
         paper.assignments, key=lambda a: int(getattr(a.slot, "index", 0) or 0)
@@ -1426,6 +1462,7 @@ def stream_pool_questions(
     result["meta"] = {
         "poolId": pool_id,
         "chapter": chapter_name,
+        "difficulty": difficulty_meta,
         "totalQuestions": paper.total_questions,
         "totalMarks": paper.total_marks,
         "poolSize": len(pool_questions),
@@ -1552,6 +1589,7 @@ def stream_pool_questions(
                 "topic": topic,
                 "count": count,
                 "difficulty": difficulty,
+                "difficultyLevel": difficulty_level,
                 "subject": subject_label,
                 "class": class_num,
                 "pdfSourceIds": pdf_source_ids,

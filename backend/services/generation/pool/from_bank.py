@@ -198,6 +198,12 @@ def stream_paper_from_bank(
         )
         summary = summarize_question_plan(plan)
 
+    # The slider's level, dealt to the slots, so a bank paper is selected at the
+    # same mix a generated one is written at.
+    from services.generation.difficulty import apply_profile, profile_summary, resolve_level
+
+    difficulty_level = resolve_level(payload, difficulty)
+    plan = apply_profile(plan, difficulty_level, class_num)
     routing = routing_summary(plan)
     yield _sse(
         {
@@ -207,6 +213,7 @@ def stream_paper_from_bank(
             "blueprint": master_blueprint,
             "summary": summary,
             "generalInstructions": general_instructions,
+            "difficulty": profile_summary(plan, difficulty_level, class_num),
             "fromBank": True,
             "bankSize": len(pool),
             "sets": num_sets,

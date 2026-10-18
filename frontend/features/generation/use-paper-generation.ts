@@ -102,6 +102,9 @@ export interface GenerationRequest {
   academicClass: string;
   board: string;
   difficulty: string;
+  /** The difficulty slider, 0–100. When sent it decides the paper's mix of
+   *  basic, moderate and challenging questions; `difficulty` is its label. */
+  difficultyLevel?: number;
   numberOfSets: string;
   /** Mathematics only — `resolve_maths_basic` reads it; ignored elsewhere. */
   mathLevel?: string;
@@ -487,6 +490,7 @@ export function usePaperGeneration(options: UsePaperGenerationOptions = {}) {
               class: request.academicClass,
               board: request.board,
               difficulty: request.difficulty,
+              difficultyLevel: request.difficultyLevel,
               // -1 = "the blueprint decides how many questions". The Builder always
               // has a structure, so there is never a free-standing count to send.
               // Sent explicitly rather than left to the serializer's default so the

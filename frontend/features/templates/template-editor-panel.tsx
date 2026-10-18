@@ -30,6 +30,8 @@ import { Label } from "@/components/ui/label";
 import { SlotEditor } from "@/features/generation/blueprint/slot-editor";
 import { TemplatePreviewPaper } from "@/features/templates/template-preview-paper";
 import { recomputeTotals } from "@/features/generation/blueprint-totals";
+import { DifficultySlider } from "@/features/generation/difficulty-slider";
+import { labelForLevel, normalizeLevel } from "@/features/generation/difficulty-profile";
 import {
   fetchQuestionTypeMenu,
   savePaperTemplate,
@@ -54,7 +56,6 @@ const SUBJECTS = [
   "Computer Science",
   "ICT",
 ];
-const DIFFICULTIES = ["easy", "medium", "hard"];
 
 interface Props {
   /** null starts a brand-new template instead of editing a saved one. */
@@ -96,9 +97,11 @@ export function TemplateEditorPanel({
   const [academicClass, setAcademicClass] = React.useState(
     template?.settings?.academicClass ?? "10",
   );
-  const [difficulty, setDifficulty] = React.useState(
-    template?.settings?.difficulty ?? "medium",
+  // The slider's level when the template has one, else what its old label means.
+  const [difficultyLevel, setDifficultyLevel] = React.useState(() =>
+    normalizeLevel(template?.settings?.difficultyLevel ?? template?.settings?.difficulty),
   );
+  const difficulty = labelForLevel(difficultyLevel);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -154,7 +157,8 @@ export function TemplateEditorPanel({
           name: name.trim(),
           instructions,
           folderId,
-          settings: { subject, academicClass, difficulty },
+          // Template settings are stored as strings, so the level travels as one.
+          settings: { subject, academicClass, difficulty, difficultyLevel: String(difficultyLevel) },
           blueprint: slots.length ? { slots } : undefined,
         });
         toast.success(`Created "${created.name}"`);
@@ -289,21 +293,13 @@ export function TemplateEditorPanel({
                   ))}
                 </select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="template-difficulty">Difficulty</Label>
-                <select
-                  id="template-difficulty"
-                  value={difficulty}
-                  onChange={(e) => setDifficulty(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm capitalize shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                >
-                  {DIFFICULTIES.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <DifficultySlider
+                id="template-difficulty"
+                value={difficultyLevel}
+                onChange={setDifficultyLevel}
+                classNum={academicClass}
+                className="sm:col-span-2"
+              />
             </div>
           ) : null}
 
