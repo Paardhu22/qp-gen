@@ -895,8 +895,19 @@ holds. Old strings resolve forever through the alias index. **HOTS** and
   class and subject, ranked by subject weights, with search and browse across
   everything. Types that need a printed picture are listed but disabled, and a
   dot flags a type usually set to other classes.
-- **Answer keys.** `answer_script_service._answer_format` picks the format a
+- **Answer keys.** `services/papers/answer_script._answer_format` picks the format a
   type needs (true/false, fill-in, matching, multi-correct, grammar, writing).
+- **Maths in answer scripts.** One contract end to end: `\( … \)` inline and
+  `\[ … \]` display, owned by `services/generation/rules/typesetting.py`. The
+  question's `inlineMath` / `mathBlock` nodes reach the model in that notation;
+  the prompt asks for it back; the reply is repaired for JSON (a lone `\(` is
+  invalid JSON, and `\frac` / `\theta` / `\neq` are *valid* escapes that
+  silently become control characters) and normalised (`$…$`, `$$…$$`, bare
+  `\begin{…}` environments, bare LaTeX tokens); and the saved document holds
+  `inlineMath` / `mathBlock` nodes, one paragraph per line, so the editor
+  (KaTeX), PDF and DOCX (OMML) all render real equations. Guarded by
+  `services/papers/tests/test_answer_math.py` and
+  `frontend/scripts/test-answer-script-math.mjs`.
 
 **Adding a type:** edit its family module under `catalog/` → run
 `python manage.py export_question_types` to regenerate

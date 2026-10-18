@@ -2,7 +2,7 @@
 // the Question Bank split-view left panel. Mirrors the node shape the editor
 // writes (see features/editor/tiptap-editor.tsx `normalizeInitialContent` /
 // `buildDocument`) and the backend walk in
-// services/answer_script_service._extract_questions_from_content:
+// services/papers/answer_script._extract_questions_from_content:
 //
 //   doc -> page[] -> [ sectionBlock, questionBlock{attrs:{marks,questionType}},
 //                      groupedQuestionBlock, instructionBlock, ... ]

@@ -23,6 +23,13 @@ from django.conf import settings
 from apps.documents.models import PdfSource
 from apps.projects.models import Paper, PaperSet
 from services.sources.embedding import generate_embeddings
+from services.generation.rules.typesetting import (
+    MATH_PROMPT_RULES,
+    node_text,
+    normalize_math_text,
+    repair_json_backslashes,
+    text_to_blocks,
+)
 from services.llm.openai_client import get_openai_client, _record_usage
 from services.papers.content import dual_write_set_content, read_set_content
 from services.question_types import get as get_type, resolve_slot_type
@@ -96,6 +103,7 @@ Format rules:
     + """\
 - All answers should be grounded in the source material, but you may use your general knowledge to complete the answer if the source is insufficient.
 """
+    + MATH_PROMPT_RULES
 )
 
 
@@ -221,13 +229,9 @@ def _answer_format(q_type: str, type_code: str = "") -> str:
 
 
 def _node_text(node: dict) -> str:
-    """Recursively extract plain text from a TipTap node."""
-    if node.get("text"):
-        return node["text"]
-    parts: List[str] = []
-    for child in node.get("content", []):
-        parts.append(_node_text(child))
-    return " ".join(parts)
+    """Text of a TipTap node. Equations come out as ``\\( … \\)`` / ``\\[ … \\]``,
+    the notation the model is asked to answer in, instead of vanishing."""
+    return node_text(node)
 
 
 def _split_or_choice(text: str) -> tuple[str, Optional[str]]:
@@ -256,16 +260,21 @@ def _sanitize_json_payload(raw_text: str) -> Optional[str]:
 
 
 def _parse_answer_payload(raw_text: str) -> Optional[Dict[str, Any]]:
-    try:
-        return json.loads(raw_text)
-    except json.JSONDecodeError:
-        payload = _sanitize_json_payload(raw_text)
-        if not payload:
-            return None
+    """Parse the reply, tolerating the commonest LaTeX slip: a single backslash
+    (``\\(``, ``\\sqrt``) inside a JSON string, which is not a legal escape."""
+    candidates = [raw_text]
+    payload = _sanitize_json_payload(raw_text)
+    if payload:
+        candidates.append(payload)
+    candidates += [repair_json_backslashes(c) for c in candidates]
+    for candidate in candidates:
         try:
-            return json.loads(payload)
+            parsed = json.loads(candidate)
         except json.JSONDecodeError:
-            return None
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 def _strip_code_fences(text: str) -> str:
@@ -282,10 +291,12 @@ def _extract_json_string_field(raw_text: str, field: str) -> Optional[str]:
     if not match:
         return None
     raw_value = match.group(1)
-    try:
-        return json.loads(f'"{raw_value}"')
-    except json.JSONDecodeError:
-        return raw_value
+    for candidate in (raw_value, repair_json_backslashes(raw_value)):
+        try:
+            return json.loads(f'"{candidate}"')
+        except json.JSONDecodeError:
+            continue
+    return raw_value
 
 
 def _fallback_answer_from_text(raw_text: str, or_choice_text: Optional[str]) -> tuple[str, Optional[str]]:
@@ -624,6 +635,11 @@ def _generate_single_answer_llm_only(
         answer_text = "[Answer generation failed]"
         or_answer_text = "[Answer generation failed]" if or_choice_text else None
 
+    # One contract for the saved document: \( … \) inline, \[ … \] display.
+    answer_text = normalize_math_text(answer_text)
+    if or_answer_text:
+        or_answer_text = normalize_math_text(or_answer_text)
+
     return question_number, {
         "question_number": question_number,
         "question_text": primary_content,
@@ -777,12 +793,10 @@ def _append_answers(doc_content: List[dict], answers: List[Dict[str, Any]]) -> N
         or_choice = ans.get("or_choice_text")
         or_answer = ans.get("or_answer")
 
-        answer_paragraphs: List[Dict[str, Any]] = [
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": answer_text}],
-            }
-        ]
+        # Maths becomes inlineMath / mathBlock nodes (KaTeX in the editor, OMML
+        # in DOCX); each line is its own paragraph so numbered points survive
+        # export, which collapses a newline inside a text run.
+        answer_paragraphs: List[Dict[str, Any]] = text_to_blocks(answer_text)
 
         if or_choice and or_answer:
             answer_paragraphs.append({
@@ -795,10 +809,7 @@ def _append_answers(doc_content: List[dict], answers: List[Dict[str, Any]]) -> N
                     }
                 ],
             })
-            answer_paragraphs.append({
-                "type": "paragraph",
-                "content": [{"type": "text", "text": or_answer}],
-            })
+            answer_paragraphs.extend(text_to_blocks(or_answer))
 
         doc_content.append({
             "type": "questionBlock",
