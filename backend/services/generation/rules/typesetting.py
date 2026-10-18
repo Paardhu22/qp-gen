@@ -24,6 +24,15 @@ import re
 from typing import Any, Callable, Dict, List
 
 from services.generation.rules.content_filters import wrap_bare_latex_tokens
+from services.generation.rules.tables import (
+    ANSWER_TABLE_RULES,
+    ParsedTable,
+    escape_cell,
+    is_edge_piped,
+    is_numeric_like,
+    normalize_tables,
+    parse_run,
+)
 
 #: The rules a prompt must carry for the model to write maths this module can
 #: place. A raw string on purpose: the backslashes are the content.
@@ -37,6 +46,9 @@ Mathematics and formulas (apply to every subject):
 - The questions below carry their maths in this same notation: copy it exactly. If the source material has maths as plain or garbled text, rewrite it in LaTeX.
 - Your reply is JSON, so every backslash inside a JSON string must be doubled. Write "\\frac{1}{2}" and "\\( x^{2} \\)" in the JSON; a single backslash corrupts the maths.
 """
+
+#: Everything an answer-writing prompt must say about maths *and* tables.
+ANSWER_FORMAT_RULES = MATH_PROMPT_RULES + ANSWER_TABLE_RULES
 
 # ── Reading: a TipTap node as text ──────────────────────────────────────
 
@@ -59,6 +71,8 @@ def node_text(node: Dict[str, Any]) -> str:
         return f"\\[{latex}\\]" if latex else ""
     if kind == "hardBreak":
         return " "
+    if kind == "table":
+        return _table_text(node)
     if node.get("text"):
         return str(node["text"])
 
@@ -74,6 +88,26 @@ def node_text(node: Dict[str, Any]) -> str:
         out.append(piece)
         previous_inline = inline
     return "".join(out)
+
+
+def _table_text(node: Dict[str, Any]) -> str:
+    """A table node as pipe rows, one per line, so the model can read the rows
+    and columns (joined as plain text they are a run of unrelated numbers)."""
+    rows: List[List[str]] = []
+    header = False
+    for index, row in enumerate(node.get("content") or []):
+        cells = [
+            escape_cell(re.sub(r"\s+", " ", node_text(cell)).strip())
+            for cell in row.get("content") or []
+        ]
+        if not cells:
+            continue
+        rows.append(cells)
+        if index == 0:
+            header = all(c.get("type") == "tableHeader" for c in row.get("content") or [])
+    if not rows:
+        return ""
+    return "\n" + "\n".join(ParsedTable(rows, header).render()) + "\n"
 
 
 # ── Repair: a JSON reply that carries LaTeX ─────────────────────────────
@@ -159,6 +193,8 @@ def normalize_math_text(text: str) -> str:
     text = _outside_math(text, _wrap_environments)
     # An escaped dollar outside maths is just a dollar.
     text = _outside_math(text, lambda seg: seg.replace("\\$", "$"))
+    # Rows in their final shape before the bare-LaTeX rescue tokenises them.
+    text = normalize_tables(text)
     return wrap_bare_latex_tokens(text)
 
 
@@ -183,15 +219,66 @@ def _inline_nodes(line: str) -> List[Dict[str, Any]]:
     return nodes
 
 
+def _cell_paragraph(text: str, *, centred: bool) -> Dict[str, Any]:
+    # `\|` is how a literal bar travels in a cell; outside maths it is just "|".
+    text = _outside_math(text, lambda seg: seg.replace("\\|", "|"))
+    paragraph: Dict[str, Any] = {"type": "paragraph"}
+    if centred:
+        paragraph["attrs"] = {"textAlign": "center"}
+    if text:
+        paragraph["content"] = _inline_nodes(text)
+    return paragraph
+
+
+def _table_node(table: ParsedTable) -> Dict[str, Any]:
+    """A table node: header cells where the table has a header row, maths in a
+    cell as ``inlineMath`` nodes, and headers and figures centred."""
+    rows = []
+    for index, cells in enumerate(table.rows):
+        header = table.header and index == 0
+        rows.append(
+            {
+                "type": "tableRow",
+                "content": [
+                    {
+                        "type": "tableHeader" if header else "tableCell",
+                        "content": [
+                            _cell_paragraph(cell, centred=header or is_numeric_like(cell))
+                        ],
+                    }
+                    for cell in cells
+                ],
+            }
+        )
+    return {"type": "table", "content": rows}
+
+
 def _paragraphs(segment: str) -> List[Dict[str, Any]]:
     # Inline maths that spans a line break is one expression, not two lines.
     segment = _INLINE_MATH.sub(lambda m: m.group(0).replace("\n", " "), segment)
     blocks: List[Dict[str, Any]] = []
+    run: List[str] = []
+
+    def flush() -> None:
+        if not run:
+            return
+        table = parse_run(run)
+        if table is not None:
+            blocks.append(_table_node(table))
+        else:  # a lone barred line is prose that happens to contain a bar
+            blocks.extend({"type": "paragraph", "content": _inline_nodes(ln)} for ln in run)
+        run.clear()
+
     for line in segment.split("\n"):
         line = line.strip()
         if not line:
             continue
+        if is_edge_piped(line):
+            run.append(line)
+            continue
+        flush()
         blocks.append({"type": "paragraph", "content": _inline_nodes(line)})
+    flush()
     return blocks
 
 

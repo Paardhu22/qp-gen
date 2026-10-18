@@ -164,6 +164,20 @@ function paper(logoUrl: string, logoAlign: string) {
             type: "SHORT",
             marks: 3,
           }),
+          // A Statistics question: the data is a real table with column
+          // headings, figures centred, and an equation typeset in a cell.
+          ...buildQuestionBlocks({
+            content:
+              "Find the mean of the following distribution.\n" +
+              "| Class interval | Frequency | Class mark \\( x_i \\) |\n" +
+              "| --- | --- | --- |\n" +
+              "| 0–10 | 5 | \\( \\frac{0+10}{2} \\) |\n" +
+              "| 10–20 | 8 | \\( \\frac{10+20}{2} \\) |\n" +
+              "| 20–30 | 12 | \\( \\frac{20+30}{2} \\) |\n" +
+              "| 30–40 | 5 | \\( \\frac{30+40}{2} \\) |",
+            type: "SHORT",
+            marks: 4,
+          }),
           {
             type: "questionGroupBlock",
             content: [

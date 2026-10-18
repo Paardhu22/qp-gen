@@ -61,9 +61,11 @@ ENTRIES = [
       "Mean, median, mode from data.", 3, (7, 10), "NUMERIC", "APPLY",
       marks_range=(3, 5), stimulus="TABLE", marking="SCHEME", subjects=_MATHS,
       aliases=("MEAN MEDIAN MODE", "STATISTICS"),
-      brief=f"A frequency table printed in the question, and a statistic to compute from it. {_STEPS}",
-      example="Find the mean of the following distribution.\n| Class interval | 0–10 | 10–20 | 20–30 | 30–40 |\n| Frequency | 5 | 8 | 12 | 5 |",
-      answer="Mean = 20.3"),
+      brief=("A frequency table printed in the question — a Class interval column and a Frequency "
+             f"column under a header row — and a statistic to compute from it. {_STEPS}"),
+      example=("Find the mean of the following distribution.\n| Class interval | Frequency |\n| --- | --- |\n"
+               "| 0–10 | 5 |\n| 10–20 | 8 |\n| 20–30 | 12 |\n| 30–40 | 5 |"),
+      answer="Mean = 20.67"),
     _("NUMBER_PATTERN", "Pattern / Number Series", "G9", "NEW", "ONE_WORD",
       "Pattern recognition.", 1, (1, 8), "NUMERIC", "SEQUENCE",
       marks_range=(1, 2), subjects=_MATHS, aliases=("NUMBER PATTERN", "NUMBER SERIES"),

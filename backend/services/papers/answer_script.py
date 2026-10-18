@@ -24,7 +24,7 @@ from apps.documents.models import PdfSource
 from apps.projects.models import Paper, PaperSet
 from services.sources.embedding import generate_embeddings
 from services.generation.rules.typesetting import (
-    MATH_PROMPT_RULES,
+    ANSWER_FORMAT_RULES,
     node_text,
     normalize_math_text,
     repair_json_backslashes,
@@ -103,7 +103,7 @@ Format rules:
     + """\
 - All answers should be grounded in the source material, but you may use your general knowledge to complete the answer if the source is insufficient.
 """
-    + MATH_PROMPT_RULES
+    + ANSWER_FORMAT_RULES
 )
 
 
@@ -232,6 +232,18 @@ def _node_text(node: dict) -> str:
     """Text of a TipTap node. Equations come out as ``\\( … \\)`` / ``\\[ … \\]``,
     the notation the model is asked to answer in, instead of vanishing."""
     return node_text(node)
+
+
+def _tidy_question_text(text: str) -> str:
+    """Collapse runs of spaces — but keep the line breaks a table's rows need.
+
+    A table node reads as pipe rows on their own lines; collapsing every
+    whitespace character (as this used to) glued the rows into one line and
+    left the model a run of numbers with no rows or columns.
+    """
+    text = re.sub(r"[^\S\n]+", " ", text)
+    text = re.sub(r" ?\n[ \n]*", "\n", text)
+    return text.strip()
 
 
 def _split_or_choice(text: str) -> tuple[str, Optional[str]]:
@@ -423,7 +435,7 @@ def _extract_questions_from_content(content_json: str) -> List[Dict[str, Any]]:
                 if child.get("type") != "orderedList":
                     text_parts.append(_node_text(child))
             text = " ".join(text_parts).strip()
-            text = re.sub(r"\s+", " ", text).strip()
+            text = _tidy_question_text(text)
 
             marks = int(attrs.get("marks", 1) or 1)
             q_type = attrs.get("questionType", "SHORT_ANSWER") or "SHORT_ANSWER"

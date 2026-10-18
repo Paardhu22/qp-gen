@@ -125,25 +125,103 @@ function buildTableNode(rows: string[]): any {
   const hasHeader = rows.length > 1 && TABLE_SEPARATOR_RE.test(rows[1]);
   const cells = rows
     .filter((row) => !TABLE_SEPARATOR_RE.test(row))
-    .map((row) => row.slice(1, -1).split("|").map((cell) => cell.trim()));
+    .map((row) => splitTableCells(row));
   const width = Math.max(...cells.map((row) => row.length));
   return {
     type: "table",
     content: cells.map((row, rowIndex) => ({
       type: "tableRow",
       content: Array.from({ length: width }, (_, column) => {
-        const text = row[column] ?? "";
+        const isHeader = hasHeader && rowIndex === 0;
         return {
-          type: hasHeader && rowIndex === 0 ? "tableHeader" : "tableCell",
-          content: [
-            text
-              ? { type: "paragraph", content: buildInlineRun(text) }
-              : { type: "paragraph" },
-          ],
+          type: isHeader ? "tableHeader" : "tableCell",
+          content: [cellParagraph(row[column] ?? "", isHeader)],
         };
       }),
     })),
   };
+}
+
+/** The maths spans in a cell: a bar inside one is part of the equation. */
+const CELL_MATH_RE = /\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]/g;
+
+/**
+ * The cells of one `| … |` row.
+ *
+ * A bar inside `\( … \)` (`\( |x| \)`) or escaped as `\|` belongs to its cell
+ * rather than ending it; an unclosed maths span cannot swallow the rest of the
+ * row. The backend's `split_cells` follows the same rules.
+ */
+export function splitTableCells(row: string): string[] {
+  let body = row.trim();
+  if (body.startsWith("|")) body = body.slice(1);
+  if (body.endsWith("|") && !body.endsWith("\\|")) body = body.slice(0, -1);
+
+  const split = (protectMath: boolean): string[] | null => {
+    const cells: string[] = [];
+    let current = "";
+    let closing: string | null = null;
+    for (let i = 0; i < body.length; ) {
+      const pair = body.slice(i, i + 2);
+      if (protectMath && closing === null && (pair === "\\(" || pair === "\\[")) {
+        closing = pair === "\\(" ? "\\)" : "\\]";
+        current += pair;
+        i += 2;
+      } else if (closing !== null && pair === closing) {
+        closing = null;
+        current += pair;
+        i += 2;
+      } else if (pair === "\\|") {
+        current += pair;
+        i += 2;
+      } else if (body[i] === "|" && closing === null) {
+        cells.push(current.trim());
+        current = "";
+        i += 1;
+      } else {
+        current += body[i];
+        i += 1;
+      }
+    }
+    if (closing !== null) return null;
+    cells.push(current.trim());
+    return cells;
+  };
+
+  return split(true) ?? split(false) ?? [body.trim()];
+}
+
+/** `\|` is how a literal bar travels in a cell; outside maths it is just "|". */
+function unescapeBars(text: string): string {
+  let out = "";
+  let cursor = 0;
+  CELL_MATH_RE.lastIndex = 0;
+  for (let m = CELL_MATH_RE.exec(text); m; m = CELL_MATH_RE.exec(text)) {
+    out += text.slice(cursor, m.index).replace(/\\\|/g, "|") + m[0];
+    cursor = m.index + m[0].length;
+  }
+  return out + text.slice(cursor).replace(/\\\|/g, "|");
+}
+
+/**
+ * A cell that holds a figure: a short run with a digit in it (a frequency, a
+ * class interval) or nothing but one equation (`\( \frac{0+10}{2} \)`, whose
+ * source is long however small it prints). Figures and headers are centred so
+ * a column lines up under its heading; the backend writes answer-script tables
+ * with the same rule.
+ */
+function isNumericLike(text: string): boolean {
+  const onlyAnEquation =
+    /^\\\([\s\S]+\\\)$/.test(text) && (text.match(/\\\(/g) ?? []).length === 1;
+  return onlyAnEquation || (text.length <= 18 && /\d/.test(text));
+}
+
+function cellParagraph(text: string, isHeader: boolean): any {
+  const shown = unescapeBars(text);
+  const paragraph: any = { type: "paragraph" };
+  if (isHeader || isNumericLike(shown)) paragraph.attrs = { textAlign: "center" };
+  if (shown) paragraph.content = buildInlineRun(shown);
+  return paragraph;
 }
 
 /**
