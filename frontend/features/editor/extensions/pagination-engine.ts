@@ -4,6 +4,7 @@ import { Plugin, PluginKey } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { createPageId } from "../pagination-utils";
 import { canPullUp } from "./pagination-fit";
+import { markDerived } from "../history";
 
 const paginationKey = new PluginKey("paginationEngine");
 
@@ -683,7 +684,9 @@ export const PaginationEngine = Extension.create({
         isDispatching = true;
         try {
           tr.setMeta(paginationKey, true);
-          viewRef.dispatch(tr);
+          // Page breaks are layout, not something the user did. Recorded as
+          // undo steps they made Ctrl+Z revert a reshuffle you cannot see.
+          viewRef.dispatch(markDerived(tr));
         } finally {
           isDispatching = false;
         }

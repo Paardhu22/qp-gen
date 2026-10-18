@@ -7,11 +7,13 @@ import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import React, { useEffect, useRef, useState } from "react";
 import { AlignLeft, AlignCenter, AlignRight, Trash } from "lucide-react";
 import { requestRepagination } from "./pagination-engine";
+import { markDerived } from "../history";
 
 interface FloatImageProps {
   node: any;
   updateAttributes: (attrs: Record<string, any>) => void;
   deleteNode: () => void;
+  getPos: () => number | undefined;
   selected: boolean;
   editor: Editor;
 }
@@ -81,6 +83,7 @@ const FloatImageComponent = ({
   node,
   updateAttributes,
   deleteNode,
+  getPos,
   selected,
   editor,
 }: FloatImageProps) => {
@@ -97,16 +100,22 @@ const FloatImageComponent = ({
   // The bordered empty <img> was the visible "Question visual" /
   // figure-placeholder artifact users reported. Without a usable
   // image the question stem must stand on its own.
+  //
+  // This removal is the editor tidying up, not the user's doing, so it is kept
+  // out of the undo history. Recorded, it made Ctrl+Z restore the broken image
+  // only for it to delete itself again — undo that never seemed to do anything.
   useEffect(() => {
-    if (loadFailed) {
-      try {
-        deleteNode();
-      } catch {
-        // deleteNode can throw if the node was already removed (e.g.
-        // during teardown). Swallow — there's nothing left to delete.
-      }
+    if (!loadFailed) return;
+    try {
+      const pos = getPos();
+      if (typeof pos !== "number" || editor.isDestroyed) return;
+      editor.view.dispatch(
+        markDerived(editor.state.tr.delete(pos, pos + node.nodeSize)),
+      );
+    } catch {
+      // The node can already be gone (during teardown). Nothing left to delete.
     }
-  }, [loadFailed, deleteNode]);
+  }, [loadFailed, editor, getPos, node.nodeSize]);
 
   // Reset the failure flag whenever the src attribute changes (e.g.
   // the user re-points the node at a new figure).

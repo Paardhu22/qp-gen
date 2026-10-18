@@ -37,7 +37,7 @@ scripts/      node self-checks (test-*.mjs); `npm test` runs them all
 
 | Folder | Owns |
 |---|---|
-| `editor/` | The paper editor: TipTap editor, toolbar, outline, review tray, store. `extensions/` are TipTap nodes (page, pagination engine, header, math); `dialogs/` and `header/` group the rest |
+| `editor/` | The paper editor: TipTap editor, toolbar, outline, review tray, store. `extensions/` are TipTap nodes (page, pagination engine, header, math); `dialogs/` and `header/` group the rest. Undo/redo rules live in `history.ts` — anything the editor computes itself must go through `markDerived` |
 | `generation/` | Generating a paper: the dock, the run hook, SSE reading, paper-design panel; `blueprint/` is the Blueprint Builder |
 | `papers/` | Paper preview, ids, drafts (IndexedDB + server sync), save actions |
 | `templates/` | Template manager and picker grid |
