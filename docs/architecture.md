@@ -1361,6 +1361,22 @@ draw one `gpt-image-1` image per click in `line_art`, `realistic` or `cartoon`
 style. Quality is `high` on purpose, because a low-tier render turns label "B"
 into a smudge. `OPENAI_IMAGE_CONCURRENCY` (1) caps bursts.
 
+### 13.0 Images in an exported PDF / Word file
+
+The exporters read an image's pixels in the browser, so the fetch must be
+CORS-clean. `/media/<path>` is not, on S3 storage: it redirects to a presigned S3
+URL, the browser then asks S3 with `Origin: null`, and a bucket whose CORS rule
+names only the app's origin does not answer. The fetch was blocked and the image
+(the institute's logo, every figure) was silently left out of the file, while
+still showing in the editor, which loads it as a plain `<img>`.
+
+`features/export/fetch-image.ts` asks for `/media/<path>?inline=1`; `serve_media`
+then streams the bytes itself (raster images only, ≤ 15 MB, behind the CORS rule
+that already allows the frontend). The plain URL is the fallback, so an older
+backend behaves as before. An image that still cannot be read is warned about
+in the console **and** in a toast after the export. Self-check:
+`scripts/test-export-media.mjs`; backend: `ServeMediaInlineTests`.
+
 ### 13.1 A question from the teacher's own image
 
 The teacher can bring their own picture instead: **Question from image** in the
@@ -1844,7 +1860,7 @@ do are written with it.
 | `*` | `/api/chat/conversations[/<id>[/status\|/messages]]` | Assistant sessions. |
 | `POST`/`GET` | `/api/storage/upload-export/` · `export-url/` | Export backup to S3. |
 | `GET` | `/api/health/` | Health check. |
-| `GET` | `/media/<path>` | Stable media resolver → presigned redirect / local stream. |
+| `GET` | `/media/<path>` | Stable media resolver → presigned redirect / local stream. `?inline=1` streams an image's bytes instead (exports; see §13). |
 
 ## Appendix B — Environment Variables & Commands
 

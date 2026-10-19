@@ -11,6 +11,7 @@ import { saveAs } from "file-saver";
 
 import { resolveFigureSrc } from "@/features/editor/extensions/float-image";
 import { buildPaperDocx, type LoadedImage } from "./docx-paper";
+import { fetchImageBlob } from "./fetch-image";
 
 /** Formats Word embeds as they are; anything else (SVG, WebP) becomes a PNG. */
 const NATIVE: Record<string, LoadedImage["type"]> = {
@@ -61,12 +62,10 @@ async function loadImage(rawSrc: string): Promise<LoadedImage | null> {
   const src = resolveFigureSrc(rawSrc);
   if (!src) return null;
   try {
-    // `fetch` reads data: URLs as well as /media/ ones. "same-origin"
-    // credentials: media needs no cookie, and a split-origin deploy rejects
-    // credentialed requests without an explicit allow header.
-    const response = await fetch(src, { mode: "cors", credentials: "same-origin" });
-    if (!response.ok) return null;
-    const blob = await response.blob();
+    // Reads data: URLs as well as /media/ ones, and asks the backend for the
+    // bytes rather than following the S3 redirect (see fetch-image.ts).
+    const blob = await fetchImageBlob(src);
+    if (!blob) return null;
     const img = await decode(blob);
     const native = NATIVE[blob.type.toLowerCase()];
     return {

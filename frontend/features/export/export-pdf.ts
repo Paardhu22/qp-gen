@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { resolveFigureSrc } from "@/features/editor/extensions/float-image";
+import { fetchImageBlob } from "./fetch-image";
 
 // ---------------------------------------------------------------------------
 // Tailwind v4 / shadcn use oklch() color functions everywhere.
@@ -235,15 +236,12 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 async function fetchAsDataUrl(url: string): Promise<string | null> {
+  // `fetchImageBlob` asks the backend for the bytes rather than following the
+  // S3 redirect, which a bucket's CORS rule can block (see fetch-image.ts), and
+  // records any image it still cannot get so the export can say so.
+  const blob = await fetchImageBlob(url);
+  if (!blob) return null;
   try {
-    // cors mode plus credentials: same-origin lets Django's session cookie
-    // through for first-party deployments without leaking it cross-site.
-    const response = await fetch(url, {
-      mode: "cors",
-      credentials: "same-origin",
-    });
-    if (!response.ok) return null;
-    const blob = await response.blob();
     return await blobToDataUrl(blob);
   } catch {
     return null;

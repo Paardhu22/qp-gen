@@ -17,6 +17,7 @@
  */
 
 import { toast } from "sonner";
+import { resetImageFailures, takeImageFailures } from "./fetch-image";
 
 import { persistablePaperId, splitPaperId } from "../papers/paper-id";
 import type { ExportType, FileFormat } from "./s3-upload";
@@ -74,6 +75,7 @@ export async function exportPaper({
 
   const filename = withExtension(raw, format);
   const toastId = toast.loading(`Generating ${label}…`);
+  resetImageFailures();
 
   try {
     let blob: Blob;
@@ -88,6 +90,17 @@ export async function exportPaper({
     }
 
     toast.success(`${label} downloaded!`, { id: toastId });
+
+    // An image that could not be read is left out of the file. Say so: a paper
+    // that prints without its logo or a figure should not look like a good one.
+    const missing = takeImageFailures();
+    if (missing.length > 0) {
+      toast.warning(
+        `${missing.length} image${missing.length === 1 ? " was" : "s were"} not included in the ${label}. ` +
+          "Check your connection and export again.",
+        { duration: 10000 },
+      );
+    }
 
     // `persistablePaperId` strips the set suffix and returns null for an
     // unsaved draft, so an unsaved paper simply skips the backup rather than
