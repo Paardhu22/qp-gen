@@ -1374,7 +1374,18 @@ still showing in the editor, which loads it as a plain `<img>`.
 then streams the bytes itself (raster images only, ≤ 15 MB, behind the CORS rule
 that already allows the frontend). The plain URL is the fallback, so an older
 backend behaves as before. An image that still cannot be read is warned about
-in the console **and** in a toast after the export. Self-check:
+in the console **and** in a toast after the export.
+
+**Firefox-family browsers (Firefox, Zen, LibreWolf) needed a second fix.** html2canvas
+reads each image's `currentSrc` the moment `onclone` returns, and right after the
+exporter swaps an `<img>`'s `src` for its inline copy, Gecko still reports the old
+address. html2canvas then re-requests the original with CORS, S3 blocks it, and the
+image is silently not drawn: the logo and every KaTeX radical were missing from the PDF
+while Chrome was fine. `export-pdf.ts` now waits for each swapped image's `load` event
+(`setSrcAndSettle`) before the capture proceeds, and only scans images inside the
+paper (the navbar's logos are never captured, and used to be reported as failures).
+Check exports in both engines; Firefox can be driven headlessly over WebDriver BiDi
+(`firefox --headless --remote-debugging-port=…`). Self-check:
 `scripts/test-export-media.mjs`; backend: `ServeMediaInlineTests`.
 
 ### 13.1 A question from the teacher's own image

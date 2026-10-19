@@ -248,6 +248,40 @@ async function fetchAsDataUrl(url: string): Promise<string | null> {
   }
 }
 
+/** How long to wait for one image to load before carrying on without it. */
+const IMAGE_SETTLE_MS = 8000;
+
+/**
+ * Give an `<img>` a new `src` and resolve once the browser has loaded it.
+ *
+ * html2canvas reads each image's `currentSrc` the moment `onclone` returns.
+ * Right after a `src` swap, Firefox (and so Zen, LibreWolf and the rest of the
+ * Gecko family) still reports the PREVIOUS address. html2canvas then asks for
+ * that original URL again, with CORS, the redirect to S3 is blocked, and the
+ * image is silently not drawn: the institute's logo and every KaTeX radical
+ * were missing from the PDF in those browsers, while Chrome was fine. Waiting
+ * for the load event makes `currentSrc` the inline data URL before it is read.
+ */
+function setSrcAndSettle(img: HTMLImageElement, src: string): Promise<void> {
+  return new Promise((resolve) => {
+    let timer = 0;
+    const finish = () => {
+      window.clearTimeout(timer);
+      img.removeEventListener("load", finish);
+      img.removeEventListener("error", finish);
+      resolve();
+    };
+    timer = window.setTimeout(finish, IMAGE_SETTLE_MS);
+    img.addEventListener("load", finish);
+    img.addEventListener("error", finish);
+    img.loading = "eager";
+    // A srcset would keep winning over the new src (next/image sets one).
+    img.removeAttribute("srcset");
+    img.removeAttribute("sizes");
+    img.setAttribute("src", src);
+  });
+}
+
 /**
  * Walk every `<img>` in `root` and replace its `src` with an inline data URL.
  * Returns the count of substitutions performed; callers can log this to spot
@@ -266,7 +300,7 @@ async function inlineAllImageSources(root: HTMLElement): Promise<number> {
     const resolved = resolveFigureSrc(original);
     if (!resolved) return false;
     if (resolved.startsWith("data:")) {
-      img.setAttribute("src", resolved);
+      await setSrcAndSettle(img, resolved);
       return true;
     }
 
@@ -277,10 +311,10 @@ async function inlineAllImageSources(root: HTMLElement): Promise<number> {
     }
     const dataUrl = await job;
     if (!dataUrl) return false;
-    img.setAttribute("src", dataUrl);
     // crossOrigin attribute is no longer meaningful for a data: URL; remove
     // it so html2canvas doesn't re-trigger a CORS dance.
     img.removeAttribute("crossorigin");
+    await setSrcAndSettle(img, dataUrl);
     return true;
   });
 
@@ -306,8 +340,9 @@ async function inlineAllImageSources(root: HTMLElement): Promise<number> {
 // replacement occupies the exact same box and the wrapper still clips.
 // ---------------------------------------------------------------------------
 
-function inlineSvgElementsAsImages(root: HTMLElement): number {
+async function inlineSvgElementsAsImages(root: HTMLElement): Promise<number> {
   const svgs = Array.from(root.querySelectorAll("svg"));
+  const settled: Promise<void>[] = [];
   let converted = 0;
   for (const svg of svgs) {
     const rect = svg.getBoundingClientRect();
@@ -329,7 +364,6 @@ function inlineSvgElementsAsImages(root: HTMLElement): number {
 
     const xml = new XMLSerializer().serializeToString(clone);
     const img = svg.ownerDocument.createElement("img");
-    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
     img.style.width = `${rect.width}px`;
     img.style.height = `${rect.height}px`;
     if (computed) {
@@ -337,8 +371,13 @@ function inlineSvgElementsAsImages(root: HTMLElement): number {
       img.style.verticalAlign = computed.verticalAlign;
     }
     svg.replaceWith(img);
+    // Once it is in the document, so the load is observed (see setSrcAndSettle).
+    settled.push(
+      setSrcAndSettle(img, `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`),
+    );
     converted += 1;
   }
+  await Promise.all(settled);
   return converted;
 }
 
@@ -410,11 +449,15 @@ export async function exportToPDF(
       });
       rewriteHeaderDateForExport(clonedDoc);
       rewriteMarksInputsForExport(clonedDoc);
-      await inlineAllImageSources(clonedDoc.body);
+      // The paper only. The page around it (navbar logos, icons) is never
+      // captured, and scanning it made every export fetch images that do not
+      // exist at the API origin and report them as "not included".
+      const paper = clonedDoc.getElementById(elementId) ?? clonedDoc.body;
+      await inlineAllImageSources(paper);
       // After image inlining (so we never convert an SVG we're about to
       // replace anyway): swap inline SVGs (KaTeX radicals, accents,
       // drawing nodes) for data-URL <img>s that html2canvas can draw.
-      inlineSvgElementsAsImages(clonedDoc.body);
+      await inlineSvgElementsAsImages(paper);
     },
   };
 
