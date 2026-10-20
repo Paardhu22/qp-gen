@@ -18,29 +18,29 @@ import {
   type PaperBreakdown,
 } from "@/features/papers/paper-breakdown";
 import { PaperPreview } from "@/features/papers/paper-preview";
+import { formatDate } from "@/features/papers/library/format";
+import { PaperCard } from "@/features/papers/library/paper-card";
+import { DraftsRail, RecycleBin } from "@/features/papers/library/drafts-and-bin";
 import {
   BookOpen,
   FileText,
   Search,
   Trash2,
-  Undo2,
   ArrowLeft,
-  MoreHorizontal,
   Pencil,
   Eye,
   Key,
   RefreshCcw,
   FileDown,
-  X,
-  AlertTriangle,
   ChevronRight,
   LayoutList,
   Hash,
   Award,
+  Plus,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { PageTitle } from "@/components/ui/page-title";
-import { SkeletonRows } from "@/components/ui/skeleton";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import {
   AlertDialog,
@@ -67,8 +67,6 @@ import {
 } from "@/features/papers/live-document-db";
 import {
   summarizeDrafts,
-  daysUntilExpiry,
-  DRAFT_RETENTION_DAYS,
   type DraftSummary,
 } from "@/features/papers/drafts";
 
@@ -126,17 +124,6 @@ function parsePaper(paper: Paper): ParsedPaper {
   };
 }
 
-function formatDate(value?: string | null): string {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 function isAnswerScriptPaper(paper: Paper): boolean {
   return /answer[\s\-_]*key|answer[\s\-_]*script/i.test(paper.title ?? "");
 }
@@ -152,6 +139,7 @@ export default function QuestionBankPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState<string | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [isClearing, setIsClearing] = useState(false);
 
@@ -273,16 +261,50 @@ export default function QuestionBankPage() {
     [parsedPapers],
   );
 
+  // Subjects present in the library, for the filter chips. Keyed by lowercase:
+  // teachers type "ict", "ICT" and "Ict" for the same subject, and three
+  // chips for one thing is a filter that looks broken. The label shown is the
+  // first spelling with a capital in it, else the first spelling capitalised.
+  const subjects = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const { subjectLabel } of questionPapers) {
+      if (subjectLabel === "—") continue;
+      const key = subjectLabel.toLowerCase();
+      const known = byKey.get(key);
+      if (!known || (!/[A-Z]/.test(known) && /[A-Z]/.test(subjectLabel))) {
+        byKey.set(key, subjectLabel);
+      }
+    }
+    return Array.from(byKey, ([key, label]) => ({
+      key,
+      label: /[A-Z]/.test(label)
+        ? label
+        : label.charAt(0).toUpperCase() + label.slice(1),
+    })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [questionPapers]);
+
+  // Most recently touched first: the paper a teacher wants is almost always
+  // the one they were last working on.
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return questionPapers;
-    return questionPapers.filter((p) =>
-      [p.title, p.classLabel, p.subjectLabel, p.boardLabel]
-        .join(" ")
-        .toLowerCase()
-        .includes(term),
-    );
-  }, [questionPapers, search]);
+    const stamp = (p: Paper) =>
+      new Date(p.updated_at ?? p.created_at ?? 0).getTime() || 0;
+    return questionPapers
+      .filter(
+        (p) =>
+          subjectFilter === null ||
+          p.subjectLabel.toLowerCase() === subjectFilter,
+      )
+      .filter(
+        (p) =>
+          !term ||
+          [p.title, p.classLabel, p.subjectLabel, p.boardLabel]
+            .join(" ")
+            .toLowerCase()
+            .includes(term),
+      )
+      .sort((a, b) => stamp(b) - stamp(a));
+  }, [questionPapers, search, subjectFilter]);
 
   // ---- fetch detail ----
   useEffect(() => {
@@ -512,87 +534,123 @@ export default function QuestionBankPage() {
   // ---------------------------------------------------------------------------
 
   if (selectedPaperId) {
+    const createdOn = formatDate(
+      selectedMeta?.created_at ?? selectedMeta?.updated_at,
+    );
+    const metaChips = [
+      selectedMeta?.subjectLabel,
+      selectedMeta && selectedMeta.classLabel !== "—"
+        ? /^class\b/i.test(selectedMeta.classLabel)
+          ? selectedMeta.classLabel
+          : `Class ${selectedMeta.classLabel}`
+        : null,
+      selectedMeta?.boardLabel,
+    ].filter((v): v is string => !!v && v !== "—");
+    const segmentClass = (active: boolean) =>
+      cn(
+        "min-h-9 rounded-lg px-3 text-xs font-medium transition-colors sm:min-h-7",
+        active
+          ? "bg-background text-foreground shadow-sm ring-1 ring-foreground/10"
+          : "text-muted-foreground hover:text-foreground",
+      );
+    const actionClass =
+      "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50 sm:min-h-8";
+
     return (
       <div className="flex h-full min-h-0 flex-col bg-background">
-        {/* Back bar */}
-        <div className="shrink-0 border-b border-border px-4 py-2.5 sm:px-6">
-          <button
-            type="button"
-            onClick={() => setSelectedPaperId(null)}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+        {/* ── Header ───────────────────────────────────────────── */}
+        <header className="shrink-0 border-b border-border px-4 py-4 sm:px-6">
+          <nav
+            aria-label="Breadcrumb"
+            className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground"
           >
-            <ArrowLeft className="h-4 w-4" />
-            Back to papers
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setSelectedPaperId(null)}
+              className="inline-flex items-center gap-1 rounded-md font-medium transition-colors hover:text-foreground"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Papers
+            </button>
+            <ChevronRight className="h-3 w-3 opacity-50" aria-hidden />
+            <span className="truncate text-foreground">
+              {selectedMeta?.title ?? "Untitled"}
+            </span>
+          </nav>
+
+          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+            <div className="min-w-0">
+              <PageTitle className="break-words">
+                {selectedMeta?.title ?? "Untitled"}
+              </PageTitle>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {metaChips.map((chip) => (
+                  <span
+                    key={chip}
+                    className="rounded-full bg-brand-sand/60 px-2.5 py-0.5 text-xs font-medium text-foreground"
+                  >
+                    {chip}
+                  </span>
+                ))}
+                <span className="text-xs text-muted-foreground">
+                  Created {createdOn}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => router.push(`/editor?paperId=${selectedPaperId}`)}
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-semibold text-primary-foreground shadow-xs transition-colors hover:bg-primary-hover sm:min-h-8"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Open in editor
+              </button>
+              {(["pdf", "docx"] as const).map((format) => (
+                <button
+                  key={format}
+                  type="button"
+                  onClick={() =>
+                    router.push(
+                      `/editor?paperId=${selectedPaperId}&action=export-${format}`,
+                    )
+                  }
+                  className={actionClass}
+                >
+                  <FileDown className="h-3.5 w-3.5" />
+                  {format === "pdf" ? "PDF" : "Word"}
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
 
         {detailLoading ? (
           <Spinner size="page" />
         ) : (
-          <div className="flex flex-1 min-h-0">
-            {/* ── Left panel: metadata + breakdown (~40%) ──────────── */}
-            <div className="w-[40%] min-w-[320px] overflow-y-auto border-r border-border p-4 sm:p-6 space-y-6">
-              {/* Metadata card */}
-              <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-                <h2 className="text-lg font-semibold text-foreground leading-snug">
-                  {selectedMeta?.title ?? "Untitled"}
-                </h2>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                  <MetaRow label="Subject" value={selectedMeta?.subjectLabel} />
-                  <MetaRow label="Class" value={selectedMeta?.classLabel} />
-                  <MetaRow label="Board" value={selectedMeta?.boardLabel} />
-                  <MetaRow
-                    label="Created"
-                    value={formatDate(
-                      selectedMeta?.created_at ?? selectedMeta?.updated_at,
-                    )}
-                  />
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      router.push(`/editor?paperId=${selectedPaperId}`)
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    Open in Editor
-                  </button>
-                  {(["pdf", "docx"] as const).map((format) => (
-                    <button
-                      key={format}
-                      type="button"
-                      onClick={() =>
-                        router.push(
-                          `/editor?paperId=${selectedPaperId}&action=export-${format}`,
-                        )
-                      }
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
-                    >
-                      <FileDown className="h-3.5 w-3.5" />
-                      {format === "pdf" ? "Export PDF" : "Export Word"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Set Selector */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+            {/* ── Left: sets, breakdown, answer script ───────────── */}
+            <aside className="shrink-0 space-y-6 border-b border-border p-4 sm:p-6 lg:w-[400px] lg:overflow-y-auto lg:border-b-0 lg:border-r xl:w-[440px]">
+              {/* Set selector */}
               {detailPaper?.sets && detailPaper.sets.length > 1 && (
                 <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-foreground">Select Set</h3>
-                  <div className="flex flex-wrap gap-2">
+                  <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Set
+                  </h3>
+                  <div
+                    role="tablist"
+                    aria-label="Paper set"
+                    className="inline-flex gap-0.5 rounded-xl bg-muted p-0.5"
+                  >
                     {detailPaper.sets.map((set) => (
                       <button
                         key={set.id}
                         type="button"
+                        role="tab"
+                        aria-selected={selectedSetId === set.id}
                         onClick={() => setSelectedSetId(set.id || null)}
-                        className={cn(
-                          "px-3 py-1.5 text-xs font-medium rounded-lg transition-colors",
-                          selectedSetId === set.id
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground hover:bg-muted/80"
-                        )}
+                        className={segmentClass(selectedSetId === set.id)}
                       >
                         {set.label}
                       </button>
@@ -601,44 +659,41 @@ export default function QuestionBankPage() {
                 </div>
               )}
 
-              {/* Paper Breakdown */}
+              {/* Paper breakdown */}
               {breakdown && breakdown.totalQuestions > 0 && (
                 <div className="space-y-4">
-                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                    <LayoutList className="h-4 w-4 text-primary" />
-                    Paper Breakdown
+                  <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Breakdown
                   </h3>
 
-                  {/* Summary stats */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <StatCard
-                      icon={<LayoutList className="h-4 w-4" />}
+                  <div className="grid grid-cols-3 gap-2">
+                    <StatTile
+                      icon={<LayoutList className="h-3.5 w-3.5" />}
                       label="Sections"
                       value={breakdown.sectionCount}
                     />
-                    <StatCard
-                      icon={<Hash className="h-4 w-4" />}
+                    <StatTile
+                      icon={<Hash className="h-3.5 w-3.5" />}
                       label="Questions"
                       value={breakdown.totalQuestions}
                     />
-                    <StatCard
-                      icon={<Award className="h-4 w-4" />}
-                      label="Total Marks"
+                    <StatTile
+                      icon={<Award className="h-3.5 w-3.5" />}
+                      label="Marks"
                       value={breakdown.totalMarks}
                     />
                   </div>
 
-                  {/* Per-section breakdown */}
                   {breakdown.sections.length > 0 && (
-                    <div className="rounded-lg border border-border overflow-hidden">
+                    <div className="overflow-hidden rounded-2xl border border-border bg-card">
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="border-b border-border bg-muted/60 text-xs text-muted-foreground">
+                          <tr className="border-b border-border text-xs text-muted-foreground">
                             <th className="px-3 py-2 text-left font-medium">
                               Section
                             </th>
                             <th className="px-3 py-2 text-right font-medium">
-                              Questions
+                              Qs
                             </th>
                             <th className="px-3 py-2 text-right font-medium">
                               Marks
@@ -651,13 +706,35 @@ export default function QuestionBankPage() {
                               key={i}
                               className="border-b border-border/50 last:border-0"
                             >
-                              <td className="px-3 py-2 text-foreground">
-                                {sec.title}
+                              <td className="px-3 py-2.5">
+                                <span className="text-foreground">
+                                  {sec.title}
+                                </span>
+                                {/* Share of the paper's marks, so lopsided
+                                    sections are visible without arithmetic. */}
+                                <div
+                                  aria-hidden
+                                  className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted"
+                                >
+                                  <div
+                                    className="h-full rounded-full bg-primary/60"
+                                    style={{
+                                      width: `${
+                                        breakdown.totalMarks > 0
+                                          ? Math.min(
+                                              100,
+                                              (sec.marks / breakdown.totalMarks) * 100,
+                                            )
+                                          : 0
+                                      }%`,
+                                    }}
+                                  />
+                                </div>
                               </td>
-                              <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                              <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
                                 {sec.questionCount}
                               </td>
-                              <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                              <td className="px-3 py-2.5 text-right font-medium tabular-nums text-foreground">
                                 {sec.marks}
                               </td>
                             </tr>
@@ -667,11 +744,10 @@ export default function QuestionBankPage() {
                     </div>
                   )}
 
-                  {/* Question type distribution */}
                   {Object.keys(breakdown.typeDistribution).length > 0 && (
                     <div className="space-y-2">
-                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        Question Types
+                      <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Question types
                       </h4>
                       <div className="flex flex-wrap gap-1.5">
                         {Object.entries(breakdown.typeDistribution)
@@ -679,7 +755,7 @@ export default function QuestionBankPage() {
                           .map(([code, count]) => (
                             <span
                               key={code}
-                              className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground"
+                              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground"
                             >
                               {questionTypeLabel(code)}
                               <span className="font-semibold tabular-nums text-foreground">
@@ -693,20 +769,37 @@ export default function QuestionBankPage() {
                 </div>
               )}
 
-              {/* Answer script section */}
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold text-foreground">
-                  Answer Script
-                </h3>
+              {/* Answer script */}
+              <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-sand/60 text-primary">
+                    <Key className="h-4 w-4" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="font-heading text-sm font-medium tracking-[-0.01em] text-foreground">
+                      Answer script
+                      {activeSet && detailPaper?.sets && detailPaper.sets.length > 1
+                        ? ` · ${activeSet.label}`
+                        : ""}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {answerScriptId
+                        ? "Ready. Read it beside the paper, edit it, or download it."
+                        : "Generate worked answers and marking points for this paper."}
+                    </p>
+                  </div>
+                </div>
                 {(() => {
-                  const isGenerating = generatingIds.has(activeSet?.id ? `${selectedPaperId}-${activeSet.id}` : selectedPaperId);
+                  const isGenerating = generatingIds.has(
+                    activeSet?.id
+                      ? `${selectedPaperId}-${activeSet.id}`
+                      : selectedPaperId,
+                  );
 
                   if (answerScriptId) {
                     // `exportType` files the download as an answer script,
                     // not as another question paper.
                     const answerScriptUrl = `/editor?paperId=${answerScriptId}&exportType=answer_script`;
-                    const actionClass =
-                      "inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50";
                     return (
                       <div className="flex flex-wrap items-center gap-2">
                         <button
@@ -715,7 +808,7 @@ export default function QuestionBankPage() {
                           className={cn(actionClass, showingAnswer && "bg-accent")}
                         >
                           <Eye className="h-3.5 w-3.5" />
-                          View answer script
+                          View
                         </button>
                         <button
                           type="button"
@@ -723,7 +816,7 @@ export default function QuestionBankPage() {
                           className={actionClass}
                         >
                           <Pencil className="h-3.5 w-3.5" />
-                          Edit in editor
+                          Edit
                         </button>
                         {(["pdf", "docx"] as const).map((format) => (
                           <button
@@ -790,8 +883,10 @@ export default function QuestionBankPage() {
                     <button
                       type="button"
                       disabled={isGenerating}
-                      onClick={() => handleGenerateAnswerScript(selectedPaperId, activeSet?.id)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                      onClick={() =>
+                        handleGenerateAnswerScript(selectedPaperId, activeSet?.id)
+                      }
+                      className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-semibold text-primary-foreground shadow-xs transition-colors hover:bg-primary-hover disabled:opacity-50 sm:min-h-8"
                     >
                       {isGenerating ? (
                         <Spinner className="size-3.5" />
@@ -800,45 +895,47 @@ export default function QuestionBankPage() {
                       )}
                       {isGenerating
                         ? "Generating…"
-                        : `Generate Answer Script ${activeSet ? `for ${activeSet.label}` : ''}`}
+                        : `Generate answer script${activeSet ? ` for ${activeSet.label}` : ""}`}
                     </button>
                   );
                 })()}
               </div>
-            </div>
+            </aside>
 
-            {/* ── Right panel: paper or answer script preview (~60%) ── */}
-            <div className="flex flex-1 min-w-0 flex-col overflow-hidden bg-muted/20">
+            {/* ── Right: paper or answer script preview ───────────── */}
+            <div className="flex min-h-[70dvh] min-w-0 flex-1 flex-col overflow-hidden bg-muted/30 lg:min-h-0">
               {answerScriptId && (
-                <div className="flex shrink-0 items-center gap-2 border-b border-border bg-background px-4 py-2">
-                  {(
-                    [
-                      ["paper", "Question paper"],
-                      ["answer", "Answer script"],
-                    ] as const
-                  ).map(([mode, label]) => {
-                    const active = (mode === "answer") === showingAnswer;
-                    return (
-                      <button
-                        key={mode}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() =>
-                          setAnswerPreviewFor(
-                            mode === "answer" ? selectedPaperId : null,
-                          )
-                        }
-                        className={cn(
-                          "px-3 py-1.5 text-xs font-medium rounded-lg transition-colors",
-                          active
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground hover:bg-muted/80",
-                        )}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
+                <div className="flex shrink-0 items-center border-b border-border bg-background px-4 py-2">
+                  <div
+                    role="tablist"
+                    aria-label="Preview"
+                    className="inline-flex gap-0.5 rounded-xl bg-muted p-0.5"
+                  >
+                    {(
+                      [
+                        ["paper", "Question paper"],
+                        ["answer", "Answer script"],
+                      ] as const
+                    ).map(([mode, label]) => {
+                      const active = (mode === "answer") === showingAnswer;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          onClick={() =>
+                            setAnswerPreviewFor(
+                              mode === "answer" ? selectedPaperId : null,
+                            )
+                          }
+                          className={segmentClass(active)}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
               <div className="min-h-0 flex-1">
@@ -858,7 +955,7 @@ export default function QuestionBankPage() {
                       onClick={() =>
                         answerScriptId && retryAnswerDoc(answerScriptId)
                       }
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent transition-colors"
+                      className={actionClass}
                     >
                       Try again
                     </button>
@@ -883,387 +980,209 @@ export default function QuestionBankPage() {
   // List view (default)
   // ---------------------------------------------------------------------------
 
+  const hasFilters = search.trim() !== "" || subjectFilter !== null;
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <div className="shrink-0 border-b border-border px-4 py-3 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <BookOpen className="h-5 w-5 text-primary" />
+    <div className="h-full min-h-0 overflow-y-auto bg-background">
+      <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-6 pb-safe sm:px-6 sm:py-8">
+        {/* ── Header ────────────────────────────────────────────── */}
+        <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+          <div>
             {/* This route is the PAPERS list — "Search papers…", "No saved
                 papers yet", "Clear all saved papers". It used to live at
                 /question-bank while the questions lived at /paper-library,
                 so both the URL and the heading described the other page. The
                 heading was fixed first; the routes followed. */}
             <PageTitle>Papers</PageTitle>
-            <span className="rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-              {isLoading ? "…" : questionPapers.length}
-            </span>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              {isLoading
+                ? "Loading your library…"
+                : questionPapers.length === 0
+                  ? "Everything you save from the editor lands here."
+                  : `${questionPapers.length} saved ${questionPapers.length === 1 ? "paper" : "papers"}${
+                      drafts.length > 0
+                        ? ` · ${drafts.length} unsaved ${drafts.length === 1 ? "draft" : "drafts"}`
+                        : ""
+                    }`}
+            </p>
           </div>
 
-          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
-            <div className="relative min-w-0 flex-1 sm:flex-none">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Link
+            href="/editor?new=true"
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary-hover sm:min-h-9"
+          >
+            <Plus className="h-4 w-4" />
+            New paper
+          </Link>
+        </header>
+
+        {/* ── Drafts ────────────────────────────────────────────── */}
+        {!draftsLoading && (
+          <DraftsRail
+            drafts={drafts}
+            onOpen={(draft) => router.push(`/editor?paperId=${draft.id}`)}
+            onDelete={(draft) => void deleteDraft(draft)}
+          />
+        )}
+
+        {/* ── Library ───────────────────────────────────────────── */}
+        <section aria-labelledby="library-heading" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2
+              id="library-heading"
+              className="font-heading text-base font-medium tracking-[-0.02em]"
+            >
+              All papers
+            </h2>
+
+            <div className="relative ml-auto w-full min-w-0 sm:w-72">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="h-8 w-full pl-8 text-sm sm:w-56"
+                className="h-10 rounded-xl pl-9 sm:h-9"
                 placeholder="Search papers…"
+                aria-label="Search papers"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            {!isLoading && papers.length > 0 && (
-              <AlertDialog>
-                <AlertDialogTrigger
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-destructive/40 bg-background px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
-                  disabled={isClearing}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  {isClearing ? "Clearing…" : "Clear all"}
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Clear all saved papers?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Every saved paper and its answer scripts move to the
-                      recycle bin, where they stay recoverable for{" "}
-                      {trashRetentionDays} days. Unsaved drafts are deleted
-                      outright.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      onClick={handleClearAll}
-                    >
-                      Yes, clear all
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Saved drafts ────────────────────────────────────────────
-          Papers live on the server; drafts do not. Until a paper is saved it
-          exists only as an IndexedDB document in this browser, which used to
-          make it reachable solely through a "Resume previous paper?" modal.
-          This is that modal's replacement: the drafts are just listed, and the
-          teacher picks one — or none. Scrolls horizontally so it never pushes
-          the saved-papers table off screen. */}
-      {!draftsLoading && drafts.length > 0 && (
-        <div className="shrink-0 border-b border-border bg-muted/20 px-4 py-3 sm:px-6">
-          <div className="mb-2 flex items-baseline gap-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Saved Drafts
-            </h2>
-            <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
-              {drafts.length}
-            </span>
-            <span className="text-[11px] text-muted-foreground">
-              unsaved · kept {DRAFT_RETENTION_DAYS} days in this browser
-            </span>
           </div>
 
-          <div className="flex gap-3 overflow-x-auto pb-1 custom-scrollbar">
-            {drafts.map((draft) => {
-              const daysLeft = daysUntilExpiry(draft.expiresAt);
-              return (
-                <div
-                  key={draft.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => router.push(`/editor?paperId=${draft.id}`)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      router.push(`/editor?paperId=${draft.id}`);
-                    }
-                  }}
-                  className="group relative w-56 shrink-0 cursor-pointer rounded-lg border border-border bg-background p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/40"
-                >
-                  <div className="flex items-start gap-2 pr-10">
-                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {draft.title || "Untitled draft"}
-                      </p>
-                      <p className="truncate text-[11px] text-muted-foreground">
-                        {[draft.className, draft.subject]
-                          .filter(Boolean)
-                          .join(" · ") || "No class or subject yet"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-                    {draft.questionCount > 0 && (
-                      <span className="tabular-nums">
-                        {draft.questionCount} q · {draft.totalMarks} m
-                      </span>
-                    )}
-                    {draft.setLabels.length > 1 && (
-                      <span>Sets {draft.setLabels.join("/")}</span>
-                    )}
-                    <span className="tabular-nums">
-                      {formatDate(new Date(draft.updatedAt).toISOString())}
-                    </span>
-                  </div>
-
-                  {/* Retention has to be visible. A draft vanishing on day 10
-                      with no warning is indistinguishable from data loss. */}
-                  <p
-                    className={cn(
-                      "mt-1.5 text-[10.5px]",
-                      daysLeft <= 2 ? "text-destructive" : "text-muted-foreground/70",
-                    )}
-                  >
-                    {daysLeft === 0
-                      ? "Deletes today unless saved"
-                      : `Deletes in ${daysLeft} day${daysLeft === 1 ? "" : "s"} unless saved`}
-                  </p>
-
-                  <button
-                    type="button"
-                    aria-label={`Delete draft ${draft.title || "Untitled draft"}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void deleteDraft(draft);
-                    }}
-                    className="delete-icon-button absolute right-1.5 top-1.5 opacity-0 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Recycle bin ─────────────────────────────────────────────
-          Collapsed by default and headed by a count, because a bin that is
-          always open is a second papers list competing with the real one. The
-          count is what makes the toggle worth reading: "Recycle bin" alone
-          gives a teacher no reason to open it, and the day they need it they
-          need to know at a glance that the paper is in there. */}
-      {trashed.length > 0 && (
-        <div className="shrink-0 border-b border-border bg-muted/20 px-4 py-3 sm:px-6">
-          <div className="flex flex-wrap items-baseline gap-2">
-            <button
-              type="button"
-              onClick={() => setShowTrash((v) => !v)}
-              aria-expanded={showTrash}
-              className="flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+          {subjects.length > 1 && (
+            <div
+              role="group"
+              aria-label="Filter by subject"
+              className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 no-scrollbar sm:mx-0 sm:flex-wrap sm:px-0"
             >
-              <span>Recycle Bin</span>
-              <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums">
-                {trashed.length}
-              </span>
-              <ChevronRight
-                className={cn(
-                  "h-3.5 w-3.5 self-center transition-transform",
-                  showTrash && "rotate-90",
-                )}
-                aria-hidden
-              />
-            </button>
-            <span className="text-[11px] text-muted-foreground">
-              deleted · kept {trashRetentionDays} days, then removed for good
-            </span>
-            {showTrash && (
-              <AlertDialog>
-                <AlertDialogTrigger className="destructive-action ml-auto rounded-lg text-[11px] underline underline-offset-2">
-                  Empty bin
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Empty the recycle bin?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This permanently deletes all {trashed.length} papers in the
-                      bin, along with their questions and answer keys. This cannot
-                      be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => void handleEmptyTrash()}>
-                      Empty bin
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
-          </div>
+              {[{ key: null, label: "All" }, ...subjects].map(({ key, label }) => {
+                const active = subjectFilter === key;
+                return (
+                  <button
+                    key={key ?? "all"}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setSubjectFilter(key)}
+                    className={cn(
+                      "min-h-9 shrink-0 rounded-full border px-3.5 text-xs font-medium transition-colors sm:min-h-8",
+                      active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
-          {showTrash && (
-            <div className="mt-2 flex gap-3 overflow-x-auto pb-1 custom-scrollbar">
-              {trashed.map((paper) => (
-                <div
-                  key={paper.id}
-                  className="relative w-56 shrink-0 rounded-lg border border-border bg-background p-3 text-left"
+          {isLoading ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }, (_, i) => (
+                <Skeleton key={i} className="h-52 rounded-2xl" />
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-card/40 px-6 py-20 text-center">
+              <div className="rounded-2xl bg-brand-sand/50 p-5">
+                <BookOpen className="empty-breathe mx-auto h-9 w-9 text-primary/70" />
+              </div>
+              <p className="font-heading text-base font-medium tracking-[-0.02em] text-foreground">
+                {hasFilters ? "No papers match." : "No saved papers yet."}
+              </p>
+              {!hasFilters && (
+                <>
+                  <p className="max-w-xs text-sm text-muted-foreground">
+                    Create a paper in the editor and save it to see it here.
+                  </p>
+                  {/* The copy names the Editor; this opens it. A link rather
+                      than a router push, so it behaves like any other link. */}
+                  <Link
+                    href="/editor"
+                    className="mt-1 inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary-hover sm:min-h-9"
+                  >
+                    <FileText className="h-4 w-4" />
+                    Open the editor
+                  </Link>
+                </>
+              )}
+              {hasFilters && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setSubjectFilter(null);
+                  }}
+                  className="text-sm font-medium text-primary hover:underline"
                 >
-                  <div className="flex items-start gap-2">
-                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {paper.title || "Untitled paper"}
-                      </p>
-                      <p className="truncate text-[11px] text-muted-foreground">
-                        {[paper.gradeClass, paper.subject]
-                          .filter(Boolean)
-                          .join(" · ") || "No class or subject"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 flex items-center gap-2">
-                    {/* Restore leads. The reason to open a bin is to get
-                        something back, not to finish destroying it. */}
-                    <button
-                      type="button"
-                      onClick={() => void restorePaperById(paper.id, paper.answerScriptId)}
-                      className="inline-flex items-center gap-1 rounded-sm border border-border px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
-                    >
-                      <Undo2 className="h-3 w-3" aria-hidden />
-                      Restore
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Permanently delete ${paper.title || "this paper"}`}
-                      onClick={() => void purgePaperById(paper.id)}
-                      className="destructive-action inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px]"
-                    >
-                      <Trash2 className="h-3 w-3" aria-hidden />
-                      Delete for good
-                    </button>
-                  </div>
-                </div>
+                  Clear filters
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((paper) => (
+                <PaperCard
+                  key={paper.id}
+                  paper={paper}
+                  deleting={deletingIds.has(paper.id)}
+                  onOpen={() => setSelectedPaperId(paper.id)}
+                  onEdit={() => router.push(`/editor?paperId=${paper.id}`)}
+                  onExport={(format) =>
+                    router.push(
+                      `/editor?paperId=${paper.id}&action=export-${format}`,
+                    )
+                  }
+                  onDelete={() => handleDeletePaper(paper.id)}
+                />
               ))}
             </div>
           )}
-        </div>
-      )}
+        </section>
 
-      {/* ── Table ───────────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 overflow-auto">
-        {isLoading ? (
-          <SkeletonRows rows={8} height="h-12" />
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-            <div className="rounded-xl border-2 border-dashed border-border p-6">
-              <BookOpen className="empty-breathe mx-auto h-10 w-10 text-muted-foreground/40" />
-            </div>
-            <p className="text-sm font-medium text-foreground">
-              {search.trim()
-                ? "No papers match your search."
-                : "No saved papers yet."}
-            </p>
-            {!search.trim() && (
-              <>
-                <p className="max-w-xs text-xs text-muted-foreground">
-                  Create a paper in the Editor and save it to see it here.
-                </p>
-                {/* The copy names the Editor; this opens it. A link rather
-                    than a router push, so it behaves like any other link. */}
-                <Link
-                  href="/editor"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  Open the Editor
-                </Link>
-              </>
-            )}
-            {search.trim() && (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                className="text-xs font-medium text-primary hover:underline"
+        {/* ── Recycle bin ───────────────────────────────────────── */}
+        <RecycleBin
+          papers={trashed}
+          open={showTrash}
+          onToggle={() => setShowTrash((v) => !v)}
+          retentionDays={trashRetentionDays}
+          onRestore={(id, asId) => void restorePaperById(id, asId)}
+          onPurge={(id) => void purgePaperById(id)}
+          onEmpty={() => void handleEmptyTrash()}
+        />
+
+        {/* Rare and destructive, so it lives at the very bottom, quiet. */}
+        {!isLoading && papers.length > 0 && (
+          <div className="flex justify-center pt-2">
+            <AlertDialog>
+              <AlertDialogTrigger
+                className="destructive-action inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-xs disabled:opacity-50"
+                disabled={isClearing}
               >
-                Clear search
-              </button>
-            )}
-          </div>
-        ) : (
-          <table className="w-full table-fixed border-collapse text-sm md:table-auto">
-            <thead className="sticky top-0 z-10 bg-muted">
-              <tr className="border-b border-border text-left text-xs">
-                <th className="px-4 py-2.5 font-semibold text-muted-foreground sm:px-6">
-                  Title
-                </th>
-                <th className="hidden md:table-cell px-3 py-2.5 font-semibold text-muted-foreground">
-                  Subject
-                </th>
-                <th className="hidden md:table-cell px-3 py-2.5 font-semibold text-muted-foreground">
-                  Class
-                </th>
-                <th className="hidden md:table-cell px-3 py-2.5 font-semibold text-muted-foreground">
-                  Board
-                </th>
-                <th className="hidden md:table-cell px-3 py-2.5 font-semibold text-muted-foreground text-right">
-                  Created
-                </th>
-                <th className="w-16 px-2 py-2.5 md:w-10 md:px-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((paper) => {
-                const isDeleting = deletingIds.has(paper.id);
-                return (
-                  <tr
-                    key={paper.id}
-                    onClick={() => setSelectedPaperId(paper.id)}
-                    className={cn(
-                      "cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/40 group",
-                      isDeleting && "pointer-events-none opacity-40",
-                    )}
+                <Trash2 className="h-3.5 w-3.5" />
+                {isClearing ? "Clearing…" : "Clear all saved papers"}
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Clear all saved papers?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Every saved paper and its answer scripts move to the
+                    recycle bin, where they stay recoverable for{" "}
+                    {trashRetentionDays} days. Unsaved drafts are deleted
+                    outright.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={handleClearAll}
                   >
-                    <td className="px-4 py-3 sm:px-6">
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-                        <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedPaperId(paper.id); }} className="min-w-0 flex-1 text-left font-medium text-foreground">
-                          <span className="line-clamp-2 break-words md:line-clamp-1">{paper.title}</span>
-                        </button>
-                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground md:hidden">
-                        {[paper.subjectLabel, paper.classLabel && `Class ${paper.classLabel}`, paper.boardLabel, formatDate(paper.created_at ?? paper.updated_at)].filter(Boolean).join(" · ")}
-                      </p>
-                    </td>
-                    <td className="hidden md:table-cell px-3 py-3 text-muted-foreground whitespace-nowrap">
-                      {paper.subjectLabel}
-                    </td>
-                    <td className="hidden md:table-cell px-3 py-3 text-muted-foreground whitespace-nowrap">
-                      {paper.classLabel}
-                    </td>
-                    <td className="hidden md:table-cell px-3 py-3 text-muted-foreground whitespace-nowrap">
-                      {paper.boardLabel}
-                    </td>
-                    <td className="hidden md:table-cell px-3 py-3 text-right tabular-nums text-muted-foreground whitespace-nowrap">
-                      {formatDate(paper.created_at ?? paper.updated_at)}
-                    </td>
-                    <td className="px-2 py-3 md:px-3">
-                      <button
-                        type="button"
-                        aria-label="Delete paper"
-                        disabled={isDeleting}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeletePaper(paper.id);
-                        }}
-                        className="delete-icon-button md:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    Yes, clear all
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         )}
       </div>
     </div>
@@ -1274,22 +1193,7 @@ export default function QuestionBankPage() {
 // Small components
 // ---------------------------------------------------------------------------
 
-function MetaRow({
-  label,
-  value,
-}: {
-  label: string;
-  value?: string | null;
-}) {
-  return (
-    <div>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="font-medium text-foreground">{value || "—"}</dd>
-    </div>
-  );
-}
-
-function StatCard({
+function StatTile({
   icon,
   label,
   value,
@@ -1299,12 +1203,14 @@ function StatCard({
   value: number;
 }) {
   return (
-    <div className="flex min-w-0 flex-col items-start gap-1 border-t border-border py-3">
-      <span className="text-muted-foreground">{icon}</span>
-      <span className="text-lg font-bold tabular-nums text-foreground">
+    <div className="flex min-w-0 flex-col gap-1 rounded-2xl bg-muted/50 p-3">
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {icon}
+        {label}
+      </span>
+      <span className="font-heading text-2xl font-semibold tabular-nums tracking-[-0.03em] text-foreground">
         {value}
       </span>
-      <span className="text-[11px] text-muted-foreground">{label}</span>
     </div>
   );
 }
