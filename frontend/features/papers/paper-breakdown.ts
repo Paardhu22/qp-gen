@@ -37,7 +37,7 @@ const QUESTION_NODES = new Set(["questionBlock", "groupedQuestionBlock"]);
 const DEFAULT_SECTION = "Ungrouped";
 
 /** Unwrap the doc from the several shapes papers are persisted in. */
-function extractDoc(raw: unknown): TipTapNode | null {
+export function extractDoc(raw: unknown): TipTapNode | null {
   let parsed: unknown = raw;
   if (typeof raw === "string") {
     const trimmed = raw.trim();
