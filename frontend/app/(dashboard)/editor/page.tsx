@@ -62,6 +62,9 @@ import {
   DRAFT_PAPER_ID,
 } from "@/features/papers/paper-id";
 import { exportPaper } from "@/features/export/export-paper";
+import { ExportDialog } from "@/features/export/export-dialog";
+import { useExportDialog } from "@/features/export/export-dialog-store";
+import { suggestExportName } from "@/features/export/filename";
 import { draftScopeOfDocument } from "@/features/papers/drafts";
 import { resolveTabContent } from "@/features/papers/set-content";
 
@@ -466,25 +469,20 @@ export default function EditorPage() {
     if (s === "A" || s === "B" || s === "C") setActiveSetTab(s);
   }, [setParam]);
 
-  // Auto-trigger export when the action param is present (set by the
-  // question-paper page Actions modal). We fire after the paper finishes
-  // loading and immediately strip the param from the URL.
+  const showExportDialog = useExportDialog((state) => state.show);
+
+  // Open the export dialog when the action param is present (set by the
+  // Papers page). We wait for the paper to finish loading, so the suggested
+  // filename reflects the real title, then strip the param from the URL.
+  // Print still fires straight away: it has nothing to ask.
   useEffect(() => {
     if (!actionParam || paperLoading || paperError) return;
     const IMPORT_TIMEOUT = 800; // ms — give the editor time to hydrate
     const t = setTimeout(async () => {
       if (actionParam === "export-pdf") {
-        await exportPaper({
-          format: "pdf",
-          exportType: exportTypeParam,
-          paperId,
-        });
+        showExportDialog("pdf");
       } else if (actionParam === "export-docx") {
-        await exportPaper({
-          format: "docx",
-          exportType: exportTypeParam,
-          paperId,
-        });
+        showExportDialog("docx");
       } else if (actionParam === "print") {
         // Per-set print: the active set tab is already selected via ?set=,
         // and the editor's @media print rules isolate #tiptap-paper-container,
@@ -1295,9 +1293,29 @@ export default function EditorPage() {
           hsatSources={hsatSources}
           uploadedDocs={uploadedDocs}
           onPaperCreatedAction={handleLivePaperCreated}
-          exportType={exportTypeParam}
         />
       </div>
+
+      <ExportDialog
+        defaultName={suggestExportName({
+          examName: paperExamName || loadedPaperTitle,
+          className: paperClass,
+          subject: paperSubject,
+          setLabel: setTabs.length > 1 ? activeSetTab : null,
+          exportType: exportTypeParam,
+        })}
+        disabled={paperLoading}
+        onExport={(format, filename) =>
+          void exportPaper({
+            format,
+            filename,
+            exportType: exportTypeParam,
+            // Composed id: exportPaper splits it into the base row and the
+            // set, so Set B's backup no longer lands on Set A's key.
+            paperId: withSetSuffix(paperId, activeSetTab),
+          })
+        }
+      />
 
       {/* Paper Details Modal */}
       <Dialog

@@ -70,8 +70,7 @@ import {
 import { Badge } from "../../components/ui/badge";
 import { Popover } from "@base-ui/react/popover";
 import { useEditorStore } from "@/features/editor/editor-store";
-import { exportPaper } from "@/features/export/export-paper";
-import type { ExportType } from "@/features/export/s3-upload";
+import { useExportDialog } from "@/features/export/export-dialog-store";
 import { toast } from "sonner";
 import { extractPagesFromDoc } from "./pagination-utils";
 
@@ -675,16 +674,12 @@ interface ToolbarProps {
   onFindReplace?: () => void;
   /** Opens the "Question from an image" dialog. */
   onQuestionFromImage?: () => void;
-  paperId?: string | null;
-  exportType?: ExportType;
 }
 
 export const EditorToolbar: React.FC<ToolbarProps> = ({
   editor,
   onFindReplace,
   onQuestionFromImage,
-  paperId,
-  exportType = "question_paper",
 }) => {
   const router = useRouter();
   const [totalMarks, setTotalMarks] = useState(0);
@@ -772,11 +767,7 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
     (h) => h.value > 0 && editor.isActive("heading", { level: h.value }),
   );
 
-  const handleExportPDF = () =>
-    void exportPaper({ format: "pdf", exportType, paperId });
-
-  const handleExportDocx = () =>
-    void exportPaper({ format: "docx", exportType, paperId });
+  const showExportDialog = useExportDialog((state) => state.show);
 
   const insertAfterCurrentBlock = (
     type: string,
@@ -1327,6 +1318,16 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
             <Save className="h-3 w-3 mr-1" /> Save Questions
           </Button>
 
+          {/* Export — opens the format + filename dialog */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-[10px] px-3 font-medium"
+            onClick={() => showExportDialog()}
+          >
+            <FileDown className="h-3 w-3 mr-1" /> Export
+          </Button>
+
           {/* Paper Details */}
           <Button
             variant="default"
@@ -1372,13 +1373,13 @@ export const EditorToolbar: React.FC<ToolbarProps> = ({
 
         <div className="ml-auto flex shrink-0 items-center gap-3 whitespace-nowrap text-xs text-muted-foreground">
           <button
-            onClick={handleExportPDF}
+            onClick={() => showExportDialog("pdf")}
             className="flex min-h-11 min-w-11 items-center justify-center gap-1 px-2 transition-colors hover:text-primary sm:min-h-0 sm:min-w-0 sm:px-0"
           >
             <FileDown className="h-3 w-3" /> PDF
           </button>
           <button
-            onClick={handleExportDocx}
+            onClick={() => showExportDialog("docx")}
             className="flex min-h-11 min-w-11 items-center justify-center gap-1 px-2 transition-colors hover:text-primary sm:min-h-0 sm:min-w-0 sm:px-0"
           >
             <FileDown className="h-3 w-3" /> Word

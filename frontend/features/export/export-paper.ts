@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { resetImageFailures, takeImageFailures } from "./fetch-image";
 
 import { persistablePaperId, splitPaperId } from "../papers/paper-id";
+import { withExtension } from "./filename";
 import type { ExportType, FileFormat } from "./s3-upload";
 
 const CONTAINER_ID = "tiptap-paper-container";
@@ -28,19 +29,6 @@ const LABEL: Record<FileFormat, string> = {
   pdf: "PDF",
   docx: "DOCX",
 };
-
-/**
- * Normalise whatever the teacher typed into a filename with exactly one
- * correct extension. Accepts "term test", "term test.pdf" and "term test pdf"
- * and returns the same thing for all three.
- */
-function withExtension(raw: string, format: FileFormat): string {
-  const trimmed = raw.trim();
-  const dotted = new RegExp(`\\.${format}$`, "i");
-  if (dotted.test(trimmed)) return trimmed;
-  const bare = new RegExp(`\\s*${format}$`, "i");
-  return `${trimmed.replace(bare, "").trim()}.${format}`;
-}
 
 export interface ExportPaperOptions {
   format: FileFormat;
@@ -51,13 +39,15 @@ export interface ExportPaperOptions {
    * composed id straight through is the bug this file exists to prevent.
    */
   paperId: string | null | undefined;
+  /** What to call the file. The export dialog collects it; no prompt here. */
+  filename: string;
 }
 
 /**
- * Prompt, render, download, and back up in the background.
+ * Render, download, and back up in the background.
  *
- * Resolves `false` when the teacher cancels the filename prompt, `true` once
- * the download has been handed to the browser. The cloud backup is
+ * Resolves `true` once the download has been handed to the browser, `false`
+ * if rendering failed. The cloud backup is
  * deliberately not awaited: it must never delay or fail the local download,
  * which is the part the teacher is waiting for.
  */
@@ -65,15 +55,10 @@ export async function exportPaper({
   format,
   exportType,
   paperId,
+  filename: rawFilename,
 }: ExportPaperOptions): Promise<boolean> {
   const label = LABEL[format];
-  const raw = window.prompt(
-    `Enter a filename for the ${label}`,
-    `paper-${Date.now()}.${format}`,
-  );
-  if (!raw || !raw.trim()) return false;
-
-  const filename = withExtension(raw, format);
+  const filename = withExtension(rawFilename, format);
   const toastId = toast.loading(`Generating ${label}…`);
   resetImageFailures();
 

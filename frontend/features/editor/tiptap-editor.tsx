@@ -331,7 +331,6 @@ type TiptapEditorProps = {
   hsatSources?: AppliedHsatSource[];
   uploadedDocs?: { id: string; name: string; size: number }[];
   onPaperCreatedAction?: (paperId: string) => void;
-  exportType?: "question_paper" | "answer_script" | "question_bank";
   /**
    * Load `initialContent` even when an IndexedDB draft exists for this paper.
    *
@@ -376,7 +375,6 @@ export const TiptapEditor = ({
   hsatSources,
   uploadedDocs,
   onPaperCreatedAction,
-  exportType = "question_paper",
   forceInitialContent = false,
   onForcedContentApplied,
   contentVersion = 0,
@@ -1381,8 +1379,6 @@ export const TiptapEditor = ({
           editor={editor}
           onFindReplace={() => setShowFindReplace((v) => !v)}
           onQuestionFromImage={() => setImageQuestionOpen(true)}
-          paperId={paperIdRef.current}
-          exportType={exportType}
         />
       )}
       {editor && showFindReplace && (
